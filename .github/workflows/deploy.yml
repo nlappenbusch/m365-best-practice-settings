@@ -1,0 +1,14 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, docker-prod-01]
+    
+    steps:
+      - name: Deploy M365 Security Tool
+        run: /opt/m365-security/deploy.sh

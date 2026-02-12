@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M365 Best Practice Settings | igeeks</title>
+    <meta name="description" content="Microsoft 365 Security Policy Configuration Tool - igeeks Best Practices">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <img src="https://www.igeeks.ch/Images/igeeks_logo.svg" alt="igeeks Logo"
+                        style="height: 48px; margin-right: 1.5rem;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 1.5rem;">M365 Best Practice Settings</h1>
+                        <p class="subtitle" style="margin: 0.25rem 0 0 0; font-size: 0.875rem; opacity: 0.8;">Security
+                            Policy Manager</p>
+                    </div>
+                </div>
+                <div class="header-actions" style="display: flex; gap: 0.75rem; align-items: center;">
+                    <select id="presetSelector" class="preset-selector">
+                        <option value="">Preset auswählen...</option>
+                        <option value="igeeks">⭐ igeeks Best-Practice (Empfohlen)</option>
+                        <option value="balanced">⚖️ Ausgewogen</option>
+                        <option value="strict">🔒 Streng (Maximum Security)</option>
+                        <option value="relaxed">🔓 Locker (Weniger False Positives)</option>
+                    </select>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button id="importBtn" class="btn btn-secondary" style="white-space: nowrap;">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 11V1M8 11L5 8M8 11L11 8M2 14H14" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                            </svg>
+                            Import
+                        </button>
+                        <button id="exportJsonBtn" class="btn btn-secondary" style="white-space: nowrap;">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 1V11M8 1L5 4M8 1L11 4M2 14H14" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                            </svg>
+                            Export JSON
+                        </button>
+                        <button id="exportDocsBtn" class="btn btn-secondary" style="white-space: nowrap;">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4 2H12M4 6H12M4 10H8M2 14H14V2H2V14Z" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                            </svg>
+                            Export Doku
+                        </button>
+                        <button id="exportBtn" class="btn btn-primary" style="white-space: nowrap;">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 1V11M8 11L11 8M8 11L5 8M2 14H14" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                            </svg>
+                            Export PowerShell
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Tabs -->
+            <nav class="tabs">
+                <button class="tab-btn active" data-tab="config">Konfiguration</button>
+                <button class="tab-btn" data-tab="docs">Dokumentation</button>
+                <button class="tab-btn" data-tab="recommendations">Best Practices</button>
+            </nav>
+
+            <!-- Configuration Tab -->
+            <div id="config" class="tab-content active">
+                <!-- Global Settings -->
+                <section class="settings-section">
+                    <h2>Globale Einstellungen</h2>
+                    <div class="settings-grid">
+                        <div class="input-group" style="grid-column: 1 / -1;">
+                            <label>Accepted Domains</label>
+                            <div id="domainsList"
+                                style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <!-- Domains will be added here dynamically -->
+                            </div>
+                            <button id="addDomainBtn" class="btn btn-secondary"
+                                style="width: fit-content; padding: 0.5rem 1rem; font-size: 0.875rem;">
+                                <span style="font-size: 1.2rem; margin-right: 0.25rem;">+</span> Domain hinzufügen
+                            </button>
+                            <small>Domains für Policy-Regeln (z.B. example.com, example.de)</small>
+                        </div>
+                        <div class="input-group">
+                            <label for="onmicrosoftDomain">OnMicrosoft Domain</label>
+                            <input type="text" id="onmicrosoftDomain" value="kroneunterstrass.onmicrosoft.com"
+                                placeholder="tenant.onmicrosoft.com">
+                        </div>
+                        <div class="input-group">
+                            <label for="adminEmail">Admin Notification Email</label>
+                            <input type="email" id="adminEmail" value="alerts.normal@igeeks.ch"
+                                placeholder="admin@example.com">
+                        </div>
+                        <div class="input-group">
+                            <label for="igeeksEmail">igeeks Alert Email</label>
+                            <input type="email" id="igeeksEmail" value="alerts.normal@igeeks.ch">
+                            <small>Email für Managed Service Alerts (Quarantine Requests)</small>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Policy Cards -->
+                <section class="policies-section">
+                    <h2>Security Policies</h2>
+
+                    <!-- Anti-Phishing -->
+                    <div class="policy-card">
+                        <div class="policy-header">
+                            <div class="policy-title">
+                                <span class="policy-icon">🛡️</span>
+                                <div>
+                                    <h3>Anti-Phishing Policy</h3>
+                                    <p class="policy-name">BP_AntiPhishing</p>
+                                </div>
+                            </div>
+                            <button class="toggle-btn" data-target="antiphish-details">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2"
+                                        fill="none" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="antiphish-details" class="policy-details">
+                            <div class="settings-group">
+                                <h4>Protection Settings</h4>
+                                <div class="checkbox-grid">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="spoofIntelligence">
+                                        <span>Spoof Intelligence</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="firstContactTip">
+                                        <span>First Contact Safety Tip</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="unauthSenderSymbol">
+                                        <span>Unauthenticated Sender Symbol (?)</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="viaTag">
+                                        <span>Show "via" Tag</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="honorDmarc">
+                                        <span>Honor DMARC Policy</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="settings-group">
+                                <h4>Actions</h4>
+                                <div class="action-grid">
+                                    <div class="input-group">
+                                        <label>DMARC p=quarantine</label>
+                                        <select data-setting="dmarcQuarantineAction">
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="Reject">Reject</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>DMARC p=reject</label>
+                                        <select data-setting="dmarcRejectAction">
+                                            <option value="Reject" selected>Reject</option>
+                                            <option value="Quarantine">Quarantine</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>Spoof by Intelligence</label>
+                                        <select data-setting="spoofAction">
+                                            <option value="MoveToJmf" selected>Move to Junk</option>
+                                            <option value="Quarantine">Quarantine</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="policy-info">
+                                    <small>💡 <strong>Spoof Quarantine:</strong>
+                                        BP_Quarantine-SelfReleaseNotification</small><br>
+                                    <small>⚠️ <strong>Hinweis:</strong> Spoof Quarantine Policy kann nur per PowerShell
+                                        gesetzt werden (GUI-Limitation)</small>
+                                </div>
+                                <div class="alert alert-warning">
+                                    <strong>⚠️ GUI Limitation:</strong> Die Quarantine Policy für Spoof-Fälle kann nur
+                                    per PowerShell zugewiesen werden.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Anti-Spam -->
+                    <div class="policy-card">
+                        <div class="policy-header">
+                            <div class="policy-title">
+                                <span class="policy-icon">📧</span>
+                                <div>
+                                    <h3>Anti-Spam Inbound Policy</h3>
+                                    <p class="policy-name">BP_AntiSpam_Inbound</p>
+                                </div>
+                            </div>
+                            <button class="toggle-btn" data-target="antispam-details">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2"
+                                        fill="none" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="antispam-details" class="policy-details">
+                            <div class="settings-group">
+                                <h4>Bulk & Spam Properties</h4>
+                                <div class="input-group">
+                                    <label>Admin Email</label>
+                                    <input type="email" id="adminEmail" value="admin@example.com">
+                                    <small>Email für Admin-Benachrichtigungen</small>
+                                </div>
+                                <div class="input-group">
+                                    <label>igeeks Alert Email</label>
+                                    <input type="email" id="igeeksEmail" value="alerts.normal@igeeks.ch">
+                                    <small>Email für Managed Service Alerts (Quarantine Requests)</small>
+                                </div>
+                                <div class="checkbox-grid">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="bizInfoUrls">
+                                        <span>URLs zu .biz/.info</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="numericIpUrls">
+                                        <span>Numeric IP in URL</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="urlRedirect">
+                                        <span>URL Redirect to Other Port</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="emptyMessages">
+                                        <span>Empty Messages</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="jsVbScript">
+                                        <span>JavaScript/VBScript in HTML</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="frameIframe">
+                                        <span>Frame/IFrame Tags</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="sensitiveWords">
+                                        <span>Sensitive Words</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="spfHardFail">
+                                        <span>SPF Hard Fail</span>
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" checked data-setting="backscatter">
+                                        <span>Backscatter</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="settings-group">
+                                <h4>Actions</h4>
+                                <div class="action-grid">
+                                    <div class="input-group">
+                                        <label>Spam</label>
+                                        <select data-setting="spamAction">
+                                            <option value="MoveToJmf" selected>Move to Junk</option>
+                                            <option value="Quarantine">Quarantine</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>High Confidence Spam</label>
+                                        <select data-setting="highConfSpamAction">
+                                            <option value="MoveToJmf" selected>Move to Junk</option>
+                                            <option value="Quarantine">Quarantine</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>Bulk</label>
+                                        <select data-setting="bulkAction">
+                                            <option value="MoveToJmf" selected>Move to Junk</option>
+                                            <option value="Quarantine">Quarantine</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>Phishing</label>
+                                        <select data-setting="phishAction">
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
+                                        </select>
+                                    </div>
+                                    <div class="input-group">
+                                        <label>High Confidence Phishing</label>
+                                        <select data-setting="highConfPhishAction">
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="Reject">Reject</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="policy-info">
+                                    <small>💡 <strong>Phishing Quarantine:</strong>
+                                        BP_Quarantine-SelfReleaseNotification</small><br>
+                                    <small>💡 <strong>High Conf Phishing Quarantine:</strong>
+                                        BP_Quarantine-RequestReleaseNotification</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Anti-Malware -->
+                    <div class="policy-card">
+                        <div class="policy-header">
+                            <div class="policy-title">
+                                <span class="policy-icon">🦠</span>
+                                <div>
+                                    <h3>Anti-Malware Policy</h3>
+                                    <p class="policy-name">BP_AntiMalware</p>
+                                </div>
+                            </div>
+                            <button class="toggle-btn" data-target="antimalware-details">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2"
+                                        fill="none" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="antimalware-details" class="policy-details">
+                            <div class="settings-group">
+                                <h4>Protection Settings</h4>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" checked data-setting="commonAttachFilter">
+                                    <span>Common Attachments Filter</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" checked data-setting="zapMalware">
+                                    <span>Zero-Hour Auto Purge (ZAP)</span>
+                                </label>
+                                <div class="input-group">
+                                    <label>Custom File Types (comma-separated)</label>
+                                    <textarea data-setting="customFileTypes"
+                                        rows="3">.ace, .apk, .app, .appx, .arj, .bat, .cab, .cmd, .com, .deb, .dex, .dll, .dmg, .elf, .exe, .hta, .img, .iso, .jar, .jnlp, .kext, .lha, .lib, .library, .lnk, .lzh, .macho, .msc, .msi, .msix, .msp, .mst, .pif, .pkg, .prf, .ps1, .scr, .sct, .sys, .vb, .vbe, .vbs, .vxd, .wsc, .wsf, .wsh, .xll</textarea>
+                                </div>
+                            </div>
+                            <div class="settings-group">
+                                <h4>Actions</h4>
+                                <div class="input-group">
+                                    <label>Malware Detection Action</label>
+                                    <select data-setting="malwareAction">
+                                        <option value="Reject" selected>Reject with NDR</option>
+                                        <option value="DeleteMessage">Delete Message</option>
+                                    </select>
+                                </div>
+                                <div class="policy-info">
+                                    <small>💡 <strong>Malware Quarantine:</strong>
+                                        BP_Quarantine-RequestReleaseNotification</small><br>
+                                    <small>💡 <strong>Blocked File Types:</strong> Rejected with NDR (not
+                                        quarantined)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quarantine Policies -->
+                    <div class="policy-card">
+                        <div class="policy-header">
+                            <div class="policy-title">
+                                <span class="policy-icon">🔒</span>
+                                <div>
+                                    <h3>Quarantine Policies</h3>
+                                    <p class="policy-name">Custom Release Workflows</p>
+                                </div>
+                            </div>
+                            <button class="toggle-btn" data-target="quarantine-details">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2"
+                                        fill="none" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="quarantine-details" class="policy-details">
+                            <div class="alert alert-info">
+                                <strong>ℹ️ Wichtig:</strong> Eigene Quarantine Policies sind zwingend erforderlich für
+                                transparente User Experience und definierte Release-Governance.
+                            </div>
+
+                            <div class="quarantine-policy">
+                                <h4>BP_Quarantine-SelfReleaseNotification</h4>
+                                <p class="policy-description">Für normale Phishing-Fälle mit moderatem Risiko</p>
+                                <div class="permissions-list">
+                                    <span class="permission enabled">✓ Release</span>
+                                    <span class="permission enabled">✓ Allow Sender</span>
+                                    <span class="permission enabled">✓ Block Sender</span>
+                                    <span class="permission enabled">✓ Preview</span>
+                                    <span class="permission enabled">✓ Delete</span>
+                                    <span class="permission enabled">✓ Notifications</span>
+                                </div>
+                            </div>
+
+                            <div class="quarantine-policy">
+                                <h4>BP_Quarantine-RequestReleaseNotification</h4>
+                                <p class="policy-description">Für High Confidence Phishing mit Admin-Kontrolle</p>
+                                <div class="permissions-list">
+                                    <span class="permission enabled">✓ Request Release</span>
+                                    <span class="permission enabled">✓ Block Sender</span>
+                                    <span class="permission enabled">✓ Preview</span>
+                                    <span class="permission enabled">✓ Delete</span>
+                                    <span class="permission enabled">✓ Notifications</span>
+                                    <span class="permission disabled">✗ Direct Release</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Documentation Tab -->
+            <div id="docs" class="tab-content">
+                <section class="docs-section">
+                    <h2>igeeks Best Practice Dokumentation</h2>
+                    <div id="docsContent" class="docs-content">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- Best Practices Tab -->
+            <div id="recommendations" class="tab-content">
+                <section class="recommendations-section">
+                    <h2>Best Practices & Empfehlungen</h2>
+                    <div id="recommendationsContent" class="recommendations-content">
+                        <!-- Will be populated by JavaScript -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Export Modal -->
+    <div id="exportModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>PowerShell Export</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="export-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="includeDeployment" checked>
+                        <span>Deployment Script</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="includeVerification" checked>
+                        <span>Verification Script</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="includeDocumentation" checked>
+                        <span>Documentation</span>
+                    </label>
+                </div>
+                <div class="export-preview">
+                    <pre id="exportPreview"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="copyBtn" class="btn btn-primary">Copy to Clipboard</button>
+                <button id="downloadBtn" class="btn btn-secondary">Download .ps1</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="domains.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

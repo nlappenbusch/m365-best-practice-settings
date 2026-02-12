@@ -1,0 +1,176 @@
+# M365 Best Practice Settings Tool - Changelog
+
+## Version 2.0 - Enhanced Edition (2026-02-12)
+
+### 🎯 Major Changes
+
+#### AppRiver References Removed
+- **Removed**: All references to AppRiver comparisons
+- **Removed**: "Delta-Analyse" tab
+- **Added**: "Best Practices & Empfehlungen" tab
+- **Rationale**: Focus exclusively on M365 best practices without external product comparisons
+
+#### Preset Templates
+Added three professionally configured presets:
+
+1. **⚖️ Ausgewogen (Empfohlen)** - Balanced
+   - Bulk Threshold: 7
+   - Spam → Junk, High Confidence → Junk
+   - Phishing → Quarantine
+   - Standard file types list
+
+2. **🔒 Streng (Maximum Security)** - Strict
+   - Bulk Threshold: 5
+   - All spam levels → Quarantine
+   - Extended file types (includes .docm, .xlsm, .pptm)
+   - Spoof action → Quarantine
+
+3. **🔓 Locker (Weniger False Positives)** - Relaxed
+   - Bulk Threshold: 8
+   - Reduced heuristic checks
+   - Minimal file types list
+   - More permissive actions
+
+#### JSON Import/Export
+- **Export**: Save current configuration as JSON
+- **Import**: Load previously saved configurations
+- **Use Cases**: Multi-tenant deployment, backup, version control
+
+#### Enhanced PowerShell Generation
+- Proper file types array handling
+- Documentation header with metadata
+- Better error handling
+- Clearer structure and comments
+
+#### Best Practices Tab
+New comprehensive guidance section:
+- Licensing comparison (EOP vs Defender P1 vs P2)
+- Hardening recommendations without license upgrades
+- Operational best practices (monitoring, maintenance)
+- Quick wins visual cards
+- Common pitfalls warnings
+- Protection coverage matrix
+- Links to Microsoft documentation
+
+### 🛠️ Technical Improvements
+
+#### Complete app.js Rewrite
+- Modular function structure
+- Preset template system
+- Import/export handlers
+- Improved config state management
+- Better UI synchronization
+
+#### Enhanced CSS
+- Preset selector styling
+- Quick wins grid layout
+- Improved responsive design
+- Better table formatting
+
+#### HTML Updates
+- Preset selector dropdown
+- Import button
+- Best Practices tab structure
+- Improved semantic markup
+
+### 📋 Files Modified
+
+| File | Changes |
+|------|---------|
+| `index.html` | Added preset selector, import button, Best Practices tab |
+| `app.js` | Complete rewrite with presets, import/export, improved generation |
+| `styles.css` | Added preset selector, quick wins grid, enhanced tables |
+| `README.md` | Updated to reflect new features |
+| `QUICKSTART.md` | Added preset usage instructions |
+| `walkthrough.md` | Comprehensive documentation of all features |
+
+### 🎓 Documentation Enhancements
+
+#### New Sections in Best Practices Tab
+1. **Lizenz-Überlegungen**: Feature comparison across license tiers
+2. **Härtungs-Empfehlungen**: Security improvements without upgrades
+3. **Operational Best Practices**: Monitoring and maintenance schedules
+4. **Quick Wins**: Visual cards for activated features
+5. **Häufige Fehler vermeiden**: Common configuration mistakes
+6. **Schutzumfang-Übersicht**: Threat protection matrix
+7. **Weiterführende Ressourcen**: Links to Microsoft docs
+
+### 🚀 Usage Improvements
+
+#### Faster Configuration
+- Select preset → Instant configuration
+- Import JSON → Restore previous config
+- No manual entry for standard scenarios
+
+#### Better Portability
+- Export JSON for backup
+- Share configurations across teams
+- Version control friendly
+
+#### Enhanced Deployment
+- Better PowerShell script structure
+- Proper array handling for file types
+- Documentation headers with metadata
+
+### 🔍 Quality Improvements
+
+#### Code Quality
+- Modular JavaScript functions
+- Clear separation of concerns
+- Better error handling
+- Consistent naming conventions
+
+#### User Experience
+- Clearer navigation
+- Visual feedback for actions
+- Comprehensive help text
+- Professional design
+
+#### Documentation
+- Detailed walkthrough
+- Usage examples
+- Best practices guide
+- Troubleshooting tips
+
+### 📊 Metrics
+
+- **Lines of Code**: ~1000 (app.js)
+- **Preset Templates**: 3
+- **Policy Types**: 4 (Quarantine, Anti-Phishing, Anti-Spam, Anti-Malware)
+- **Configuration Options**: 30+
+- **Documentation Sections**: 7 (Best Practices tab)
+
+### 🎯 Migration from v1.0
+
+No breaking changes - existing workflows continue to work:
+1. Open tool
+2. Configure settings
+3. Export PowerShell
+4. Deploy
+
+New workflows available:
+1. Select preset → Export → Deploy
+2. Import JSON → Customize → Export → Deploy
+3. Review Best Practices → Configure → Deploy
+
+### 🔮 Future Enhancements (Potential)
+
+- [ ] Direct M365 API integration for deployment
+- [ ] Configuration comparison mode
+- [ ] Policy drift detection
+- [ ] Multi-language support
+- [ ] Dark mode theme
+- [ ] Export to other formats (ARM templates, Terraform)
+
+### 🙏 Acknowledgments
+
+- Microsoft 365 Security Team for EOP documentation
+- Community feedback on best practices
+- igeeks team for real-world deployment experience
+
+---
+
+**Version**: 2.0  
+**Release Date**: 2026-02-12  
+**Status**: Production Ready  
+**Breaking Changes**: None
