@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>M365 Best Practice Settings | igeeks</title>
-    <meta name="description" content="Microsoft 365 Security Policy Configuration Tool - igeeks Best Practices">
+    <title>M365 Security Policy Manager</title>
+    <meta name="description" content="Microsoft 365 Security Policy Configuration Tool - Best Practices">
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,18 +18,16 @@
         <header class="app-header">
             <div class="header-content">
                 <div class="logo-section">
-                    <img src="https://www.igeeks.ch/Images/igeeks_logo.svg" alt="igeeks Logo"
-                        style="height: 48px; margin-right: 1.5rem;">
                     <div>
-                        <h1 style="margin: 0; font-size: 1.5rem;">M365 Best Practice Settings</h1>
-                        <p class="subtitle" style="margin: 0.25rem 0 0 0; font-size: 0.875rem; opacity: 0.8;">Security
-                            Policy Manager</p>
+                        <h1 style="margin: 0; font-size: 1.5rem;">M365 Security Policy Manager</h1>
+                        <p class="subtitle" style="margin: 0.25rem 0 0 0; font-size: 0.875rem; opacity: 0.8;">Best
+                            Practice Configuration Tool</p>
                     </div>
                 </div>
                 <div class="header-actions" style="display: flex; gap: 0.75rem; align-items: center;">
                     <select id="presetSelector" class="preset-selector">
                         <option value="">Preset auswählen...</option>
-                        <option value="igeeks">⭐ igeeks Best-Practice (Empfohlen)</option>
+                        <option value="example">⭐ Recommended Best-Practice</option>
                         <option value="balanced">⚖️ Ausgewogen</option>
                         <option value="strict">🔒 Streng (Maximum Security)</option>
                         <option value="relaxed">🔓 Locker (Weniger False Positives)</option>
@@ -106,12 +104,12 @@
                         </div>
                         <div class="input-group">
                             <label for="adminEmail">Admin Notification Email</label>
-                            <input type="email" id="adminEmail" value="alerts.normal@igeeks.ch"
+                            <input type="email" id="adminEmail" value="admin@example.com"
                                 placeholder="admin@example.com">
                         </div>
                         <div class="input-group">
-                            <label for="igeeksEmail">igeeks Alert Email</label>
-                            <input type="email" id="igeeksEmail" value="alerts.normal@igeeks.ch">
+                            <label for="igeeksEmail">MSP Alert Email</label>
+                            <input type="email" id="igeeksEmail" value="support@msp-provider.com">
                             <small>Email für Managed Service Alerts (Quarantine Requests)</small>
                         </div>
                     </div>
@@ -230,8 +228,8 @@
                                     <small>Email für Admin-Benachrichtigungen</small>
                                 </div>
                                 <div class="input-group">
-                                    <label>igeeks Alert Email</label>
-                                    <input type="email" id="igeeksEmail" value="alerts.normal@igeeks.ch">
+                                    <label>MSP Alert Email</label>
+                                    <input type="email" id="igeeksEmail" value="support@msp-provider.com">
                                     <small>Email für Managed Service Alerts (Quarantine Requests)</small>
                                 </div>
                                 <div class="checkbox-grid">
@@ -431,7 +429,7 @@
             <!-- Documentation Tab -->
             <div id="docs" class="tab-content">
                 <section class="docs-section">
-                    <h2>igeeks Best Practice Dokumentation</h2>
+                    <h2>Best Practice Documentation</h2>
                     <div id="docsContent" class="docs-content">
                         <!-- Will be populated by JavaScript -->
                     </div>

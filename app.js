@@ -4,7 +4,7 @@ const config = {
         domains: ['example.com'], // Support multiple domains
         onmicrosoftDomain: 'example.onmicrosoft.com',
         adminEmail: 'admin@example.com',
-        igeeksEmail: 'alerts.normal@igeeks.ch'
+        igeeksEmail: 'support@msp-provider.com'
     },
     antiPhishing: {
         spoofIntelligence: true,
@@ -56,12 +56,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Preset Templates
 const presets = {
-    igeeks: {
+    example: {
         global: {
-            domains: ['hotel-krone.ch'],
-            onmicrosoftDomain: 'kroneunterstrass.onmicrosoft.com',
-            adminEmail: 'alerts.normal@igeeks.ch',
-            igeeksEmail: 'alerts.normal@igeeks.ch'
+            domains: ['example.com'],
+            onmicrosoftDomain: 'example.onmicrosoft.com',
+            adminEmail: 'admin@example.com',
+            igeeksEmail: 'support@msp-provider.com'
         },
         antiPhishing: {
             spoofIntelligence: true,
@@ -485,10 +485,10 @@ function generateExportPreview() {
 function generateDocumentationHeader() {
     return `<#
 .SYNOPSIS
-    igeeks Best Practice M365 Security Policy Deployment
+    M365 Security Best Practice Deployment
 
 .DESCRIPTION
-    Dieses Script implementiert die igeeks Best-Practice Konfiguration für:
+    Dieses Script implementiert die Best-Practice Konfiguration für:
     - Anti-Phishing Policy
     - Anti-Spam Inbound Policy
     - Anti-Malware Policy
@@ -761,7 +761,7 @@ try {
 Write-Host "Configuring Alert Policy for Quarantine Requests..." -ForegroundColor Yellow
 
 # Note: Microsoft's default "User requested to release a quarantined message" policy is read-only
-# We create a custom policy with igeeks email notifications
+# We create a custom policy with MSP email notifications
 try {
     $alert = Get-ProtectionAlert -Identity "BP_UserRequestReleaseStatus" -ErrorAction SilentlyContinue
     if ($null -eq $alert) {
@@ -830,7 +830,7 @@ function loadDocumentation() {
     const docsContent = document.getElementById('docsContent');
     docsContent.innerHTML = `
         <h3>🎯 Zielsetzung</h3>
-        <p>Die igeeks Best-Practice Anti-Threat Konfiguration verfolgt folgende Ziele:</p>
+        <p>Die Best-Practice Anti-Threat Konfiguration verfolgt folgende Ziele:</p>
         <ul>
             <li>Schutz vor Spoofing, Phishing und Malware</li>
             <li>Transparente Benutzerführung (Safety Tips + Quarantäne-Dialoge)</li>
@@ -850,7 +850,7 @@ function loadDocumentation() {
             </ul>
         </div>
 
-        <p><strong>igeeks Lösung:</strong> Zwei differenzierte Quarantine Policies:</p>
+        <p><strong>Lösung:</strong> Zwei differenzierte Quarantine Policies:</p>
         <ul>
             <li><code>BP_Quarantine-SelfReleaseNotification</code> - Für normale Phishing-Fälle mit Benutzerautonomie</li>
             <li><code>BP_Quarantine-RequestReleaseNotification</code> - Für High Confidence Phishing mit Admin-Kontrolle</li>
@@ -859,20 +859,20 @@ function loadDocumentation() {
         <h3>📧 Alert Policy für Managed Services</h3>
         <div class="alert alert-info">
             <strong>ℹ️ Wichtig für Managed Service Provider:</strong>
-            Die Alert Policy <code>BP_UserRequestReleaseStatus</code> benachrichtigt igeeks automatisch, 
+            Die Alert Policy <code>BP_UserRequestReleaseStatus</code> benachrichtigt den MSP automatisch, 
             wenn User eine Freigabe von quarantinierten Nachrichten anfordern.
         </div>
         <p><strong>Warum ist das kritisch?</strong></p>
         <ul>
             <li>Bei <code>BP_Quarantine-RequestReleaseNotification</code> können User Nachrichten NICHT selbst freigeben</li>
             <li>Sie können nur eine Freigabe-Anfrage stellen ("Request Release")</li>
-            <li>Ohne Alert Policy würde igeeks diese Anfragen nicht mitbekommen</li>
+            <li>Ohne Alert Policy würde der MSP diese Anfragen nicht mitbekommen</li>
             <li>Besonders wichtig für High Confidence Phishing und Malware</li>
         </ul>
         <p><strong>Empfänger:</strong></p>
         <ul>
             <li>Tenant Admin Email (konfigurierbar)</li>
-            <li>igeeks Alert Email (konfigurierbar, Standard: <code>alerts.normal@igeeks.ch</code>)</li>
+            <li>MSP Alert Email (konfigurierbar, Standard: <code>support@msp-provider.com</code>)</li>
         </ul>
         <p><strong>Technische Details:</strong></p>
         <ul>
@@ -1115,7 +1115,7 @@ function generateMarkdownDocumentation() {
     const date = new Date().toLocaleDateString('de-DE');
 
     return `# Microsoft 365 Security Configuration
-## igeeks Best Practice Settings
+## M365 Security Best Practice Settings
 
 **Erstellt am:** ${date}  
 **Domains:** ${config.global.domains.join(', ')}, ${config.global.onmicrosoftDomain}  
@@ -1132,7 +1132,7 @@ function generateMarkdownDocumentation() {
 | **Accepted Domains** | ${config.global.domains.join(', ')} |
 | **OnMicrosoft Domain** | ${config.global.onmicrosoftDomain} |
 | **Admin Email** | ${config.global.adminEmail} |
-| **igeeks Email** | ${config.global.igeeksEmail} |
+| **MSP Email** | ${config.global.igeeksEmail} |
 
 ---
 
@@ -1194,6 +1194,6 @@ function generateMarkdownDocumentation() {
 
 ---
 
-*Generiert mit igeeks M365 Security Policy Manager*
+*Generiert mit M365 Security Policy Manager*
 `;
 }
