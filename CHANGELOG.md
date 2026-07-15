@@ -1,5 +1,26 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.2 - ASF-Defaults auf Off (2026-07-15)
+
+### 🛡️ Breaking: Legacy-ASF-Optionen standardmäßig deaktiviert
+
+Alle 9 Advanced-Spam-Filter-Schalter (`IncreaseScoreWith*`, `MarkAsSpam*` inkl.
+**SPF Hard Fail**, **Backscatter**, **Sensitive Words**) stehen jetzt in allen
+Presets auf **Off** — entsprechend der ausdrücklichen Microsoft-Empfehlung und
+den Microsoft Standard-/Strict-Preset-Policies.
+
+**Hintergrund (Lessons Learned aus Produktiv-Incident):** `MarkAsSpamSpfRecordHardFail`
+stuft jeden SPF-Hartfehler pauschal als High-Confidence-Spam (SCL 9) ein und
+übersteuert dabei gültige ARC-/Composite-Auth-Resultate. Hinter Inline-Gateways
+(z.B. SEPPmail) ist ein SPF-Fail strukturell — legitime verschlüsselte
+Geschäftsmails landeten in der Quarantäne. ASF-Treffer sind bei Microsoft zudem
+nicht als False Positive meldbar. Die Schalter bleiben im Tool als bewusste
+Opt-ins verfügbar (mit Warnhinweis).
+
+**Wirkung auf bestehende Tenants:** Der nächste Live-Deploy bzw. Skript-Lauf
+setzt die ASF-Parameter auf `Off`; das Audit (🔎 Prüfen) markiert Tenants mit
+aktiven ASF-Schaltern als Abweichung.
+
 ## Version 2.1 - Quarantäne-Fixes + Live-Deploy (2026-07-15)
 
 ### 🐛 Fixes

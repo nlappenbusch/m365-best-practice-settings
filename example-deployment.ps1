@@ -94,17 +94,20 @@ New-HostedContentFilterPolicy -Name "BP_AntiSpam_Inbound" `
     -PhishQuarantineTag "BP_Quarantine-SelfReleaseNotification" `
     -HighConfidencePhishQuarantineTag "BP_Quarantine-RequestReleaseNotification"
 
-# Advanced Spam Filters
+# Advanced Spam Filters (ASF): bewusst alle Off — Microsoft-Empfehlung.
+# Die Legacy-Schalter uebersteuern ARC/Composite-Auth, erzeugen False Positives
+# (z.B. SPF Hard Fail hinter Inline-Gateways wie SEPPmail) und ASF-Treffer
+# sind nicht als False Positive meldbar.
 Set-HostedContentFilterPolicy -Identity "BP_AntiSpam_Inbound" `
-    -IncreaseScoreWithBizOrInfoUrls On `
-    -IncreaseScoreWithNumericIps On `
-    -IncreaseScoreWithRedirectToOtherPort On `
-    -MarkAsSpamEmptyMessages On `
-    -MarkAsSpamJavaScriptInHtml On `
-    -MarkAsSpamFramesInHtml On `
-    -MarkAsSpamSensitiveWordList On `
-    -MarkAsSpamSpfRecordHardFail On `
-    -MarkAsSpamFromAddressAuthFail On
+    -IncreaseScoreWithBizOrInfoUrls Off `
+    -IncreaseScoreWithNumericIps Off `
+    -IncreaseScoreWithRedirectToOtherPort Off `
+    -MarkAsSpamEmptyMessages Off `
+    -MarkAsSpamJavaScriptInHtml Off `
+    -MarkAsSpamFramesInHtml Off `
+    -MarkAsSpamSensitiveWordList Off `
+    -MarkAsSpamSpfRecordHardFail Off `
+    -MarkAsSpamFromAddressAuthFail Off
 
 # Create Anti-Spam Rule
 New-HostedContentFilterRule -Name "BP_AntiSpam_Inbound_Rule" `

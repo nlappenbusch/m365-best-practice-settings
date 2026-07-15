@@ -233,42 +233,50 @@
                                     <input type="email" id="igeeksEmail" value="support@msp-provider.com">
                                     <small>Email für Managed Service Alerts (Quarantine Requests)</small>
                                 </div>
+                                <div class="alert alert-warning" style="margin-bottom: 0.75rem;">
+                                    <strong>⚠️ Legacy-ASF-Optionen (Advanced Spam Filter):</strong> Microsoft
+                                    empfiehlt <strong>Off</strong> — auch die Microsoft Standard-/Strict-Presets
+                                    lassen alle aus. Sie übersteuern ARC/Composite-Authentication, erzeugen
+                                    False Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie
+                                    SEPPmail) und ASF-Treffer sind bei Microsoft <em>nicht als False Positive
+                                    meldbar</em>. Nur gezielt und mit klarem Grund aktivieren.
+                                </div>
                                 <div class="checkbox-grid">
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="bizInfoUrls">
+                                        <input type="checkbox" data-setting="bizInfoUrls">
                                         <span>URLs zu .biz/.info</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="numericIpUrls">
+                                        <input type="checkbox" data-setting="numericIpUrls">
                                         <span>Numeric IP in URL</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="urlRedirect">
+                                        <input type="checkbox" data-setting="urlRedirect">
                                         <span>URL Redirect to Other Port</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="emptyMessages">
+                                        <input type="checkbox" data-setting="emptyMessages">
                                         <span>Empty Messages</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="jsVbScript">
+                                        <input type="checkbox" data-setting="jsVbScript">
                                         <span>JavaScript/VBScript in HTML</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="frameIframe">
+                                        <input type="checkbox" data-setting="frameIframe">
                                         <span>Frame/IFrame Tags</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="sensitiveWords">
-                                        <span>Sensitive Words</span>
+                                        <input type="checkbox" data-setting="sensitiveWords">
+                                        <span>Sensitive Words (FP-Risiko: Medizin-/Finanzkorrespondenz)</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="spfHardFail">
-                                        <span>SPF Hard Fail</span>
+                                        <input type="checkbox" data-setting="spfHardFail">
+                                        <span>SPF Hard Fail (FP-Risiko hinter Inline-Gateways)</span>
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" checked data-setting="backscatter">
-                                        <span>Backscatter</span>
+                                        <input type="checkbox" data-setting="backscatter">
+                                        <span>Backscatter / From-Auth-Fail</span>
                                     </label>
                                 </div>
                             </div>

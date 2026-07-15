@@ -92,11 +92,16 @@ Set-AntiPhishPolicy -Identity "BP_AntiPhishing" `
 ### 2. Anti-Spam Inbound Policy (`BP_AntiSpam_Inbound`)
 
 - **Bulk Threshold:** 7
-- **Erweiterte Spam-Filter** aktiviert
+- **Legacy-ASF-Optionen (Advanced Spam Filter): Off** — entspricht der
+  Microsoft-Empfehlung und den Microsoft Standard-/Strict-Presets. Die
+  ASF-Schalter übersteuern ARC/Composite-Authentication, erzeugen False
+  Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie SEPPmail)
+  und ASF-Treffer sind nicht als False Positive meldbar. Im Tool bei Bedarf
+  gezielt aktivierbar.
 - **Differenzierte Aktionen:**
-  - Spam/Bulk → Junk Folder
-  - Phishing → Quarantine (Self-Release)
-  - High Confidence Phishing → Quarantine (Request-Release)
+  - Spam/Bulk → Quarantine (Self-Release-Policy)
+  - Phishing → Quarantine (Self-Release-Policy)
+  - High Confidence Phishing → Quarantine (Request-Release-Policy)
 
 ### 3. Anti-Malware Policy (`BP_AntiMalware`)
 
@@ -159,10 +164,9 @@ Microsoft Default Quarantine Policies haben folgende Probleme:
 
 **Empfohlene Kompensation:**
 
-1. Strengeres Handling für High Confidence Spam (Quarantine statt Junk)
-2. Tenant Allow/Block List sauber pflegen
-3. Erweiterte Custom File Types
-4. User Awareness Training
+1. Tenant Allow/Block List sauber pflegen
+2. Erweiterte Custom File Types
+3. User Awareness Training
 
 ## 🛠️ Technische Details
 
