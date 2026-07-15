@@ -21,6 +21,19 @@ Opt-ins verfügbar (mit Warnhinweis).
 setzt die ASF-Parameter auf `Off`; das Audit (🔎 Prüfen) markiert Tenants mit
 aktiven ASF-Schaltern als Abweichung.
 
+### 🔔 Alert-Policy-Prüfung via TCM-Snapshot
+
+Das Audit (🔎 Prüfen) prüft `BP_UserRequestReleaseStatus` jetzt automatisch —
+trotz fehlendem S&C PowerShell auf Linux. Weg: Microsoft Graph **Tenant
+Configuration Management** (GA-APIs) erstellt einen Snapshot der
+`microsoft.securityandcompliance.protectionalert`-Ressourcen; das Backend
+wertet Existenz, Aktiv-Status und Empfänger aus. Voraussetzungen richtet das
+Onboarding/🔧 Reparieren automatisch ein: TCM-Service-Principal
+(`03b07b79-…`) + M365 Admin Services SP im Tenant, TCM-SP bekommt
+`Exchange.ManageAsApp` + Entra-Rolle **Security Reader**, unsere App bekommt
+`ConfigurationMonitoring.ReadWrite.All`. Das Anlegen der Alert Policy bleibt
+der manuelle 📋-Schritt (TCM kann nur lesen, `mode: monitorOnly`).
+
 ### 🧩 Neu: OIB-Policy-Zuweisung (Intune)
 
 Pro Tenant zeigt der Button **🧩 OIB** alle "Win - OIB"-Policies (Settings Catalog

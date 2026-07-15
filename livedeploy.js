@@ -117,11 +117,12 @@ function initializeLiveDeploy() {
         try { tenants = await ldApi('/api/tenants'); } catch (e) { box.innerHTML = '<em>' + ldEsc(e.message) + '</em>'; return; }
         if (!tenants.length) { box.innerHTML = '<em>Noch keine Tenants onboardet — unten den ersten Tenant hinzufügen.</em>'; return; }
         box.innerHTML = tenants.map(t => {
-            const ready = t.certPresent && t.exoRole && t.sccRole;
+            const ready = t.certPresent && t.exoRole && t.sccRole && t.tcm;
             const missing = [
                 t.certPresent ? null : 'Zertifikat',
                 t.exoRole ? null : 'Exchange-Rolle',
-                t.sccRole ? null : 'Compliance-Rolle'
+                t.sccRole ? null : 'Compliance-Rolle',
+                t.tcm ? null : 'TCM'
             ].filter(Boolean);
             const badge = ready
                 ? '<span class="ld-badge ok">✓ bereit</span>'
@@ -181,7 +182,7 @@ function initializeLiveDeploy() {
                 '<div class="ld-step running"><span class="ld-spinner"></span> Lese Policies aus dem Tenant — dauert ca. 30–60 Sekunden…</div></div>');
             try {
                 const r = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/audit', { method: 'POST' });
-                renderAudit(r.audit || {}, name);
+                renderAudit(id, name, r.audit || {}, r.alertPolicy || null);
             } catch (err) {
                 log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div></div>');
             }
@@ -422,7 +423,10 @@ function initializeLiveDeploy() {
         return bad;
     }
 
-    function renderAudit(audit, name) {
+    let auditPollTimer = null;
+
+    function renderAudit(tenantRecId, name, audit, alertPolicy) {
+        if (auditPollTimer) { clearTimeout(auditPollTimer); auditPollTimer = null; }
         const ap = config.antiPhishing, as = config.antiSpam, am = config.antiMalware, g = config.global;
         const autoDomains = !!(document.getElementById('ldAutoDomains') && document.getElementById('ldAutoDomains').checked);
         const sollDomains = autoDomains ? (audit.acceptedDomains || []) : [...g.domains, g.onmicrosoftDomain].filter(Boolean);
@@ -548,20 +552,37 @@ function initializeLiveDeploy() {
             else bad(gm, 'Rule-Domains', sollDomains.join(', '), (audit.malwareRule.RecipientDomainIs || []).join(', ') || '(leer)');
         }
 
-        // Alert Policy — auf Linux nicht auslesbar
+        // Alert Policy — via TCM-Snapshot (Graph)
         const ga = group('🔔', 'Alert Policy (Security & Compliance)');
-        info(ga, 'BP_UserRequestReleaseStatus', 'nicht automatisch prüfbar — Security & Compliance PowerShell gibt es nur auf Windows. Im Defender-Portal unter Policies & rules → Alert policy nachsehen.');
+        const ap2 = alertPolicy || { status: 'error', error: 'keine TCM-Daten' };
+        if (ap2.status === 'pending') {
+            ga.checks.push({ state: 'loading', label: 'BP_UserRequestReleaseStatus', detail: 'TCM-Snapshot läuft — Ergebnis kommt gleich…' });
+        } else if (ap2.status === 'error') {
+            info(ga, 'BP_UserRequestReleaseStatus', 'nicht prüfbar: ' + (ap2.error || 'unbekannt') + (ap2.hint ? ' · ' + ap2.hint : ''));
+        } else if (!ap2.found) {
+            ga.checks.push({ state: 'missing', label: 'BP_UserRequestReleaseStatus', detail: 'nicht vorhanden — Snippet aus dem Deploy-Ergebnis auf Windows ausführen' });
+        } else {
+            ok(ga, 'BP_UserRequestReleaseStatus', 'vorhanden (geprüft via TCM-Snapshot)');
+            cmpBool(ga, 'Alert aktiv', true, !ap2.disabled);
+            const soll = [g.adminEmail, g.igeeksEmail].filter(Boolean).map(e => e.toLowerCase());
+            const ist = (ap2.notifyUser || []).map(e => String(e).toLowerCase());
+            const fehlend = soll.filter(e => !ist.includes(e));
+            if (fehlend.length === 0) ok(ga, 'Empfänger', (ap2.notifyUser || []).join(', '));
+            else bad(ga, 'Empfänger', soll.join(', '), (ap2.notifyUser || []).join(', ') || '(leer)');
+        }
 
         // Rendern
-        const countable = groups.flatMap(grp => grp.checks).filter(c => c.state !== 'info');
+        const countable = groups.flatMap(grp => grp.checks).filter(c => c.state !== 'info' && c.state !== 'loading');
         const okCount = countable.filter(c => c.state === 'ok').length;
         const allOk = okCount === countable.length;
         const iconFor = { ok: '✅', bad: '❌', missing: '⚠️', info: 'ℹ️' };
-        const clsFor = { ok: 'ok', bad: 'fail', missing: 'retry', info: '' };
+        const clsFor = { ok: 'ok', bad: 'fail', missing: 'retry', info: '', loading: 'running' };
         const groupHtml = groups.map(grp => {
             const anyBad = grp.checks.some(c => c.state === 'bad' || c.state === 'missing');
             return '<div class="ld-phase ' + (anyBad ? 'active' : 'complete') + '"><div class="ld-phase-title">' + grp.icon + ' ' + ldEsc(grp.title) + '</div>' +
-                grp.checks.map(c => '<div class="ld-step ' + clsFor[c.state] + '"><span class="ld-ico">' + iconFor[c.state] + '</span> ' + ldEsc(c.label) + ' <small>' + ldEsc(c.detail) + '</small></div>').join('') + '</div>';
+                grp.checks.map(c => '<div class="ld-step ' + clsFor[c.state] + '"><span class="ld-ico">' +
+                    (c.state === 'loading' ? '<span class="ld-spinner"></span>' : iconFor[c.state]) + '</span> ' +
+                    ldEsc(c.label) + ' <small>' + ldEsc(c.detail) + '</small></div>').join('') + '</div>';
         }).join('');
         const banner = allOk
             ? '<div class="ld-banner ok">✅ Ist-Zustand entspricht der Konfiguration (' + okCount + '/' + countable.length + ' Checks OK).</div>'
@@ -569,6 +590,27 @@ function initializeLiveDeploy() {
         const domSrc = autoDomains ? 'Accepted Domains des Tenants' : 'Domains aus dem Konfigurations-Tab';
         log('<div class="ld-job"><div class="ld-job-head"><strong>🔎 Ist-Zustand: ' + ldEsc(name) + '</strong>' +
             '<span class="ld-job-meta">Soll-Domains: ' + ldEsc(domSrc) + '</span></div>' + banner + groupHtml + '</div>');
+
+        // TCM-Snapshot lief beim Audit noch — weiter pollen und dann neu rendern
+        if (ap2.status === 'pending' && ap2.jobId) {
+            let tries = 0;
+            const pollTcm = async () => {
+                let result;
+                try {
+                    result = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/tcm/' + encodeURIComponent(ap2.jobId));
+                } catch (e) {
+                    renderAudit(tenantRecId, name, audit, { status: 'error', error: e.message });
+                    return;
+                }
+                if (result.status === 'pending') {
+                    if (++tries >= 24) { renderAudit(tenantRecId, name, audit, { status: 'error', error: 'TCM-Snapshot dauert ungewöhnlich lange — später erneut prüfen.' }); return; }
+                    auditPollTimer = setTimeout(pollTcm, 5000);
+                    return;
+                }
+                renderAudit(tenantRecId, name, audit, result);
+            };
+            auditPollTimer = setTimeout(pollTcm, 5000);
+        }
     }
 
     // ---------- Deploy: Zusammenfassung -> Start -> Live-Fortschritt ----------
@@ -751,7 +793,8 @@ function initializeLiveDeploy() {
                 '✅ <strong>' + ldEsc(r.tenant.name) + '</strong> ist onboardet.' +
                 '<div class="ld-setup-list">' +
                 item(su.app, 'App-Registrierung') + item(su.consent, 'Admin-Consent') +
-                item(su.exoRole, 'Exchange-Admin-Rolle') + item(su.sccRole, 'Compliance-Rolle') + item(su.cert, 'Zertifikat') +
+                item(su.exoRole, 'Exchange-Admin-Rolle') + item(su.sccRole, 'Compliance-Rolle') +
+                item(su.tcm, 'TCM (Alert-Prüfung)') + item(su.cert, 'Zertifikat') +
                 '</div>' + warn +
                 '<small>💡 Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit — erst mit „Test" prüfen, dann deployen.</small>';
             await loadTenants();
