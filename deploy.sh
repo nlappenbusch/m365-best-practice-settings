@@ -8,8 +8,9 @@ echo "🔄 Pulling latest changes from GitHub..."
 git fetch origin main
 git reset --hard origin/main
 
-# Compose-Vars aus der Shell raus — Shell-Env wuerde .env-Werte ueberschreiben.
-unset ADMIN_USER ADMIN_PASSWORD 2>/dev/null || true
+# ADMIN_PASSWORD kommt als GitHub-Actions-Secret ueber die Workflow-Env herein
+# und wird von docker compose interpoliert. Ist es leer (z.B. manueller Lauf auf
+# dem Server), behaelt das Backend das bestehende Passwort aus seinem State.
 
 # Erst bauen, dann neu starten — haelt die Downtime minimal
 # (der api-Build mit pwsh + ExchangeOnlineManagement dauert beim ersten Mal einige Minuten).

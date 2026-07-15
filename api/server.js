@@ -48,18 +48,34 @@ function certPemPath(tenantId) { return path.join(CERT_DIR, tenantId + ".pem"); 
 function hashPw(pw, salt) { return crypto.scryptSync(String(pw), salt, 32).toString("hex"); }
 function ensureAdmin(s) {
   let changed = false;
+  const envUser = process.env.ADMIN_USER;
+  const envPw = process.env.ADMIN_PASSWORD;
   if (!s.auth || !s.auth.passwordHash) {
-    const envPw = process.env.ADMIN_PASSWORD;
     const pw = envPw || crypto.randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "").slice(0, 18);
     const salt = crypto.randomBytes(16).toString("hex");
-    s.auth = { username: process.env.ADMIN_USER || "admin", salt, passwordHash: hashPw(pw, salt) };
+    s.auth = { username: envUser || "admin", salt, passwordHash: hashPw(pw, salt) };
     changed = true;
-    console.log("\n==================================================");
-    console.log("  LIVE-DEPLOY LOGIN ANGELEGT");
-    console.log("    Benutzer:  " + s.auth.username);
-    console.log("    Passwort:  " + pw);
-    console.log("  >> JETZT NOTIEREN — wird nicht erneut angezeigt.");
-    console.log("==================================================\n");
+    if (envPw) {
+      console.log("Live-Deploy-Login angelegt (Passwort aus ADMIN_PASSWORD uebernommen).");
+    } else {
+      console.log("\n==================================================");
+      console.log("  LIVE-DEPLOY LOGIN ANGELEGT");
+      console.log("    Benutzer:  " + s.auth.username);
+      console.log("    Passwort:  " + pw);
+      console.log("  >> JETZT NOTIEREN — wird nicht erneut angezeigt.");
+      console.log("==================================================\n");
+    }
+  } else if (envPw) {
+    // ADMIN_PASSWORD aus der Umgebung ist verbindlich: weicht der gespeicherte
+    // Hash ab (z.B. Passwort via GitHub-Secret geaendert), wird er aktualisiert.
+    if (hashPw(envPw, s.auth.salt) !== s.auth.passwordHash) {
+      const salt = crypto.randomBytes(16).toString("hex");
+      s.auth.salt = salt;
+      s.auth.passwordHash = hashPw(envPw, salt);
+      changed = true;
+      console.log("Live-Deploy-Login: Passwort aus ADMIN_PASSWORD aktualisiert.");
+    }
+    if (envUser && s.auth.username !== envUser) { s.auth.username = envUser; changed = true; }
   }
   if (!s.sessionSecret) { s.sessionSecret = crypto.randomBytes(24).toString("hex"); changed = true; }
   if (changed) saveState(s);
