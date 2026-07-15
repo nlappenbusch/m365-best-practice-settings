@@ -834,3 +834,51 @@ body {
         grid-template-columns: 1fr;
     }
 }
+/* ============================================
+   Live-Deploy Tab
+   ============================================ */
+.ld-tenant {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.ld-tenant-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.ld-tenant-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.ld-warn {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.ld-log {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.ld-step {
+    padding: 0.15rem 0;
+}
+
+.ld-step.fail small {
+    color: #dc2626;
+}

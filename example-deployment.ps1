@@ -32,28 +32,18 @@ Connect-ExchangeOnline
 Write-Host "Creating Quarantine Policies..." -ForegroundColor Yellow
 
 # Self-Release Notification Policy
+# 59 = AllowSender(32) + BlockSender(16) + RequestRelease(8) + Preview(2) + Delete(1)
 New-QuarantinePolicy -Name "BP_Quarantine-SelfReleaseNotification" `
-    -EndUserQuarantinePermissionsValue @{
-        PermissionToRelease = $true
-        PermissionToPreview = $true
-        PermissionToAllowSender = $true
-        PermissionToBlockSender = $true
-        PermissionToDelete = $true
-        PermissionToRequestRelease = $false
-    } `
-    -ESNEnabled $true
+    -EndUserQuarantinePermissionsValue 59 `
+    -ESNEnabled $true `
+    -IncludeMessagesFromBlockedSenderAddress $true
 
 # Request-Release Notification Policy
+# 26 = BlockSender(16) + RequestRelease(8) + Preview(2)
 New-QuarantinePolicy -Name "BP_Quarantine-RequestReleaseNotification" `
-    -EndUserQuarantinePermissionsValue @{
-        PermissionToRelease = $false
-        PermissionToPreview = $true
-        PermissionToAllowSender = $false
-        PermissionToBlockSender = $true
-        PermissionToDelete = $true
-        PermissionToRequestRelease = $true
-    } `
-    -ESNEnabled $true
+    -EndUserQuarantinePermissionsValue 26 `
+    -ESNEnabled $true `
+    -IncludeMessagesFromBlockedSenderAddress $false
 
 # ============================================
 # 2. ANTI-PHISHING POLICY
@@ -70,7 +60,7 @@ New-AntiPhishPolicy -Name "BP_AntiPhishing" `
     -HonorDmarcPolicy $true `
     -DmarcQuarantineAction Quarantine `
     -DmarcRejectAction Reject `
-    -AuthenticationFailAction MoveToJmf
+    -AuthenticationFailAction Quarantine
 
 # Create Anti-Phishing Rule
 New-AntiPhishRule -Name "BP_AntiPhishing_Rule" `
@@ -91,13 +81,16 @@ New-HostedContentFilterPolicy -Name "BP_AntiSpam_Inbound" `
     -BulkThreshold 7 `
     -EnableEndUserSpamNotifications $true `
     -EndUserSpamNotificationFrequency 1 `
-    -SpamAction MoveToJmf `
-    -HighConfidenceSpamAction MoveToJmf `
-    -BulkSpamAction MoveToJmf `
+    -SpamAction Quarantine `
+    -HighConfidenceSpamAction Quarantine `
+    -BulkSpamAction Quarantine `
     -PhishSpamAction Quarantine `
     -HighConfidencePhishAction Quarantine `
     -QuarantineRetentionPeriod 30 `
     -InlineSafetyTipsEnabled $true `
+    -SpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" `
+    -HighConfidenceSpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" `
+    -BulkQuarantineTag "BP_Quarantine-SelfReleaseNotification" `
     -PhishQuarantineTag "BP_Quarantine-SelfReleaseNotification" `
     -HighConfidencePhishQuarantineTag "BP_Quarantine-RequestReleaseNotification"
 
@@ -124,7 +117,9 @@ New-HostedContentFilterRule -Name "BP_AntiSpam_Inbound_Rule" `
 # ============================================
 Write-Host "Configuring Anti-Malware Policy..." -ForegroundColor Yellow
 
-$fileTypes = @('.ace', '.apk', '.app', '.appx', '.arj', '.bat', '.cab', '.cmd', '.com', '.deb', '.dex', '.dll', '.dmg', '.elf', '.exe', '.hta', '.img', '.iso', '.jar', '.jnlp', '.kext', '.lha', '.lib', '.library', '.lnk', '.lzh', '.macho', '.msc', '.msi', '.msix', '.msp', '.mst', '.pif', '.pkg', '.prf', '.ps1', '.scr', '.sct', '.sys', '.vb', '.vbe', '.vbs', '.vxd', '.wsc', '.wsf', '.wsh', '.xll')
+# WICHTIG: FileTypes OHNE führenden Punkt angeben - M365 ergänzt den Punkt selbst
+# (mit Punkt würde ".exe" als "..exe" im Tenant landen)
+$fileTypes = @('ace', 'apk', 'app', 'appx', 'arj', 'bat', 'cab', 'cmd', 'com', 'deb', 'dex', 'dll', 'dmg', 'elf', 'exe', 'hta', 'img', 'iso', 'jar', 'jnlp', 'kext', 'lha', 'lib', 'library', 'lnk', 'lzh', 'macho', 'msc', 'msi', 'msix', 'msp', 'mst', 'pif', 'pkg', 'prf', 'ps1', 'scr', 'sct', 'sys', 'vb', 'vbe', 'vbs', 'vxd', 'wsc', 'wsf', 'wsh', 'xll')
 
 New-MalwareFilterPolicy -Name "BP_AntiMalware" `
     -EnableFileFilter $true `

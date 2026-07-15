@@ -77,6 +77,7 @@
                 <button class="tab-btn active" data-tab="config">Konfiguration</button>
                 <button class="tab-btn" data-tab="docs">Dokumentation</button>
                 <button class="tab-btn" data-tab="recommendations">Best Practices</button>
+                <button class="tab-btn" data-tab="livedeploy">🚀 Live-Deploy</button>
             </nav>
 
             <!-- Configuration Tab -->
@@ -99,7 +100,7 @@
                         </div>
                         <div class="input-group">
                             <label for="onmicrosoftDomain">OnMicrosoft Domain</label>
-                            <input type="text" id="onmicrosoftDomain" value="kroneunterstrass.onmicrosoft.com"
+                            <input type="text" id="onmicrosoftDomain" value="example.onmicrosoft.com"
                                 placeholder="tenant.onmicrosoft.com">
                         </div>
                         <div class="input-group">
@@ -183,8 +184,8 @@
                                     <div class="input-group">
                                         <label>Spoof by Intelligence</label>
                                         <select data-setting="spoofAction">
-                                            <option value="MoveToJmf" selected>Move to Junk</option>
-                                            <option value="Quarantine">Quarantine</option>
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
                                         </select>
                                     </div>
                                 </div>
@@ -277,22 +278,22 @@
                                     <div class="input-group">
                                         <label>Spam</label>
                                         <select data-setting="spamAction">
-                                            <option value="MoveToJmf" selected>Move to Junk</option>
-                                            <option value="Quarantine">Quarantine</option>
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
                                         </select>
                                     </div>
                                     <div class="input-group">
                                         <label>High Confidence Spam</label>
                                         <select data-setting="highConfSpamAction">
-                                            <option value="MoveToJmf" selected>Move to Junk</option>
-                                            <option value="Quarantine">Quarantine</option>
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
                                         </select>
                                     </div>
                                     <div class="input-group">
                                         <label>Bulk</label>
                                         <select data-setting="bulkAction">
-                                            <option value="MoveToJmf" selected>Move to Junk</option>
-                                            <option value="Quarantine">Quarantine</option>
+                                            <option value="Quarantine" selected>Quarantine</option>
+                                            <option value="MoveToJmf">Move to Junk</option>
                                         </select>
                                     </div>
                                     <div class="input-group">
@@ -398,26 +399,30 @@
 
                             <div class="quarantine-policy">
                                 <h4>BP_Quarantine-SelfReleaseNotification</h4>
-                                <p class="policy-description">Für normale Phishing-Fälle mit moderatem Risiko</p>
+                                <p class="policy-description">Für Spam, Bulk, Spoof und normale Phishing-Fälle
+                                    (Permissions-Wert 59)</p>
                                 <div class="permissions-list">
-                                    <span class="permission enabled">✓ Release</span>
+                                    <span class="permission enabled">✓ Request Release</span>
                                     <span class="permission enabled">✓ Allow Sender</span>
                                     <span class="permission enabled">✓ Block Sender</span>
                                     <span class="permission enabled">✓ Preview</span>
                                     <span class="permission enabled">✓ Delete</span>
-                                    <span class="permission enabled">✓ Notifications</span>
+                                    <span class="permission enabled">✓ Notifications (inkl. blockierte Absender)</span>
+                                    <span class="permission disabled">✗ Direct Release</span>
                                 </div>
                             </div>
 
                             <div class="quarantine-policy">
                                 <h4>BP_Quarantine-RequestReleaseNotification</h4>
-                                <p class="policy-description">Für High Confidence Phishing mit Admin-Kontrolle</p>
+                                <p class="policy-description">Für High Confidence Phishing und Malware mit
+                                    Admin-Kontrolle (Permissions-Wert 26)</p>
                                 <div class="permissions-list">
                                     <span class="permission enabled">✓ Request Release</span>
                                     <span class="permission enabled">✓ Block Sender</span>
                                     <span class="permission enabled">✓ Preview</span>
-                                    <span class="permission enabled">✓ Delete</span>
-                                    <span class="permission enabled">✓ Notifications</span>
+                                    <span class="permission enabled">✓ Notifications (ohne blockierte Absender)</span>
+                                    <span class="permission disabled">✗ Allow Sender</span>
+                                    <span class="permission disabled">✗ Delete</span>
                                     <span class="permission disabled">✗ Direct Release</span>
                                 </div>
                             </div>
@@ -442,6 +447,79 @@
                     <h2>Best Practices & Empfehlungen</h2>
                     <div id="recommendationsContent" class="recommendations-content">
                         <!-- Will be populated by JavaScript -->
+                    </div>
+                </section>
+            </div>
+
+            <!-- Live-Deploy Tab -->
+            <div id="livedeploy" class="tab-content">
+                <section class="settings-section">
+                    <h2>🚀 Live-Deploy — Policies direkt anwenden</h2>
+                    <div class="alert alert-info">
+                        <strong>ℹ️ So funktioniert es:</strong> Statt das generierte PowerShell-Skript manuell
+                        auszuführen, wendet das Backend die aktuelle Konfiguration direkt an — die BP_-Policies per
+                        app-only Exchange Online PowerShell und die Alert Policy für Quarantine-Release-Anfragen per
+                        Security &amp; Compliance PowerShell. Einmalig pro Tenant: <strong>Onboarding</strong> per
+                        Admin-Login (Device-Code) — dabei werden App-Registrierung,
+                        <code>Exchange.ManageAsApp</code>-Permission, die Rollen <strong>Exchange
+                        Administrator</strong> + <strong>Compliance Administrator</strong> und das Zertifikat
+                        automatisch angelegt.
+                    </div>
+
+                    <div id="ldOffline" class="alert alert-warning" style="display: none;">
+                        <strong>⚠️ Backend nicht erreichbar.</strong> Das Live-Deploy-Backend läuft nur im
+                        Docker-Stack (<code>docker compose up -d</code>). Im statischen Betrieb stehen weiterhin
+                        die generierten PowerShell-Skripte zur Verfügung.
+                    </div>
+
+                    <!-- Login -->
+                    <div id="ldLogin" style="display: none;">
+                        <div class="settings-grid">
+                            <div class="input-group">
+                                <label for="ldUser">Benutzer</label>
+                                <input type="text" id="ldUser" value="admin" autocomplete="username">
+                            </div>
+                            <div class="input-group">
+                                <label for="ldPass">Passwort</label>
+                                <input type="password" id="ldPass" autocomplete="current-password">
+                                <small>Steht beim ersten Start im Container-Log:
+                                    <code>docker logs m365-security-api</code></small>
+                            </div>
+                        </div>
+                        <button id="ldLoginBtn" class="btn btn-primary">Anmelden</button>
+                        <div id="ldLoginError" class="alert alert-warning" style="display: none; margin-top: 0.75rem;">
+                        </div>
+                    </div>
+
+                    <!-- Hauptbereich -->
+                    <div id="ldMain" style="display: none;">
+                        <div class="settings-group">
+                            <h4>Onboardete Tenants</h4>
+                            <div id="ldTenants"></div>
+                        </div>
+
+                        <div class="settings-group">
+                            <h4>Neuen Tenant onboarden</h4>
+                            <div class="settings-grid">
+                                <div class="input-group" style="grid-column: 1 / -1;">
+                                    <label for="ldOnboardTenant">Tenant</label>
+                                    <input type="text" id="ldOnboardTenant"
+                                        placeholder="kunde.onmicrosoft.com oder Tenant-ID">
+                                    <small>Der Admin-Login legt automatisch die App-Registrierung
+                                        "M365-Security-Policy-Manager" mit Zertifikat an.</small>
+                                </div>
+                            </div>
+                            <button id="ldOnboardBtn" class="btn btn-primary">Onboarding starten</button>
+                            <div id="ldDeviceCode" class="alert alert-info" style="display: none; margin-top: 0.75rem;">
+                            </div>
+                        </div>
+
+                        <div class="settings-group">
+                            <h4>Ergebnis</h4>
+                            <div id="ldLog" class="ld-log">Noch kein Deploy ausgeführt.</div>
+                        </div>
+
+                        <button id="ldLogoutBtn" class="btn btn-secondary" style="margin-top: 1rem;">Abmelden</button>
                     </div>
                 </section>
             </div>
@@ -483,6 +561,7 @@
 
     <script src="domains.js"></script>
     <script src="app.js"></script>
+    <script src="livedeploy.js"></script>
 </body>
 
 </html>

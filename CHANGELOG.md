@@ -1,5 +1,46 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.1 - Quarantäne-Fixes + Live-Deploy (2026-07-15)
+
+### 🐛 Fixes
+
+#### Dateitypen ohne führenden Punkt (".."-Bug)
+- **Problem**: Der Generator übergab Dateitypen mit führendem Punkt (`.exe`) an `-FileTypes`.
+  M365 speichert den Wert roh und die GUI hängt selbst einen Punkt davor → `..exe` im Tenant.
+- **Fix**: Führende Punkte (auch versehentliche `..exe`-Eingaben) und leere Einträge werden
+  beim Generieren entfernt; das Skript enthält jetzt `@('ace', 'apk', …)`.
+
+#### Spam/Bulk/Spoof in Quarantäne statt Junk-Ordner
+- `SpamAction`, `HighConfidenceSpamAction`, `BulkSpamAction` und `AuthenticationFailAction`
+  (Spoof) stehen jetzt standardmäßig auf `Quarantine` (Default, Presets "example"/"balanced", UI-Dropdowns).
+- Neue Quarantine-Tags: `SpamQuarantineTag`, `HighConfidenceSpamQuarantineTag`, `BulkQuarantineTag`
+  → `BP_Quarantine-SelfReleaseNotification`.
+- Preset "relaxed" bleibt bewusst auf `MoveToJmf`.
+
+#### Quarantine Policies korrigiert (waren ungültig konfiguriert)
+- **Problem**: `EndUserQuarantinePermissionsValue 236/171` setzte u.a. RequestRelease UND Release
+  gleichzeitig — laut Microsoft-Doku unzulässig; der Tenant-Zustand passte nicht zur Absicht.
+- **Fix** (entspricht Referenz-Tenant vom 2026-07-10):
+  - `BP_Quarantine-SelfReleaseNotification` = **59** (AllowSender+BlockSender+RequestRelease+Preview+Delete),
+    ESN aktiv **inkl.** Nachrichten von blockierten Absendern
+  - `BP_Quarantine-RequestReleaseNotification` = **26** (BlockSender+RequestRelease+Preview),
+    ESN aktiv **ohne** Nachrichten von blockierten Absendern
+  - Bestehende Policies werden per `Set-QuarantinePolicy` aktualisiert statt übersprungen.
+
+### 🚀 Neu: Live-Deploy (Tab "🚀 Live-Deploy")
+
+- Policies direkt aus dem Tool in den Tenant deployen — ohne manuelles PowerShell.
+- **Backend** (`api/`, eigener Container): Node + PowerShell 7 + ExchangeOnlineManagement.
+- **Onboarding per Device-Code**: legt automatisch App-Registrierung `M365-Security-Policy-Manager`
+  mit `Exchange.ManageAsApp`, Exchange-Administrator-Rolle und self-signed Zertifikat an.
+- **Deploy**: app-only `Connect-ExchangeOnline` mit Zertifikat, setzt alle BP_-Policies idempotent,
+  Schritt-für-Schritt-Ergebnis in der UI.
+- **Alert Policy inklusive**: separater app-only `Connect-IPPSSession`-Lauf (Security & Compliance)
+  setzt `BP_UserRequestReleaseStatus` (Quarantine-Release-Anfragen → Admin- + MSP-Email).
+  Dafür vergibt das Onboarding zusätzlich die Entra-Rolle **Compliance Administrator**.
+  Single-Event-Alert (`-AggregationType None`) → kein E5 nötig.
+- nginx proxied `/api/` an den Backend-Container; ohne Backend zeigt der Tab einen Hinweis.
+
 ## Version 2.0 - Enhanced Edition (2026-02-12)
 
 ### 🎯 Major Changes

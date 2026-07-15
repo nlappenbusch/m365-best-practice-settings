@@ -14,7 +14,7 @@ const config = {
         honorDmarc: true,
         dmarcQuarantineAction: 'Quarantine',
         dmarcRejectAction: 'Reject',
-        spoofAction: 'MoveToJmf'
+        spoofAction: 'Quarantine'
     },
     antiSpam: {
         bulkThreshold: 7,
@@ -27,9 +27,9 @@ const config = {
         sensitiveWords: true,
         spfHardFail: true,
         backscatter: true,
-        spamAction: 'MoveToJmf',
-        highConfSpamAction: 'MoveToJmf',
-        bulkAction: 'MoveToJmf',
+        spamAction: 'Quarantine',
+        highConfSpamAction: 'Quarantine',
+        bulkAction: 'Quarantine',
         phishAction: 'Quarantine',
         highConfPhishAction: 'Quarantine'
     },
@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeExport();
     loadDocumentation();
     loadRecommendations();
+    initializeLiveDeploy();
 });
 
 // Preset Templates
@@ -71,7 +72,7 @@ const presets = {
             honorDmarc: true,
             dmarcQuarantineAction: 'Quarantine',
             dmarcRejectAction: 'Reject',
-            spoofAction: 'MoveToJmf'
+            spoofAction: 'Quarantine'
         },
         antiSpam: {
             bulkThreshold: 7,
@@ -84,9 +85,9 @@ const presets = {
             sensitiveWords: true,
             spfHardFail: true,
             backscatter: true,
-            spamAction: 'MoveToJmf',
-            highConfSpamAction: 'MoveToJmf',
-            bulkAction: 'MoveToJmf',
+            spamAction: 'Quarantine',
+            highConfSpamAction: 'Quarantine',
+            bulkAction: 'Quarantine',
             phishAction: 'Quarantine',
             highConfPhishAction: 'Quarantine'
         },
@@ -106,7 +107,7 @@ const presets = {
             honorDmarc: true,
             dmarcQuarantineAction: 'Quarantine',
             dmarcRejectAction: 'Reject',
-            spoofAction: 'MoveToJmf'
+            spoofAction: 'Quarantine'
         },
         antiSpam: {
             bulkThreshold: 7,
@@ -119,9 +120,9 @@ const presets = {
             sensitiveWords: true,
             spfHardFail: true,
             backscatter: true,
-            spamAction: 'MoveToJmf',
-            highConfSpamAction: 'MoveToJmf',
-            bulkAction: 'MoveToJmf',
+            spamAction: 'Quarantine',
+            highConfSpamAction: 'Quarantine',
+            bulkAction: 'Quarantine',
             phishAction: 'Quarantine',
             highConfPhishAction: 'Quarantine'
         },
@@ -513,7 +514,14 @@ function generateDomainList() {
 }
 
 function generateDeploymentScript() {
-    const fileTypesArray = config.antiMalware.customFileTypes.split(',').map(t => `'${t.trim()}'`).join(', ');
+    // M365 erwartet FileTypes OHNE führenden Punkt (die GUI ergänzt ihn selbst) -
+    // sonst landet ".exe" als "..exe" im Tenant
+    const fileTypesArray = config.antiMalware.customFileTypes
+        .split(',')
+        .map(t => t.trim().replace(/^\.+/, ''))
+        .filter(t => t.length > 0)
+        .map(t => `'${t}'`)
+        .join(', ');
     const domainList = generateDomainList();
 
     return `# ============================================
@@ -534,30 +542,44 @@ Connect-IPPSSession
 Write-Host "Creating Quarantine Policies..." -ForegroundColor Yellow
 
 # Self-Release Notification Policy
+# Permissions 59 = AllowSender(32) + BlockSender(16) + RequestRelease(8) + Preview(2) + Delete(1)
+# Notification inkl. Nachrichten von blockierten Absendern
 try {
     $qp1 = Get-QuarantinePolicy -Identity "BP_Quarantine-SelfReleaseNotification" -ErrorAction SilentlyContinue
     if ($null -eq $qp1) {
         New-QuarantinePolicy -Name "BP_Quarantine-SelfReleaseNotification" \`
-            -EndUserQuarantinePermissionsValue 236 \`
-            -ESNEnabled $true
+            -EndUserQuarantinePermissionsValue 59 \`
+            -ESNEnabled $true \`
+            -IncludeMessagesFromBlockedSenderAddress $true
         Write-Host "✓ Created BP_Quarantine-SelfReleaseNotification" -ForegroundColor Green
     } else {
-        Write-Host "⚠ BP_Quarantine-SelfReleaseNotification already exists, skipping" -ForegroundColor Yellow
+        Set-QuarantinePolicy -Identity "BP_Quarantine-SelfReleaseNotification" \`
+            -EndUserQuarantinePermissionsValue 59 \`
+            -ESNEnabled $true \`
+            -IncludeMessagesFromBlockedSenderAddress $true
+        Write-Host "✓ Updated BP_Quarantine-SelfReleaseNotification" -ForegroundColor Green
     }
 } catch {
     Write-Host "❌ Error creating BP_Quarantine-SelfReleaseNotification: $_" -ForegroundColor Red
 }
 
 # Request-Release Notification Policy
+# Permissions 26 = BlockSender(16) + RequestRelease(8) + Preview(2)
+# Notification OHNE Nachrichten von blockierten Absendern
 try {
     $qp2 = Get-QuarantinePolicy -Identity "BP_Quarantine-RequestReleaseNotification" -ErrorAction SilentlyContinue
     if ($null -eq $qp2) {
         New-QuarantinePolicy -Name "BP_Quarantine-RequestReleaseNotification" \`
-            -EndUserQuarantinePermissionsValue 171 \`
-            -ESNEnabled $true
+            -EndUserQuarantinePermissionsValue 26 \`
+            -ESNEnabled $true \`
+            -IncludeMessagesFromBlockedSenderAddress $false
         Write-Host "✓ Created BP_Quarantine-RequestReleaseNotification" -ForegroundColor Green
     } else {
-        Write-Host "⚠ BP_Quarantine-RequestReleaseNotification already exists, skipping" -ForegroundColor Yellow
+        Set-QuarantinePolicy -Identity "BP_Quarantine-RequestReleaseNotification" \`
+            -EndUserQuarantinePermissionsValue 26 \`
+            -ESNEnabled $true \`
+            -IncludeMessagesFromBlockedSenderAddress $false
+        Write-Host "✓ Updated BP_Quarantine-RequestReleaseNotification" -ForegroundColor Green
     }
 } catch {
     Write-Host "❌ Error creating BP_Quarantine-RequestReleaseNotification: $_" -ForegroundColor Red
@@ -646,6 +668,9 @@ try {
             -HighConfidencePhishAction ${config.antiSpam.highConfPhishAction} \`
             -QuarantineRetentionPeriod 30 \`
             -InlineSafetyTipsEnabled $true \`
+            -SpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
+            -HighConfidenceSpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
+            -BulkQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
             -PhishQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
             -HighConfidencePhishQuarantineTag "BP_Quarantine-RequestReleaseNotification"
         Write-Host "✓ Created BP_AntiSpam_Inbound policy" -ForegroundColor Green
@@ -661,6 +686,9 @@ try {
             -HighConfidencePhishAction ${config.antiSpam.highConfPhishAction} \`
             -QuarantineRetentionPeriod 30 \`
             -InlineSafetyTipsEnabled $true \`
+            -SpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
+            -HighConfidenceSpamQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
+            -BulkQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
             -PhishQuarantineTag "BP_Quarantine-SelfReleaseNotification" \`
             -HighConfidencePhishQuarantineTag "BP_Quarantine-RequestReleaseNotification"
         Write-Host "✓ Updated BP_AntiSpam_Inbound policy" -ForegroundColor Green
@@ -852,8 +880,12 @@ function loadDocumentation() {
 
         <p><strong>Lösung:</strong> Zwei differenzierte Quarantine Policies:</p>
         <ul>
-            <li><code>BP_Quarantine-SelfReleaseNotification</code> - Für normale Phishing-Fälle mit Benutzerautonomie</li>
-            <li><code>BP_Quarantine-RequestReleaseNotification</code> - Für High Confidence Phishing mit Admin-Kontrolle</li>
+            <li><code>BP_Quarantine-SelfReleaseNotification</code> (Permissions 59) - Für Spam, Bulk, Spoof und normale Phishing-Fälle:
+                User können Freigabe anfordern, Absender erlauben/blockieren, Vorschau und Löschen;
+                Benachrichtigung inklusive Nachrichten von blockierten Absendern</li>
+            <li><code>BP_Quarantine-RequestReleaseNotification</code> (Permissions 26) - Für High Confidence Phishing und Malware:
+                nur Freigabe anfordern, Absender blockieren und Vorschau;
+                Benachrichtigung ohne Nachrichten von blockierten Absendern</li>
         </ul>
 
         <h3>📧 Alert Policy für Managed Services</h3>
@@ -864,8 +896,7 @@ function loadDocumentation() {
         </div>
         <p><strong>Warum ist das kritisch?</strong></p>
         <ul>
-            <li>Bei <code>BP_Quarantine-RequestReleaseNotification</code> können User Nachrichten NICHT selbst freigeben</li>
-            <li>Sie können nur eine Freigabe-Anfrage stellen ("Request Release")</li>
+            <li>User können Nachrichten NICHT selbst freigeben, sondern nur eine Freigabe-Anfrage stellen ("Request Release")</li>
             <li>Ohne Alert Policy würde der MSP diese Anfragen nicht mitbekommen</li>
             <li>Besonders wichtig für High Confidence Phishing und Malware</li>
         </ul>
@@ -900,12 +931,12 @@ function loadDocumentation() {
             <tbody>
                 <tr>
                     <td>Spam / Bulk</td>
-                    <td>Move to Junk</td>
-                    <td>Niedriges Risiko, schneller Zugriff</td>
+                    <td>Quarantine (Self-Release-Policy)</td>
+                    <td>Zentrale Kontrolle statt Junk-Ordner; User werden benachrichtigt und können Freigabe anfordern</td>
                 </tr>
                 <tr>
                     <td>Phishing</td>
-                    <td>Quarantine (Self-Release)</td>
+                    <td>Quarantine (Self-Release-Policy)</td>
                     <td>Erhöhtes Risiko, kontrollierte Freigabe</td>
                 </tr>
                 <tr>
@@ -926,7 +957,7 @@ function loadDocumentation() {
         <ul>
             <li><strong>DMARC p=reject</strong> → Nachricht wird abgelehnt</li>
             <li><strong>DMARC p=quarantine</strong> → Nachricht wird in Quarantäne verschoben</li>
-            <li><strong>Spoof Intelligence</strong> → Verdächtige Nachrichten werden in Junk verschoben</li>
+            <li><strong>Spoof Intelligence</strong> → Verdächtige Nachrichten werden in Quarantäne verschoben</li>
         </ul>
     `;
 }
@@ -991,7 +1022,6 @@ function loadRecommendations() {
 
         <h3>🔒 Härtungs-Empfehlungen (ohne Lizenz-Upgrade)</h3>
         <ul>
-            <li><strong>Strengeres Spam-Handling:</strong> High Confidence Spam von "Junk" auf "Quarantine" ändern für bessere Kontrolle</li>
             <li><strong>Tenant Allow/Block List pflegen:</strong> Regelmäßige Pflege der Allow/Block Listen im Security Portal</li>
             <li><strong>Custom File Types erweitern:</strong> Zusätzliche gefährliche Dateitypen blockieren (z.B. .docm, .xlsm, .pptm)</li>
             <li><strong>DMARC für eigene Domains:</strong> DMARC-Records mit p=quarantine oder p=reject implementieren</li>

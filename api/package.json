@@ -1,0 +1,15 @@
+{
+  "name": "m365-security-policy-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live-Deploy-Backend: wendet die Best-Practice-Policies app-only per Exchange Online PowerShell an",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "selfsigned": "^2.4.1"
+  }
+}

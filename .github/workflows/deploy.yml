@@ -4,11 +4,16 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-m365-security
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: [self-hosted, Linux, X64]
-    
+
     steps:
       - name: Deploy M365 Security Tool
-        run: /opt/m365-security/deploy.sh
+        run: bash /opt/m365-security/deploy.sh

@@ -107,22 +107,24 @@ Set-AntiPhishPolicy -Identity "BP_AntiPhishing" `
 
 ### 4. Quarantine Policies
 
-#### `BP_Quarantine-SelfReleaseNotification`
-Für normale Phishing-Fälle mit moderatem Risiko:
-- ✅ Release
+#### `BP_Quarantine-SelfReleaseNotification` (Permissions-Wert 59)
+Für Spam, Bulk, Spoof und normale Phishing-Fälle:
+- ✅ Request Release
 - ✅ Allow Sender
 - ✅ Block Sender
 - ✅ Preview
 - ✅ Delete
-- ✅ Notifications
+- ✅ Notifications (inkl. Nachrichten von blockierten Absendern)
+- ❌ Direct Release
 
-#### `BP_Quarantine-RequestReleaseNotification`
-Für High Confidence Phishing mit Admin-Kontrolle:
+#### `BP_Quarantine-RequestReleaseNotification` (Permissions-Wert 26)
+Für High Confidence Phishing und Malware mit Admin-Kontrolle:
 - ✅ Request Release
 - ✅ Block Sender
 - ✅ Preview
-- ✅ Delete
-- ✅ Notifications
+- ✅ Notifications (ohne Nachrichten von blockierten Absendern)
+- ❌ Allow Sender
+- ❌ Delete
 - ❌ Direct Release
 
 ## 🔐 Warum eigene Quarantine Policies?
@@ -167,10 +169,16 @@ Microsoft Default Quarantine Policies haben folgende Probleme:
 ### Projektstruktur
 
 ```
-M365-BEst-PracticeSettings/
+m365-best-practice-settings/
 ├── index.html          # Haupt-Interface
 ├── styles.css          # Microsoft 365 Design System
 ├── app.js              # Konfiguration & Export-Logik
+├── livedeploy.js       # Frontend für Live-Deploy (Tab "🚀 Live-Deploy")
+├── api/                # Live-Deploy-Backend (Node + pwsh im Container)
+│   ├── server.js       # Login, Tenant-Onboarding (Device-Code), Deploy-API
+│   ├── lib/exorunner.js# App-only Connect-ExchangeOnline via Zertifikat
+│   ├── lib/deploy.js   # Config-Validierung + PowerShell-Body-Generator
+│   └── Dockerfile      # node:20 + PowerShell 7 + ExchangeOnlineManagement
 └── README.md           # Diese Datei
 ```
 
@@ -180,9 +188,41 @@ M365-BEst-PracticeSettings/
 - ✅ Firefox 88+
 - ✅ Safari 14+
 
-### Keine Server-Komponente erforderlich
+### Server-Komponente optional
 
-Das Tool läuft vollständig im Browser - keine Installation, keine Dependencies, keine Server-Infrastruktur notwendig.
+Die Konfigurations- und Export-Funktionen laufen vollständig im Browser. Für den
+**Live-Deploy** (Tab "🚀 Live-Deploy") läuft zusätzlich das Backend aus `api/`
+im Docker-Stack — im rein statischen Betrieb zeigt der Tab einen Hinweis und
+die generierten PowerShell-Skripte bleiben der Weg zum Deployment.
+
+## 🚀 Live-Deploy (Policies direkt anwenden)
+
+Statt das generierte Skript manuell auszuführen, kann das Tool die Policies
+direkt in einen Tenant deployen:
+
+1. **Backend-Login**: Zugangsdaten stehen beim ersten Start im Container-Log
+   (`docker logs m365-security-api`) oder werden über `ADMIN_PASSWORD` in der
+   Compose-Umgebung vorgegeben.
+2. **Tenant onboarden** (einmalig pro Tenant): Admin meldet sich per
+   Device-Code an. Dabei wird automatisch angelegt:
+   - App-Registrierung `M365-Security-Policy-Manager`
+   - API-Permission `Exchange.ManageAsApp` (Office 365 Exchange Online) inkl. Admin-Consent
+   - Entra-Rollen **Exchange Administrator** (Policies) und **Compliance
+     Administrator** (Alert Policy via Security & Compliance PowerShell)
+   - Self-signed Zertifikat (Public Key in der App, PEM im Backend-Volume `api-state`)
+3. **Deploy**: wendet die aktuelle Konfiguration idempotent an — erst die
+   Quarantine-, Anti-Phishing-, Anti-Spam- und Anti-Malware-Policies inkl. Rules
+   (app-only `Connect-ExchangeOnline`), danach die Alert Policy
+   `BP_UserRequestReleaseStatus` für Quarantine-Release-Anfragen (app-only
+   `Connect-IPPSSession`, separater Lauf). Vorhandene `BP_`-Policies werden
+   aktualisiert statt übersprungen. Die Alert Policy wird als Single-Event-Alert
+   (`-AggregationType None`) angelegt und braucht daher kein E5.
+
+**Hinweis:** Frisch onboardete Tenants brauchen wenige Minuten
+Entra-Replikationszeit, bevor der erste Verbindungstest/Deploy klappt. Tenants,
+die vor der Alert-Policy-Erweiterung onboardet wurden, einfach neu onboarden —
+dabei wird die fehlende Compliance-Administrator-Rolle ergänzt (App und
+Zertifikat bleiben erhalten bzw. werden erneuert).
 
 ## 📖 Verwendete Standards
 

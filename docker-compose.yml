@@ -7,8 +7,29 @@ services:
     restart: unless-stopped
     ports:
       - "8082:80"
+    depends_on:
+      - api
     networks:
       - web
+
+  # Live-Deploy-Backend: wendet die Policies app-only per Exchange Online PowerShell an.
+  # Kein eigener Port nach aussen — nur ueber den nginx-Proxy (/api/) erreichbar.
+  api:
+    build: ./api
+    container_name: m365-security-api
+    restart: unless-stopped
+    environment:
+      # Optional vorbelegen; ohne ADMIN_PASSWORD wird beim ersten Start eins
+      # generiert und einmalig ins Container-Log geschrieben (docker logs m365-security-api).
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+    volumes:
+      - api-state:/app/state
+    networks:
+      - web
+
+volumes:
+  api-state:
 
 networks:
   web:

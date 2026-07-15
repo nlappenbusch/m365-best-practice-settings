@@ -35,3 +35,9 @@ node_modules/
 # Temporary files
 tmp/
 temp/
+
+# Live-Deploy-Backend: lokaler State (Tenants, Zertifikate)
+api/state/
+
+# Claude Code (lokale Dev-Config)
+.claude/

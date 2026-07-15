@@ -1,0 +1,357 @@
+/**
+ * Live-Deploy-Backend fuer den M365 Security Policy Manager.
+ *
+ * Statt das generierte PowerShell-Skript manuell auszufuehren, kann das Tool
+ * die BP_-Policies direkt anwenden:
+ *   1. Onboarding (einmalig pro Tenant): Device-Code-Login eines Admins ->
+ *      legt automatisch eine App-Registrierung an (Exchange.ManageAsApp,
+ *      Exchange-Administrator-Rolle, self-signed Zertifikat) und speichert
+ *      das Zertifikat unter state/cert/<tenantId>.pem.
+ *   2. Deploy: verbindet Exchange Online app-only mit dem Zertifikat und
+ *      setzt die Policies idempotent (siehe lib/deploy.js).
+ *
+ * Die Alert Policy (Security & Compliance) laeuft weiterhin ueber das
+ * generierte Skript — Connect-IPPSSession ist bewusst nicht Teil des Backends.
+ */
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const express = require("express");
+const session = require("express-session");
+const { spawn } = require("child_process");
+
+const EXO = require("./lib/exorunner");
+const DEPLOY = require("./lib/deploy");
+
+const PORT = Number(process.env.PORT || 3000);
+const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
+const CERT_DIR = path.join(STATE_DIR, "cert");
+fs.mkdirSync(CERT_DIR, { recursive: true });
+const STATE_FILE = path.join(STATE_DIR, "state.json");
+
+const GRAPH = "https://graph.microsoft.com/v1.0";
+// "Microsoft Graph Command Line Tools" — oeffentlicher First-Party-Client (wie Connect-MgGraph).
+const GRAPH_CLI_CLIENT = "14d82eec-204b-4c2f-b7e8-296a70dab67e";
+const APP_DISPLAY_NAME = "M365-Security-Policy-Manager";
+const EXO_APP_ID = "00000002-0000-0ff1-ce00-000000000000"; // Office 365 Exchange Online
+const EXCHANGE_ADMIN_ROLE_TEMPLATE = "29232cdf-9323-42fd-ade2-1d097af3e4de"; // Exchange Administrator (EXO PowerShell)
+const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; // Compliance Administrator (Security & Compliance PowerShell)
+
+// ---------- Persistenz ----------
+function loadState() {
+  try { return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch (e) { return { tenants: [] }; }
+}
+function saveState(s) { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2), "utf8"); }
+function certPemPath(tenantId) { return path.join(CERT_DIR, tenantId + ".pem"); }
+
+// ---------- Lokaler Admin-Login ----------
+function hashPw(pw, salt) { return crypto.scryptSync(String(pw), salt, 32).toString("hex"); }
+function ensureAdmin(s) {
+  let changed = false;
+  if (!s.auth || !s.auth.passwordHash) {
+    const envPw = process.env.ADMIN_PASSWORD;
+    const pw = envPw || crypto.randomBytes(16).toString("base64").replace(/[^A-Za-z0-9]/g, "").slice(0, 18);
+    const salt = crypto.randomBytes(16).toString("hex");
+    s.auth = { username: process.env.ADMIN_USER || "admin", salt, passwordHash: hashPw(pw, salt) };
+    changed = true;
+    console.log("\n==================================================");
+    console.log("  LIVE-DEPLOY LOGIN ANGELEGT");
+    console.log("    Benutzer:  " + s.auth.username);
+    console.log("    Passwort:  " + pw);
+    console.log("  >> JETZT NOTIEREN — wird nicht erneut angezeigt.");
+    console.log("==================================================\n");
+  }
+  if (!s.sessionSecret) { s.sessionSecret = crypto.randomBytes(24).toString("hex"); changed = true; }
+  if (changed) saveState(s);
+  return s;
+}
+
+// ---------- Graph-Helfer (delegierter Token aus dem Onboarding) ----------
+function odataLit(s) { return encodeURIComponent(String(s == null ? "" : s).replace(/'/g, "''")); }
+async function gReq(token, method, p, body) {
+  const r = await fetch(GRAPH + p, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let j; try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+  if (!r.ok) throw new Error((j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status)));
+  return j;
+}
+
+/**
+ * Legt die App-Registrierung fuer app-only-EXO an (idempotent):
+ * Exchange.ManageAsApp (Application) + Exchange-Administrator-Rolle + Zertifikat.
+ * Bewusst KEINE Graph-Application-Permissions — least privilege.
+ */
+async function provisionAppReg(token) {
+  const exoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${EXO_APP_ID}'`)).value[0];
+  if (!exoSp) throw new Error("Service Principal 'Office 365 Exchange Online' nicht gefunden.");
+  const manageRole = (exoSp.appRoles || []).find(x => x.value === "Exchange.ManageAsApp" && (x.allowedMemberTypes || []).includes("Application"));
+  if (!manageRole) throw new Error("Exchange.ManageAsApp nicht im EXO-Service-Principal gefunden.");
+  const requiredResourceAccess = [{ resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] }];
+
+  let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(APP_DISPLAY_NAME)}'`)).value[0];
+  if (app) {
+    await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess, signInAudience: "AzureADMyOrg" });
+  } else {
+    app = await gReq(token, "POST", "/applications", { displayName: APP_DISPLAY_NAME, signInAudience: "AzureADMyOrg", requiredResourceAccess });
+  }
+  let appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
+  if (!appSp) appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId });
+
+  // Admin-Consent = App-Role-Assignment direkt setzen (idempotent).
+  let consentOk = true, consentErr = null;
+  try {
+    const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
+    if (!existing.find(a => a.appRoleId === manageRole.id && a.resourceId === exoSp.id)) {
+      await gReq(token, "POST", `/servicePrincipals/${appSp.id}/appRoleAssignments`,
+        { principalId: appSp.id, resourceId: exoSp.id, appRoleId: manageRole.id });
+    }
+  } catch (e) { consentOk = false; consentErr = e.message; }
+
+  // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
+  // Compliance Administrator (Alert Policy via Security & Compliance PowerShell).
+  async function assignDirectoryRole(roleTemplateId) {
+    let dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0];
+    if (!dirRole) dirRole = await gReq(token, "POST", "/directoryRoles", { roleTemplateId }); // Rolle aktivieren
+    const members = (await gReq(token, "GET", `/directoryRoles/${dirRole.id}/members?$select=id`)).value || [];
+    if (!members.find(m => m.id === appSp.id)) {
+      await gReq(token, "POST", `/directoryRoles/${dirRole.id}/members/$ref`, { "@odata.id": `${GRAPH}/directoryObjects/${appSp.id}` });
+    }
+  }
+  let exoRole = false, exoRoleErr = null;
+  try { await assignDirectoryRole(EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message; }
+  let sccRole = false, sccRoleErr = null;
+  try { await assignDirectoryRole(COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message; }
+
+  // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
+  let certThumbprint = null, certPem = null, certError = null;
+  try {
+    const selfsigned = require("selfsigned");
+    const pems = selfsigned.generate([{ name: "commonName", value: APP_DISPLAY_NAME }], { keySize: 2048, days: 730, algorithm: "sha256" });
+    const certB64 = pems.cert.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+    certThumbprint = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex");
+    await gReq(token, "PATCH", `/applications/${app.id}`, {
+      keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: APP_DISPLAY_NAME + "-cert" }]
+    });
+    // Key UND Zertifikat speichern — X509Certificate2.CreateFromPemFile braucht beides.
+    certPem = pems.private + "\n" + pems.cert;
+  } catch (e) { certError = e.message; }
+
+  return { appId: app.appId, consentOk, consentErr, exoRole, exoRoleErr, sccRole, sccRoleErr, certThumbprint, certPem, certError };
+}
+
+// ---------- App ----------
+const state = ensureAdmin(loadState());
+const app = express();
+app.use(express.json({ limit: "512kb" }));
+if (process.env.TRUST_PROXY !== "0") app.set("trust proxy", 1);
+app.use(session({
+  secret: state.sessionSecret,
+  resave: false, saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: "lax", secure: false, maxAge: 8 * 3600 * 1000 }
+}));
+
+function wrap(fn) {
+  return (req, res) => fn(req, res).catch(e => {
+    console.error(e.message);
+    res.status(e.status || 500).json({ error: e.message });
+  });
+}
+
+// pwsh-Verfuegbarkeit einmal beim Start pruefen (fuer /api/health).
+let pwshInfo = { checked: false, ok: false, version: null };
+(function checkPwsh() {
+  try {
+    const ps = spawn(process.env.PWSH_PATH || "pwsh", ["-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"]);
+    let out = "";
+    ps.stdout.on("data", d => out += d.toString());
+    ps.on("close", code => { pwshInfo = { checked: true, ok: code === 0, version: out.trim() || null }; });
+    ps.on("error", () => { pwshInfo = { checked: true, ok: false, version: null }; });
+  } catch (e) { pwshInfo = { checked: true, ok: false, version: null }; }
+})();
+
+app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user) }));
+
+app.post("/api/login", (req, res) => {
+  const s = loadState();
+  const { username, password } = req.body || {};
+  if (s.auth && (username || "admin") === s.auth.username) {
+    const a = Buffer.from(hashPw(password || "", s.auth.salt), "hex");
+    const b = Buffer.from(s.auth.passwordHash, "hex");
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) { req.session.user = s.auth.username; return res.json({ ok: true }); }
+  }
+  res.status(401).json({ error: "Login fehlgeschlagen" });
+});
+app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
+
+// Auth-Guard fuer alles Weitere
+app.use("/api", (req, res, next) => {
+  if (req.session && req.session.user) return next();
+  res.status(401).json({ error: "Nicht angemeldet" });
+});
+
+// ---------- Tenants ----------
+app.get("/api/tenants", (req, res) => {
+  const s = loadState();
+  res.json((s.tenants || []).map(t => ({
+    id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
+    appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, addedAt: t.addedAt,
+    certPresent: fs.existsSync(certPemPath(t.tenantId))
+  })));
+});
+
+app.delete("/api/tenants/:id", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  s.tenants = s.tenants.filter(x => x.id !== req.params.id);
+  saveState(s);
+  try { fs.unlinkSync(certPemPath(t.tenantId)); } catch (e) { /* egal */ }
+  res.json({ ok: true });
+});
+
+// ---------- Onboarding (Device-Code) ----------
+app.post("/api/onboard/start", wrap(async (req, res) => {
+  const b = req.body || {};
+  const tenant = String(b.tenant || "").trim() || "organizations";
+  const params = new URLSearchParams({
+    client_id: GRAPH_CLI_CLIENT,
+    // RoleManagement.ReadWrite.Directory: fuer die Exchange-Admin-Rollenzuweisung.
+    scope: "Application.ReadWrite.All AppRoleAssignment.ReadWrite.All Directory.ReadWrite.All RoleManagement.ReadWrite.Directory offline_access openid"
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+  req.session.onboard = {
+    tenant, deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({ userCode: j.user_code, verificationUri: j.verification_uri || "https://microsoft.com/devicelogin", interval: j.interval || 5 });
+}));
+
+app.post("/api/onboard/poll", wrap(async (req, res) => {
+  const df = req.session.onboard;
+  if (!df) return res.status(400).json({ error: "Kein laufender Onboarding-Vorgang." });
+  if (Date.now() > df.expiresAt) { delete req.session.onboard; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.tenant)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.onboard;
+    return res.json({ status: "error", error: j.error_description || j.error || ("HTTP " + r.status) });
+  }
+
+  const token = j.access_token;
+  const result = await provisionAppReg(token);
+
+  // Tenant-Infos ziehen (Id, Name, initiale onmicrosoft-Domain fuer -Organization).
+  let tenantId = df.tenant, orgName = df.tenant, organization = null;
+  try {
+    const orgInfo = await gReq(token, "GET", "/organization?$select=id,displayName,verifiedDomains");
+    const o = orgInfo.value && orgInfo.value[0];
+    if (o) {
+      tenantId = o.id; orgName = o.displayName || tenantId;
+      const doms = o.verifiedDomains || [];
+      const initial = doms.find(d => d.isInitial) || doms.find(d => /\.onmicrosoft\.com$/i.test(d.name));
+      organization = initial ? initial.name : null;
+    }
+  } catch (e) { /* Fallbacks bleiben */ }
+  if (!organization) organization = /\.onmicrosoft\.com$/i.test(df.tenant) ? df.tenant : null;
+
+  if (result.certPem) fs.writeFileSync(certPemPath(tenantId), result.certPem, "utf8");
+
+  const s = loadState();
+  const baseId = (orgName || tenantId).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || ("t-" + tenantId.slice(0, 8));
+  const existingIdx = (s.tenants || []).findIndex(x => x.tenantId === tenantId);
+  const uid = existingIdx >= 0 ? s.tenants[existingIdx].id
+    : (s.tenants.some(x => x.id === baseId) ? baseId + "-" + tenantId.slice(0, 4) : baseId);
+  const rec = {
+    id: uid, name: orgName, tenantId, organization, clientId: result.appId,
+    certThumbprint: result.certThumbprint || "", exoRole: result.exoRole, sccRole: result.sccRole,
+    addedAt: new Date().toISOString()
+  };
+  if (existingIdx >= 0) s.tenants[existingIdx] = Object.assign(s.tenants[existingIdx], rec);
+  else s.tenants.push(rec);
+  saveState(s);
+  delete req.session.onboard;
+
+  res.json({
+    status: "done", tenant: { id: uid, name: orgName, tenantId, organization, appId: result.appId },
+    warnings: [
+      result.consentOk ? null : ("Admin-Consent fehlgeschlagen: " + result.consentErr),
+      result.exoRole ? null : ("Exchange-Administrator-Rolle nicht zugewiesen: " + (result.exoRoleErr || "unbekannt")),
+      result.sccRole ? null : ("Compliance-Administrator-Rolle nicht zugewiesen (Alert Policy wird fehlschlagen): " + (result.sccRoleErr || "unbekannt")),
+      result.certPem ? null : ("Zertifikat konnte nicht erstellt werden: " + (result.certError || "unbekannt"))
+    ].filter(Boolean)
+  });
+}));
+
+// ---------- Verbindungstest + Deploy ----------
+function requireTenant(req) {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) { const e = new Error("Tenant nicht gefunden"); e.status = 404; throw e; }
+  if (!t.organization) { const e = new Error("Keine onmicrosoft-Domain fuer den Tenant hinterlegt — bitte neu onboarden."); e.status = 412; throw e; }
+  if (!fs.existsSync(certPemPath(t.tenantId))) { const e = new Error("Kein Zertifikat hinterlegt — Tenant neu onboarden."); e.status = 412; throw e; }
+  return t;
+}
+
+// Verbindungstest: EXO app-only verbinden und Accepted Domains lesen.
+app.post("/api/tenants/:id/test", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const body = [
+    "$doms = @(Get-AcceptedDomain | ForEach-Object DomainName)",
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; domains = $doms } | ConvertTo-Json -Compress) + 'ENDJSON')"
+  ].join("\r\n");
+  const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 120000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Verbindungstest fehlgeschlagen", hint: "Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit." });
+  res.json({ ok: true, domains: r.data.domains || [] });
+}));
+
+// Live-Deploy: setzt/aktualisiert die BP_-Policies (EXO) und danach die Alert Policy
+// (Security & Compliance, separater pwsh-Lauf — EXO- und IPPS-Session vertragen sich
+// nicht zuverlaessig in derselben Session).
+app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  let cfg;
+  try { cfg = DEPLOY.sanitizeConfig((req.body || {}).config); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
+  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+
+  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 420000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Deploy fehlgeschlagen", hint: "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden)." });
+
+  // Alert Policy via IPPS — Fehler hier lassen den Deploy nicht scheitern,
+  // sondern erscheinen als eigener Schritt im Ergebnis.
+  const steps = Array.isArray(r.data.steps) ? r.data.steps : [];
+  const a = await EXO.runIpps(auth, DEPLOY.buildAlertPolicyBody(cfg), 300000);
+  if (a.ok && a.data && a.data.ok !== false && Array.isArray(a.data.steps)) {
+    steps.push(...a.data.steps);
+  } else {
+    steps.push({
+      name: "Alert-Policy Quarantine-Release", ok: false,
+      error: (a.data && a.data.error) || a.error || "Security-&-Compliance-Verbindung fehlgeschlagen"
+    });
+  }
+  const allSucceeded = steps.every(s => s.ok);
+
+  res.json({ ok: true, result: { ok: true, allSucceeded, steps, domains: r.data.domains || [] } });
+}));
+
+app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));
