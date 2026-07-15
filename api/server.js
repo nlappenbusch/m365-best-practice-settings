@@ -306,6 +306,13 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
 
   res.json({
     status: "done", tenant: { id: uid, name: orgName, tenantId, organization, appId: result.appId },
+    setup: {
+      app: true,
+      consent: !!result.consentOk,
+      exoRole: !!result.exoRole,
+      sccRole: !!result.sccRole,
+      cert: !!result.certPem
+    },
     warnings: [
       result.consentOk ? null : ("Admin-Consent fehlgeschlagen: " + result.consentErr),
       result.exoRole ? null : ("Exchange-Administrator-Rolle nicht zugewiesen: " + (result.exoRoleErr || "unbekannt")),
@@ -338,9 +345,123 @@ app.post("/api/tenants/:id/test", wrap(async (req, res) => {
   res.json({ ok: true, domains: r.data.domains || [] });
 }));
 
-// Live-Deploy: setzt/aktualisiert die BP_-Policies (EXO) und danach die Alert Policy
-// (Security & Compliance, separater pwsh-Lauf — EXO- und IPPS-Session vertragen sich
-// nicht zuverlaessig in derselben Session).
+// ---------- Deploy-Jobs (asynchron, Fortschritt via Polling) ----------
+const jobs = new Map(); // jobId -> Job
+const JOB_KEEP = 20;
+
+function createJob(t) {
+  const id = crypto.randomBytes(8).toString("hex");
+  const steps = [];
+  for (const ph of DEPLOY.DEPLOY_PLAN) for (const name of ph.steps) steps.push({ phase: ph.phase, name, state: "pending" });
+  const job = {
+    id, tenantId: t.id, tenantName: t.name,
+    status: "running", phase: "Vorbereitung", steps,
+    domains: null, error: null, hint: null,
+    startedAt: new Date().toISOString(), finishedAt: null
+  };
+  // Alte fertige Jobs wegwerfen, damit die Map nicht waechst
+  if (jobs.size >= JOB_KEEP) {
+    for (const [k, j] of jobs) {
+      if (jobs.size < JOB_KEEP) break;
+      if (j.status !== "running") jobs.delete(k);
+    }
+  }
+  jobs.set(id, job);
+  return job;
+}
+
+// Progress-Events aus dem pwsh-Stream in den Job uebertragen
+function jobProgressHandler(job) {
+  return (evt) => {
+    if (!evt || typeof evt !== "object") return;
+    if (evt.type === "phase" && evt.label) { job.phase = String(evt.label); return; }
+    if (evt.type === "step" && evt.name) {
+      let st = job.steps.find(s => s.name === evt.name);
+      if (!st) { st = { phase: job.phase, name: String(evt.name), state: "pending" }; job.steps.push(st); }
+      if (evt.state === "running") { st.state = "running"; st.try = evt.try || 1; }
+      else if (evt.state === "retry") { st.state = "retry"; st.try = evt.try; st.lastError = evt.error; }
+      else if (evt.state === "done") { st.state = "done"; st.action = evt.action; st.tries = evt.tries; }
+      else if (evt.state === "failed") { st.state = "failed"; st.error = evt.error; st.tries = evt.tries; }
+    }
+  };
+}
+
+// Endergebnis eines Laufs als Fallback in die Job-Steps mergen
+// (falls einzelne Progress-Marker im Stream verloren gingen).
+function mergeStepResults(job, resultSteps) {
+  for (const s of resultSteps || []) {
+    const st = job.steps.find(x => x.name === s.name);
+    if (!st) continue;
+    if (st.state !== "done" && st.state !== "failed") {
+      st.state = s.ok ? "done" : "failed";
+      st.action = s.action; st.error = s.error; st.tries = s.tries;
+    }
+  }
+}
+
+function finishJob(job) {
+  job.phase = "Fertig";
+  job.status = job.steps.every(s => s.state === "done") ? "done" : "partial";
+  job.finishedAt = new Date().toISOString();
+}
+
+async function runDeployJob(job, t, cfg) {
+  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+  const onProgress = jobProgressHandler(job);
+
+  // Dev-Simulation fuer UI-Tests ohne echten Tenant (FAKE_DEPLOY=1 — nie in Prod setzen)
+  if (process.env.FAKE_DEPLOY === "1") return fakeDeployJob(job, onProgress);
+
+  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000, onProgress);
+  if (!r.ok || !r.data || r.data.ok === false) {
+    job.status = "failed";
+    job.error = (r.data && r.data.error) || r.error || "Deploy fehlgeschlagen";
+    job.hint = "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden). Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit.";
+    job.finishedAt = new Date().toISOString();
+    return;
+  }
+  job.domains = r.data.domains || [];
+  mergeStepResults(job, r.data.steps);
+
+  // Alert Policy via IPPS — Fehler hier lassen den Deploy nicht scheitern,
+  // sondern erscheinen als eigener Schritt im Ergebnis.
+  const a = await EXO.runIpps(auth, DEPLOY.buildAlertPolicyBody(cfg), 300000, onProgress);
+  if (a.ok && a.data && a.data.ok !== false) {
+    mergeStepResults(job, a.data.steps);
+  } else {
+    const st = job.steps.find(s => s.name === "Alert-Policy Quarantine-Release");
+    if (st) { st.state = "failed"; st.error = (a.data && a.data.error) || a.error || "Security-&-Compliance-Verbindung fehlgeschlagen"; }
+  }
+  finishJob(job);
+}
+
+// Simulierter Deploy (nur fuer lokale UI-Entwicklung, FAKE_DEPLOY=1)
+async function fakeDeployJob(job, onProgress) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  onProgress({ type: "phase", label: "Verbindung zu Exchange Online" });
+  await sleep(1500);
+  for (const ph of DEPLOY.DEPLOY_PLAN) {
+    onProgress({ type: "phase", label: ph.phase });
+    for (const name of ph.steps) {
+      onProgress({ type: "step", name, state: "running", try: 1 });
+      await sleep(900);
+      if (name === "Anti-Phishing-Policy") {
+        onProgress({ type: "step", name, state: "retry", try: 2, error: "quarantine tag not present (simuliert)" });
+        await sleep(1200);
+      }
+      if (name === "Anti-Malware-Rule") {
+        onProgress({ type: "step", name, state: "failed", error: "Simulierter Fehler fuer UI-Test" });
+        continue;
+      }
+      onProgress({ type: "step", name, state: "done", action: "created", tries: name === "Anti-Phishing-Policy" ? 2 : 1 });
+    }
+  }
+  job.domains = ["demo.ch", "demo.onmicrosoft.com"];
+  finishJob(job);
+}
+
+// Live-Deploy starten: legt einen Job an und antwortet sofort mit der Job-Id.
+// Die UI pollt /api/jobs/:id fuer den Live-Fortschritt.
 app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   const t = requireTenant(req);
   const b = req.body || {};
@@ -352,27 +473,23 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   // (Get-AcceptedDomain zur Laufzeit) statt der Domains aus der Tool-Config.
   if (b.autoDomains) cfg.domains = [];
 
-  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
-
-  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000);
-  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
-  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Deploy fehlgeschlagen", hint: "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden)." });
-
-  // Alert Policy via IPPS — Fehler hier lassen den Deploy nicht scheitern,
-  // sondern erscheinen als eigener Schritt im Ergebnis.
-  const steps = Array.isArray(r.data.steps) ? r.data.steps : [];
-  const a = await EXO.runIpps(auth, DEPLOY.buildAlertPolicyBody(cfg), 300000);
-  if (a.ok && a.data && a.data.ok !== false && Array.isArray(a.data.steps)) {
-    steps.push(...a.data.steps);
-  } else {
-    steps.push({
-      name: "Alert-Policy Quarantine-Release", ok: false,
-      error: (a.data && a.data.error) || a.error || "Security-&-Compliance-Verbindung fehlgeschlagen"
-    });
+  for (const j of jobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Deploy.", jobId: j.id });
+    }
   }
-  const allSucceeded = steps.every(s => s.ok);
 
-  res.json({ ok: true, result: { ok: true, allSucceeded, steps, domains: r.data.domains || [] } });
+  const job = createJob(t);
+  runDeployJob(job, t, cfg).catch(e => {
+    job.status = "failed"; job.error = e.message; job.finishedAt = new Date().toISOString();
+  });
+  res.json({ ok: true, jobId: job.id });
 }));
+
+app.get("/api/jobs/:id", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
+  res.json(job);
+});
 
 app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));

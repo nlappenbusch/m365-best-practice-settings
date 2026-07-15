@@ -40,6 +40,10 @@
   Dafür vergibt das Onboarding zusätzlich die Entra-Rolle **Compliance Administrator**.
   Single-Event-Alert (`-AggregationType None`) → kein E5 nötig.
 - nginx proxied `/api/` an den Backend-Container; ohne Backend zeigt der Tab einen Hinweis.
+- **Live-Fortschritt**: Deploys laufen als Job — die UI zeigt in Echtzeit Phase, Schritt-Status
+  (läuft/Retry/fertig/fehlgeschlagen), Fortschrittsbalken und Dauer. Vor dem Start fasst ein
+  Panel zusammen, was angewendet wird (Domains, Aktionen, Dateitypen, Alert-Empfänger).
+  Onboarding zeigt eine Einrichtungs-Checkliste (App, Consent, Rollen, Zertifikat).
 
 ## Version 2.0 - Enhanced Edition (2026-02-12)
 

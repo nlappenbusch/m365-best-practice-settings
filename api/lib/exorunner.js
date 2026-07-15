@@ -29,7 +29,8 @@ const COMMANDS = [
 
 
 // Generischer pwsh-Lauf: Skript ueber stdin, JSON zwischen Markern extrahieren.
-function runPwsh(script, timeoutMs) {
+// onProgress (optional) bekommt live jedes BPPROGRESS-Objekt aus dem stdout-Stream.
+function runPwsh(script, timeoutMs, onProgress) {
   timeoutMs = timeoutMs || 180000;
   return new Promise((resolve) => {
     let ps;
@@ -38,11 +39,23 @@ function runPwsh(script, timeoutMs) {
     } catch (e) {
       return resolve({ ok: false, error: "pwsh nicht startbar: " + e.message, raw: "" });
     }
-    let out = "", err = "", done = false;
+    let out = "", err = "", done = false, scanned = 0;
+    const scanProgress = () => {
+      if (!onProgress) return;
+      for (;;) {
+        const s = out.indexOf("BPPROGRESS", scanned);
+        if (s === -1) return;
+        const e = out.indexOf("ENDPROGRESS", s);
+        if (e === -1) return; // Marker noch unvollstaendig — auf naechsten Chunk warten
+        const payload = out.slice(s + "BPPROGRESS".length, e);
+        scanned = e + "ENDPROGRESS".length;
+        try { onProgress(JSON.parse(payload)); } catch (x) { /* kaputter Marker — ignorieren */ }
+      }
+    };
     const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ps.kill(); } catch (e) {} resolve(r); };
     const timer = setTimeout(() => finish({ ok: false, error: "Zeitueberschreitung (" + Math.round(timeoutMs / 1000) + "s)", raw: out + err }), timeoutMs);
     ps.on("error", e => finish({ ok: false, error: "pwsh-Fehler: " + e.message, raw: "" }));
-    ps.stdout.on("data", d => out += d.toString());
+    ps.stdout.on("data", d => { out += d.toString(); scanProgress(); });
     ps.stderr.on("data", d => err += d.toString());
     ps.on("close", () => {
       const m = out.match(/BEGINJSON([\s\S]*?)ENDJSON/);
@@ -63,10 +76,11 @@ function psQuote(s) { return "'" + String(s == null ? "" : s).replace(/'/g, "''"
  * @param {object} opts { appId, organization (tenant.onmicrosoft.com), certPemPath }
  * @param {string} bodyScript  gibt sein Ergebnis via BEGINJSON..ENDJSON aus
  */
-async function runExo(opts, bodyScript, timeoutMs) {
+async function runExo(opts, bodyScript, timeoutMs, onProgress) {
   if (!opts.certPemPath) return { ok: false, error: "Kein Zertifikat-Pfad." };
   const wrapper = [
     "$ErrorActionPreference = 'Stop'",
+    "Write-Output ('BPPROGRESS' + (@{ type = 'phase'; label = 'Verbindung zu Exchange Online' } | ConvertTo-Json -Compress) + 'ENDPROGRESS')",
     "try {",
     "  Import-Module ExchangeOnlineManagement -ErrorAction Stop",
     "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'ExchangeOnlineManagement-Modul fehlt: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
@@ -80,7 +94,7 @@ async function runExo(opts, bodyScript, timeoutMs) {
     "",
     "try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}"
   ].join("\r\n");
-  return runPwsh(wrapper, timeoutMs);
+  return runPwsh(wrapper, timeoutMs, onProgress);
 }
 
 /**
@@ -89,10 +103,11 @@ async function runExo(opts, bodyScript, timeoutMs) {
  * Exchange.ManageAsApp + Entra-Rolle "Compliance Administrator" (setzt das Onboarding).
  * Modul v3.2+ verbindet REST-basiert — laeuft damit auch im Linux-Container.
  */
-async function runIpps(opts, bodyScript, timeoutMs) {
+async function runIpps(opts, bodyScript, timeoutMs, onProgress) {
   if (!opts.certPemPath) return { ok: false, error: "Kein Zertifikat-Pfad." };
   const wrapper = [
     "$ErrorActionPreference = 'Stop'",
+    "Write-Output ('BPPROGRESS' + (@{ type = 'phase'; label = 'Verbindung zu Security & Compliance' } | ConvertTo-Json -Compress) + 'ENDPROGRESS')",
     "try {",
     "  Import-Module ExchangeOnlineManagement -ErrorAction Stop",
     "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'ExchangeOnlineManagement-Modul fehlt: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
@@ -121,7 +136,7 @@ async function runIpps(opts, bodyScript, timeoutMs) {
     "",
     "try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}"
   ].join("\r\n");
-  return runPwsh(wrapper, timeoutMs);
+  return runPwsh(wrapper, timeoutMs, onProgress);
 }
 
 module.exports = { runPwsh, runExo, runIpps, psQuote };

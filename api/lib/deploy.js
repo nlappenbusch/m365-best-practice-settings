@@ -104,24 +104,47 @@ function sanitizeConfig(raw) {
 // real auftreten — Container-Race bei der allerersten Quarantine-Policy
 // ("object already exists") und Replikationsverzoegerung, wenn eine Policy ein
 // sekundenaltes Quarantine-Tag referenziert ("quarantine tag ... is not present").
+// Send-BPProgress streamt den Live-Fortschritt an den Node-Runner (Marker im stdout).
 const RETRY_HELPER = [
   "$steps = [System.Collections.Generic.List[object]]::new()",
+  "function Send-BPProgress { param($o) Write-Output ('BPPROGRESS' + ($o | ConvertTo-Json -Compress -Depth 4) + 'ENDPROGRESS') }",
   "function Invoke-BPStep {",
   "  param([string]$Name, [scriptblock]$Get, [scriptblock]$New, [scriptblock]$Set)",
   "  $maxTries = 4",
+  "  Send-BPProgress @{ type = 'step'; name = $Name; state = 'running'; try = 1 }",
   "  for ($try = 1; $try -le $maxTries; $try++) {",
   "    try {",
   "      $existing = & $Get",
-  "      if ($null -eq $existing) { & $New; $steps.Add(@{ name = $Name; ok = $true; action = 'created'; tries = $try }) }",
-  "      else { & $Set; $steps.Add(@{ name = $Name; ok = $true; action = 'updated'; tries = $try }) }",
+  "      $action = if ($null -eq $existing) { & $New; 'created' } else { & $Set; 'updated' }",
+  "      $steps.Add(@{ name = $Name; ok = $true; action = $action; tries = $try })",
+  "      Send-BPProgress @{ type = 'step'; name = $Name; state = 'done'; action = $action; tries = $try }",
   "      return",
   "    } catch {",
-  "      if ($try -eq $maxTries) { $steps.Add(@{ name = $Name; ok = $false; error = $_.Exception.Message; tries = $try }); return }",
+  "      if ($try -eq $maxTries) {",
+  "        $steps.Add(@{ name = $Name; ok = $false; error = $_.Exception.Message; tries = $try })",
+  "        Send-BPProgress @{ type = 'step'; name = $Name; state = 'failed'; error = $_.Exception.Message; tries = $try }",
+  "        return",
+  "      }",
+  "      Send-BPProgress @{ type = 'step'; name = $Name; state = 'retry'; try = ($try + 1); error = $_.Exception.Message }",
   "      Start-Sleep -Seconds (10 * $try)",
   "    }",
   "  }",
   "}"
 ].join("\r\n");
+
+// Der geplante Ablauf — Basis fuer die Live-Anzeige im Frontend (Job-Steps
+// werden damit vorbefuellt). Namen muessen zu den step()-Aufrufen passen.
+const DEPLOY_PLAN = [
+  { phase: "Quarantine Policies", steps: ["Quarantine-Policy SelfRelease", "Quarantine-Policy RequestRelease"] },
+  { phase: "Anti-Phishing", steps: ["Anti-Phishing-Policy", "Anti-Phishing-Rule"] },
+  { phase: "Anti-Spam", steps: ["Anti-Spam-Policy", "Anti-Spam-Rule"] },
+  { phase: "Anti-Malware", steps: ["Anti-Malware-Policy", "Anti-Malware-Rule"] },
+  { phase: "Alert Policy (Security & Compliance)", steps: ["Alert-Policy Quarantine-Release"] }
+];
+
+function phaseMarker(label) {
+  return "Send-BPProgress @{ type = 'phase'; label = " + psQuote(label) + " }";
+}
 
 // Ein Upsert-Schritt als Invoke-BPStep-Aufruf (Get -> New oder Set).
 function step(name, identity, getCmd, newLines, setLines) {
@@ -209,6 +232,7 @@ function buildDeployBody(cfg) {
     "$fileTypes = " + psArray(am.fileTypes),
     "",
     "# --- Quarantine Policies (59 = AllowSender+BlockSender+RequestRelease+Preview+Delete / 26 = BlockSender+RequestRelease+Preview) ---",
+    phaseMarker("Quarantine Policies"),
     ...step("Quarantine-Policy SelfRelease", "BP_Quarantine-SelfReleaseNotification", "Get-QuarantinePolicy",
       ["New-QuarantinePolicy -Name 'BP_Quarantine-SelfReleaseNotification' -EndUserQuarantinePermissionsValue 59 -ESNEnabled $true -IncludeMessagesFromBlockedSenderAddress $true | Out-Null"],
       ["Set-QuarantinePolicy -Identity 'BP_Quarantine-SelfReleaseNotification' -EndUserQuarantinePermissionsValue 59 -ESNEnabled $true -IncludeMessagesFromBlockedSenderAddress $true | Out-Null"]),
@@ -217,18 +241,21 @@ function buildDeployBody(cfg) {
       ["Set-QuarantinePolicy -Identity 'BP_Quarantine-RequestReleaseNotification' -EndUserQuarantinePermissionsValue 26 -ESNEnabled $true -IncludeMessagesFromBlockedSenderAddress $false | Out-Null"]),
     "",
     "# --- Anti-Phishing ---",
+    phaseMarker("Anti-Phishing"),
     ...step("Anti-Phishing-Policy", "BP_AntiPhishing", "Get-AntiPhishPolicy",
       phishParams("New-AntiPhishPolicy", "-Name 'BP_AntiPhishing'"),
       phishParams("Set-AntiPhishPolicy", "-Identity 'BP_AntiPhishing'")),
     ...ruleStep("Anti-Phishing-Rule", "BP_AntiPhishing_Rule", "Get-AntiPhishRule", "New-AntiPhishRule", "Set-AntiPhishRule", "AntiPhishPolicy", "BP_AntiPhishing"),
     "",
     "# --- Anti-Spam ---",
+    phaseMarker("Anti-Spam"),
     ...step("Anti-Spam-Policy", "BP_AntiSpam_Inbound", "Get-HostedContentFilterPolicy",
       spamParams("New-HostedContentFilterPolicy", "-Name 'BP_AntiSpam_Inbound' -EnableEndUserSpamNotifications $true -EndUserSpamNotificationFrequency 1"),
       spamParams("Set-HostedContentFilterPolicy", "-Identity 'BP_AntiSpam_Inbound'")),
     ...ruleStep("Anti-Spam-Rule", "BP_AntiSpam_Inbound_Rule", "Get-HostedContentFilterRule", "New-HostedContentFilterRule", "Set-HostedContentFilterRule", "HostedContentFilterPolicy", "BP_AntiSpam_Inbound"),
     "",
     "# --- Anti-Malware ---",
+    phaseMarker("Anti-Malware"),
     ...step("Anti-Malware-Policy", "BP_AntiMalware", "Get-MalwareFilterPolicy",
       malwareParams("New-MalwareFilterPolicy", "-Name 'BP_AntiMalware'"),
       malwareParams("Set-MalwareFilterPolicy", "-Identity 'BP_AntiMalware'")),
@@ -251,6 +278,7 @@ function buildAlertPolicyBody(cfg) {
   const notify = psArray(recipients);
   const lines = [
     RETRY_HELPER,
+    phaseMarker("Alert Policy (Security & Compliance)"),
     ...step("Alert-Policy Quarantine-Release", "BP_UserRequestReleaseStatus", "Get-ProtectionAlert",
       [
         "New-ProtectionAlert -Name 'BP_UserRequestReleaseStatus' `",
@@ -269,4 +297,4 @@ function buildAlertPolicyBody(cfg) {
   return lines.join("\r\n");
 }
 
-module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicyBody };
+module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicyBody, DEPLOY_PLAN };
