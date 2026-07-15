@@ -268,33 +268,58 @@ function buildDeployBody(cfg) {
 }
 
 /**
- * Baut den pwsh-Body fuer die Alert Policy (laeuft innerhalb der runIpps-Verbindung,
- * Security & Compliance PowerShell). -AggregationType None + -Operation macht die
- * Policy auch ohne E5-Lizenz als Single-Event-Alert anlegbar.
+ * Fertiges PowerShell-Snippet fuer die Alert Policy — als MANUELLER Schritt.
+ * Grund: Security & Compliance PowerShell (Connect-IPPSSession) ist laut
+ * Microsoft-Doku auf Linux nicht verfuegbar; der Backend-Container kann den
+ * Schritt daher nicht ausfuehren. Einmalig pro Tenant auf Windows ausfuehren.
+ * -AggregationType None + -Operation macht die Policy auch ohne E5 anlegbar.
  */
-function buildAlertPolicyBody(cfg) {
+function buildAlertPolicySnippet(cfg) {
   const recipients = [cfg.adminEmail];
   if (cfg.mspEmail && cfg.mspEmail !== cfg.adminEmail) recipients.push(cfg.mspEmail);
   const notify = psArray(recipients);
-  const lines = [
-    RETRY_HELPER,
-    phaseMarker("Alert Policy (Security & Compliance)"),
-    ...step("Alert-Policy Quarantine-Release", "BP_UserRequestReleaseStatus", "Get-ProtectionAlert",
-      [
-        "New-ProtectionAlert -Name 'BP_UserRequestReleaseStatus' `",
-        "  -Category ThreatManagement `",
-        "  -ThreatType Activity `",
-        "  -Operation QuarantineRequestReleaseMessage `",
-        "  -NotifyUser " + notify + " `",
-        "  -Severity Low `",
-        "  -Description 'Best Practice: User requested to release a quarantined message' `",
-        "  -AggregationType None | Out-Null"
-      ],
-      ["Set-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -NotifyUser " + notify + " | Out-Null"]),
-    "$failed = @($steps | Where-Object { -not $_.ok })",
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = @($steps) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
-  ];
-  return lines.join("\r\n");
+  return [
+    "# Alert Policy fuer Quarantine-Release-Anfragen — einmalig pro Tenant",
+    "# auf einem WINDOWS-Rechner ausfuehren (S&C PowerShell gibt es nicht auf Linux).",
+    "Connect-IPPSSession",
+    "$alert = Get-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -ErrorAction SilentlyContinue",
+    "if ($null -eq $alert) {",
+    "    New-ProtectionAlert -Name 'BP_UserRequestReleaseStatus' `",
+    "        -Category ThreatManagement `",
+    "        -ThreatType Activity `",
+    "        -Operation QuarantineRequestReleaseMessage `",
+    "        -NotifyUser " + notify + " `",
+    "        -Severity Low `",
+    "        -Description 'Best Practice: User requested to release a quarantined message' `",
+    "        -AggregationType None",
+    "} else {",
+    "    Set-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -NotifyUser " + notify,
+    "}",
+    "Disconnect-ExchangeOnline -Confirm:$false"
+  ].join("\r\n");
 }
 
-module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicyBody, DEPLOY_PLAN };
+/**
+ * Ist-Zustand-Audit: liest alle BP_-relevanten Objekte aus dem Tenant und gibt
+ * sie strukturiert zurueck. Der Soll/Ist-Vergleich passiert im Frontend
+ * (dort liegt die aktuelle Tool-Konfiguration).
+ */
+function buildAuditBody() {
+  return [
+    "function Get-Safe([scriptblock]$sb) { try { & $sb } catch { $null } }",
+    "$audit = [ordered]@{",
+    "  acceptedDomains  = @(Get-Safe { Get-AcceptedDomain | ForEach-Object DomainName })",
+    "  quarantineSelf   = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-SelfReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
+    "  quarantineRequest = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-RequestReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
+    "  antiPhish        = Get-Safe { Get-AntiPhishPolicy -Identity 'BP_AntiPhishing' -ErrorAction SilentlyContinue | Select-Object Name, Enabled, EnableSpoofIntelligence, EnableFirstContactSafetyTips, EnableUnauthenticatedSender, EnableViaTag, HonorDmarcPolicy, DmarcQuarantineAction, DmarcRejectAction, AuthenticationFailAction, SpoofQuarantineTag }",
+    "  antiPhishRule    = Get-Safe { Get-AntiPhishRule -Identity 'BP_AntiPhishing_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
+    "  antiSpam         = Get-Safe { Get-HostedContentFilterPolicy -Identity 'BP_AntiSpam_Inbound' -ErrorAction SilentlyContinue | Select-Object Name, BulkThreshold, SpamAction, HighConfidenceSpamAction, BulkSpamAction, PhishSpamAction, HighConfidencePhishAction, QuarantineRetentionPeriod, SpamQuarantineTag, HighConfidenceSpamQuarantineTag, BulkQuarantineTag, PhishQuarantineTag, HighConfidencePhishQuarantineTag, IncreaseScoreWithBizOrInfoUrls, IncreaseScoreWithNumericIps, IncreaseScoreWithRedirectToOtherPort, MarkAsSpamEmptyMessages, MarkAsSpamJavaScriptInHtml, MarkAsSpamFramesInHtml, MarkAsSpamSensitiveWordList, MarkAsSpamSpfRecordHardFail, MarkAsSpamFromAddressAuthFail }",
+    "  antiSpamRule     = Get-Safe { Get-HostedContentFilterRule -Identity 'BP_AntiSpam_Inbound_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
+    "  malware          = Get-Safe { Get-MalwareFilterPolicy -Identity 'BP_AntiMalware' -ErrorAction SilentlyContinue | Select-Object Name, EnableFileFilter, FileTypes, ZapEnabled, QuarantineTag, InternalSenderAdminAddress, ExternalSenderAdminAddress, EnableInternalSenderAdminNotifications, EnableExternalSenderAdminNotifications }",
+    "  malwareRule      = Get-Safe { Get-MalwareFilterRule -Identity 'BP_AntiMalware_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
+    "}",
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; audit = $audit } | ConvertTo-Json -Compress -Depth 8) + 'ENDJSON')"
+  ].join("\r\n");
+}
+
+module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN };

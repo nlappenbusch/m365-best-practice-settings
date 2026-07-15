@@ -35,10 +35,16 @@
   mit `Exchange.ManageAsApp`, Exchange-Administrator-Rolle und self-signed Zertifikat an.
 - **Deploy**: app-only `Connect-ExchangeOnline` mit Zertifikat, setzt alle BP_-Policies idempotent,
   Schritt-für-Schritt-Ergebnis in der UI.
-- **Alert Policy inklusive**: separater app-only `Connect-IPPSSession`-Lauf (Security & Compliance)
-  setzt `BP_UserRequestReleaseStatus` (Quarantine-Release-Anfragen → Admin- + MSP-Email).
-  Dafür vergibt das Onboarding zusätzlich die Entra-Rolle **Compliance Administrator**.
-  Single-Event-Alert (`-AggregationType None`) → kein E5 nötig.
+- **Alert Policy als geführter manueller Schritt**: Security & Compliance PowerShell
+  (`Connect-IPPSSession`) ist laut Microsoft-Doku auf Linux nicht verfügbar — der
+  Backend-Container kann den Schritt nicht ausführen. Das Deploy-Ergebnis zeigt ihn
+  als 📋-Schritt mit fertigem Copy-Paste-Snippet (einmalig pro Tenant auf Windows;
+  `-AggregationType None` → kein E5 nötig). Das Onboarding vergibt die
+  Compliance-Administrator-Rolle weiterhin (für einen späteren Windows-Worker).
+- **🔎 Ist-Zustand-Prüfung**: Pro Tenant liest ein Audit die BP_-Policies live aus dem
+  Tenant und zeigt einen Soll/Ist-Vergleich gegen die aktuelle Konfiguration —
+  35+ Checks inkl. Quarantine-Permissions, Aktionen, Tags, erweiterten Spam-Filtern,
+  Dateityp-Diff und Rule-Domains.
 - nginx proxied `/api/` an den Backend-Container; ohne Backend zeigt der Tab einen Hinweis.
 - **Live-Fortschritt**: Deploys laufen als Job — die UI zeigt in Echtzeit Phase, Schritt-Status
   (läuft/Retry/fertig/fehlgeschlagen), Fortschrittsbalken und Dauer. Vor dem Start fasst ein

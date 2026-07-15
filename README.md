@@ -210,13 +210,19 @@ direkt in einen Tenant deployen:
    - Entra-Rollen **Exchange Administrator** (Policies) und **Compliance
      Administrator** (Alert Policy via Security & Compliance PowerShell)
    - Self-signed Zertifikat (Public Key in der App, PEM im Backend-Volume `api-state`)
-3. **Deploy**: wendet die aktuelle Konfiguration idempotent an — erst die
-   Quarantine-, Anti-Phishing-, Anti-Spam- und Anti-Malware-Policies inkl. Rules
-   (app-only `Connect-ExchangeOnline`), danach die Alert Policy
-   `BP_UserRequestReleaseStatus` für Quarantine-Release-Anfragen (app-only
-   `Connect-IPPSSession`, separater Lauf). Vorhandene `BP_`-Policies werden
-   aktualisiert statt übersprungen. Die Alert Policy wird als Single-Event-Alert
-   (`-AggregationType None`) angelegt und braucht daher kein E5.
+3. **Deploy**: wendet die aktuelle Konfiguration idempotent an — Quarantine-,
+   Anti-Phishing-, Anti-Spam- und Anti-Malware-Policies inkl. Rules (app-only
+   `Connect-ExchangeOnline`) mit Live-Fortschritt. Vorhandene `BP_`-Policies
+   werden aktualisiert statt übersprungen.
+4. **🔎 Prüfen**: liest den Ist-Zustand der BP_-Policies live aus dem Tenant und
+   zeigt einen Soll/Ist-Vergleich gegen die aktuelle Konfiguration.
+
+**Alert Policy = manueller Mini-Schritt:** Security & Compliance PowerShell
+(`Connect-IPPSSession`) ist laut Microsoft-Doku auf Linux nicht verfügbar — der
+Backend-Container kann `BP_UserRequestReleaseStatus` daher nicht selbst anlegen.
+Das Deploy-Ergebnis liefert stattdessen ein fertiges Snippet zum einmaligen
+Ausführen auf einem Windows-Rechner (Single-Event-Alert via
+`-AggregationType None`, kein E5 nötig).
 
 **Hinweis:** Frisch onboardete Tenants brauchen wenige Minuten
 Entra-Replikationszeit, bevor der erste Verbindungstest/Deploy klappt. Tenants,

@@ -401,7 +401,8 @@ function mergeStepResults(job, resultSteps) {
 
 function finishJob(job) {
   job.phase = "Fertig";
-  job.status = job.steps.every(s => s.state === "done") ? "done" : "partial";
+  // "manual" zaehlt nicht als Fehlschlag — der Schritt ist bewusst dem Admin ueberlassen.
+  job.status = job.steps.every(s => s.state === "done" || s.state === "manual") ? "done" : "partial";
   job.finishedAt = new Date().toISOString();
 }
 
@@ -410,7 +411,7 @@ async function runDeployJob(job, t, cfg) {
   const onProgress = jobProgressHandler(job);
 
   // Dev-Simulation fuer UI-Tests ohne echten Tenant (FAKE_DEPLOY=1 — nie in Prod setzen)
-  if (process.env.FAKE_DEPLOY === "1") return fakeDeployJob(job, onProgress);
+  if (process.env.FAKE_DEPLOY === "1") return fakeDeployJob(job, onProgress, cfg);
 
   const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000, onProgress);
   if (!r.ok || !r.data || r.data.ok === false) {
@@ -423,26 +424,30 @@ async function runDeployJob(job, t, cfg) {
   job.domains = r.data.domains || [];
   mergeStepResults(job, r.data.steps);
 
-  // Alert Policy via IPPS — Fehler hier lassen den Deploy nicht scheitern,
-  // sondern erscheinen als eigener Schritt im Ergebnis.
-  const a = await EXO.runIpps(auth, DEPLOY.buildAlertPolicyBody(cfg), 300000, onProgress);
-  if (a.ok && a.data && a.data.ok !== false) {
-    mergeStepResults(job, a.data.steps);
-  } else {
-    const st = job.steps.find(s => s.name === "Alert-Policy Quarantine-Release");
-    if (st) { st.state = "failed"; st.error = (a.data && a.data.error) || a.error || "Security-&-Compliance-Verbindung fehlgeschlagen"; }
-  }
+  // Alert Policy: Security & Compliance PowerShell ist auf Linux nicht verfuegbar
+  // (Microsoft-Doku) — der Schritt wird als MANUELL markiert und bekommt ein
+  // fertiges Snippet fuer die einmalige Ausfuehrung auf einem Windows-Rechner.
+  markAlertStepManual(job, cfg);
   finishJob(job);
 }
 
+function markAlertStepManual(job, cfg) {
+  const st = job.steps.find(s => s.name === "Alert-Policy Quarantine-Release");
+  if (!st) return;
+  st.state = "manual";
+  st.info = "Security & Compliance PowerShell (Connect-IPPSSession) ist auf Linux nicht verfuegbar — einmalig pro Tenant auf einem Windows-Rechner ausfuehren.";
+  st.snippet = DEPLOY.buildAlertPolicySnippet(cfg);
+}
+
 // Simulierter Deploy (nur fuer lokale UI-Entwicklung, FAKE_DEPLOY=1)
-async function fakeDeployJob(job, onProgress) {
+async function fakeDeployJob(job, onProgress, cfg) {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   onProgress({ type: "phase", label: "Verbindung zu Exchange Online" });
   await sleep(1500);
   for (const ph of DEPLOY.DEPLOY_PLAN) {
     onProgress({ type: "phase", label: ph.phase });
     for (const name of ph.steps) {
+      if (name === "Alert-Policy Quarantine-Release") continue; // wird unten als manual markiert
       onProgress({ type: "step", name, state: "running", try: 1 });
       await sleep(900);
       if (name === "Anti-Phishing-Policy") {
@@ -457,7 +462,23 @@ async function fakeDeployJob(job, onProgress) {
     }
   }
   job.domains = ["demo.ch", "demo.onmicrosoft.com"];
+  markAlertStepManual(job, cfg);
   finishJob(job);
+}
+
+// Simulierter Audit (nur fuer lokale UI-Entwicklung, FAKE_DEPLOY=1)
+function fakeAudit() {
+  return {
+    acceptedDomains: ["demo.ch", "demo.onmicrosoft.com"],
+    quarantineSelf: { Name: "BP_Quarantine-SelfReleaseNotification", ESNEnabled: true, IncludeMessagesFromBlockedSenderAddress: true, Permissions: "PermissionToAllowSender: True, PermissionToBlockSender: True, PermissionToRequestRelease: True, PermissionToRelease: False, PermissionToPreview: True, PermissionToDelete: True" },
+    quarantineRequest: null, // simuliert: fehlt
+    antiPhish: { Name: "BP_AntiPhishing", Enabled: true, EnableSpoofIntelligence: true, EnableFirstContactSafetyTips: true, EnableUnauthenticatedSender: true, EnableViaTag: true, HonorDmarcPolicy: true, DmarcQuarantineAction: "Quarantine", DmarcRejectAction: "Reject", AuthenticationFailAction: "MoveToJmf", SpoofQuarantineTag: "BP_Quarantine-SelfReleaseNotification" },
+    antiPhishRule: { Name: "BP_AntiPhishing_Rule", State: "Enabled", Priority: 0, RecipientDomainIs: ["example.com", "example.onmicrosoft.com"] },
+    antiSpam: { Name: "BP_AntiSpam_Inbound", BulkThreshold: 7, SpamAction: "Quarantine", HighConfidenceSpamAction: "Quarantine", BulkSpamAction: "Quarantine", PhishSpamAction: "Quarantine", HighConfidencePhishAction: "Quarantine", QuarantineRetentionPeriod: 30, SpamQuarantineTag: "BP_Quarantine-SelfReleaseNotification", HighConfidenceSpamQuarantineTag: "BP_Quarantine-SelfReleaseNotification", BulkQuarantineTag: "BP_Quarantine-SelfReleaseNotification", PhishQuarantineTag: "BP_Quarantine-SelfReleaseNotification", HighConfidencePhishQuarantineTag: "BP_Quarantine-RequestReleaseNotification", IncreaseScoreWithBizOrInfoUrls: "On", IncreaseScoreWithNumericIps: "On", IncreaseScoreWithRedirectToOtherPort: "On", MarkAsSpamEmptyMessages: "On", MarkAsSpamJavaScriptInHtml: "On", MarkAsSpamFramesInHtml: "On", MarkAsSpamSensitiveWordList: "On", MarkAsSpamSpfRecordHardFail: "On", MarkAsSpamFromAddressAuthFail: "On" },
+    antiSpamRule: { Name: "BP_AntiSpam_Inbound_Rule", State: "Enabled", Priority: 0, RecipientDomainIs: ["demo.ch", "demo.onmicrosoft.com"] },
+    malware: { Name: "BP_AntiMalware", EnableFileFilter: true, FileTypes: ["ace", "apk", "exe", "ps1"], ZapEnabled: true, QuarantineTag: "BP_Quarantine-RequestReleaseNotification", InternalSenderAdminAddress: "admin@example.com", ExternalSenderAdminAddress: "admin@example.com", EnableInternalSenderAdminNotifications: true, EnableExternalSenderAdminNotifications: true },
+    malwareRule: { Name: "BP_AntiMalware_Rule", State: "Enabled", Priority: 0, RecipientDomainIs: ["demo.ch", "demo.onmicrosoft.com"] }
+  };
 }
 
 // Live-Deploy starten: legt einen Job an und antwortet sofort mit der Job-Id.
@@ -491,5 +512,17 @@ app.get("/api/jobs/:id", (req, res) => {
   if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
   res.json(job);
 });
+
+// Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant.
+// Der Soll/Ist-Vergleich passiert im Frontend (dort liegt die Konfiguration).
+app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, audit: fakeAudit() });
+  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+  const r = await EXO.runExo(auth, DEPLOY.buildAuditBody(), 180000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Audit fehlgeschlagen" });
+  res.json({ ok: true, audit: r.data.audit || {} });
+}));
 
 app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));

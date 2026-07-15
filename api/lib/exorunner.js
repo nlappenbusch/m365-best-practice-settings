@@ -97,46 +97,9 @@ async function runExo(opts, bodyScript, timeoutMs, onProgress) {
   return runPwsh(wrapper, timeoutMs, onProgress);
 }
 
-/**
- * Verbindet Security & Compliance PowerShell app-only (Connect-IPPSSession, gleiche
- * App + Zertifikat wie EXO) und fuehrt bodyScript aus. Voraussetzung im Tenant:
- * Exchange.ManageAsApp + Entra-Rolle "Compliance Administrator" (setzt das Onboarding).
- * Modul v3.2+ verbindet REST-basiert — laeuft damit auch im Linux-Container.
- */
-async function runIpps(opts, bodyScript, timeoutMs, onProgress) {
-  if (!opts.certPemPath) return { ok: false, error: "Kein Zertifikat-Pfad." };
-  const wrapper = [
-    "$ErrorActionPreference = 'Stop'",
-    "Write-Output ('BPPROGRESS' + (@{ type = 'phase'; label = 'Verbindung zu Security & Compliance' } | ConvertTo-Json -Compress) + 'ENDPROGRESS')",
-    "try {",
-    "  Import-Module ExchangeOnlineManagement -ErrorAction Stop",
-    "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'ExchangeOnlineManagement-Modul fehlt: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
-    "try {",
-    "  $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile(" + psQuote(opts.certPemPath) + ")",
-    "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Zertifikat nicht ladbar: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
-    // Dokumentierter Microsoft-Workaround: Connect-IPPSSession hat auf Linux einen
-    // Plattform-Erkennungs-Bug bei CBA — $Global:IsWindows = $true umgeht ihn.
-    "try { Set-Variable -Name IsWindows -Value $true -Scope Global -Force -ErrorAction SilentlyContinue } catch {}",
-    // Retry: frisch zugewiesene Compliance-Administrator-Rollen brauchen Replikationszeit.
-    "$ippsConnected = $false",
-    "$ippsErr = ''",
-    "for ($ci = 1; $ci -le 3; $ci++) {",
-    "  try {",
-    "    Connect-IPPSSession -AppId " + psQuote(opts.appId) + " -Organization " + psQuote(opts.organization) + " -Certificate $cert -ShowBanner:$false -ErrorAction Stop",
-    "    $ippsConnected = $true",
-    "    break",
-    "  } catch {",
-    "    $ippsErr = $_.Exception.Message",
-    "    if ($ci -lt 3) { Start-Sleep -Seconds (15 * $ci) }",
-    "  }",
-    "}",
-    "if (-not $ippsConnected) { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Connect-IPPSSession fehlgeschlagen (Compliance-Administrator-Rolle noetig? Tenant neu onboarden): ' + $ippsErr } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
-    "",
-    bodyScript,
-    "",
-    "try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}"
-  ].join("\r\n");
-  return runPwsh(wrapper, timeoutMs, onProgress);
-}
+// Hinweis: Ein runIpps (Connect-IPPSSession fuer die Alert Policy) gab es hier mal —
+// Security & Compliance PowerShell ist laut Microsoft-Doku auf Linux nicht verfuegbar
+// (Connect scheitert mit NullReferenceException). Die Alert Policy laeuft deshalb als
+// manueller Schritt mit generiertem Snippet (siehe deploy.js buildAlertPolicySnippet).
 
-module.exports = { runPwsh, runExo, runIpps, psQuote };
+module.exports = { runPwsh, runExo, psQuote };

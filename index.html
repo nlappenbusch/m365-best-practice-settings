@@ -457,13 +457,14 @@
                     <h2>🚀 Live-Deploy — Policies direkt anwenden</h2>
                     <div class="alert alert-info">
                         <strong>ℹ️ So funktioniert es:</strong> Statt das generierte PowerShell-Skript manuell
-                        auszuführen, wendet das Backend die aktuelle Konfiguration direkt an — die BP_-Policies per
-                        app-only Exchange Online PowerShell und die Alert Policy für Quarantine-Release-Anfragen per
-                        Security &amp; Compliance PowerShell. Einmalig pro Tenant: <strong>Onboarding</strong> per
-                        Admin-Login (Device-Code) — dabei werden App-Registrierung,
-                        <code>Exchange.ManageAsApp</code>-Permission, die Rollen <strong>Exchange
-                        Administrator</strong> + <strong>Compliance Administrator</strong> und das Zertifikat
-                        automatisch angelegt.
+                        auszuführen, wendet das Backend die aktuelle Konfiguration direkt per app-only Exchange
+                        Online PowerShell an — mit Live-Fortschritt. Mit <strong>🔎 Prüfen</strong> siehst du
+                        jederzeit den Ist-Zustand des Tenants als Soll/Ist-Vergleich. Einmalig pro Tenant:
+                        <strong>Onboarding</strong> per Admin-Login (Device-Code) — dabei werden App-Registrierung,
+                        <code>Exchange.ManageAsApp</code>-Permission, Rollen und Zertifikat automatisch angelegt.
+                        Nur die Alert Policy (Security &amp; Compliance) bleibt ein manueller Mini-Schritt —
+                        Microsoft unterstützt S&amp;C PowerShell nicht auf Linux; das Tool liefert dafür ein
+                        fertiges Copy-Paste-Snippet.
                     </div>
 
                     <div id="ldOffline" class="alert alert-warning" style="display: none;">
