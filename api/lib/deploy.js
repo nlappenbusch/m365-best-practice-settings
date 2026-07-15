@@ -1,8 +1,7 @@
 /**
  * Baut aus der Tool-Konfiguration (JSON aus dem Browser) den PowerShell-Body
  * fuer den EXO-Runner. Setzt exakt dieselben BP_-Policies wie das generierte
- * Deployment-Skript — ohne den Security-&-Compliance-Teil (Alert Policy), der
- * weiterhin nur ueber das generierte Skript laeuft.
+ * Deployment-Skript; die Alert Policy laeuft als separater IPPS-Body.
  *
  * Die Config kommt vom Client und wird hier strikt validiert/normalisiert,
  * bevor irgendetwas in PowerShell-Text interpoliert wird.
@@ -101,19 +100,40 @@ function sanitizeConfig(raw) {
   };
 }
 
-// Ein Upsert-Schritt: Get -> New oder Set, Ergebnis in $steps sammeln.
+// Upsert mit Retry: faengt transiente EXO-Fehler ab, die bei frischen Tenants
+// real auftreten — Container-Race bei der allerersten Quarantine-Policy
+// ("object already exists") und Replikationsverzoegerung, wenn eine Policy ein
+// sekundenaltes Quarantine-Tag referenziert ("quarantine tag ... is not present").
+const RETRY_HELPER = [
+  "$steps = [System.Collections.Generic.List[object]]::new()",
+  "function Invoke-BPStep {",
+  "  param([string]$Name, [scriptblock]$Get, [scriptblock]$New, [scriptblock]$Set)",
+  "  $maxTries = 4",
+  "  for ($try = 1; $try -le $maxTries; $try++) {",
+  "    try {",
+  "      $existing = & $Get",
+  "      if ($null -eq $existing) { & $New; $steps.Add(@{ name = $Name; ok = $true; action = 'created'; tries = $try }) }",
+  "      else { & $Set; $steps.Add(@{ name = $Name; ok = $true; action = 'updated'; tries = $try }) }",
+  "      return",
+  "    } catch {",
+  "      if ($try -eq $maxTries) { $steps.Add(@{ name = $Name; ok = $false; error = $_.Exception.Message; tries = $try }); return }",
+  "      Start-Sleep -Seconds (10 * $try)",
+  "    }",
+  "  }",
+  "}"
+].join("\r\n");
+
+// Ein Upsert-Schritt als Invoke-BPStep-Aufruf (Get -> New oder Set).
 function step(name, identity, getCmd, newLines, setLines) {
   return [
-    "try {",
-    "  $existing = " + getCmd + " -Identity " + psQuote(identity) + " -ErrorAction SilentlyContinue",
-    "  if ($null -eq $existing) {",
+    "Invoke-BPStep " + psQuote(name) + " `",
+    "  { " + getCmd + " -Identity " + psQuote(identity) + " -ErrorAction SilentlyContinue } `",
+    "  {",
     ...newLines.map(l => "    " + l),
-    "    $steps += @{ name = " + psQuote(name) + "; ok = $true; action = 'created' }",
-    "  } else {",
+    "  } `",
+    "  {",
     ...setLines.map(l => "    " + l),
-    "    $steps += @{ name = " + psQuote(name) + "; ok = $true; action = 'updated' }",
     "  }",
-    "} catch { $steps += @{ name = " + psQuote(name) + "; ok = $false; error = $_.Exception.Message } }",
     ""
   ];
 }
@@ -182,7 +202,7 @@ function buildDeployBody(cfg) {
   );
 
   const lines = [
-    "$steps = @()",
+    RETRY_HELPER,
     "try {",
     "  $Domains = " + (cfg.domains.length ? psArray(cfg.domains) : "@(Get-AcceptedDomain | ForEach-Object DomainName)"),
     "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Domains nicht ermittelbar: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
@@ -215,7 +235,7 @@ function buildDeployBody(cfg) {
     ...ruleStep("Anti-Malware-Rule", "BP_AntiMalware_Rule", "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule", "MalwareFilterPolicy", "BP_AntiMalware"),
     "",
     "$failed = @($steps | Where-Object { -not $_.ok })",
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = $steps; domains = @($Domains) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = @($steps); domains = @($Domains) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
   ];
   return lines.join("\r\n");
 }
@@ -229,29 +249,24 @@ function buildAlertPolicyBody(cfg) {
   const recipients = [cfg.adminEmail];
   if (cfg.mspEmail && cfg.mspEmail !== cfg.adminEmail) recipients.push(cfg.mspEmail);
   const notify = psArray(recipients);
-  return [
-    "$steps = @()",
-    "try {",
-    "  $alert = Get-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -ErrorAction SilentlyContinue",
-    "  if ($null -eq $alert) {",
-    "    New-ProtectionAlert -Name 'BP_UserRequestReleaseStatus' `",
-    "      -Category ThreatManagement `",
-    "      -ThreatType Activity `",
-    "      -Operation QuarantineRequestReleaseMessage `",
-    "      -NotifyUser " + notify + " `",
-    "      -Severity Low `",
-    "      -Description 'Best Practice: User requested to release a quarantined message' `",
-    "      -AggregationType None | Out-Null",
-    "    $steps += @{ name = 'Alert-Policy Quarantine-Release'; ok = $true; action = 'created' }",
-    "  } else {",
-    "    Set-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -NotifyUser " + notify + " | Out-Null",
-    "    $steps += @{ name = 'Alert-Policy Quarantine-Release'; ok = $true; action = 'updated' }",
-    "  }",
-    "} catch { $steps += @{ name = 'Alert-Policy Quarantine-Release'; ok = $false; error = $_.Exception.Message } }",
-    "",
+  const lines = [
+    RETRY_HELPER,
+    ...step("Alert-Policy Quarantine-Release", "BP_UserRequestReleaseStatus", "Get-ProtectionAlert",
+      [
+        "New-ProtectionAlert -Name 'BP_UserRequestReleaseStatus' `",
+        "  -Category ThreatManagement `",
+        "  -ThreatType Activity `",
+        "  -Operation QuarantineRequestReleaseMessage `",
+        "  -NotifyUser " + notify + " `",
+        "  -Severity Low `",
+        "  -Description 'Best Practice: User requested to release a quarantined message' `",
+        "  -AggregationType None | Out-Null"
+      ],
+      ["Set-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -NotifyUser " + notify + " | Out-Null"]),
     "$failed = @($steps | Where-Object { -not $_.ok })",
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = $steps } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
-  ].join("\r\n");
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = @($steps) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
+  ];
+  return lines.join("\r\n");
 }
 
 module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicyBody };

@@ -27,8 +27,6 @@ const COMMANDS = [
   "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule"
 ].join(",");
 
-// Cmdlets fuer Security & Compliance PowerShell (Alert Policy).
-const IPPS_COMMANDS = ["Get-ProtectionAlert", "New-ProtectionAlert", "Set-ProtectionAlert"].join(",");
 
 // Generischer pwsh-Lauf: Skript ueber stdin, JSON zwischen Markern extrahieren.
 function runPwsh(script, timeoutMs) {
@@ -100,8 +98,24 @@ async function runIpps(opts, bodyScript, timeoutMs) {
     "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'ExchangeOnlineManagement-Modul fehlt: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
     "try {",
     "  $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile(" + psQuote(opts.certPemPath) + ")",
-    "  Connect-IPPSSession -AppId " + psQuote(opts.appId) + " -Organization " + psQuote(opts.organization) + " -Certificate $cert -ShowBanner:$false -CommandName " + IPPS_COMMANDS + " -ErrorAction Stop",
-    "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Connect-IPPSSession fehlgeschlagen (Compliance-Administrator-Rolle noetig? Tenant neu onboarden): ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
+    "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Zertifikat nicht ladbar: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
+    // Dokumentierter Microsoft-Workaround: Connect-IPPSSession hat auf Linux einen
+    // Plattform-Erkennungs-Bug bei CBA — $Global:IsWindows = $true umgeht ihn.
+    "try { Set-Variable -Name IsWindows -Value $true -Scope Global -Force -ErrorAction SilentlyContinue } catch {}",
+    // Retry: frisch zugewiesene Compliance-Administrator-Rollen brauchen Replikationszeit.
+    "$ippsConnected = $false",
+    "$ippsErr = ''",
+    "for ($ci = 1; $ci -le 3; $ci++) {",
+    "  try {",
+    "    Connect-IPPSSession -AppId " + psQuote(opts.appId) + " -Organization " + psQuote(opts.organization) + " -Certificate $cert -ShowBanner:$false -ErrorAction Stop",
+    "    $ippsConnected = $true",
+    "    break",
+    "  } catch {",
+    "    $ippsErr = $_.Exception.Message",
+    "    if ($ci -lt 3) { Start-Sleep -Seconds (15 * $ci) }",
+    "  }",
+    "}",
+    "if (-not $ippsConnected) { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Connect-IPPSSession fehlgeschlagen (Compliance-Administrator-Rolle noetig? Tenant neu onboarden): ' + $ippsErr } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
     "",
     bodyScript,
     "",

@@ -343,13 +343,18 @@ app.post("/api/tenants/:id/test", wrap(async (req, res) => {
 // nicht zuverlaessig in derselben Session).
 app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   const t = requireTenant(req);
+  const b = req.body || {};
   let cfg;
-  try { cfg = DEPLOY.sanitizeConfig((req.body || {}).config); }
+  try { cfg = DEPLOY.sanitizeConfig(b.config); }
   catch (e) { return res.status(400).json({ error: e.message }); }
+
+  // autoDomains: Rules bekommen die Accepted Domains des Ziel-Tenants
+  // (Get-AcceptedDomain zur Laufzeit) statt der Domains aus der Tool-Config.
+  if (b.autoDomains) cfg.domains = [];
 
   const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
 
-  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 420000);
+  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000);
   if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
   if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Deploy fehlgeschlagen", hint: "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden)." });
 

@@ -130,16 +130,20 @@ function initializeLiveDeploy() {
         }
 
         if (action === 'deploy') {
+            const autoDomains = !!(document.getElementById('ldAutoDomains') && document.getElementById('ldAutoDomains').checked);
             const domains = [...config.global.domains, config.global.onmicrosoftDomain].filter(Boolean);
-            if (!confirm('Aktuelle Konfiguration jetzt in "' + name + '" deployen?\n\nDomains: ' + domains.join(', ') +
+            const domainInfo = autoDomains
+                ? 'automatisch aus dem Tenant (Get-AcceptedDomain)'
+                : domains.join(', ') + '  (aus dem Konfigurations-Tab!)';
+            if (!confirm('Aktuelle Konfiguration jetzt in "' + name + '" deployen?\n\nDomains: ' + domainInfo +
                 '\n\nEs werden die BP_-Policies (Quarantine, Anti-Phishing, Anti-Spam, Anti-Malware) und die Alert Policy für Quarantine-Release-Anfragen gesetzt bzw. aktualisiert.')) return;
             btn.disabled = true; btn.textContent = '…';
             log('⏳ Deploy nach <strong>' + ldEsc(name) + '</strong> läuft — das kann einige Minuten dauern…');
             try {
-                const r = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/deploy', { method: 'POST', body: { config } });
+                const r = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/deploy', { method: 'POST', body: { config, autoDomains } });
                 const steps = (r.result && r.result.steps) || [];
                 const rows = steps.map(s => s.ok
-                    ? '<div class="ld-step ok">✅ ' + ldEsc(s.name) + ' <small>(' + ldEsc(s.action) + ')</small></div>'
+                    ? '<div class="ld-step ok">✅ ' + ldEsc(s.name) + ' <small>(' + ldEsc(s.action) + (s.tries > 1 ? ', ' + s.tries + '. Versuch' : '') + ')</small></div>'
                     : '<div class="ld-step fail">❌ ' + ldEsc(s.name) + ' — <small>' + ldEsc(s.error) + '</small></div>'
                 ).join('');
                 const doms = (r.result && r.result.domains) || [];
