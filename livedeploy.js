@@ -305,6 +305,11 @@ function initializeLiveDeploy() {
             grp.items.push(p);
         }
 
+        const intentsWarn = data.intentsError
+            ? '<div class="ld-banner warn">⚠️ Endpoint-Security-Policies (intents) konnten nicht geladen werden: ' + ldEsc(data.intentsError) +
+              '<br><small>Settings-Catalog-Policies sind trotzdem verfügbar. Falls gerade erst 🔧 repariert wurde: ein paar Minuten Consent-Replikation abwarten und erneut öffnen.</small></div>'
+            : '';
+
         const groupOptions = groups.map(g =>
             '<option value="' + ldEsc(g.id) + '" title="' + ldEsc(g.membershipRule) + '">' + ldEsc(g.displayName) + '</option>').join('');
 
@@ -330,6 +335,7 @@ function initializeLiveDeploy() {
             <div class="ld-job" id="ldOibBox">
                 <div class="ld-job-head"><strong>🧩 OIB-Policies: ${ldEsc(name)}</strong>
                     <span class="ld-job-meta">${policies.length} Policies · ${groups.length} dynamische Gruppen</span></div>
+                ${intentsWarn}
                 <div class="ld-oib-target">
                     <label for="ldOibGroup"><strong>Zielgruppe (dynamische Security Group):</strong></label>
                     <select id="ldOibGroup">${groupOptions}</select>

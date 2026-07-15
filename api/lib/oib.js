@@ -47,14 +47,23 @@ function describeTarget(t, groupNames) {
 async function loadOibOverview(tenant, certPemPath) {
   const beta = { beta: true };
 
-  const [groups, configPolicies, intents] = await Promise.all([
+  const [groups, configPolicies] = await Promise.all([
     graphAllPages(tenant, certPemPath,
       "/groups?$filter=groupTypes/any(c:c+eq+'DynamicMembership') and securityEnabled eq true&$select=id,displayName,membershipRule,membershipRuleProcessingState&$top=100", beta),
     graphAllPages(tenant, certPemPath,
-      "/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=100", beta),
-    graphAllPages(tenant, certPemPath,
-      "/deviceManagement/intents?$select=id,displayName&$top=100", beta)
+      "/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=100", beta)
   ]);
+
+  // Endpoint-Security-Intents separat und fehlertolerant: der Legacy-Endpoint
+  // reagiert bei App-Only-Zugriff gelegentlich zickig — dann bleiben die
+  // Settings-Catalog-Policies trotzdem nutzbar.
+  let intents = [], intentsError = null;
+  try {
+    intents = await graphAllPages(tenant, certPemPath,
+      "/deviceManagement/intents?$select=id,displayName&$top=100", beta);
+  } catch (e) {
+    intentsError = e.message;
+  }
 
   const oibConfig = configPolicies.filter(p => String(p.name || "").startsWith(POLICY_PREFIX));
   const oibIntents = intents.filter(p => String(p.displayName || "").startsWith(POLICY_PREFIX));
@@ -104,7 +113,8 @@ async function loadOibOverview(tenant, certPemPath) {
     groups: groups
       .map(g => ({ id: g.id, displayName: g.displayName, membershipRule: g.membershipRule || "", state: g.membershipRuleProcessingState || "" }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName)),
-    policies
+    policies,
+    intentsError
   };
 }
 

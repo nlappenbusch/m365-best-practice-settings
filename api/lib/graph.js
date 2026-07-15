@@ -64,6 +64,12 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
   const text = await r.text();
   let j; try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
   if (!r.ok) {
+    // 401/403 einmal mit frischem Token wiederholen: nach Reparieren/Onboarding
+    // kann noch ein gecachter Token OHNE die neuen Rollen im Umlauf sein.
+    if ((r.status === 401 || r.status === 403) && !(opts && opts._retried)) {
+      clearTenantToken(tenant.tenantId);
+      return graphReq(tenant, certPemPath, method, path, body, { ...(opts || {}), _retried: true });
+    }
     const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
     throw Object.assign(new Error(msg), { status: r.status });
   }

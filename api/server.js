@@ -24,6 +24,7 @@ const EXO = require("./lib/exorunner");
 const DEPLOY = require("./lib/deploy");
 const OIB = require("./lib/oib");
 const TCM = require("./lib/tcm");
+const GRAPHLIB = require("./lib/graph");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -494,6 +495,7 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
   else s.tenants.push(rec);
   saveState(s);
   delete req.session.onboard;
+  GRAPHLIB.clearTenantToken(tenantId);
 
   res.json({
     status: "done", tenant: { id: uid, name: orgName, tenantId, organization, appId: result.appId },
@@ -596,6 +598,8 @@ app.post("/api/fix/poll", wrap(async (req, res) => {
   t.tcm = result.tcm;
   saveState(s);
   delete req.session.fix;
+  // Gecachte Graph-Tokens verwerfen — sie enthalten die neuen Rollen noch nicht
+  GRAPHLIB.clearTenantToken(t.tenantId);
 
   res.json({ status: "done", items: result.items });
 }));
