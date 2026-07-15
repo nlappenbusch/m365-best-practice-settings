@@ -21,6 +21,14 @@ Opt-ins verfügbar (mit Warnhinweis).
 setzt die ASF-Parameter auf `Off`; das Audit (🔎 Prüfen) markiert Tenants mit
 aktiven ASF-Schaltern als Abweichung.
 
+### ✂️ Preset-Dropdown entfernt
+
+Es gibt jetzt genau **eine** Best-Practice-Konfiguration (die geladenen
+Defaults) statt vier wählbarer Presets — das Dropdown im Header ist weg.
+Abweichungen für Einzelfälle weiterhin direkt über die Einstellungen im
+Konfigurations-Tab; eigene Varianten lassen sich über Export/Import (JSON)
+sichern und wiederverwenden.
+
 ## Version 2.1 - Quarantäne-Fixes + Live-Deploy (2026-07-15)
 
 ### 🐛 Fixes
