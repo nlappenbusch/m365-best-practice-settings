@@ -128,19 +128,32 @@ async function provisionAppReg(token) {
   } catch (e) { consentOk = false; consentErr = e.message; }
 
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
-  // Compliance Administrator (Alert Policy via Security & Compliance PowerShell).
+  // Compliance Administrator (fuer einen spaeteren Windows-Worker der Alert Policy).
+  // Idempotent ohne Vorab-Check: hinzufuegen und "already exists" als Erfolg werten —
+  // der fruehere Mitglieder-Check lieferte falsche Negative und meldete dann
+  // faelschlich "Rolle fehlt", obwohl alles korrekt zugewiesen war.
   async function assignDirectoryRole(roleTemplateId) {
-    let dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0];
-    if (!dirRole) dirRole = await gReq(token, "POST", "/directoryRoles", { roleTemplateId }); // Rolle aktivieren
-    const members = (await gReq(token, "GET", `/directoryRoles/${dirRole.id}/members?$select=id`)).value || [];
-    if (!members.find(m => m.id === appSp.id)) {
+    let dirRole = null;
+    try { dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0]; } catch (e) { /* unten aktivieren */ }
+    if (!dirRole) {
+      try {
+        dirRole = await gReq(token, "POST", "/directoryRoles", { roleTemplateId }); // Rolle aktivieren
+      } catch (e) {
+        // evtl. parallel/bereits aktiviert — nochmal nachschlagen
+        dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0];
+        if (!dirRole) throw e;
+      }
+    }
+    try {
       await gReq(token, "POST", `/directoryRoles/${dirRole.id}/members/$ref`, { "@odata.id": `${GRAPH}/directoryObjects/${appSp.id}` });
+    } catch (e) {
+      if (!/already exist/i.test(String(e.message || ""))) throw e; // schon Mitglied = Ziel erreicht
     }
   }
   let exoRole = false, exoRoleErr = null;
-  try { await assignDirectoryRole(EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message; }
+  try { await assignDirectoryRole(EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
   let sccRole = false, sccRoleErr = null;
-  try { await assignDirectoryRole(COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message; }
+  try { await assignDirectoryRole(COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
 
   // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
   let certThumbprint = null, certPem = null, certError = null;
