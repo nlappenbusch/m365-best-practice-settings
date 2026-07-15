@@ -136,6 +136,7 @@ function initializeLiveDeploy() {
                     <button class="btn btn-secondary" data-action="test" title="Nur Verbindung testen">Test</button>
                     <button class="btn btn-secondary" data-action="audit" title="Ist-Zustand aus dem Tenant lesen und mit der Konfiguration vergleichen">🔎 Prüfen</button>
                     <button class="btn btn-secondary" data-action="fix" title="Bestehende App-Registrierung prüfen und reparieren: Permission, Consent, Rollen, Zertifikat (ohne Zertifikat-Rotation)">🔧 Reparieren</button>
+                    <button class="btn btn-secondary" data-action="oib" title="Win-OIB Intune-Policies anzeigen und dynamischen Security Groups zuweisen">🧩 OIB</button>
                     <button class="btn btn-primary" data-action="deploy">Deploy</button>
                     <button class="btn btn-secondary" data-action="remove" title="Tenant aus dem Tool entfernen">✕</button>
                 </div>
@@ -190,6 +191,21 @@ function initializeLiveDeploy() {
 
         if (action === 'fix') {
             startPermissionFix(id, name);
+            return;
+        }
+
+        if (action === 'oib') {
+            btn.disabled = true; btn.textContent = '…';
+            log('<div class="ld-job"><div class="ld-job-head"><strong>🧩 OIB-Policies: ' + ldEsc(name) + '</strong></div>' +
+                '<div class="ld-step running"><span class="ld-spinner"></span> Lade Policies und dynamische Gruppen aus dem Tenant…</div></div>');
+            try {
+                const data = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/oib');
+                renderOib(id, name, data);
+            } catch (err) {
+                log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div>' +
+                    '<div class="ld-step"><small>💡 Braucht die Graph-Permissions (DeviceManagementConfiguration, Group.Read) — ggf. einmal 🔧 Reparieren ausführen.</small></div></div>');
+            }
+            btn.disabled = false; btn.textContent = '🧩 OIB';
             return;
         }
 
@@ -265,6 +281,128 @@ function initializeLiveDeploy() {
             await loadTenants();
         };
         pollTimer = setTimeout(poll, (start.interval || 5) * 1000);
+    }
+
+    // ---------- OIB-Policy-Zuweisung ----------
+    function renderOib(tenantRecId, name, data) {
+        const groups = data.groups || [];
+        const policies = data.policies || [];
+        if (!policies.length) {
+            log('<div class="ld-job"><div class="ld-banner warn">⚠️ Keine "Win - OIB"-Policies im Tenant gefunden — zuerst die OIB-Baseline importieren.</div></div>');
+            return;
+        }
+        if (!groups.length) {
+            log('<div class="ld-job"><div class="ld-banner warn">⚠️ Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen (AAD-DEV-*) anlegen.</div></div>');
+            return;
+        }
+
+        // Nach Typ gruppieren
+        const byType = [];
+        for (const p of policies) {
+            let grp = byType.find(g => g.type === p.type);
+            if (!grp) { grp = { type: p.type, items: [] }; byType.push(grp); }
+            grp.items.push(p);
+        }
+
+        const groupOptions = groups.map(g =>
+            '<option value="' + ldEsc(g.id) + '" title="' + ldEsc(g.membershipRule) + '">' + ldEsc(g.displayName) + '</option>').join('');
+
+        const policyRow = (p) => {
+            const assigned = (p.assignments || []).map(a => ldEsc(a.label)).join(', ');
+            return `
+                <label class="ld-oib-row" data-policy-id="${ldEsc(p.id)}">
+                    <input type="checkbox" class="ld-oib-cb" data-id="${ldEsc(p.id)}" data-apitype="${ldEsc(p.apiType)}">
+                    <span class="ld-oib-name">${ldEsc(p.name)}</span>
+                    <small class="ld-oib-assigned">${assigned ? '→ ' + assigned : '→ nicht zugewiesen'}</small>
+                </label>`;
+        };
+
+        const typeBlocks = byType.map(grp => `
+            <div class="ld-phase complete">
+                <div class="ld-phase-title">🧩 ${ldEsc(grp.type)} (${grp.items.length})
+                    <button class="btn btn-secondary ld-oib-selgroup" data-type="${ldEsc(grp.type)}" style="padding:0.1rem 0.5rem; font-size:0.75rem;">alle</button>
+                </div>
+                ${grp.items.map(policyRow).join('')}
+            </div>`).join('');
+
+        log(`
+            <div class="ld-job" id="ldOibBox">
+                <div class="ld-job-head"><strong>🧩 OIB-Policies: ${ldEsc(name)}</strong>
+                    <span class="ld-job-meta">${policies.length} Policies · ${groups.length} dynamische Gruppen</span></div>
+                <div class="ld-oib-target">
+                    <label for="ldOibGroup"><strong>Zielgruppe (dynamische Security Group):</strong></label>
+                    <select id="ldOibGroup">${groupOptions}</select>
+                </div>
+                <div class="ld-oib-toolbar">
+                    <button class="btn btn-secondary" id="ldOibAll" style="padding:0.25rem 0.7rem; font-size:0.8rem;">Alle auswählen</button>
+                    <button class="btn btn-secondary" id="ldOibNone" style="padding:0.25rem 0.7rem; font-size:0.8rem;">Keine</button>
+                </div>
+                ${typeBlocks}
+                <div class="ld-confirm-actions">
+                    <button class="btn btn-primary" id="ldOibAssign">Auswahl der Zielgruppe zuweisen</button>
+                </div>
+                <div id="ldOibResult"></div>
+            </div>`);
+
+        const refreshAssignedMarks = () => {
+            const gid = document.getElementById('ldOibGroup').value;
+            for (const p of policies) {
+                const row = document.querySelector('.ld-oib-row[data-policy-id="' + CSS.escape(p.id) + '"]');
+                if (!row) continue;
+                const already = (p.assignments || []).some(a => a.groupId === gid);
+                row.classList.toggle('already', already);
+                const cb = row.querySelector('.ld-oib-cb');
+                cb.disabled = already;
+                if (already) cb.checked = false;
+                row.querySelector('.ld-oib-assigned').textContent =
+                    (already ? '✓ bereits dieser Gruppe zugewiesen · ' : '') +
+                    ((p.assignments || []).length ? '→ ' + p.assignments.map(a => a.label).join(', ') : '→ nicht zugewiesen');
+            }
+        };
+        document.getElementById('ldOibGroup').addEventListener('change', refreshAssignedMarks);
+        refreshAssignedMarks();
+
+        document.getElementById('ldOibAll').addEventListener('click', () => {
+            document.querySelectorAll('.ld-oib-cb:not(:disabled)').forEach(cb => cb.checked = true);
+        });
+        document.getElementById('ldOibNone').addEventListener('click', () => {
+            document.querySelectorAll('.ld-oib-cb').forEach(cb => cb.checked = false);
+        });
+        document.querySelectorAll('.ld-oib-selgroup').forEach(b => b.addEventListener('click', () => {
+            const box = b.closest('.ld-phase');
+            box.querySelectorAll('.ld-oib-cb:not(:disabled)').forEach(cb => cb.checked = true);
+        }));
+
+        document.getElementById('ldOibAssign').addEventListener('click', async () => {
+            const gid = document.getElementById('ldOibGroup').value;
+            const gname = groups.find(g => g.id === gid)?.displayName || gid;
+            const selected = [...document.querySelectorAll('.ld-oib-cb:checked')].map(cb => ({ id: cb.dataset.id, apiType: cb.dataset.apitype }));
+            if (!selected.length) { alert('Keine Policies ausgewählt.'); return; }
+            if (!confirm(selected.length + ' Policy/Policies der Gruppe "' + gname + '" zuweisen?\n\nBestehende Assignments bleiben erhalten (Merge).')) return;
+            const btn = document.getElementById('ldOibAssign');
+            btn.disabled = true; btn.textContent = 'Weise zu…';
+            const resultBox = document.getElementById('ldOibResult');
+            resultBox.innerHTML = '<div class="ld-step running"><span class="ld-spinner"></span> Zuweisung läuft…</div>';
+            try {
+                const r = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/oib/assign', { method: 'POST', body: { groupId: gid, policies: selected } });
+                const nameById = new Map(policies.map(p => [p.id, p.name]));
+                const icon = { assigned: '✅', skipped: '⏭️', failed: '❌' };
+                const text = { assigned: 'zugewiesen', skipped: 'war bereits zugewiesen', failed: 'Fehler' };
+                const okCount = (r.results || []).filter(x => x.status === 'assigned').length;
+                const failCount = (r.results || []).filter(x => x.status === 'failed').length;
+                resultBox.innerHTML =
+                    '<div class="ld-banner ' + (failCount ? 'warn' : 'ok') + '">' +
+                    (failCount ? '⚠️ ' + failCount + ' Fehler — Details unten. ' : '✅ ') +
+                    okCount + ' Policy/Policies der Gruppe „' + ldEsc(gname) + '" zugewiesen.</div>' +
+                    (r.results || []).map(x =>
+                        '<div class="ld-step ' + (x.status === 'failed' ? 'fail' : 'ok') + '">' + icon[x.status] + ' ' +
+                        ldEsc(nameById.get(x.id) || x.id) + ' <small>(' + text[x.status] + (x.error ? ' — ' + ldEsc(x.error) : '') + ')</small></div>'
+                    ).join('');
+            } catch (err) {
+                resultBox.innerHTML = '<div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div>';
+            }
+            btn.disabled = false; btn.textContent = 'Auswahl der Zielgruppe zuweisen';
+        });
     }
 
     // ---------- Ist-Zustand-Audit: Soll/Ist-Vergleich ----------

@@ -22,6 +22,7 @@ const { spawn } = require("child_process");
 
 const EXO = require("./lib/exorunner");
 const DEPLOY = require("./lib/deploy");
+const OIB = require("./lib/oib");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -36,6 +37,9 @@ const APP_DISPLAY_NAME = "M365-Security-Policy-Manager";
 const EXO_APP_ID = "00000002-0000-0ff1-ce00-000000000000"; // Office 365 Exchange Online
 const EXCHANGE_ADMIN_ROLE_TEMPLATE = "29232cdf-9323-42fd-ade2-1d097af3e4de"; // Exchange Administrator (EXO PowerShell)
 const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; // Compliance Administrator (Security & Compliance PowerShell)
+const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
+// Graph-Application-Permissions fuer die OIB-Policy-Zuweisung (Intune + Gruppen)
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "Group.Read.All"];
 
 // ---------- Persistenz ----------
 function loadState() {
@@ -121,17 +125,47 @@ async function ensureDirectoryRole(token, spId, roleTemplateId) {
   }
 }
 
-/**
- * Legt die App-Registrierung fuer app-only-EXO an (idempotent):
- * Exchange.ManageAsApp (Application) + Exchange-Administrator-Rolle + Zertifikat.
- * Bewusst KEINE Graph-Application-Permissions — least privilege.
- */
-async function provisionAppReg(token) {
+// Ziel-Permissions aufloesen: EXO Exchange.ManageAsApp + Graph-Rollen fuer OIB.
+async function resolvePermissionTargets(token) {
   const exoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${EXO_APP_ID}'`)).value[0];
   if (!exoSp) throw new Error("Service Principal 'Office 365 Exchange Online' nicht gefunden.");
   const manageRole = (exoSp.appRoles || []).find(x => x.value === "Exchange.ManageAsApp" && (x.allowedMemberTypes || []).includes("Application"));
   if (!manageRole) throw new Error("Exchange.ManageAsApp nicht im EXO-Service-Principal gefunden.");
-  const requiredResourceAccess = [{ resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] }];
+
+  const graphSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${GRAPH_APP_ID}'`)).value[0];
+  if (!graphSp) throw new Error("Microsoft-Graph Service-Principal nicht gefunden.");
+  const graphRoles = GRAPH_APP_PERMS.map(v => {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (!role) throw new Error("Graph-Application-Berechtigung fehlt im SP: " + v);
+    return role;
+  });
+
+  return { exoSp, manageRole, graphSp, graphRoles };
+}
+
+// Admin-Consent (App-Role-Assignment) idempotent setzen.
+async function ensureAppRoleAssignment(token, appSpId, resourceSpId, appRoleId, existing) {
+  if (existing.find(a => a.appRoleId === appRoleId && a.resourceId === resourceSpId)) return "ok";
+  try {
+    await gReq(token, "POST", `/servicePrincipals/${appSpId}/appRoleAssignments`,
+      { principalId: appSpId, resourceId: resourceSpId, appRoleId });
+    return "fixed";
+  } catch (e) {
+    if (/already exist|duplicate/i.test(String(e.message || ""))) return "ok";
+    throw e;
+  }
+}
+
+/**
+ * Legt die App-Registrierung an (idempotent): Exchange.ManageAsApp (app-only EXO),
+ * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
+ */
+async function provisionAppReg(token) {
+  const { exoSp, manageRole, graphSp, graphRoles } = await resolvePermissionTargets(token);
+  const requiredResourceAccess = [
+    { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
+    { resourceAppId: GRAPH_APP_ID, resourceAccess: graphRoles.map(r => ({ id: r.id, type: "Role" })) }
+  ];
 
   let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(APP_DISPLAY_NAME)}'`)).value[0];
   if (app) {
@@ -142,14 +176,12 @@ async function provisionAppReg(token) {
   let appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
   if (!appSp) appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId });
 
-  // Admin-Consent = App-Role-Assignment direkt setzen (idempotent).
+  // Admin-Consent = App-Role-Assignments direkt setzen (idempotent).
   let consentOk = true, consentErr = null;
   try {
     const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
-    if (!existing.find(a => a.appRoleId === manageRole.id && a.resourceId === exoSp.id)) {
-      await gReq(token, "POST", `/servicePrincipals/${appSp.id}/appRoleAssignments`,
-        { principalId: appSp.id, resourceId: exoSp.id, appRoleId: manageRole.id });
-    }
+    await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing);
+    for (const r of graphRoles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
   } catch (e) { consentOk = false; consentErr = e.message; }
 
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
@@ -194,24 +226,30 @@ async function repairAppReg(token, rec) {
   }
   push("App-Registrierung", "ok", app.displayName);
 
-  // 2. API-Permission Exchange.ManageAsApp
-  const exoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${EXO_APP_ID}'`)).value[0];
-  if (!exoSp) throw new Error("Service Principal 'Office 365 Exchange Online' nicht gefunden.");
-  const manageRole = (exoSp.appRoles || []).find(x => x.value === "Exchange.ManageAsApp" && (x.allowedMemberTypes || []).includes("Application"));
-  if (!manageRole) throw new Error("Exchange.ManageAsApp nicht im EXO-Service-Principal gefunden.");
+  // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB) im Manifest
+  const { exoSp, manageRole, graphSp, graphRoles } = await resolvePermissionTargets(token);
   try {
     const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
-    const exoEntry = rra.find(r => r.resourceAppId === EXO_APP_ID);
-    const hasPerm = exoEntry && (exoEntry.resourceAccess || []).some(a => a.id === manageRole.id);
-    if (hasPerm) {
-      push("Permission Exchange.ManageAsApp", "ok");
-    } else {
-      if (exoEntry) exoEntry.resourceAccess = [...(exoEntry.resourceAccess || []), { id: manageRole.id, type: "Role" }];
-      else rra.push({ resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] });
+    let changed = false;
+    const ensureEntry = (resourceAppId, roleIds) => {
+      let entry = rra.find(r => r.resourceAppId === resourceAppId);
+      if (!entry) { entry = { resourceAppId, resourceAccess: [] }; rra.push(entry); }
+      for (const id of roleIds) {
+        if (!(entry.resourceAccess || []).some(a => a.id === id)) {
+          entry.resourceAccess = [...(entry.resourceAccess || []), { id, type: "Role" }];
+          changed = true;
+        }
+      }
+    };
+    ensureEntry(EXO_APP_ID, [manageRole.id]);
+    ensureEntry(GRAPH_APP_ID, graphRoles.map(r => r.id));
+    if (changed) {
       await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess: rra });
-      push("Permission Exchange.ManageAsApp", "fixed");
+      push("API-Permissions (EXO + Graph)", "fixed");
+    } else {
+      push("API-Permissions (EXO + Graph)", "ok");
     }
-  } catch (e) { push("Permission Exchange.ManageAsApp", "failed", e.message); }
+  } catch (e) { push("API-Permissions (EXO + Graph)", "failed", e.message); }
 
   // 3. Service Principal
   let appSp = null;
@@ -221,23 +259,14 @@ async function repairAppReg(token, rec) {
     else { appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId }); push("Service Principal", "fixed"); }
   } catch (e) { push("Service Principal", "failed", e.message); }
 
-  // 4. Admin-Consent (App-Role-Assignment)
+  // 4. Admin-Consent (App-Role-Assignments fuer EXO + Graph)
   if (appSp) {
     try {
       const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
-      if (existing.find(a => a.appRoleId === manageRole.id && a.resourceId === exoSp.id)) {
-        push("Admin-Consent", "ok");
-      } else {
-        try {
-          await gReq(token, "POST", `/servicePrincipals/${appSp.id}/appRoleAssignments`,
-            { principalId: appSp.id, resourceId: exoSp.id, appRoleId: manageRole.id });
-          push("Admin-Consent", "fixed");
-        } catch (e) {
-          if (/already exist|duplicate/i.test(String(e.message || ""))) push("Admin-Consent", "ok");
-          else throw e;
-        }
-      }
-    } catch (e) { push("Admin-Consent", "failed", e.message); }
+      const states = [await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing)];
+      for (const r of graphRoles) states.push(await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing));
+      push("Admin-Consent (EXO + Graph)", states.includes("fixed") ? "fixed" : "ok");
+    } catch (e) { push("Admin-Consent (EXO + Graph)", "failed", e.message); }
   }
 
   // 5./6. Entra-Rollen
@@ -519,6 +548,59 @@ app.post("/api/fix/poll", wrap(async (req, res) => {
   delete req.session.fix;
 
   res.json({ status: "done", items: result.items });
+}));
+
+// ---------- OIB-Policy-Zuweisung (Graph app-only) ----------
+function fakeOib() {
+  return {
+    groups: [
+      { id: "g1", displayName: "AAD-DEV-STD", membershipRule: '(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))', state: "On" },
+      { id: "g2", displayName: "AAD-DEV-ADM", membershipRule: '(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-ADM"))', state: "On" }
+    ],
+    policies: [
+      { id: "p1", name: "Win - OIB - ES - Defender Antivirus - D - AV Configuration", apiType: "intents", type: "Endpoint Security", assignments: [{ groupId: "g1", label: "AAD-DEV-STD" }] },
+      { id: "p2", name: "Win - OIB - ES - Encryption - D - BitLocker (OS Disk)", apiType: "intents", type: "Endpoint Security", assignments: [] },
+      { id: "p3", name: "Win - OIB - SC - Device Security - D - Local Security Policies", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [{ groupId: null, label: "Alle Geräte" }] },
+      { id: "p4", name: "Win - OIB - SC - Credential Management - D - Passwordless", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [] }
+    ]
+  };
+}
+
+app.get("/api/tenants/:id/oib", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeOib() });
+  const data = await OIB.loadOibOverview(t, certPemPath(t.tenantId));
+  res.json({ ok: true, ...data });
+}));
+
+app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const groupId = String(b.groupId || "");
+  const policies = Array.isArray(b.policies) ? b.policies : [];
+  if (!groupId || policies.length === 0) return res.status(400).json({ error: "groupId und policies erforderlich." });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      results: policies.map((p, i) => ({ id: p.id, status: i === 0 ? "skipped" : "assigned" }))
+    });
+  }
+
+  const results = [];
+  for (const p of policies) {
+    if (!p || !p.id || !["configurationPolicies", "intents"].includes(p.apiType)) {
+      results.push({ id: p && p.id, status: "failed", error: "Ungueltige Policy-Referenz" });
+      continue;
+    }
+    try {
+      const status = await OIB.assignPolicyToGroup(t, certPemPath(t.tenantId), p, groupId);
+      results.push({ id: p.id, status });
+    } catch (e) {
+      results.push({ id: p.id, status: "failed", error: e.message });
+    }
+  }
+  res.json({ ok: true, results });
 }));
 
 // ---------- Verbindungstest + Deploy ----------

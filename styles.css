@@ -1073,3 +1073,49 @@ body {
     overflow-x: auto;
     white-space: pre;
 }
+
+/* Live-Deploy: OIB-Zuweisung */
+.ld-oib-target {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+}
+
+.ld-oib-target select {
+    min-width: 260px;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 6px;
+}
+
+.ld-oib-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.25rem 0 0.5rem;
+}
+
+.ld-oib-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+    cursor: pointer;
+}
+
+.ld-oib-row .ld-oib-name {
+    font-size: 0.9rem;
+}
+
+.ld-oib-row .ld-oib-assigned {
+    color: #64748b;
+}
+
+.ld-oib-row.already {
+    opacity: 0.6;
+}
+
+.ld-oib-row.already .ld-oib-assigned {
+    color: #15803d;
+}

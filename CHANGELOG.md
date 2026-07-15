@@ -21,6 +21,21 @@ Opt-ins verfügbar (mit Warnhinweis).
 setzt die ASF-Parameter auf `Off`; das Audit (🔎 Prüfen) markiert Tenants mit
 aktiven ASF-Schaltern als Abweichung.
 
+### 🧩 Neu: OIB-Policy-Zuweisung (Intune)
+
+Pro Tenant zeigt der Button **🧩 OIB** alle "Win - OIB"-Policies (Settings Catalog
+via `configurationPolicies` + Endpoint Security via `intents`, Graph beta) nach
+Typ gruppiert, inklusive bestehender Assignments. Zuweisung an **dynamische
+Security Groups** (GroupTag-Konzept) per Checkbox-Auswahl.
+
+- **Merge statt Ersetzen:** `POST /assign` ersetzt in Graph die komplette
+  Assignment-Liste — das Original-Skript hätte bestehende Assignments entfernt.
+  Das Tool merged bestehende Targets (inkl. Assignment-Filter) mit der neuen Gruppe.
+- Bereits zugewiesene Policies werden erkannt und übersprungen.
+- Graph app-only per Client-Assertion mit dem Tenant-Zertifikat; Onboarding und
+  🔧 Reparieren vergeben dafür die Graph-Permissions
+  `DeviceManagementConfiguration.ReadWrite.All` + `Group.Read.All`.
+
 ### ✂️ Preset-Dropdown entfernt
 
 Es gibt jetzt genau **eine** Best-Practice-Konfiguration (die geladenen
