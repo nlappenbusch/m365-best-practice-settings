@@ -45,6 +45,10 @@
   Tenant und zeigt einen Soll/Ist-Vergleich gegen die aktuelle Konfiguration —
   35+ Checks inkl. Quarantine-Permissions, Aktionen, Tags, erweiterten Spam-Filtern,
   Dateityp-Diff und Rule-Domains.
+- **🔧 Permission-Fixer**: Repariert bestehende App-Registrierungen gezielt
+  (Exchange.ManageAsApp, Admin-Consent, Exchange-Admin- + Compliance-Rolle,
+  Zertifikat-Hinterlegung an der App) per Device-Code-Login — ohne das Zertifikat
+  zu rotieren wie beim Neu-Onboarding. Aktualisiert die Status-Badges.
 - nginx proxied `/api/` an den Backend-Container; ohne Backend zeigt der Tab einen Hinweis.
 - **Live-Fortschritt**: Deploys laufen als Job — die UI zeigt in Echtzeit Phase, Schritt-Status
   (läuft/Retry/fertig/fehlgeschlagen), Fortschrittsbalken und Dauer. Vor dem Start fasst ein

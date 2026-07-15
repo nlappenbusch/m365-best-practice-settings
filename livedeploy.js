@@ -135,6 +135,7 @@ function initializeLiveDeploy() {
                 <div class="ld-tenant-actions">
                     <button class="btn btn-secondary" data-action="test" title="Nur Verbindung testen">Test</button>
                     <button class="btn btn-secondary" data-action="audit" title="Ist-Zustand aus dem Tenant lesen und mit der Konfiguration vergleichen">🔎 Prüfen</button>
+                    <button class="btn btn-secondary" data-action="fix" title="Bestehende App-Registrierung prüfen und reparieren: Permission, Consent, Rollen, Zertifikat (ohne Zertifikat-Rotation)">🔧 Reparieren</button>
                     <button class="btn btn-primary" data-action="deploy">Deploy</button>
                     <button class="btn btn-secondary" data-action="remove" title="Tenant aus dem Tool entfernen">✕</button>
                 </div>
@@ -187,12 +188,84 @@ function initializeLiveDeploy() {
             return;
         }
 
+        if (action === 'fix') {
+            startPermissionFix(id, name);
+            return;
+        }
+
         if (action === 'deploy') {
             if (deployRunning) { alert('Es läuft bereits ein Deploy — bitte warten.'); return; }
             showDeployConfirm(id, name);
             return;
         }
     });
+
+    // ---------- Permission-Fixer (bestehende App-Registrierung reparieren) ----------
+    async function startPermissionFix(id, name) {
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        log('<div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Starte Reparatur für ' + ldEsc(name) + '…</div></div>');
+        let start;
+        try {
+            start = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/fix/start', { method: 'POST' });
+        } catch (e) {
+            log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(e.message) + '</div></div>');
+            return;
+        }
+        log(`
+            <div class="ld-job">
+                <div class="ld-job-head"><strong>🔧 App-Registrierung reparieren: ${ldEsc(name)}</strong></div>
+                <div class="ld-step"><small>Prüft und repariert: Exchange.ManageAsApp, Admin-Consent, Exchange-Admin- + Compliance-Rolle, Zertifikat-Hinterlegung. Das bestehende Zertifikat bleibt unangetastet.</small></div>
+                <div class="ld-onboard-step">1️⃣ Öffne <a href="${ldEsc(start.verificationUri)}" target="_blank" rel="noopener">${ldEsc(start.verificationUri)}</a></div>
+                <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin von ${ldEsc(name)}</strong> an und gib diesen Code ein:
+                    <span class="ld-code">${ldEsc(start.userCode)}</span>
+                    <button class="btn btn-secondary" id="ldCopyFixCode" style="padding:0.2rem 0.6rem; font-size:0.8rem;">Kopieren</button>
+                </div>
+                <div class="ld-onboard-step">3️⃣ <span id="ldFixStatus"><span class="ld-spinner"></span> Warte auf deine Anmeldung…</span></div>
+            </div>`);
+        document.getElementById('ldCopyFixCode').addEventListener('click', () => {
+            navigator.clipboard.writeText(start.userCode).then(() => {
+                document.getElementById('ldCopyFixCode').textContent = '✓ Kopiert';
+            });
+        });
+
+        const stateIcons = { ok: '✅', fixed: '🔧', failed: '❌' };
+        const stateText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen' };
+        const poll = async () => {
+            let r;
+            try {
+                r = await ldApi('/api/fix/poll', { method: 'POST' });
+            } catch (e) {
+                const el = document.getElementById('ldFixStatus');
+                if (el) el.innerHTML = '❌ ' + ldEsc(e.message);
+                return;
+            }
+            if (r.status === 'pending') {
+                pollTimer = setTimeout(poll, (r.interval || start.interval || 5) * 1000);
+                return;
+            }
+            if (r.status === 'error') {
+                const el = document.getElementById('ldFixStatus');
+                if (el) el.innerHTML = '❌ ' + ldEsc(r.error);
+                return;
+            }
+            const items = r.items || [];
+            const failed = items.filter(i => i.state === 'failed').length;
+            const fixedCount = items.filter(i => i.state === 'fixed').length;
+            const banner = failed > 0
+                ? '<div class="ld-banner warn">⚠️ ' + failed + ' Punkt(e) konnten nicht repariert werden — Details unten.</div>'
+                : (fixedCount > 0
+                    ? '<div class="ld-banner ok">✅ Reparatur abgeschlossen — ' + fixedCount + ' Punkt(e) korrigiert, Rest war bereits korrekt.</div>'
+                    : '<div class="ld-banner ok">✅ Alles bereits korrekt — nichts zu reparieren.</div>');
+            const rows = items.map(i =>
+                '<div class="ld-step ' + (i.state === 'failed' ? 'fail' : 'ok') + '"><span class="ld-ico">' + stateIcons[i.state] + '</span> ' +
+                ldEsc(i.name) + ' <small>(' + stateText[i.state] + (i.detail ? ' — ' + ldEsc(i.detail) : '') + ')</small></div>'
+            ).join('');
+            log('<div class="ld-job"><div class="ld-job-head"><strong>🔧 Reparatur: ' + ldEsc(name) + '</strong></div>' + banner + rows +
+                '<div class="ld-step"><small>💡 Danach mit „Test" die Verbindung prüfen — frisch reparierte Rollen brauchen ggf. ein paar Minuten Replikationszeit.</small></div></div>');
+            await loadTenants();
+        };
+        pollTimer = setTimeout(poll, (start.interval || 5) * 1000);
+    }
 
     // ---------- Ist-Zustand-Audit: Soll/Ist-Vergleich ----------
     function ldDomainsEqual(ist, soll) {

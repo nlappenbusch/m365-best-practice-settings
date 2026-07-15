@@ -97,6 +97,31 @@ async function gReq(token, method, p, body) {
 }
 
 /**
+ * Entra-Rolle idempotent zuweisen: Rolle bei Bedarf aktivieren, Service Principal
+ * als Mitglied hinzufuegen; "already exists" = Ziel erreicht.
+ * Rueckgabe: 'ok' (war schon Mitglied) oder 'fixed' (neu zugewiesen).
+ */
+async function ensureDirectoryRole(token, spId, roleTemplateId) {
+  let dirRole = null;
+  try { dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0]; } catch (e) { /* unten aktivieren */ }
+  if (!dirRole) {
+    try {
+      dirRole = await gReq(token, "POST", "/directoryRoles", { roleTemplateId }); // Rolle aktivieren
+    } catch (e) {
+      dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0];
+      if (!dirRole) throw e;
+    }
+  }
+  try {
+    await gReq(token, "POST", `/directoryRoles/${dirRole.id}/members/$ref`, { "@odata.id": `${GRAPH}/directoryObjects/${spId}` });
+    return "fixed";
+  } catch (e) {
+    if (/already exist/i.test(String(e.message || ""))) return "ok"; // schon Mitglied
+    throw e;
+  }
+}
+
+/**
  * Legt die App-Registrierung fuer app-only-EXO an (idempotent):
  * Exchange.ManageAsApp (Application) + Exchange-Administrator-Rolle + Zertifikat.
  * Bewusst KEINE Graph-Application-Permissions — least privilege.
@@ -129,31 +154,10 @@ async function provisionAppReg(token) {
 
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
   // Compliance Administrator (fuer einen spaeteren Windows-Worker der Alert Policy).
-  // Idempotent ohne Vorab-Check: hinzufuegen und "already exists" als Erfolg werten —
-  // der fruehere Mitglieder-Check lieferte falsche Negative und meldete dann
-  // faelschlich "Rolle fehlt", obwohl alles korrekt zugewiesen war.
-  async function assignDirectoryRole(roleTemplateId) {
-    let dirRole = null;
-    try { dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0]; } catch (e) { /* unten aktivieren */ }
-    if (!dirRole) {
-      try {
-        dirRole = await gReq(token, "POST", "/directoryRoles", { roleTemplateId }); // Rolle aktivieren
-      } catch (e) {
-        // evtl. parallel/bereits aktiviert — nochmal nachschlagen
-        dirRole = (await gReq(token, "GET", `/directoryRoles?$filter=roleTemplateId eq '${roleTemplateId}'`)).value[0];
-        if (!dirRole) throw e;
-      }
-    }
-    try {
-      await gReq(token, "POST", `/directoryRoles/${dirRole.id}/members/$ref`, { "@odata.id": `${GRAPH}/directoryObjects/${appSp.id}` });
-    } catch (e) {
-      if (!/already exist/i.test(String(e.message || ""))) throw e; // schon Mitglied = Ziel erreicht
-    }
-  }
   let exoRole = false, exoRoleErr = null;
-  try { await assignDirectoryRole(EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
+  try { await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
   let sccRole = false, sccRoleErr = null;
-  try { await assignDirectoryRole(COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
+  try { await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
 
   // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
   let certThumbprint = null, certPem = null, certError = null;
@@ -170,6 +174,105 @@ async function provisionAppReg(token) {
   } catch (e) { certError = e.message; }
 
   return { appId: app.appId, consentOk, consentErr, exoRole, exoRoleErr, sccRole, sccRoleErr, certThumbprint, certPem, certError };
+}
+
+/**
+ * Permission-Fixer: prueft die BESTEHENDE App-Registrierung eines Tenants und
+ * repariert gezielt, was fehlt — Exchange.ManageAsApp, Service Principal,
+ * Admin-Consent, beide Entra-Rollen und die Zertifikat-Hinterlegung an der App
+ * (aus dem lokalen PEM, KEINE Rotation). Liefert pro Punkt ok/fixed/failed.
+ */
+async function repairAppReg(token, rec) {
+  const items = [];
+  const push = (name, state, detail) => items.push({ name, state, detail: detail || "" });
+
+  // 1. App-Registrierung ueber die bekannte Client-Id finden (praeziser als displayName)
+  const app = (await gReq(token, "GET", `/applications?$filter=appId eq '${rec.clientId}'`)).value[0];
+  if (!app) {
+    push("App-Registrierung", "failed", "App " + rec.clientId + " nicht gefunden — Tenant neu onboarden.");
+    return { items, exoRole: false, sccRole: false };
+  }
+  push("App-Registrierung", "ok", app.displayName);
+
+  // 2. API-Permission Exchange.ManageAsApp
+  const exoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${EXO_APP_ID}'`)).value[0];
+  if (!exoSp) throw new Error("Service Principal 'Office 365 Exchange Online' nicht gefunden.");
+  const manageRole = (exoSp.appRoles || []).find(x => x.value === "Exchange.ManageAsApp" && (x.allowedMemberTypes || []).includes("Application"));
+  if (!manageRole) throw new Error("Exchange.ManageAsApp nicht im EXO-Service-Principal gefunden.");
+  try {
+    const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
+    const exoEntry = rra.find(r => r.resourceAppId === EXO_APP_ID);
+    const hasPerm = exoEntry && (exoEntry.resourceAccess || []).some(a => a.id === manageRole.id);
+    if (hasPerm) {
+      push("Permission Exchange.ManageAsApp", "ok");
+    } else {
+      if (exoEntry) exoEntry.resourceAccess = [...(exoEntry.resourceAccess || []), { id: manageRole.id, type: "Role" }];
+      else rra.push({ resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] });
+      await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess: rra });
+      push("Permission Exchange.ManageAsApp", "fixed");
+    }
+  } catch (e) { push("Permission Exchange.ManageAsApp", "failed", e.message); }
+
+  // 3. Service Principal
+  let appSp = null;
+  try {
+    appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
+    if (appSp) push("Service Principal", "ok");
+    else { appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId }); push("Service Principal", "fixed"); }
+  } catch (e) { push("Service Principal", "failed", e.message); }
+
+  // 4. Admin-Consent (App-Role-Assignment)
+  if (appSp) {
+    try {
+      const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
+      if (existing.find(a => a.appRoleId === manageRole.id && a.resourceId === exoSp.id)) {
+        push("Admin-Consent", "ok");
+      } else {
+        try {
+          await gReq(token, "POST", `/servicePrincipals/${appSp.id}/appRoleAssignments`,
+            { principalId: appSp.id, resourceId: exoSp.id, appRoleId: manageRole.id });
+          push("Admin-Consent", "fixed");
+        } catch (e) {
+          if (/already exist|duplicate/i.test(String(e.message || ""))) push("Admin-Consent", "ok");
+          else throw e;
+        }
+      }
+    } catch (e) { push("Admin-Consent", "failed", e.message); }
+  }
+
+  // 5./6. Entra-Rollen
+  let exoRole = false, sccRole = false;
+  if (appSp) {
+    try { push("Exchange-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE)); exoRole = true; }
+    catch (e) { push("Exchange-Administrator-Rolle", "failed", e.message); }
+    try { push("Compliance-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE)); sccRole = true; }
+    catch (e) { push("Compliance-Administrator-Rolle", "failed", e.message); }
+  }
+
+  // 7. Zertifikat: KEINE Rotation — nur pruefen und ggf. den Public Key aus dem
+  //    lokalen PEM wieder an der App hinterlegen (falls dort entfernt).
+  try {
+    const localPem = fs.existsSync(certPemPath(rec.tenantId)) ? fs.readFileSync(certPemPath(rec.tenantId), "utf8") : null;
+    const appHasCert = Array.isArray(app.keyCredentials) && app.keyCredentials.length > 0;
+    if (!localPem) {
+      push("Zertifikat", "failed", "Kein lokales Zertifikat im Backend — Tenant neu onboarden (erzeugt ein neues).");
+    } else if (appHasCert) {
+      push("Zertifikat", "ok", "lokal + in der App hinterlegt");
+    } else {
+      const m = localPem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
+      if (!m) {
+        push("Zertifikat", "failed", "Lokales PEM enthaelt kein Zertifikat — Tenant neu onboarden.");
+      } else {
+        const certB64 = m[1].replace(/\s+/g, "");
+        await gReq(token, "PATCH", `/applications/${app.id}`, {
+          keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: APP_DISPLAY_NAME + "-cert" }]
+        });
+        push("Zertifikat", "fixed", "Public Key aus lokalem PEM wieder an der App hinterlegt");
+      }
+    }
+  } catch (e) { push("Zertifikat", "failed", e.message); }
+
+  return { items, exoRole, sccRole };
 }
 
 // ---------- App ----------
@@ -333,6 +436,89 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
       result.certPem ? null : ("Zertifikat konnte nicht erstellt werden: " + (result.certError || "unbekannt"))
     ].filter(Boolean)
   });
+}));
+
+// ---------- Permission-Fixer (Device-Code, wie Onboarding) ----------
+app.post("/api/tenants/:id/fix/start", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    req.session.fix = { tenantRecId: t.id, fake: true, polls: 0 };
+    return res.json({ userCode: "FAKE-CODE", verificationUri: "https://microsoft.com/devicelogin", interval: 2 });
+  }
+
+  const loginTenant = t.organization || t.tenantId;
+  const params = new URLSearchParams({
+    client_id: GRAPH_CLI_CLIENT,
+    scope: "Application.ReadWrite.All AppRoleAssignment.ReadWrite.All Directory.ReadWrite.All RoleManagement.ReadWrite.Directory offline_access openid"
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(loginTenant)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+  req.session.fix = {
+    tenantRecId: t.id, loginTenant,
+    deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({ userCode: j.user_code, verificationUri: j.verification_uri || "https://microsoft.com/devicelogin", interval: j.interval || 5 });
+}));
+
+app.post("/api/fix/poll", wrap(async (req, res) => {
+  const df = req.session.fix;
+  if (!df) return res.status(400).json({ error: "Kein laufender Reparatur-Vorgang." });
+
+  if (df.fake) {
+    df.polls = (df.polls || 0) + 1;
+    if (df.polls < 2) return res.json({ status: "pending" });
+    delete req.session.fix;
+    return res.json({
+      status: "done",
+      items: [
+        { name: "App-Registrierung", state: "ok", detail: "M365-Security-Policy-Manager" },
+        { name: "Permission Exchange.ManageAsApp", state: "ok", detail: "" },
+        { name: "Service Principal", state: "ok", detail: "" },
+        { name: "Admin-Consent", state: "fixed", detail: "" },
+        { name: "Exchange-Administrator-Rolle", state: "ok", detail: "" },
+        { name: "Compliance-Administrator-Rolle", state: "fixed", detail: "" },
+        { name: "Zertifikat", state: "ok", detail: "lokal + in der App hinterlegt" }
+      ]
+    });
+  }
+
+  if (Date.now() > df.expiresAt) { delete req.session.fix; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.loginTenant)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.fix;
+    return res.json({ status: "error", error: j.error_description || j.error || ("HTTP " + r.status) });
+  }
+
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === df.tenantRecId);
+  if (!t) { delete req.session.fix; return res.json({ status: "error", error: "Tenant nicht mehr vorhanden." }); }
+
+  const result = await repairAppReg(j.access_token, t);
+
+  // Tenant-Flags aktualisieren, damit die Badges den echten Zustand zeigen
+  t.exoRole = result.exoRole;
+  t.sccRole = result.sccRole;
+  saveState(s);
+  delete req.session.fix;
+
+  res.json({ status: "done", items: result.items });
 }));
 
 // ---------- Verbindungstest + Deploy ----------
