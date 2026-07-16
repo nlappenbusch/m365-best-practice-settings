@@ -10,9 +10,9 @@
   import Downloads from './tabs/Downloads.svelte'
 
   const tabs = [
-    { id: 'config',     label: '⚙️ Konfiguration' },
-    { id: 'livedeploy', label: '🚀 Live-Deploy' },
-    { id: 'downloads',  label: '📦 Agent-Downloads' },
+    { id: 'config',     label: '⚙️ Vorlage' },
+    { id: 'tenants',    label: '🏢 Tenants' },
+    { id: 'downloads',  label: '📦 Agents' },
     { id: 'wissen',     label: '📖 Wissen' }
   ]
   let active = $state('config')
@@ -66,7 +66,7 @@
     <div class="tab-content active">
       {#if active === 'config'}
         <Config />
-      {:else if active === 'livedeploy'}
+      {:else if active === 'tenants'}
         <LiveDeploy />
       {:else if active === 'downloads'}
         <Downloads />

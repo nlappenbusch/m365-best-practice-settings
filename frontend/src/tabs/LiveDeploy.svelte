@@ -11,15 +11,13 @@
 
 <div id="livedeploy">
   <section class="settings-section">
-    <h2>🚀 Live-Deploy — Policies direkt anwenden</h2>
+    <h2>🏢 Tenants</h2>
     <div class="alert alert-info">
-      <strong>ℹ️ So funktioniert es:</strong> Statt das generierte PowerShell-Skript manuell auszuführen,
-      wendet das Backend die aktuelle Konfiguration direkt per app-only Exchange Online PowerShell an — mit
-      Live-Fortschritt. Mit <strong>🔎 Prüfen</strong> siehst du jederzeit den Ist-Zustand des Tenants als
-      Soll/Ist-Vergleich. Einmalig pro Tenant: <strong>Onboarding</strong> per Admin-Login (Device-Code) — dabei
-      werden App-Registrierung, <code>Exchange.ManageAsApp</code>-Permission, Rollen und Zertifikat automatisch
-      angelegt. Nur die Alert Policy (Security &amp; Compliance) bleibt ein manueller Mini-Schritt — Microsoft
-      unterstützt S&amp;C PowerShell nicht auf Linux; das Tool liefert dafür ein fertiges Copy-Paste-Snippet.
+      <strong>ℹ️ Dein Arbeitsplatz pro Kunde:</strong> Tenant onboarden, dann anklicken → alle Aktionen für
+      diesen Tenant an einem Ort: <strong>🛡 Mail-Security</strong> (Best-Practice-Policies aus der Vorlage
+      deployen), <strong>💻 Intune-Baseline</strong> (OpenIntuneBaseline-Policies zuweisen),
+      <strong>🔎 Audit</strong> (Soll/Ist-Vergleich) und <strong>⚙ Verwaltung</strong> (App-Registrierung
+      reparieren, Tenant entfernen). Alles läuft app-only per Graph / Exchange Online — mit Live-Fortschritt.
     </div>
 
     <div id="ldOffline" class="alert alert-warning" style="display: none;">

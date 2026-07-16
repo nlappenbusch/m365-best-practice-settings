@@ -1262,3 +1262,21 @@ body {
 .policy-header { user-select: none; }
 .policy-header .toggle-btn { font-size: 1.1rem; line-height: 1; transition: transform var(--transition-base); }
 .policy-card.expanded .policy-header .toggle-btn { transform: rotate(180deg); }
+
+/* ---------------- Tenant-zentrische Karten (Live-Deploy -> Tenants) ---------------- */
+.ld-tenant { flex-direction: column; align-items: stretch; padding: 0; overflow: hidden; }
+.ld-tenant-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.85rem 1rem; cursor: pointer; user-select: none;
+}
+.ld-tenant-head:hover { background: var(--bg-secondary); }
+.ld-tenant-chev { color: var(--text-secondary); font-size: 1.1rem; transition: transform var(--transition-base); }
+.ld-tenant.open .ld-tenant-chev { transform: rotate(180deg); }
+.ld-tenant-body { display: none; padding: 0 1rem 0.25rem; border-top: 1px solid var(--border-color); }
+.ld-tenant.open .ld-tenant-body { display: block; }
+.ld-tenant-section { padding: 0.8rem 0; border-bottom: 1px solid var(--border-color); }
+.ld-tenant-section:last-child { border-bottom: 0; }
+.ld-tenant-section h5 { margin: 0 0 0.15rem; font-size: 0.95rem; color: var(--text-primary); }
+.ld-tenant-section h5 small { color: var(--text-secondary); font-weight: 400; }
+.ld-section-hint { margin: 0 0 0.55rem; font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; }
+.ld-section-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }

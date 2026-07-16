@@ -127,23 +127,59 @@ export function initializeLiveDeploy() {
                 : '<span class="ld-badge warn" title="' + ldEsc(missing.join(', ') + ' fehlt — Tenant neu onboarden') + '">⚠ ' + ldEsc(missing.join(', ')) + ' fehlt</span>';
             return `
             <div class="ld-tenant" data-id="${ldEsc(t.id)}">
-                <div class="ld-tenant-info">
-                    <strong>${ldEsc(t.name)} ${badge}</strong>
-                    <small>${ldEsc(t.organization || t.tenantId)} · App ${ldEsc((t.appId || '').slice(0, 8))}…</small>
+                <div class="ld-tenant-head">
+                    <div class="ld-tenant-info">
+                        <strong>${ldEsc(t.name)} ${badge}</strong>
+                        <small>${ldEsc(t.organization || t.tenantId)} · App ${ldEsc((t.appId || '').slice(0, 8))}…</small>
+                    </div>
+                    <span class="ld-tenant-chev" aria-hidden="true">▾</span>
                 </div>
-                <div class="ld-tenant-actions">
-                    <button class="btn btn-secondary" data-action="test" title="Nur Verbindung testen">Test</button>
-                    <button class="btn btn-secondary" data-action="audit" title="Ist-Zustand aus dem Tenant lesen und mit der Konfiguration vergleichen">🔎 Prüfen</button>
-                    <button class="btn btn-secondary" data-action="fix" title="Bestehende App-Registrierung prüfen und reparieren: Permission, Consent, Rollen, Zertifikat (ohne Zertifikat-Rotation)">🔧 Reparieren</button>
-                    <button class="btn btn-secondary" data-action="oib" title="Win-OIB Intune-Policies anzeigen und dynamischen Security Groups zuweisen">🧩 OIB</button>
-                    <button class="btn btn-primary" data-action="deploy">Deploy</button>
-                    <button class="btn btn-secondary" data-action="remove" title="Tenant aus dem Tool entfernen">✕</button>
+                <div class="ld-tenant-body">
+                    <div class="ld-tenant-section">
+                        <h5>🛡 Mail-Security</h5>
+                        <p class="ld-section-hint">Best-Practice-Policies (Anti-Phishing/Spam/Malware/Quarantäne) aus der Vorlage anwenden.</p>
+                        <div class="ld-section-actions">
+                            <button class="btn btn-secondary" data-action="test" title="Nur Verbindung testen">Verbindung testen</button>
+                            <button class="btn btn-primary" data-action="deploy">Deployen</button>
+                        </div>
+                    </div>
+                    <div class="ld-tenant-section">
+                        <h5>💻 Intune-Baseline <small>(OpenIntuneBaseline)</small></h5>
+                        <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen.</p>
+                        <div class="ld-section-actions">
+                            <button class="btn btn-secondary" data-action="oib">🧩 OIB-Policies zuweisen</button>
+                        </div>
+                    </div>
+                    <div class="ld-tenant-section">
+                        <h5>🔎 Audit</h5>
+                        <p class="ld-section-hint">Ist-Zustand aus dem Tenant lesen und mit der Vorlage vergleichen (Soll/Ist).</p>
+                        <div class="ld-section-actions">
+                            <button class="btn btn-secondary" data-action="audit">Ist-Zustand prüfen</button>
+                        </div>
+                    </div>
+                    <div class="ld-tenant-section">
+                        <h5>⚙ Verwaltung</h5>
+                        <div class="ld-section-actions">
+                            <button class="btn btn-secondary" data-action="fix" title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
+                            <button class="btn btn-secondary" data-action="remove" title="Tenant aus dem Tool entfernen">✕ Entfernen</button>
+                        </div>
+                    </div>
                 </div>
             </div>`;
         }).join('');
     }
 
     document.getElementById('ldTenants').addEventListener('click', async (e) => {
+        // Kopfzeile klicken -> Tenant-Karte auf/zu (tenant-zentrisch: erst Tenant
+        // waehlen, dann seine Aktionen). Nur eine Karte offen halten.
+        const head = e.target.closest('.ld-tenant-head');
+        if (head) {
+            const card = head.closest('.ld-tenant');
+            const wasOpen = card.classList.contains('open');
+            document.querySelectorAll('#ldTenants .ld-tenant.open').forEach(c => c.classList.remove('open'));
+            if (!wasOpen) card.classList.add('open');
+            return;
+        }
         const btn = e.target.closest('button[data-action]');
         if (!btn) return;
         const row = btn.closest('.ld-tenant');
