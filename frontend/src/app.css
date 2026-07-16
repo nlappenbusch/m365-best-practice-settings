@@ -1241,3 +1241,19 @@ body {
 }
 .session-state.on { color: var(--success-green); font-weight: 600; }
 .session-state.off { color: var(--warning-orange); font-weight: 600; }
+
+/* ---------------- Toast (Import-Feedback) ---------------- */
+.app-toast {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 1000;
+  padding: 0.9rem 1.25rem;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+  font-weight: 600;
+  color: #fff;
+  animation: fadeInContent 0.25s ease;
+}
+.app-toast.ok { background: var(--success-green); }
+.app-toast.err { background: var(--error-red); }

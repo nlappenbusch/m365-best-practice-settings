@@ -1,13 +1,47 @@
-// Konfigurations-Store. Start mit dem globalen Abschnitt (Domains/E-Mails) —
-// waechst in Meilenstein 4 (Konfiguration) um die Policy-Einstellungen.
-// Defaults 1:1 aus dem Vanilla-Stand.
+// Konfigurations-Store — volles Datenmodell, 1:1 aus dem Vanilla-app.js.
 import { writable } from 'svelte/store'
 
-export const config = writable({
+export const defaultConfig = () => ({
   global: {
-    domains: ['example.com', 'example.de'],
+    domains: ['example.com'],
     onmicrosoftDomain: 'example.onmicrosoft.com',
     adminEmail: 'admin@example.com',
     igeeksEmail: 'support@msp-provider.com'
+  },
+  antiPhishing: {
+    spoofIntelligence: true,
+    firstContactTip: true,
+    unauthSenderSymbol: true,
+    viaTag: true,
+    honorDmarc: true,
+    dmarcQuarantineAction: 'Quarantine',
+    dmarcRejectAction: 'Reject',
+    spoofAction: 'Quarantine'
+  },
+  antiSpam: {
+    bulkThreshold: 7,
+    // Legacy-ASF: Microsoft-Empfehlung Off (siehe Best-Practices-Tab).
+    bizInfoUrls: false,
+    numericIpUrls: false,
+    urlRedirect: false,
+    emptyMessages: false,
+    jsVbScript: false,
+    frameIframe: false,
+    sensitiveWords: false,
+    spfHardFail: false,
+    backscatter: false,
+    spamAction: 'Quarantine',
+    highConfSpamAction: 'Quarantine',
+    bulkAction: 'Quarantine',
+    phishAction: 'Quarantine',
+    highConfPhishAction: 'Quarantine'
+  },
+  antiMalware: {
+    commonAttachFilter: true,
+    zapMalware: true,
+    customFileTypes: '.ace, .apk, .app, .appx, .arj, .bat, .cab, .cmd, .com, .deb, .dex, .dll, .dmg, .elf, .exe, .hta, .img, .iso, .jar, .jnlp, .kext, .lha, .lib, .library, .lnk, .lzh, .macho, .msc, .msi, .msix, .msp, .mst, .pif, .pkg, .prf, .ps1, .scr, .sct, .sys, .vb, .vbe, .vbs, .vxd, .wsc, .wsf, .wsh, .xll',
+    malwareAction: 'Reject'
   }
 })
+
+export const config = writable(defaultConfig())

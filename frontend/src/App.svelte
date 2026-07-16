@@ -2,11 +2,12 @@
   import { onMount } from 'svelte'
   import { refreshSession } from './lib/session.js'
   import SessionWidget from './lib/SessionWidget.svelte'
+  import ExportModal from './lib/ExportModal.svelte'
+  import { exportJson, exportDocs, importConfig } from './lib/actions.js'
+  import Config from './tabs/Config.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
-  // Tab-State ist jetzt ein einziger reaktiver Wert — kein class-Toggling ueber
-  // DOM-Knoten mehr. Neue Tabs = ein Eintrag hier + ein {#if}-Block unten.
   const tabs = [
     { id: 'config',     label: '⚙️ Konfiguration' },
     { id: 'livedeploy', label: '🚀 Live-Deploy' },
@@ -14,6 +15,15 @@
     { id: 'wissen',     label: '📖 Wissen' }
   ]
   let active = $state('config')
+  let exportOpen = $state(false)
+  let toast = $state(null)   // { ok, msg }
+
+  function doImport() {
+    importConfig((ok, msg) => {
+      toast = { ok, msg }
+      setTimeout(() => (toast = null), 3500)
+    })
+  }
 
   onMount(refreshSession)
 </script>
@@ -30,7 +40,14 @@
         </div>
       </div>
       <div class="header-actions" style="display:flex;gap:.75rem;align-items:center">
-        <!-- Import/Export kommen mit dem Konfigurations-Tab zurueck (kontextsensitiv). -->
+        {#if active === 'config'}
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-secondary" onclick={doImport}>Import</button>
+            <button class="btn btn-secondary" onclick={exportJson}>Export JSON</button>
+            <button class="btn btn-secondary" onclick={exportDocs}>Export Doku</button>
+            <button class="btn btn-primary" onclick={() => (exportOpen = true)}>Export PowerShell</button>
+          </div>
+        {/if}
         <SessionWidget />
       </div>
     </div>
@@ -47,10 +64,7 @@
 
     <div class="tab-content active">
       {#if active === 'config'}
-        <section class="settings-section">
-          <h2>Konfiguration</h2>
-          <p class="subtitle">Wird migriert …</p>
-        </section>
+        <Config />
       {:else if active === 'livedeploy'}
         <section class="settings-section">
           <h2>🚀 Live-Deploy</h2>
@@ -64,3 +78,9 @@
     </div>
   </main>
 </div>
+
+<ExportModal open={exportOpen} onclose={() => (exportOpen = false)} />
+
+{#if toast}
+  <div class="app-toast {toast.ok ? 'ok' : 'err'}">{toast.ok ? '✅ ' : '❌ '}{toast.msg}</div>
+{/if}
