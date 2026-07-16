@@ -5,6 +5,7 @@
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Config from './tabs/Config.svelte'
+  import LiveDeploy from './tabs/LiveDeploy.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
@@ -66,10 +67,7 @@
       {#if active === 'config'}
         <Config />
       {:else if active === 'livedeploy'}
-        <section class="settings-section">
-          <h2>🚀 Live-Deploy</h2>
-          <p class="subtitle">Wird migriert …</p>
-        </section>
+        <LiveDeploy />
       {:else if active === 'downloads'}
         <Downloads />
       {:else if active === 'wissen'}
