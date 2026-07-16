@@ -6,6 +6,10 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 // Prod: `npm run build` -> dist/, das der website-Container per nginx ausliefert.
 export default defineConfig({
   plugins: [svelte()],
+  // Preview-Phase: das neue Frontend liegt unter /preview/, damit der alte
+  // Vanilla-Tool unter / unangetastet weiterlaeuft. Beim finalen Cutover
+  // (Feature-Paritaet) wieder auf '/'.
+  base: '/preview/',
   server: {
     port: 5173,
     proxy: {
