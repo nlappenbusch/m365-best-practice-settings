@@ -48,7 +48,7 @@ function initializeLiveDeploy() {
     if (!tab) return;
 
     const elOffline = document.getElementById('ldOffline');
-    const elLogin = document.getElementById('ldLogin');
+    const elNeedLogin = document.getElementById('ldNeedLogin');
     const elMain = document.getElementById('ldMain');
     const elLog = document.getElementById('ldLog');
 
@@ -57,7 +57,7 @@ function initializeLiveDeploy() {
     let jobTimer = null;     // Deploy-Job-Poll
     let currentSnippet = ''; // Snippet des manuellen Alert-Policy-Schritts
 
-    function show(el, visible) { el.style.display = visible ? '' : 'none'; }
+    function show(el, visible) { if (el) el.style.display = visible ? '' : 'none'; }
     function log(html) { elLog.innerHTML = html; }
 
     // Kopieren-Button des manuellen Snippets (Delegation, da der Log-Bereich
@@ -68,47 +68,34 @@ function initializeLiveDeploy() {
         }
     });
 
-    async function refreshState() {
-        try {
-            const h = await ldApi('/api/health');
-            show(elOffline, false);
-            show(elLogin, !h.loggedIn);
-            show(elMain, !!h.loggedIn);
-            if (h.loggedIn) await loadTenants();
-            if (h.pwsh && h.pwsh.checked && !h.pwsh.ok) {
-                show(elOffline, true);
-                elOffline.innerHTML = '<strong>⚠️ pwsh fehlt im Backend-Container.</strong> Deploys werden fehlschlagen — Container-Image prüfen.';
-            }
-        } catch (e) {
-            show(elOffline, true);
-            show(elLogin, false);
+    // ---------- Session ----------
+    // Der Login liegt global im Header (session.js), weil er auch die
+    // Agent-Downloads gatet. Hier wird nur noch auf den Zustand reagiert.
+    async function applySession(s) {
+        if (!s.online) {
+            show(elNeedLogin, false);
             show(elMain, false);
+            show(elOffline, true);
+            elOffline.innerHTML = '<strong>⚠️ Backend nicht erreichbar.</strong> Das Live-Deploy-Backend läuft nur im Docker-Stack (<code>docker compose up -d</code>). Im statischen Betrieb stehen weiterhin die generierten PowerShell-Skripte zur Verfügung.';
+            return;
+        }
+        show(elOffline, false);
+        show(elNeedLogin, !s.loggedIn);
+        show(elMain, !!s.loggedIn);
+        if (s.loggedIn) await loadTenants();
+        if (s.pwsh && s.pwsh.checked && !s.pwsh.ok) {
+            show(elOffline, true);
+            elOffline.innerHTML = '<strong>⚠️ pwsh fehlt im Backend-Container.</strong> Deploys werden fehlschlagen — Container-Image prüfen.';
         }
     }
 
-    // ---------- Login ----------
-    document.getElementById('ldLoginBtn').addEventListener('click', async () => {
-        const errBox = document.getElementById('ldLoginError');
-        show(errBox, false);
-        try {
-            await ldApi('/api/login', {
-                method: 'POST',
-                body: { username: document.getElementById('ldUser').value, password: document.getElementById('ldPass').value }
-            });
-            document.getElementById('ldPass').value = '';
-            await refreshState();
-        } catch (e) {
-            errBox.textContent = e.message;
-            show(errBox, true);
-        }
-    });
-    document.getElementById('ldPass').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') document.getElementById('ldLoginBtn').click();
-    });
-    document.getElementById('ldLogoutBtn').addEventListener('click', async () => {
-        try { await ldApi('/api/logout', { method: 'POST' }); } catch (e) { /* egal */ }
-        await refreshState();
-    });
+    // Bleibt als Name erhalten: wird nach Aktionen aufgerufen, die den Zustand
+    // aendern koennen. Der refresh loest session-change aus -> applySession.
+    async function refreshState() {
+        if (window.M365Session) await window.M365Session.refresh();
+    }
+
+    document.addEventListener('session-change', (e) => { applySession(e.detail); });
 
     // ---------- Tenants ----------
     async function loadTenants() {

@@ -74,6 +74,11 @@ function initializeTabs() {
             // Add active class to clicked
             btn.classList.add('active');
             document.getElementById(targetTab).classList.add('active');
+
+            // Import/Export gehoeren nur zur Konfiguration — in den anderen
+            // Tabs sind die Buttons nur Rauschen.
+            const cfgActions = document.getElementById('configActions');
+            if (cfgActions) cfgActions.style.display = (targetTab === 'config') ? 'flex' : 'none';
         });
     });
 }

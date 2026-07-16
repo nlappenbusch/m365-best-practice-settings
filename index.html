@@ -25,7 +25,8 @@
                     </div>
                 </div>
                 <div class="header-actions" style="display: flex; gap: 0.75rem; align-items: center;">
-                    <div style="display: flex; gap: 0.5rem;">
+                    <!-- Nur im Tab "Konfiguration" sinnvoll -> app.js blendet es kontextabhaengig ein. -->
+                    <div id="configActions" style="display: flex; gap: 0.5rem;">
                         <button id="importBtn" class="btn btn-secondary" style="white-space: nowrap;">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
                                 xmlns="http://www.w3.org/2000/svg">
@@ -59,6 +60,13 @@
                             Export PowerShell
                         </button>
                     </div>
+
+                    <!-- Globaler Session-Status: gatet Live-Deploy UND Agent-Downloads. -->
+                    <div id="sessionBox" class="session-box">
+                        <span id="sessionState" class="session-state">…</span>
+                        <button id="sessionLoginBtn" class="btn btn-secondary" style="display: none; white-space: nowrap;">Anmelden</button>
+                        <button id="sessionLogoutBtn" class="btn btn-secondary" style="display: none; white-space: nowrap;">Abmelden</button>
+                    </div>
                 </div>
             </div>
         </header>
@@ -66,12 +74,12 @@
         <!-- Main Content -->
         <main class="main-content">
             <!-- Tabs -->
+            <!-- Reihenfolge = Arbeitsfluss: erst bauen, dann anwenden, dann Werkzeuge, dann Lesestoff. -->
             <nav class="tabs">
-                <button class="tab-btn active" data-tab="config">Konfiguration</button>
-                <button class="tab-btn" data-tab="docs">Dokumentation</button>
-                <button class="tab-btn" data-tab="recommendations">Best Practices</button>
+                <button class="tab-btn active" data-tab="config">⚙️ Konfiguration</button>
                 <button class="tab-btn" data-tab="livedeploy">🚀 Live-Deploy</button>
                 <button class="tab-btn" data-tab="downloads">📦 Agent-Downloads</button>
+                <button class="tab-btn" data-tab="wissen">📖 Wissen</button>
             </nav>
 
             <!-- Configuration Tab -->
@@ -433,20 +441,18 @@
                 </section>
             </div>
 
-            <!-- Documentation Tab -->
-            <div id="docs" class="tab-content">
+            <!-- Wissen: Dokumentation + Best Practices zusammengelegt — beides ist Lesestoff.
+                 Die Content-Divs behalten ihre IDs, damit app.js sie unveraendert befuellt. -->
+            <div id="wissen" class="tab-content">
                 <section class="docs-section">
                     <h2>Best Practice Documentation</h2>
                     <div id="docsContent" class="docs-content">
                         <!-- Will be populated by JavaScript -->
                     </div>
                 </section>
-            </div>
 
-            <!-- Best Practices Tab -->
-            <div id="recommendations" class="tab-content">
                 <section class="recommendations-section">
-                    <h2>Best Practices & Empfehlungen</h2>
+                    <h2>Best Practices &amp; Empfehlungen</h2>
                     <div id="recommendationsContent" class="recommendations-content">
                         <!-- Will be populated by JavaScript -->
                     </div>
@@ -475,23 +481,10 @@
                         die generierten PowerShell-Skripte zur Verfügung.
                     </div>
 
-                    <!-- Login -->
-                    <div id="ldLogin" style="display: none;">
-                        <div class="settings-grid">
-                            <div class="input-group">
-                                <label for="ldUser">Benutzer</label>
-                                <input type="text" id="ldUser" value="admin" autocomplete="username">
-                            </div>
-                            <div class="input-group">
-                                <label for="ldPass">Passwort</label>
-                                <input type="password" id="ldPass" autocomplete="current-password">
-                                <small>Steht beim ersten Start im Container-Log:
-                                    <code>docker logs m365-security-api</code></small>
-                            </div>
-                        </div>
-                        <button id="ldLoginBtn" class="btn btn-primary">Anmelden</button>
-                        <div id="ldLoginError" class="alert alert-warning" style="display: none; margin-top: 0.75rem;">
-                        </div>
+                    <!-- Der Login liegt jetzt global im Header — er gatet auch die Agent-Downloads. -->
+                    <div id="ldNeedLogin" class="alert alert-warning" style="display: none;">
+                        <strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf
+                        <strong>Anmelden</strong> klicken.
                     </div>
 
                     <!-- Hauptbereich -->
@@ -527,7 +520,6 @@
                             <div id="ldLog" class="ld-log">Noch kein Deploy ausgeführt.</div>
                         </div>
 
-                        <button id="ldLogoutBtn" class="btn btn-secondary" style="margin-top: 1rem;">Abmelden</button>
                     </div>
                 </section>
             </div>
@@ -549,8 +541,8 @@
                     </div>
 
                     <div id="dlAuth" class="alert alert-warning" style="display: none;">
-                        <strong>🔒 Nicht angemeldet.</strong> Bitte im Tab <strong>🚀 Live-Deploy</strong>
-                        anmelden — die Downloads nutzen dieselbe Sitzung.
+                        <strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf
+                        <strong>Anmelden</strong> klicken.
                     </div>
 
                     <div id="dlMain" style="display: none;">
@@ -637,8 +629,35 @@
         </div>
     </div>
 
+    <!-- Login Modal (globale Session — gatet Live-Deploy und Agent-Downloads) -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2>Anmelden</h2>
+                <button class="close-btn" id="loginModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label for="ldUser">Benutzer</label>
+                    <input type="text" id="ldUser" value="admin" autocomplete="username">
+                </div>
+                <div class="input-group" style="margin-top: 0.75rem;">
+                    <label for="ldPass">Passwort</label>
+                    <input type="password" id="ldPass" autocomplete="current-password">
+                    <small>Steht beim ersten Start im Container-Log:
+                        <code>docker logs m365-security-api</code></small>
+                </div>
+                <div id="loginError" class="alert alert-warning" style="display: none; margin-top: 0.75rem;"></div>
+                <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+                    <button id="loginSubmitBtn" class="btn btn-primary">Anmelden</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="domains.js?v=__ASSET_VERSION__"></script>
     <script src="app.js?v=__ASSET_VERSION__"></script>
+    <script src="session.js?v=__ASSET_VERSION__"></script>
     <script src="livedeploy.js?v=__ASSET_VERSION__"></script>
     <script src="downloads.js?v=__ASSET_VERSION__"></script>
 </body>

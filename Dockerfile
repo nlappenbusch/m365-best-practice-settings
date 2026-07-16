@@ -3,6 +3,7 @@ FROM nginx:alpine
 # Copy website files
 COPY index.html /usr/share/nginx/html/
 COPY app.js /usr/share/nginx/html/
+COPY session.js /usr/share/nginx/html/
 COPY livedeploy.js /usr/share/nginx/html/
 COPY downloads.js /usr/share/nginx/html/
 COPY styles.css /usr/share/nginx/html/

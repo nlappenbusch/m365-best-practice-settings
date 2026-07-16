@@ -248,5 +248,23 @@
     // Erst laden, wenn der Tab wirklich geoeffnet wird (spart API-Calls beim Start).
     document.querySelectorAll('.tab-btn[data-tab="downloads"]').forEach((b) =>
       b.addEventListener("click", initDownloads));
+
+    // Der Login sitzt global im Header (session.js) — auf Wechsel reagieren,
+    // damit man nach dem Anmelden nicht erst den Tab neu oeffnen muss.
+    document.addEventListener("session-change", (e) => {
+      const s = e.detail;
+      const tabOpen = $("#downloads") && $("#downloads").classList.contains("active");
+
+      if (!s.online || !s.loggedIn) {
+        initDone = false;
+        loaded.bd = false;
+        loaded.rmm = false;
+        $("#dlMain").style.display = "none";
+        $("#dlOffline").style.display = s.online ? "none" : "";
+        $("#dlAuth").style.display = s.online && !s.loggedIn ? "" : "none";
+        return;
+      }
+      if (tabOpen) { initDone = false; initDownloads(); }
+    });
   });
 })();
