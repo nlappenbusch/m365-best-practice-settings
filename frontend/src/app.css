@@ -904,6 +904,15 @@ body {
     color: #64748b;
 }
 
+/* PDF-Export-Button im Audit-Kopf: nach rechts, kompakt */
+.ld-pdf-btn {
+    margin-left: auto;
+    align-self: center;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
 .ld-progress {
     height: 8px;
     background: #e2e8f0;

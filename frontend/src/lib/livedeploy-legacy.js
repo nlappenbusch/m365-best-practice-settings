@@ -67,6 +67,7 @@ export function initializeLiveDeploy() {
     let pollTimer = null;    // Onboarding-Poll
     let jobTimer = null;     // Deploy-Job-Poll
     let currentSnippet = ''; // Snippet des manuellen Alert-Policy-Schritts
+    let lastAudit = null;    // letztes Audit-Ergebnis fuer den PDF-Report
 
     function show(el, visible) { if (el) el.style.display = visible ? '' : 'none'; }
     function log(html) { elLog.innerHTML = html; }
@@ -76,6 +77,9 @@ export function initializeLiveDeploy() {
     elLog.addEventListener('click', (e) => {
         if (e.target && e.target.id === 'ldCopySnippet' && currentSnippet) {
             navigator.clipboard.writeText(currentSnippet).then(() => { e.target.textContent = '✓ Kopiert'; });
+        }
+        if (e.target && e.target.closest && e.target.closest('#ldAuditPdf')) {
+            openAuditPdfReport();
         }
     });
 
@@ -628,8 +632,11 @@ export function initializeLiveDeploy() {
             ? '<div class="ld-banner ok">✅ Ist-Zustand entspricht der Konfiguration (' + okCount + '/' + countable.length + ' Checks OK).</div>'
             : '<div class="ld-banner warn">⚠️ ' + (countable.length - okCount) + ' von ' + countable.length + ' Checks weichen ab — ein Deploy bringt den Tenant auf den Soll-Zustand.</div>';
         const domSrc = autoDomains ? 'Accepted Domains des Tenants' : 'Domains aus dem Konfigurations-Tab';
+        lastAudit = { name, groups, okCount, total: countable.length, allOk, domSrc, sollDomains: sollDomains.slice() };
         log('<div class="ld-job"><div class="ld-job-head"><strong>🔎 Ist-Zustand: ' + ldEsc(name) + '</strong>' +
-            '<span class="ld-job-meta">Soll-Domains: ' + ldEsc(domSrc) + '</span></div>' + banner + groupHtml + '</div>');
+            '<span class="ld-job-meta">Soll-Domains: ' + ldEsc(domSrc) + '</span>' +
+            '<button id="ldAuditPdf" class="btn btn-secondary ld-pdf-btn" title="Diese Dokumentation als PDF speichern (Druckdialog → „Als PDF speichern")">📄 Als PDF dokumentieren</button>' +
+            '</div>' + banner + groupHtml + '</div>');
 
         // TCM-Snapshot lief beim Audit noch — weiter pollen und dann neu rendern
         if (ap2.status === 'pending' && ap2.jobId) {
@@ -651,6 +658,156 @@ export function initializeLiveDeploy() {
             };
             auditPollTimer = setTimeout(pollTcm, 5000);
         }
+    }
+
+    // ---------- Audit-Report als PDF ----------
+    // Baut aus dem zuletzt gerenderten Audit (gleiche groups-Struktur wie oben)
+    // ein eigenstaendiges, druckoptimiertes HTML-Dokument und oeffnet den
+    // Druckdialog. "Als PDF speichern" liefert dann die fertige Doku — ohne
+    // zusaetzliche Library, mit echtem Vektor-Text und sauberen Seitenumbruechen.
+    function ldAuditStatusMeta(state) {
+        switch (state) {
+            case 'ok': return { label: 'Konform', cls: 'ok' };
+            case 'bad': return { label: 'Abweichung', cls: 'bad' };
+            case 'missing': return { label: 'Fehlt', cls: 'missing' };
+            case 'loading': return { label: 'Läuft', cls: 'info' };
+            default: return { label: 'Info', cls: 'info' };
+        }
+    }
+
+    function ldAuditSollIst(check) {
+        const d = String(check.detail || '');
+        const m = /^Soll:\s*(.*?)\s*·\s*Ist:\s*(.*)$/.exec(d);
+        if (m) return { soll: m[1] || '(leer)', ist: m[2] || '(leer)' };
+        return { soll: '', ist: d };
+    }
+
+    function buildAuditReportHtml(data) {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+        const deviations = data.total - data.okCount;
+        const pct = data.total ? Math.round((data.okCount / data.total) * 100) : 100;
+        const summaryCls = data.allOk ? 'ok' : (deviations > (data.total / 4) ? 'bad' : 'warn');
+        const summaryText = data.allOk
+            ? 'Der Ist-Zustand entspricht vollständig der Best-Practice-Vorlage.'
+            : deviations + ' von ' + data.total + ' Prüfpunkten weichen von der Vorlage ab. Ein Deploy bringt den Tenant auf den Soll-Zustand.';
+
+        const sections = data.groups.map(grp => {
+            const gTotal = grp.checks.filter(c => c.state !== 'info' && c.state !== 'loading').length;
+            const gOk = grp.checks.filter(c => c.state === 'ok').length;
+            const gBadge = gTotal ? (gOk === gTotal
+                ? '<span class="sec-badge ok">' + gOk + '/' + gTotal + ' konform</span>'
+                : '<span class="sec-badge warn">' + gOk + '/' + gTotal + ' konform</span>')
+                : '<span class="sec-badge info">Info</span>';
+            const rows = grp.checks.map(c => {
+                const sm = ldAuditStatusMeta(c.state);
+                const si = ldAuditSollIst(c);
+                return '<tr>' +
+                    '<td class="c-check">' + ldEsc(c.label) + '</td>' +
+                    '<td class="c-status"><span class="pill ' + sm.cls + '">' + sm.label + '</span></td>' +
+                    '<td class="c-soll">' + (si.soll ? ldEsc(si.soll) : '<span class="muted">—</span>') + '</td>' +
+                    '<td class="c-ist">' + (si.ist ? ldEsc(si.ist) : '<span class="muted">—</span>') + '</td>' +
+                    '</tr>';
+            }).join('');
+            return '<section class="cat">' +
+                '<div class="cat-head"><span class="cat-title">' + grp.icon + ' ' + ldEsc(grp.title) + '</span>' + gBadge + '</div>' +
+                '<table class="cat-table"><thead><tr>' +
+                '<th class="c-check">Prüfpunkt</th><th class="c-status">Status</th><th class="c-soll">Soll (Best Practice)</th><th class="c-ist">Ist (Tenant)</th>' +
+                '</tr></thead><tbody>' + rows + '</tbody></table></section>';
+        }).join('');
+
+        const domList = (data.sollDomains && data.sollDomains.length) ? data.sollDomains.join(', ') : '—';
+
+        return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
+            '<title>Ist-Zustand ' + ldEsc(data.name) + ' — M365 Security Doku</title>' +
+            '<style>' + ldAuditReportCss() + '</style></head><body>' +
+            '<button class="no-print print-btn" onclick="window.print()">📄 Als PDF speichern / Drucken</button>' +
+            '<div class="page">' +
+              '<header class="rpt-head">' +
+                '<div class="rpt-head-main">' +
+                  '<div class="rpt-kicker">M365 Security Policy Manager</div>' +
+                  '<h1>Ist-Zustand Dokumentation</h1>' +
+                  '<div class="rpt-sub">Best-Practice-Audit der Exchange-Online-Schutzrichtlinien</div>' +
+                '</div>' +
+                '<div class="rpt-score ' + summaryCls + '"><div class="score-num">' + pct + '%</div><div class="score-lbl">konform</div></div>' +
+              '</header>' +
+              '<div class="meta-grid">' +
+                '<div class="meta-cell"><span class="meta-k">Tenant</span><span class="meta-v">' + ldEsc(data.name) + '</span></div>' +
+                '<div class="meta-cell"><span class="meta-k">Erstellt am</span><span class="meta-v">' + dateStr + ' · ' + timeStr + ' Uhr</span></div>' +
+                '<div class="meta-cell"><span class="meta-k">Soll-Domains</span><span class="meta-v">' + ldEsc(data.domSrc) + '</span></div>' +
+                '<div class="meta-cell"><span class="meta-k">Geprüfte Domains</span><span class="meta-v">' + ldEsc(domList) + '</span></div>' +
+              '</div>' +
+              '<div class="summary ' + summaryCls + '"><strong>Ergebnis:</strong> ' + summaryText + '</div>' +
+              sections +
+              '<footer class="rpt-foot">Automatisch erzeugt vom M365 Security Policy Manager · ' + dateStr + ' ' + timeStr +
+                ' · Soll = Best-Practice-Vorlage, Ist = live aus dem Tenant gelesen (app-only Exchange Online / Graph).</footer>' +
+            '</div></body></html>';
+    }
+
+    function ldAuditReportCss() {
+        return [
+            '*{box-sizing:border-box;margin:0;padding:0}',
+            'body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;color:#1d2939;background:#f2f4f7;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+            '.page{max-width:820px;margin:24px auto;background:#fff;padding:32px 36px 40px;box-shadow:0 2px 18px rgba(16,24,40,.12);border-radius:6px}',
+            '.rpt-head{display:flex;align-items:center;justify-content:space-between;gap:20px;background:linear-gradient(120deg,#1e3a8a,#4338ca);color:#fff;padding:22px 26px;border-radius:10px;margin:-8px 0 22px}',
+            '.rpt-kicker{font-size:11px;letter-spacing:.14em;text-transform:uppercase;opacity:.82;font-weight:600}',
+            '.rpt-head h1{font-size:25px;font-weight:700;margin:4px 0 2px;line-height:1.15}',
+            '.rpt-sub{font-size:12.5px;opacity:.85}',
+            '.rpt-score{flex:none;text-align:center;min-width:96px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.14)}',
+            '.rpt-score .score-num{font-size:30px;font-weight:800;line-height:1}',
+            '.rpt-score .score-lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.9;margin-top:3px}',
+            '.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}',
+            '.meta-cell{background:#f8fafc;border:1px solid #eaecf0;border-radius:8px;padding:9px 12px;display:flex;flex-direction:column;gap:2px}',
+            '.meta-k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#667085;font-weight:600}',
+            '.meta-v{font-size:13.5px;font-weight:600;color:#1d2939;word-break:break-word}',
+            '.summary{border-radius:8px;padding:11px 14px;font-size:13px;margin-bottom:22px;border:1px solid}',
+            '.summary.ok{background:#ecfdf3;border-color:#abefc6;color:#067647}',
+            '.summary.warn{background:#fffaeb;border-color:#fedf89;color:#b54708}',
+            '.summary.bad{background:#fef3f2;border-color:#fecdca;color:#b42318}',
+            '.rpt-score.ok{background:rgba(255,255,255,.18)}',
+            '.cat{margin-bottom:16px;border:1px solid #eaecf0;border-radius:9px;overflow:hidden;break-inside:avoid;page-break-inside:avoid}',
+            '.cat-head{display:flex;align-items:center;justify-content:space-between;background:#f8fafc;border-bottom:1px solid #eaecf0;padding:9px 14px}',
+            '.cat-title{font-size:14.5px;font-weight:700;color:#1d2939}',
+            '.sec-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px}',
+            '.sec-badge.ok{background:#ecfdf3;color:#067647}',
+            '.sec-badge.warn{background:#fffaeb;color:#b54708}',
+            '.sec-badge.info{background:#eef1f5;color:#475467}',
+            '.cat-table{width:100%;border-collapse:collapse;font-size:12px}',
+            '.cat-table th{text-align:left;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#667085;font-weight:700;padding:7px 12px;background:#fcfcfd;border-bottom:1px solid #eaecf0}',
+            '.cat-table td{padding:7px 12px;border-bottom:1px solid #f2f4f7;vertical-align:top}',
+            '.cat-table tr:last-child td{border-bottom:none}',
+            '.cat-table tbody tr:nth-child(even) td{background:#fcfcfd}',
+            '.c-check{width:30%;font-weight:600;color:#1d2939}',
+            '.c-status{width:16%}',
+            '.c-soll{width:27%;color:#475467}',
+            '.c-ist{width:27%;color:#1d2939}',
+            '.muted{color:#98a2b3}',
+            '.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}',
+            '.pill.ok{background:#ecfdf3;color:#067647}',
+            '.pill.bad{background:#fef3f2;color:#b42318}',
+            '.pill.missing{background:#fffaeb;color:#b54708}',
+            '.pill.info{background:#eef1f5;color:#475467}',
+            '.rpt-foot{margin-top:20px;padding-top:12px;border-top:1px solid #eaecf0;font-size:10.5px;color:#98a2b3;line-height:1.5}',
+            '.print-btn{position:fixed;top:16px;right:16px;z-index:9;background:#4338ca;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(67,56,202,.35)}',
+            '@media print{body{background:#fff}.no-print{display:none!important}.page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}.rpt-head{margin-top:0}}',
+            '@page{size:A4;margin:14mm}'
+        ].join('');
+    }
+
+    function openAuditPdfReport() {
+        if (!lastAudit) return;
+        const html = buildAuditReportHtml(lastAudit);
+        const w = window.open('', '_blank');
+        if (!w) {
+            alert('Der Browser hat das PDF-Fenster blockiert. Bitte Pop-ups für diese Seite erlauben und erneut „Als PDF dokumentieren" klicken.');
+            return;
+        }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        // Druckdialog kurz nach dem Laden — der Nutzer waehlt dort „Als PDF speichern".
+        setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
     }
 
     // ---------- Deploy: Zusammenfassung -> Start -> Live-Fortschritt ----------
