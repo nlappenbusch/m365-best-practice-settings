@@ -52,12 +52,13 @@
 
   <!-- Anti-Phishing -->
   <div class="policy-card" class:expanded={open.phish}>
-    <div class="policy-header">
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('phish')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('phish'))}>
       <div class="policy-title">
         <span class="policy-icon">🛡️</span>
         <div><h3>Anti-Phishing Policy</h3><p class="policy-name">BP_AntiPhishing</p></div>
       </div>
-      <button class="toggle-btn" onclick={() => toggle('phish')} aria-label="Details">▾</button>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
     </div>
     <div class="policy-details" class:active={open.phish}>
       <div class="settings-group">
@@ -97,12 +98,13 @@
 
   <!-- Anti-Spam -->
   <div class="policy-card" class:expanded={open.spam}>
-    <div class="policy-header">
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('spam')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('spam'))}>
       <div class="policy-title">
         <span class="policy-icon">📧</span>
         <div><h3>Anti-Spam Inbound Policy</h3><p class="policy-name">BP_AntiSpam_Inbound</p></div>
       </div>
-      <button class="toggle-btn" onclick={() => toggle('spam')} aria-label="Details">▾</button>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
     </div>
     <div class="policy-details" class:active={open.spam}>
       <div class="settings-group">
@@ -145,12 +147,13 @@
 
   <!-- Anti-Malware -->
   <div class="policy-card" class:expanded={open.malware}>
-    <div class="policy-header">
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('malware')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('malware'))}>
       <div class="policy-title">
         <span class="policy-icon">🦠</span>
         <div><h3>Anti-Malware Policy</h3><p class="policy-name">BP_AntiMalware</p></div>
       </div>
-      <button class="toggle-btn" onclick={() => toggle('malware')} aria-label="Details">▾</button>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
     </div>
     <div class="policy-details" class:active={open.malware}>
       <div class="settings-group">
@@ -176,12 +179,13 @@
 
   <!-- Quarantine (informativ) -->
   <div class="policy-card" class:expanded={open.quarantine}>
-    <div class="policy-header">
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('quarantine')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('quarantine'))}>
       <div class="policy-title">
         <span class="policy-icon">🔒</span>
         <div><h3>Quarantine Policies</h3><p class="policy-name">Custom Release Workflows</p></div>
       </div>
-      <button class="toggle-btn" onclick={() => toggle('quarantine')} aria-label="Details">▾</button>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
     </div>
     <div class="policy-details" class:active={open.quarantine}>
       <div class="alert alert-info"><strong>ℹ️ Wichtig:</strong> Eigene Quarantine Policies sind zwingend erforderlich für transparente User Experience und definierte Release-Governance.</div>

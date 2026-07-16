@@ -1257,3 +1257,8 @@ body {
 }
 .app-toast.ok { background: var(--success-green); }
 .app-toast.err { background: var(--error-red); }
+
+/* Accordion-Kopfzeile komplett klickbar (nicht nur der Pfeil) + klarer Chevron. */
+.policy-header { user-select: none; }
+.policy-header .toggle-btn { font-size: 1.1rem; line-height: 1; transition: transform var(--transition-base); }
+.policy-card.expanded .policy-header .toggle-btn { transform: rotate(180deg); }
