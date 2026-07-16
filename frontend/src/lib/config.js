@@ -32,7 +32,11 @@ export const defaultConfig = () => ({
     backscatter: false,
     spamAction: 'Quarantine',
     highConfSpamAction: 'Quarantine',
-    bulkAction: 'Quarantine',
+    // Bulk (Graymail/Newsletter) gehoert in den Junk-Ordner, nicht in die
+    // Quarantaene — sonst muellt Werbepost die Quarantaene-Benachrichtigung zu.
+    // Kunden, die bewusst "nur Inbox + Quarantaene" wollen (z.B. PKRueck),
+    // weichen per gewollter Abweichung auf Quarantine ab.
+    bulkAction: 'MoveToJmf',
     phishAction: 'Quarantine',
     highConfPhishAction: 'Quarantine'
   },

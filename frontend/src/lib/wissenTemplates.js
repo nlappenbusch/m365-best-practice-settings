@@ -75,9 +75,14 @@ export function docsHtml() {
             </thead>
             <tbody>
                 <tr>
-                    <td>Spam / Bulk</td>
+                    <td>Spam</td>
                     <td>Quarantine (Self-Release-Policy)</td>
                     <td>Zentrale Kontrolle statt Junk-Ordner; User werden benachrichtigt und können Freigabe anfordern</td>
+                </tr>
+                <tr>
+                    <td>Bulk (Graymail)</td>
+                    <td>Move to Junk</td>
+                    <td>Newsletter/Werbepost gehört in den Junk-Ordner — hält die Quarantäne-Benachrichtigung sauber. Kundenwunsch "nur Inbox + Quarantäne" → als gewollte Abweichung auf Quarantine</td>
                 </tr>
                 <tr>
                     <td>Phishing</td>
