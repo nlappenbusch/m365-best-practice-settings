@@ -3,6 +3,7 @@
   import { refreshSession } from './lib/session.js'
   import SessionWidget from './lib/SessionWidget.svelte'
   import Wissen from './tabs/Wissen.svelte'
+  import Downloads from './tabs/Downloads.svelte'
 
   // Tab-State ist jetzt ein einziger reaktiver Wert — kein class-Toggling ueber
   // DOM-Knoten mehr. Neue Tabs = ein Eintrag hier + ein {#if}-Block unten.
@@ -56,10 +57,7 @@
           <p class="subtitle">Wird migriert …</p>
         </section>
       {:else if active === 'downloads'}
-        <section class="settings-section">
-          <h2>📦 Agent-Downloads</h2>
-          <p class="subtitle">Wird migriert …</p>
-        </section>
+        <Downloads />
       {:else if active === 'wissen'}
         <Wissen />
       {/if}
