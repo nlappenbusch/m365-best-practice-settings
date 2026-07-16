@@ -17,7 +17,18 @@ jobs:
     steps:
       - name: Deploy M365 Security Tool
         env:
-          # Repo-Secret (Settings -> Secrets and variables -> Actions).
-          # Wird ueber deploy.sh an docker compose durchgereicht — nie im Repo-Code.
+          # Repo-Secrets/-Variables (Settings -> Secrets and variables -> Actions).
+          # Werden ueber deploy.sh an docker compose durchgereicht — nie im Repo-Code.
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+          # --- Agent-Downloads: API-Keys (Secrets) ---
+          # Leer/nicht gesetzt = der jeweilige Bereich im Tab bleibt inaktiv.
+          BD_API_KEY: ${{ secrets.BD_API_KEY }}
+          RMM_API_KEY: ${{ secrets.RMM_API_KEY }}
+
+          # --- Optional (Variables, nicht sensibel) ---
+          # Leer lassen ist der Normalfall: BD_HOST faellt auf den GravityZone-
+          # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung.
+          BD_HOST: ${{ vars.BD_HOST }}
+          RMM_SERVER: ${{ vars.RMM_SERVER }}
         run: bash /opt/m365-security/deploy.sh

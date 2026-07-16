@@ -11,6 +11,13 @@ git reset --hard origin/main
 # ADMIN_PASSWORD kommt als GitHub-Actions-Secret ueber die Workflow-Env herein
 # und wird von docker compose interpoliert. Ist es leer (z.B. manueller Lauf auf
 # dem Server), behaelt das Backend das bestehende Passwort aus seinem State.
+#
+# Genauso BD_API_KEY / RMM_API_KEY (Agent-Downloads) als Secrets und optional
+# BD_HOST / RMM_SERVER als Variables. ACHTUNG: die haben KEINEN State-Fallback —
+# bei einem manuellen Lauf ohne diese Env-Vars werden die Container ohne Keys neu
+# erzeugt und der Downloads-Tab ist bis zum naechsten Pipeline-Deploy inaktiv.
+# Wer manuell deployen will: Vars vorher exportieren oder in /opt/m365-security/.env
+# legen (docker compose liest die automatisch).
 
 # Erst bauen, dann neu starten — haelt die Downtime minimal
 # (der api-Build mit pwsh + ExchangeOnlineManagement dauert beim ersten Mal einige Minuten).
