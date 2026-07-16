@@ -555,16 +555,29 @@ export function initializeLiveDeploy() {
             const badTags = tagChecks.filter(([, ist, soll]) => String(ist) !== soll).map(([l, ist]) => l + '=' + (ist || '(leer)'));
             if (badTags.length === 0) ok(gs, 'Quarantine-Tags (5)', 'alle korrekt');
             else bad(gs, 'Quarantine-Tags (5)', 'BP_-Tags', badTags.join(', '));
+            // Legacy-ASF (Advanced Spam Filter): Best Practice = alle Off. Jeden
+            // Filter einzeln ausweisen, damit im Audit/PDF pro Filter der Off/On-
+            // Zustand sichtbar ist (nicht nur aggregiert). Soll = Vorlage; die
+            // Vorlage hat alle 9 auf Off (Microsoft-Empfehlung, ARC/Composite-Auth
+            // nicht uebersteuern, hohe False-Positive-Rate, nicht als FP meldbar).
             const markMap = [
-                ['bizInfoUrls', 'IncreaseScoreWithBizOrInfoUrls'], ['numericIpUrls', 'IncreaseScoreWithNumericIps'],
-                ['urlRedirect', 'IncreaseScoreWithRedirectToOtherPort'], ['emptyMessages', 'MarkAsSpamEmptyMessages'],
-                ['jsVbScript', 'MarkAsSpamJavaScriptInHtml'], ['frameIframe', 'MarkAsSpamFramesInHtml'],
-                ['sensitiveWords', 'MarkAsSpamSensitiveWordList'], ['spfHardFail', 'MarkAsSpamSpfRecordHardFail'],
-                ['backscatter', 'MarkAsSpamFromAddressAuthFail']
+                ['bizInfoUrls', 'IncreaseScoreWithBizOrInfoUrls', 'ASF: URLs zu .biz/.info'],
+                ['numericIpUrls', 'IncreaseScoreWithNumericIps', 'ASF: Numerische IP in URL'],
+                ['urlRedirect', 'IncreaseScoreWithRedirectToOtherPort', 'ASF: URL-Redirect zu anderem Port'],
+                ['emptyMessages', 'MarkAsSpamEmptyMessages', 'ASF: Leere Nachrichten'],
+                ['jsVbScript', 'MarkAsSpamJavaScriptInHtml', 'ASF: JavaScript/VBScript in HTML'],
+                ['frameIframe', 'MarkAsSpamFramesInHtml', 'ASF: Frame/IFrame-Tags'],
+                ['sensitiveWords', 'MarkAsSpamSensitiveWordList', 'ASF: Sensible Wörter'],
+                ['spfHardFail', 'MarkAsSpamSpfRecordHardFail', 'ASF: SPF Hard Fail'],
+                ['backscatter', 'MarkAsSpamFromAddressAuthFail', 'ASF: Backscatter / From-Auth-Fail']
             ];
-            const badMarks = markMap.filter(([cfgKey, istKey]) => (as[cfgKey] ? 'On' : 'Off') !== String(s[istKey])).map(([cfgKey, istKey]) => istKey.replace(/^(IncreaseScoreWith|MarkAsSpam)/, '') + '=' + s[istKey]);
-            if (badMarks.length === 0) ok(gs, 'Erweiterte Spam-Filter (9)', 'alle korrekt');
-            else bad(gs, 'Erweiterte Spam-Filter (9)', 'gemäß Konfiguration', badMarks.join(', '));
+            const asfOn = markMap.filter(([, istKey]) => String(s[istKey]) === 'On').length;
+            info(gs, 'Erweiterte Spam-Filter (ASF, 9)', asfOn === 0
+                ? 'alle Off — Best Practice (Microsoft empfiehlt Off)'
+                : asfOn + ' von 9 aktiviert — Microsoft empfiehlt Off, nur gezielt & mit Grund aktivieren');
+            for (const [cfgKey, istKey, label] of markMap) {
+                cmp(gs, label, (as[cfgKey] ? 'On' : 'Off'), s[istKey]);
+            }
         }
         if (!audit.antiSpamRule) missing(gs, 'BP_AntiSpam_Inbound_Rule');
         else {
