@@ -1121,39 +1121,105 @@ body {
 }
 
 /* ---------------- Agent-Downloads (Bitdefender / N-sight RMM) ---------------- */
-.dl-status {
-    margin: 0.75rem 0 0.25rem;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    min-height: 1.2em;
+
+/* Sub-Tabs: es ist immer nur EINE Liste sichtbar (sonst scrollt man durch
+   alle BD-Pakete, bevor N-sight ueberhaupt anfaengt). */
+.dl-subtabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 1rem;
 }
+.dl-subtab {
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    padding: 0.6rem 1rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.dl-subtab:hover { color: var(--primary-blue); }
+.dl-subtab.active { color: var(--primary-blue); border-bottom-color: var(--primary-blue); }
+
+.dl-panel { display: none; }
+.dl-panel.active { display: block; }
+
+/* Toolbar klebt oben — filtern geht auch mitten im Scrollen. */
+.dl-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    background: var(--bg-primary);
+}
+.dl-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.dl-os {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.dl-count { font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+.dl-reload { padding: 0.4rem 0.7rem; font-size: 1rem; line-height: 1; }
+
+.dl-status { margin: 0.25rem 0; font-size: 0.85rem; color: var(--text-secondary); min-height: 1.1em; }
 .dl-status.err { color: var(--error-red); }
 
-.dl-list { margin-top: 0.5rem; }
-
-.dl-card {
+/* Feste Hoehe: die Seite waechst nicht mehr mit der Listenlaenge. */
+.dl-scroll {
+    max-height: 55vh;
+    overflow-y: auto;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
     background: var(--bg-primary);
 }
 
-.dl-name { font-weight: 600; font-size: 0.95rem; }
+/* Kompakte, einzeilige Zeilen statt gestapelter Karten. */
+.dl-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0.75rem;
+}
+.dl-card:hover { background: var(--bg-secondary); }
+.dl-card, .dl-item { border-bottom: 1px solid var(--border-color); }
+.dl-card:last-child, .dl-item:last-child { border-bottom: 0; }
+.dl-item .dl-card { border-bottom: 0; }
+
+.dl-name { font-weight: 600; font-size: 0.9rem; overflow-wrap: anywhere; }
 .dl-name small { font-weight: 400; color: var(--text-secondary); }
-.dl-click { cursor: pointer; user-select: none; }
+.dl-click { cursor: pointer; user-select: none; flex: 1 1 auto; }
 .dl-click:hover { color: var(--primary-blue); }
 
-.dl-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
-.dl-actions .btn { padding: 0.35rem 0.85rem; font-size: 0.85rem; }
+.dl-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; flex: 0 0 auto; }
+.dl-actions .btn { padding: 0.3rem 0.7rem; font-size: 0.8rem; white-space: nowrap; }
 
-.dl-sites {
-    margin-top: 0.75rem;
-    padding-left: 0.75rem;
-    border-left: 3px solid var(--border-color);
+/* Sites klappen unter dem Client auf. */
+.dl-sites { padding: 0 0.75rem 0.5rem 1.75rem; background: var(--bg-secondary); }
+.dl-site {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border-color);
 }
-.dl-site { padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); }
 .dl-site:last-child { border-bottom: 0; }
 
-.dl-empty { color: var(--text-secondary); font-size: 0.9rem; padding: 0.5rem 0; }
+.dl-empty { color: var(--text-secondary); font-size: 0.9rem; padding: 0.75rem; }
 .dl-empty.err { color: var(--error-red); }
+.dl-hint { display: block; margin-top: 0.5rem; color: var(--text-secondary); }

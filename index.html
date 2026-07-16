@@ -554,51 +554,48 @@
                     </div>
 
                     <div id="dlMain" style="display: none;">
+                        <!-- Sub-Tabs: immer nur eine Liste sichtbar -->
+                        <div class="dl-subtabs">
+                            <button type="button" class="dl-subtab active" data-sub="bd">🛡️ Bitdefender</button>
+                            <button type="button" class="dl-subtab" data-sub="rmm">🖥️ N-sight RMM</button>
+                        </div>
+
                         <!-- ---------------- Bitdefender ---------------- -->
-                        <div class="settings-group">
-                            <h4>🛡️ Bitdefender GravityZone</h4>
+                        <div id="dlPanelBd" class="dl-panel active">
                             <div id="bdDisabled" class="alert alert-warning" style="display: none;">
                                 Kein <code>BD_API_KEY</code> gesetzt — Bereich inaktiv.
                             </div>
                             <div id="bdBox" style="display: none;">
-                                <div class="settings-grid">
-                                    <div class="input-group">
-                                        <label for="bdQ">Paket suchen</label>
-                                        <input type="text" id="bdQ" placeholder="Paketname filtern …">
-                                    </div>
+                                <div class="dl-toolbar">
+                                    <input type="search" id="bdQ" class="dl-search" placeholder="🔍 Paket filtern …">
+                                    <span id="bdCount" class="dl-count"></span>
+                                    <button id="bdReload" class="btn btn-secondary dl-reload" title="Neu laden">↻</button>
                                 </div>
-                                <button id="bdReload" class="btn btn-secondary">Pakete neu laden</button>
                                 <div id="bdStatus" class="dl-status"></div>
-                                <div id="bdList" class="dl-list"></div>
+                                <div id="bdList" class="dl-scroll"></div>
                             </div>
                         </div>
 
                         <!-- ---------------- N-sight RMM ---------------- -->
-                        <div class="settings-group">
-                            <h4>🖥️ N-able N-sight RMM</h4>
+                        <div id="dlPanelRmm" class="dl-panel">
                             <div id="rmmDisabled" class="alert alert-warning" style="display: none;">
                                 Kein <code>RMM_API_KEY</code> gesetzt — Bereich inaktiv.
                             </div>
                             <div id="rmmBox" style="display: none;">
-                                <div class="settings-grid">
-                                    <div class="input-group">
-                                        <label for="rmmQ">Client suchen</label>
-                                        <input type="text" id="rmmQ" placeholder="Kundenname filtern …">
-                                    </div>
-                                    <div class="input-group">
-                                        <label for="rmmOs">Betriebssystem</label>
-                                        <select id="rmmOs">
-                                            <option value="windows" selected>Windows</option>
-                                            <option value="mac">macOS</option>
-                                            <option value="linux">Linux</option>
-                                        </select>
-                                    </div>
+                                <div class="dl-toolbar">
+                                    <input type="search" id="rmmQ" class="dl-search" placeholder="🔍 Client filtern …">
+                                    <select id="rmmOs" class="dl-os" title="Betriebssystem">
+                                        <option value="windows" selected>Windows</option>
+                                        <option value="mac">macOS</option>
+                                        <option value="linux">Linux</option>
+                                    </select>
+                                    <span id="rmmCount" class="dl-count"></span>
+                                    <button id="rmmReload" class="btn btn-secondary dl-reload" title="Neu laden">↻</button>
                                 </div>
-                                <button id="rmmReload" class="btn btn-secondary">Clients neu laden</button>
                                 <div id="rmmStatus" class="dl-status"></div>
-                                <div id="rmmList" class="dl-list"></div>
-                                <small>Client anklicken → Sites. Der erste Agent-Build kann einige
-                                    Sekunden dauern — Seite offen lassen.</small>
+                                <div id="rmmList" class="dl-scroll"></div>
+                                <small class="dl-hint">Client anklicken → Sites. Der erste Agent-Build kann
+                                    einige Sekunden dauern — Seite offen lassen.</small>
                             </div>
                         </div>
                     </div>
