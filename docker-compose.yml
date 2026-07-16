@@ -23,6 +23,13 @@ services:
       # generiert und einmalig ins Container-Log geschrieben (docker logs m365-security-api).
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Agent-Downloads: API-Keys bleiben im Backend, nie im Browser.
+      # Ohne Key ist der jeweilige Bereich im Tab einfach inaktiv.
+      - BD_HOST=${BD_HOST:-cloudgz.gravityzone.bitdefender.com}
+      - BD_API_KEY=${BD_API_KEY:-}
+      # RMM_SERVER leer lassen = automatische Server-Erkennung (empfohlen)
+      - RMM_SERVER=${RMM_SERVER:-}
+      - RMM_API_KEY=${RMM_API_KEY:-}
     volumes:
       - api-state:/app/state
     networks:

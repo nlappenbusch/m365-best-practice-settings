@@ -71,6 +71,7 @@
                 <button class="tab-btn" data-tab="docs">Dokumentation</button>
                 <button class="tab-btn" data-tab="recommendations">Best Practices</button>
                 <button class="tab-btn" data-tab="livedeploy">🚀 Live-Deploy</button>
+                <button class="tab-btn" data-tab="downloads">📦 Agent-Downloads</button>
             </nav>
 
             <!-- Configuration Tab -->
@@ -530,6 +531,79 @@
                     </div>
                 </section>
             </div>
+
+            <div id="downloads" class="tab-content">
+                <section class="settings-section">
+                    <h2>📦 Agent-Downloads — Bitdefender &amp; N-sight RMM</h2>
+                    <div class="alert alert-info">
+                        <strong>ℹ️ So funktioniert es:</strong> Kunde bzw. Paket suchen → Windows-Agent
+                        herunterladen. Die API-Keys liegen im Backend (<code>BD_API_KEY</code> /
+                        <code>RMM_API_KEY</code>) und werden serverseitig verwendet — sie landen
+                        <strong>nie</strong> im Browser oder in einer URL. Der Download läuft über den
+                        Proxy dieses Tools.
+                    </div>
+
+                    <div id="dlOffline" class="alert alert-warning" style="display: none;">
+                        <strong>⚠️ Backend nicht erreichbar.</strong> Die Agent-Downloads laufen nur im
+                        Docker-Stack (<code>docker compose up -d</code>).
+                    </div>
+
+                    <div id="dlAuth" class="alert alert-warning" style="display: none;">
+                        <strong>🔒 Nicht angemeldet.</strong> Bitte im Tab <strong>🚀 Live-Deploy</strong>
+                        anmelden — die Downloads nutzen dieselbe Sitzung.
+                    </div>
+
+                    <div id="dlMain" style="display: none;">
+                        <!-- ---------------- Bitdefender ---------------- -->
+                        <div class="settings-group">
+                            <h4>🛡️ Bitdefender GravityZone</h4>
+                            <div id="bdDisabled" class="alert alert-warning" style="display: none;">
+                                Kein <code>BD_API_KEY</code> gesetzt — Bereich inaktiv.
+                            </div>
+                            <div id="bdBox" style="display: none;">
+                                <div class="settings-grid">
+                                    <div class="input-group">
+                                        <label for="bdQ">Paket suchen</label>
+                                        <input type="text" id="bdQ" placeholder="Paketname filtern …">
+                                    </div>
+                                </div>
+                                <button id="bdReload" class="btn btn-secondary">Pakete neu laden</button>
+                                <div id="bdStatus" class="dl-status"></div>
+                                <div id="bdList" class="dl-list"></div>
+                            </div>
+                        </div>
+
+                        <!-- ---------------- N-sight RMM ---------------- -->
+                        <div class="settings-group">
+                            <h4>🖥️ N-able N-sight RMM</h4>
+                            <div id="rmmDisabled" class="alert alert-warning" style="display: none;">
+                                Kein <code>RMM_API_KEY</code> gesetzt — Bereich inaktiv.
+                            </div>
+                            <div id="rmmBox" style="display: none;">
+                                <div class="settings-grid">
+                                    <div class="input-group">
+                                        <label for="rmmQ">Client suchen</label>
+                                        <input type="text" id="rmmQ" placeholder="Kundenname filtern …">
+                                    </div>
+                                    <div class="input-group">
+                                        <label for="rmmOs">Betriebssystem</label>
+                                        <select id="rmmOs">
+                                            <option value="windows" selected>Windows</option>
+                                            <option value="mac">macOS</option>
+                                            <option value="linux">Linux</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button id="rmmReload" class="btn btn-secondary">Clients neu laden</button>
+                                <div id="rmmStatus" class="dl-status"></div>
+                                <div id="rmmList" class="dl-list"></div>
+                                <small>Client anklicken → Sites. Der erste Agent-Build kann einige
+                                    Sekunden dauern — Seite offen lassen.</small>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
         </main>
     </div>
 
@@ -569,6 +643,7 @@
     <script src="domains.js?v=__ASSET_VERSION__"></script>
     <script src="app.js?v=__ASSET_VERSION__"></script>
     <script src="livedeploy.js?v=__ASSET_VERSION__"></script>
+    <script src="downloads.js?v=__ASSET_VERSION__"></script>
 </body>
 
 </html>

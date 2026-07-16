@@ -25,6 +25,8 @@ const DEPLOY = require("./lib/deploy");
 const OIB = require("./lib/oib");
 const TCM = require("./lib/tcm");
 const GRAPHLIB = require("./lib/graph");
+const BD = require("./lib/bitdefender");
+const NSIGHT = require("./lib/nsight");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -400,6 +402,42 @@ app.use("/api", (req, res, next) => {
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
 });
+
+// ---------- Agent-Downloads (Bitdefender / N-sight RMM) ----------
+// Die API-Keys bleiben hier im Backend; das Frontend laedt ueber diesen Proxy.
+
+app.get("/api/downloads/config", (req, res) => {
+  const bd = BD.config();
+  const rmm = NSIGHT.config();
+  res.json({ ok: true, bd: bd.enabled, rmm: rmm.enabled, bdHost: bd.host, rmmServer: rmm.fixed || null });
+});
+
+app.get("/api/downloads/bd/packages", wrap(async (req, res) => {
+  res.json({ ok: true, packages: await BD.listPackages() });
+}));
+
+app.get("/api/downloads/bd/download", wrap(async (req, res) => {
+  const u = String(req.query.u || "").trim();
+  if (!u) throw Object.assign(new Error("Keine URL."), { status: 400 });
+  await BD.streamDownload(u, res);
+}));
+
+app.get("/api/downloads/rmm/clients", wrap(async (req, res) => {
+  res.json({ ok: true, ...(await NSIGHT.listClients()) });
+}));
+
+app.get("/api/downloads/rmm/sites", wrap(async (req, res) => {
+  res.json({ ok: true, ...(await NSIGHT.listSites(String(req.query.clientid || "").trim())) });
+}));
+
+app.get("/api/downloads/rmm/download", wrap(async (req, res) => {
+  await NSIGHT.downloadAgent({
+    endcustomerid: String(req.query.endcustomerid || "").trim(),
+    siteid: String(req.query.siteid || "").trim(),
+    type: String(req.query.type || "").trim(),
+    os: String(req.query.os || "").trim()
+  }, res);
+}));
 
 // ---------- Tenants ----------
 app.get("/api/tenants", (req, res) => {
