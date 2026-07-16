@@ -904,7 +904,7 @@ body {
     color: #64748b;
 }
 
-/* PDF-Export-Button im Audit-Kopf: nach rechts, kompakt */
+/* PDF-Export-Buttons im Audit-Kopf: nach rechts, kompakt */
 .ld-pdf-btn {
     margin-left: auto;
     align-self: center;
@@ -912,6 +912,8 @@ body {
     font-size: 0.8rem;
     white-space: nowrap;
 }
+/* zweiter Button haengt direkt am ersten statt eigenem auto-Margin */
+.ld-pdf-btn2 { margin-left: 0.5rem; }
 
 /* Gewollte Abweichungen: Markier-Button + Begruendung je Audit-Zeile */
 .ld-dev-btn {

@@ -83,6 +83,9 @@ export function initializeLiveDeploy() {
         if (e.target && e.target.closest && e.target.closest('#ldAuditPdf')) {
             openAuditPdfReport();
         }
+        if (e.target && e.target.closest && e.target.closest('#ldTenantDoc')) {
+            openTenantConfigDoc();
+        }
         const devBtn = e.target && e.target.closest && e.target.closest('.ld-dev-btn');
         if (devBtn) { handleDeviationClick(devBtn); }
     });
@@ -681,7 +684,8 @@ export function initializeLiveDeploy() {
         lastAudit = { name, groups, okCount, total: countable.length, accepted: acceptedCount, allOk, domSrc, sollDomains: sollDomains.slice() };
         log('<div class="ld-job"><div class="ld-job-head"><strong>🔎 Ist-Zustand: ' + ldEsc(name) + '</strong>' +
             '<span class="ld-job-meta">Soll-Domains: ' + ldEsc(domSrc) + '</span>' +
-            '<button id="ldAuditPdf" class="btn btn-secondary ld-pdf-btn" title="Diese Dokumentation als PDF speichern (Druckdialog → „Als PDF speichern")">📄 Als PDF dokumentieren</button>' +
+            '<button id="ldAuditPdf" class="btn btn-secondary ld-pdf-btn" title="Audit-Report (Soll/Ist-Checkliste) als PDF speichern">📄 Audit-PDF</button>' +
+            '<button id="ldTenantDoc" class="btn btn-secondary ld-pdf-btn ld-pdf-btn2" title="Nüchterne Konfigurations-Dokumentation des Tenants (Best Practice + Ist + gewollte Abweichungen mit Begründung) als PDF">📘 Konfig-Doku</button>' +
             '</div>' + banner + groupHtml + '</div>');
 
         // TCM-Snapshot lief beim Audit noch — weiter pollen und dann neu rendern
@@ -861,6 +865,193 @@ export function initializeLiveDeploy() {
         w.document.write(html);
         w.document.close();
         // Druckdialog kurz nach dem Laden — der Nutzer waehlt dort „Als PDF speichern".
+        setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
+    }
+
+    // ---------- Konfig-Doku (nuechtern) als PDF ----------
+    // Gleiche Datenbasis wie der Audit-Report (lastAudit.groups), aber im Stil
+    // einer sachlichen Konfigurations-Dokumentation: nummerierte Kapitel mit
+    // Erklaertext pro Bereich, Parametertabellen mit Soll/Ist und ein eigenes
+    // Kapitel fuer gewollte Abweichungen samt Begruendung — fuer Kunden-/
+    // Ablage-Doku gedacht (Audit-PDF = Checkliste, Konfig-Doku = Dokument).
+    const LD_DOC_INTRO = {
+        'Quarantine Policies': 'Zwei Endnutzer-Quarantäne-Richtlinien mit aktivierter Quarantäne-Benachrichtigung (ESN). Berechtigungswert 59 = Selbst-Freigabe (AllowSender + BlockSender + RequestRelease + Preview + Delete), 26 = nur Freigabe-Anfrage (BlockSender + RequestRelease + Preview) für höher eingestufte Nachrichten.',
+        'Anti-Phishing': 'Richtlinie BP_AntiPhishing: Spoof Intelligence, Safety Tips, Kennzeichnung nicht authentifizierter Absender und DMARC-Durchsetzung. Der Empfänger-Scope läuft über BP_AntiPhishing_Rule; der Spoof-Quarantine-Tag ist nur per PowerShell setzbar (Portal-Limitierung).',
+        'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Verdicts in die Quarantäne, Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäß Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
+        'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',
+        'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.'
+    };
+
+    function ldDocStatusCell(c) {
+        switch (c.state) {
+            case 'ok': return '<span class="st ok">✓ konform</span>';
+            case 'bad': return '<span class="st bad">✗ Abweichung</span>';
+            case 'missing': return '<span class="st bad">fehlt</span>';
+            case 'accepted': return '<span class="st acc">✋ gewollt</span>' + (c.reason ? '<div class="rsn">' + ldEsc(c.reason) + '</div>' : '');
+            default: return '<span class="st info">Info</span>';
+        }
+    }
+
+    function buildTenantConfigDocHtml(data) {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+        const g = config.global, am = config.antiMalware;
+        const pct = data.total ? Math.round((data.okCount / data.total) * 100) : 100;
+        const openDev = data.total - data.okCount;
+        const fileTypesSoll = String(am.customFileTypes || '').split(',').map(t => t.trim().replace(/^\.+/, '')).filter(Boolean);
+
+        let n = 0;
+        const sec = (title, body) => { n++; return '<div class="section"><h2>' + n + '&nbsp;&nbsp;' + title + '</h2>' + body + '</div>'; };
+
+        const checksTable = grp => '<table><tr><th style="width:30%">Prüfpunkt</th><th style="width:26%">Soll (Best Practice)</th><th style="width:26%">Ist (Tenant)</th><th>Status</th></tr>' +
+            grp.checks.map(c => {
+                const si = ldAuditSollIst(c);
+                const soll = si.soll || (c.state === 'ok' ? si.ist : '—');
+                return '<tr><td class="pn">' + ldEsc(c.label) + '</td>' +
+                    '<td class="v">' + ldEsc(soll || '—') + '</td>' +
+                    '<td class="v">' + ldEsc(si.ist || '—') + '</td>' +
+                    '<td>' + ldDocStatusCell(c) + '</td></tr>';
+            }).join('') + '</table>';
+
+        // Kapitel 1: Ueberblick (statisch, wie die Vorlagen-Doku)
+        const overview = sec('Überblick',
+            '<p>Dieses Dokument beschreibt die in Exchange Online Protection wirksame Schutz-Konfiguration des Tenants ' +
+            '<b>' + ldEsc(data.name) + '</b> gegenüber der Best-Practice-Vorlage des M365 Security Policy Manager. ' +
+            'Alle Objekte tragen das Präfix <code>BP_</code> und sind über Regeln auf die Mail-Domains des Tenants eingeschränkt. ' +
+            'Grundlage ist der Ist-Zustand vom ' + dateStr + ' (live aus dem Tenant gelesen, app-only Exchange Online / Graph).</p>' +
+            '<p class="note">Nicht Teil dieser Dokumentation: Defender-for-Office-Funktionen (Safe Links / Safe Attachments), Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>');
+
+        // Kapitel 2: Globale Parameter
+        const globals = sec('Globale Parameter',
+            '<table>' +
+            '<tr><th style="width:34%">Parameter</th><th>Wert</th></tr>' +
+            '<tr><td class="pn">Tenant</td><td class="v">' + ldEsc(data.name) + '</td></tr>' +
+            '<tr><td class="pn">Erhebung (Audit)</td><td class="v">' + dateStr + ' · ' + timeStr + ' Uhr</td></tr>' +
+            '<tr><td class="pn">Soll-Domain-Quelle</td><td class="v">' + ldEsc(data.domSrc) + '</td></tr>' +
+            '<tr><td class="pn">Mail-Domains (Scope)</td><td class="v">' + ldEsc((data.sollDomains || []).join(', ') || '—') + '</td></tr>' +
+            '<tr><td class="pn">Admin-E-Mail</td><td class="v">' + ldEsc(g.adminEmail || '—') + '</td></tr>' +
+            '<tr><td class="pn">MSP-E-Mail</td><td class="v">' + ldEsc(g.igeeksEmail || '—') + '</td></tr>' +
+            '<tr><td class="pn">Konformität</td><td class="v">' + data.okCount + ' von ' + data.total + ' Prüfpunkten (' + pct + '%)' +
+                (data.accepted ? ' · ' + data.accepted + ' gewollte Abweichung(en)' : '') + '</td></tr>' +
+            '</table>' +
+            '<p class="note">Nicht-Mail-Domains (Teams-/SBC-/Telefonie-Domains ohne Postfächer) sind aus dem Scope ausgenommen.</p>');
+
+        // Kapitel je Policy-Bereich (gleiche Reihenfolge wie das Audit)
+        const areaSections = data.groups.map(grp => {
+            let extra = '';
+            if (grp.title === 'Anti-Malware' && fileTypesSoll.length) {
+                extra = '<p class="ft"><b>Blockierte Dateitypen (Soll, ' + fileTypesSoll.length + '):</b> <span class="mono">' + ldEsc(fileTypesSoll.join(', ')) + '</span></p>';
+            }
+            return sec(grp.icon + ' ' + ldEsc(grp.title),
+                '<p>' + (LD_DOC_INTRO[grp.title] || '') + '</p>' + checksTable(grp) + extra);
+        }).join('');
+
+        // Kapitel: Abweichungen & Begruendungen
+        const wanted = [], open = [];
+        for (const grp of data.groups) {
+            for (const c of grp.checks) {
+                const si = ldAuditSollIst(c);
+                if (c.state === 'accepted') wanted.push({ area: grp.title, label: c.label, soll: si.soll, ist: si.ist, reason: c.reason || '' });
+                else if (c.state === 'bad' || c.state === 'missing') open.push({ area: grp.title, label: c.label, soll: si.soll, ist: si.ist || c.detail });
+            }
+        }
+        const wantedHtml = wanted.length
+            ? '<table><tr><th style="width:16%">Bereich</th><th style="width:22%">Prüfpunkt</th><th style="width:17%">Soll</th><th style="width:17%">Ist</th><th>Begründung</th></tr>' +
+              wanted.map(d => '<tr><td>' + ldEsc(d.area) + '</td><td class="pn">' + ldEsc(d.label) + '</td><td class="v">' + ldEsc(d.soll || '—') + '</td><td class="v">' + ldEsc(d.ist || '—') + '</td><td class="rsn2">' + ldEsc(d.reason) + '</td></tr>').join('') + '</table>'
+            : '<p>Keine.</p>';
+        const openHtml = open.length
+            ? '<table><tr><th style="width:16%">Bereich</th><th style="width:26%">Prüfpunkt</th><th style="width:29%">Soll</th><th>Ist</th></tr>' +
+              open.map(d => '<tr><td>' + ldEsc(d.area) + '</td><td class="pn">' + ldEsc(d.label) + '</td><td class="v">' + ldEsc(d.soll || '—') + '</td><td class="v">' + ldEsc(d.ist || '—') + '</td></tr>').join('') + '</table>'
+            : '<p>Keine — der Tenant entspricht (abgesehen von dokumentierten gewollten Abweichungen) der Vorlage.</p>';
+        const deviations = sec('Abweichungen &amp; Begründungen',
+            '<p>Gewollte Abweichungen sind bewusste, pro Tenant dokumentierte Entscheidungen — sie gelten nicht als Mangel. Offene Abweichungen sind nicht begründet und sollten per Deploy oder gezielt behoben werden.</p>' +
+            '<h3>Gewollte Abweichungen (' + wanted.length + ')</h3>' + wantedHtml +
+            '<h3>Offene Abweichungen (' + open.length + ')</h3>' + openHtml);
+
+        // Kapitel: Hinweise
+        const hints = sec('Hinweise zur Anwendung',
+            '<ul class="plain">' +
+            '<li>Alle <code>*_Rule</code>-Objekte laufen mit <code>Priority 0</code> und sind über <code>RecipientDomainIs</code> auf die Mail-Domains eingeschränkt.</li>' +
+            '<li>Der <code>SpoofQuarantineTag</code> wird ausschließlich per PowerShell gesetzt (im Portal nicht wählbar).</li>' +
+            '<li>Deploys sind idempotent: bestehende <code>BP_</code>-Objekte werden aktualisiert, nicht doppelt angelegt.</li>' +
+            '<li>Gewollte Abweichungen werden im Tool pro Tenant gepflegt (Audit → „als gewollt markieren") und in diesem Dokument ausgewiesen.</li>' +
+            '</ul>');
+
+        return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
+            '<title>Konfig-Doku ' + ldEsc(data.name) + ' — M365 Security</title>' +
+            '<style>' + ldTenantDocCss() + '</style></head><body>' +
+            '<button class="no-print print-btn" onclick="window.print()">📘 Als PDF speichern / Drucken</button>' +
+            '<div class="page">' +
+              '<div class="doc-head">' +
+                '<h1>Microsoft&nbsp;365 – Schutz-Konfiguration</h1>' +
+                '<p class="lead">Konfigurationsdokumentation ' + ldEsc(data.name) + ' — Best Practice, Ist-Zustand und dokumentierte Abweichungen</p>' +
+                '<div class="meta">' +
+                  '<div><b>Erstellt am:</b> ' + dateStr + ' · ' + timeStr + ' Uhr</div>' +
+                  '<div><b>Quelle:</b> M365 Security Policy Manager (Live-Audit)</div>' +
+                  '<div><b>Konformität:</b> ' + pct + '% (' + data.okCount + '/' + data.total + ')' + (data.accepted ? ' · ' + data.accepted + ' gewollt' : '') + '</div>' +
+                  '<div><b>Offene Abweichungen:</b> ' + openDev + '</div>' +
+                '</div>' +
+              '</div>' +
+              overview + globals + areaSections + deviations + hints +
+              '<footer>Automatisch erzeugt vom M365 Security Policy Manager · ' + dateStr + ' ' + timeStr +
+              ' · Soll = Best-Practice-Vorlage, Ist = live aus dem Tenant gelesen (app-only Exchange Online / Graph).</footer>' +
+            '</div></body></html>';
+    }
+
+    function ldTenantDocCss() {
+        return [
+            '*{box-sizing:border-box;margin:0;padding:0}',
+            'html{-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+            'body{font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#1a1a1a;font-size:10.5pt;line-height:1.5;background:#f2f4f7}',
+            '.page{max-width:860px;margin:24px auto;background:#fff;padding:34px 38px 40px;box-shadow:0 2px 18px rgba(16,24,40,.12);border-radius:6px}',
+            'h1{font-size:19pt;font-weight:700;margin:0 0 2px;letter-spacing:-0.01em}',
+            '.lead{font-size:10.5pt;color:#555;margin:0 0 12px}',
+            '.doc-head{border-bottom:3px solid #1a1a1a;padding-bottom:12px;margin-bottom:6px}',
+            '.meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;font-size:9.5pt;color:#333;margin-top:8px}',
+            '.meta div{border-bottom:1px solid #eee;padding:2px 0}',
+            '.meta b{color:#000;font-weight:600}',
+            'h2{font-size:12.5pt;font-weight:700;margin:20px 0 7px;padding-bottom:4px;border-bottom:2px solid #1a1a1a;break-after:avoid}',
+            'h3{font-size:10.8pt;font-weight:700;margin:12px 0 5px;break-after:avoid}',
+            'p{margin:0 0 8px}',
+            'table{width:100%;border-collapse:collapse;margin:6px 0 10px;font-size:9.5pt}',
+            'th,td{text-align:left;vertical-align:top;padding:5px 8px;border-bottom:1px solid #e2e2e2}',
+            'th{background:#f3f3f3;font-weight:600;border-bottom:1.5px solid #bbb}',
+            'tr{break-inside:avoid}',
+            'td.pn{font-weight:600;color:#1a1a1a}',
+            'td.v{font-family:Consolas,monospace;font-size:9pt;color:#202a37;word-break:break-word}',
+            'code,.mono{font-family:Consolas,monospace;font-size:9.2pt;background:#f4f4f4;padding:0 3px;border-radius:2px}',
+            '.mono{line-height:1.7}',
+            '.note{font-size:9.3pt;color:#555;border-left:3px solid #bbb;padding:4px 10px;margin:8px 0;background:#fafafa}',
+            '.section{break-inside:avoid-page}',
+            'ul.plain{margin:4px 0 10px;padding-left:18px}',
+            'ul.plain li{margin:2px 0}',
+            '.ft{font-size:9.3pt;margin-top:2px}',
+            '.st{font-weight:700;font-size:9pt;white-space:nowrap}',
+            '.st.ok{color:#067647}',
+            '.st.bad{color:#b42318}',
+            '.st.acc{color:#3538cd}',
+            '.st.info{color:#475467}',
+            '.rsn{font-size:8.8pt;color:#3538cd;font-style:italic;margin-top:2px}',
+            '.rsn2{font-size:9pt;color:#3538cd;font-style:italic}',
+            'footer{margin-top:24px;padding-top:8px;border-top:1px solid #ccc;font-size:8.7pt;color:#777}',
+            '.print-btn{position:fixed;top:16px;right:16px;z-index:9;background:#1a1a1a;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3)}',
+            '@media print{body{background:#fff}.no-print{display:none!important}.page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}}',
+            '@page{size:A4;margin:16mm}'
+        ].join('');
+    }
+
+    function openTenantConfigDoc() {
+        if (!lastAudit) return;
+        const html = buildTenantConfigDocHtml(lastAudit);
+        const w = window.open('', '_blank');
+        if (!w) {
+            alert('Der Browser hat das Dokument-Fenster blockiert. Bitte Pop-ups für diese Seite erlauben und erneut „Konfig-Doku" klicken.');
+            return;
+        }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
         setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
     }
 
