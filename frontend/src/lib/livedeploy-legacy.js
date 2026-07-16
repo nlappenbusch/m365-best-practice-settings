@@ -68,6 +68,8 @@ export function initializeLiveDeploy() {
     let jobTimer = null;     // Deploy-Job-Poll
     let currentSnippet = ''; // Snippet des manuellen Alert-Policy-Schritts
     let lastAudit = null;    // letztes Audit-Ergebnis fuer den PDF-Report
+    let ldDeviations = [];   // pro Tenant als "gewollt" markierte Abweichungen [{key,reason,ts}]
+    let ldAuditCtx = null;   // Rohkontext des letzten Audits fuer lokales Re-Rendern
 
     function show(el, visible) { if (el) el.style.display = visible ? '' : 'none'; }
     function log(html) { elLog.innerHTML = html; }
@@ -81,6 +83,8 @@ export function initializeLiveDeploy() {
         if (e.target && e.target.closest && e.target.closest('#ldAuditPdf')) {
             openAuditPdfReport();
         }
+        const devBtn = e.target && e.target.closest && e.target.closest('.ld-dev-btn');
+        if (devBtn) { handleDeviationClick(devBtn); }
     });
 
     // ---------- Session ----------
@@ -220,6 +224,7 @@ export function initializeLiveDeploy() {
                 '<div class="ld-step running"><span class="ld-spinner"></span> Lese Policies aus dem Tenant — dauert ca. 30–60 Sekunden…</div></div>');
             try {
                 const r = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/audit', { method: 'POST' });
+                ldDeviations = Array.isArray(r.acceptedDeviations) ? r.acceptedDeviations : [];
                 renderAudit(id, name, r.audit || {}, r.alertPolicy || null);
             } catch (err) {
                 log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div></div>');
@@ -471,6 +476,7 @@ export function initializeLiveDeploy() {
 
     function renderAudit(tenantRecId, name, audit, alertPolicy) {
         if (auditPollTimer) { clearTimeout(auditPollTimer); auditPollTimer = null; }
+        ldAuditCtx = { tenantRecId, name, audit, alertPolicy };
         const ap = config.antiPhishing, as = config.antiSpam, am = config.antiMalware, g = config.global;
         const autoDomains = !!(document.getElementById('ldAutoDomains') && document.getElementById('ldAutoDomains').checked);
         const sollDomains = autoDomains ? (audit.acceptedDomains || []) : [...g.domains, g.onmicrosoftDomain].filter(Boolean);
@@ -628,24 +634,51 @@ export function initializeLiveDeploy() {
             else bad(ga, 'Empfänger', soll.join(', '), (ap2.notifyUser || []).join(', ') || '(leer)');
         }
 
+        // Gewollte Abweichungen (pro Tenant markiert) ueberschreiben bad/missing
+        // -> 'accepted' (ℹ️, zaehlt nicht als Abweichung). Key = Gruppe :: Label.
+        const devMap = {};
+        for (const d of (ldDeviations || [])) { if (d && d.key) devMap[d.key] = d.reason; }
+        for (const grp of groups) {
+            for (const c of grp.checks) {
+                if ((c.state === 'bad' || c.state === 'missing') && devMap[ldDevKey(grp.title, c.label)] != null) {
+                    c.state = 'accepted';
+                    c.reason = devMap[ldDevKey(grp.title, c.label)];
+                }
+            }
+        }
+
         // Rendern
-        const countable = groups.flatMap(grp => grp.checks).filter(c => c.state !== 'info' && c.state !== 'loading');
+        const allChecks = groups.flatMap(grp => grp.checks);
+        const countable = allChecks.filter(c => c.state !== 'info' && c.state !== 'loading' && c.state !== 'accepted');
         const okCount = countable.filter(c => c.state === 'ok').length;
+        const acceptedCount = allChecks.filter(c => c.state === 'accepted').length;
         const allOk = okCount === countable.length;
-        const iconFor = { ok: '✅', bad: '❌', missing: '⚠️', info: 'ℹ️' };
-        const clsFor = { ok: 'ok', bad: 'fail', missing: 'retry', info: '', loading: 'running' };
+        const iconFor = { ok: '✅', bad: '❌', missing: '⚠️', info: 'ℹ️', accepted: 'ℹ️' };
+        const clsFor = { ok: 'ok', bad: 'fail', missing: 'retry', info: '', loading: 'running', accepted: 'accepted' };
+        const rowHtml = (grp, c) => {
+            const ico = c.state === 'loading' ? '<span class="ld-spinner"></span>' : iconFor[c.state];
+            const key = encodeURIComponent(ldDevKey(grp.title, c.label));
+            let extra = '';
+            if (c.state === 'bad' || c.state === 'missing') {
+                extra = ' <button class="ld-dev-btn" data-devact="accept" data-devkey="' + key + '" title="Diese Abweichung als bewusst/gewollt markieren (erscheint dann als ℹ️ statt ❌, auch im PDF)">als gewollt markieren</button>';
+            } else if (c.state === 'accepted') {
+                extra = ' <span class="ld-dev-reason">✋ gewollt: ' + ldEsc(c.reason || '') + '</span>' +
+                    ' <button class="ld-dev-btn" data-devact="clear" data-devkey="' + key + '" title="Markierung entfernen — Check wird wieder als Abweichung gewertet">✕</button>';
+            }
+            return '<div class="ld-step ' + clsFor[c.state] + '"><span class="ld-ico">' + ico + '</span> ' +
+                ldEsc(c.label) + ' <small>' + ldEsc(c.detail) + '</small>' + extra + '</div>';
+        };
         const groupHtml = groups.map(grp => {
             const anyBad = grp.checks.some(c => c.state === 'bad' || c.state === 'missing');
             return '<div class="ld-phase ' + (anyBad ? 'active' : 'complete') + '"><div class="ld-phase-title">' + grp.icon + ' ' + ldEsc(grp.title) + '</div>' +
-                grp.checks.map(c => '<div class="ld-step ' + clsFor[c.state] + '"><span class="ld-ico">' +
-                    (c.state === 'loading' ? '<span class="ld-spinner"></span>' : iconFor[c.state]) + '</span> ' +
-                    ldEsc(c.label) + ' <small>' + ldEsc(c.detail) + '</small></div>').join('') + '</div>';
+                grp.checks.map(c => rowHtml(grp, c)).join('') + '</div>';
         }).join('');
+        const accNote = acceptedCount ? ' <span class="ld-acc-note">· ' + acceptedCount + ' als gewollt markiert</span>' : '';
         const banner = allOk
-            ? '<div class="ld-banner ok">✅ Ist-Zustand entspricht der Konfiguration (' + okCount + '/' + countable.length + ' Checks OK).</div>'
-            : '<div class="ld-banner warn">⚠️ ' + (countable.length - okCount) + ' von ' + countable.length + ' Checks weichen ab — ein Deploy bringt den Tenant auf den Soll-Zustand.</div>';
+            ? '<div class="ld-banner ok">✅ Ist-Zustand entspricht der Konfiguration (' + okCount + '/' + countable.length + ' Checks OK).' + accNote + '</div>'
+            : '<div class="ld-banner warn">⚠️ ' + (countable.length - okCount) + ' von ' + countable.length + ' Checks weichen ab — ein Deploy bringt den Tenant auf den Soll-Zustand.' + accNote + '</div>';
         const domSrc = autoDomains ? 'Accepted Domains des Tenants' : 'Domains aus dem Konfigurations-Tab';
-        lastAudit = { name, groups, okCount, total: countable.length, allOk, domSrc, sollDomains: sollDomains.slice() };
+        lastAudit = { name, groups, okCount, total: countable.length, accepted: acceptedCount, allOk, domSrc, sollDomains: sollDomains.slice() };
         log('<div class="ld-job"><div class="ld-job-head"><strong>🔎 Ist-Zustand: ' + ldEsc(name) + '</strong>' +
             '<span class="ld-job-meta">Soll-Domains: ' + ldEsc(domSrc) + '</span>' +
             '<button id="ldAuditPdf" class="btn btn-secondary ld-pdf-btn" title="Diese Dokumentation als PDF speichern (Druckdialog → „Als PDF speichern")">📄 Als PDF dokumentieren</button>' +
@@ -683,6 +716,7 @@ export function initializeLiveDeploy() {
             case 'ok': return { label: 'Konform', cls: 'ok' };
             case 'bad': return { label: 'Abweichung', cls: 'bad' };
             case 'missing': return { label: 'Fehlt', cls: 'missing' };
+            case 'accepted': return { label: 'Gewollt', cls: 'accepted' };
             case 'loading': return { label: 'Läuft', cls: 'info' };
             default: return { label: 'Info', cls: 'info' };
         }
@@ -701,13 +735,15 @@ export function initializeLiveDeploy() {
         const timeStr = now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
         const deviations = data.total - data.okCount;
         const pct = data.total ? Math.round((data.okCount / data.total) * 100) : 100;
+        const accepted = data.accepted || 0;
         const summaryCls = data.allOk ? 'ok' : (deviations > (data.total / 4) ? 'bad' : 'warn');
-        const summaryText = data.allOk
+        const accSuffix = accepted ? ' ' + accepted + ' Abweichung(en) sind als bewusst/gewollt markiert (siehe „Gewollt").' : '';
+        const summaryText = (data.allOk
             ? 'Der Ist-Zustand entspricht vollständig der Best-Practice-Vorlage.'
-            : deviations + ' von ' + data.total + ' Prüfpunkten weichen von der Vorlage ab. Ein Deploy bringt den Tenant auf den Soll-Zustand.';
+            : deviations + ' von ' + data.total + ' Prüfpunkten weichen von der Vorlage ab. Ein Deploy bringt den Tenant auf den Soll-Zustand.') + accSuffix;
 
         const sections = data.groups.map(grp => {
-            const gTotal = grp.checks.filter(c => c.state !== 'info' && c.state !== 'loading').length;
+            const gTotal = grp.checks.filter(c => c.state !== 'info' && c.state !== 'loading' && c.state !== 'accepted').length;
             const gOk = grp.checks.filter(c => c.state === 'ok').length;
             const gBadge = gTotal ? (gOk === gTotal
                 ? '<span class="sec-badge ok">' + gOk + '/' + gTotal + ' konform</span>'
@@ -716,11 +752,14 @@ export function initializeLiveDeploy() {
             const rows = grp.checks.map(c => {
                 const sm = ldAuditStatusMeta(c.state);
                 const si = ldAuditSollIst(c);
+                const istCell = c.state === 'accepted'
+                    ? (si.ist ? ldEsc(si.ist) : '<span class="muted">—</span>') + '<div class="rsn">✋ gewollt: ' + ldEsc(c.reason || '') + '</div>'
+                    : (si.ist ? ldEsc(si.ist) : '<span class="muted">—</span>');
                 return '<tr>' +
                     '<td class="c-check">' + ldEsc(c.label) + '</td>' +
                     '<td class="c-status"><span class="pill ' + sm.cls + '">' + sm.label + '</span></td>' +
                     '<td class="c-soll">' + (si.soll ? ldEsc(si.soll) : '<span class="muted">—</span>') + '</td>' +
-                    '<td class="c-ist">' + (si.ist ? ldEsc(si.ist) : '<span class="muted">—</span>') + '</td>' +
+                    '<td class="c-ist">' + istCell + '</td>' +
                     '</tr>';
             }).join('');
             return '<section class="cat">' +
@@ -801,6 +840,8 @@ export function initializeLiveDeploy() {
             '.pill.bad{background:#fef3f2;color:#b42318}',
             '.pill.missing{background:#fffaeb;color:#b54708}',
             '.pill.info{background:#eef1f5;color:#475467}',
+            '.pill.accepted{background:#eff4ff;color:#3538cd}',
+            '.rsn{font-size:10px;color:#3538cd;margin-top:3px;font-style:italic}',
             '.rpt-foot{margin-top:20px;padding-top:12px;border-top:1px solid #eaecf0;font-size:10.5px;color:#98a2b3;line-height:1.5}',
             '.print-btn{position:fixed;top:16px;right:16px;z-index:9;background:#4338ca;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(67,56,202,.35)}',
             '@media print{body{background:#fff}.no-print{display:none!important}.page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}.rpt-head{margin-top:0}}',
@@ -821,6 +862,35 @@ export function initializeLiveDeploy() {
         w.document.close();
         // Druckdialog kurz nach dem Laden — der Nutzer waehlt dort „Als PDF speichern".
         setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 400);
+    }
+
+    // ---------- Gewollte Abweichungen ----------
+    // Stabiler Schluessel eines Checks: Gruppentitel + Label (Label allein ist
+    // nicht eindeutig — "Rule aktiv"/"Rule-Domains" gibt es je Policy).
+    function ldDevKey(groupTitle, label) { return groupTitle + ' :: ' + label; }
+
+    async function handleDeviationClick(btn) {
+        if (!ldAuditCtx) return;
+        const act = btn.dataset.devact;
+        const key = decodeURIComponent(btn.dataset.devkey || '');
+        if (!key) return;
+        let reason = '';
+        if (act === 'accept') {
+            reason = (window.prompt('Begründung für die gewollte Abweichung (erscheint im Audit-PDF):', '') || '').trim();
+            if (!reason) return; // abgebrochen oder leer
+        }
+        btn.disabled = true;
+        try {
+            const r = await ldApi('/api/tenants/' + encodeURIComponent(ldAuditCtx.tenantRecId) + '/deviations',
+                { method: 'POST', body: { key, reason } });
+            ldDeviations = Array.isArray(r.acceptedDeviations) ? r.acceptedDeviations : [];
+        } catch (err) {
+            alert('Konnte die Markierung nicht speichern: ' + err.message);
+            btn.disabled = false;
+            return;
+        }
+        // Lokal neu rendern — kein erneuter (langsamer) EXO-Audit noetig.
+        renderAudit(ldAuditCtx.tenantRecId, ldAuditCtx.name, ldAuditCtx.audit, ldAuditCtx.alertPolicy);
     }
 
     // ---------- Deploy: Zusammenfassung -> Start -> Live-Fortschritt ----------

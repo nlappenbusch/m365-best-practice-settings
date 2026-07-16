@@ -894,7 +894,8 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   if (process.env.FAKE_DEPLOY === "1") {
     return res.json({
       ok: true, audit: fakeAudit(),
-      alertPolicy: { status: "done", found: true, notifyUser: ["admin@example.com", "support@msp-provider.com"], disabled: false, aggregationType: "None" }
+      alertPolicy: { status: "done", found: true, notifyUser: ["admin@example.com", "support@msp-provider.com"], disabled: false, aggregationType: "None" },
+      acceptedDeviations: t.acceptedDeviations || []
     });
   }
 
@@ -924,7 +925,25 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
     if (alertPolicy.status === "pending") alertPolicy.jobId = tcmJob.id;
   }
 
-  res.json({ ok: true, audit: r.data.audit || {}, alertPolicy });
+  res.json({ ok: true, audit: r.data.audit || {}, alertPolicy, acceptedDeviations: t.acceptedDeviations || [] });
+}));
+
+// Gewollte Abweichungen: einzelne Audit-Checks pro Tenant als bewusst abweichend
+// markieren (z.B. Spoof-Aktion = MoveToJmf). Sie erscheinen dann im Audit/PDF als
+// ℹ️ statt ❌ und zaehlen nicht als Abweichung. reason leer => Markierung entfernen.
+app.post("/api/tenants/:id/deviations", wrap(async (req, res) => {
+  requireTenant(req);
+  const key = String((req.body && req.body.key) || "").trim();
+  const reason = String((req.body && req.body.reason) || "").trim();
+  if (!key) return res.status(400).json({ error: "key fehlt" });
+  const s = loadState();
+  const tenant = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!tenant) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const list = (tenant.acceptedDeviations || []).filter(d => d.key !== key);
+  if (reason) list.push({ key, reason: reason.slice(0, 300), ts: new Date().toISOString() });
+  tenant.acceptedDeviations = list;
+  saveState(s);
+  res.json({ ok: true, acceptedDeviations: list });
 }));
 
 // Fortsetzung des TCM-Snapshot-Pollings (wenn der Job beim Audit noch lief)

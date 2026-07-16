@@ -913,6 +913,30 @@ body {
     white-space: nowrap;
 }
 
+/* Gewollte Abweichungen: Markier-Button + Begruendung je Audit-Zeile */
+.ld-dev-btn {
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.45rem;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: #3538cd;
+    background: #eff4ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ld-dev-btn:hover { background: #e0e7ff; }
+.ld-dev-reason {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-style: italic;
+    color: #3538cd;
+}
+.ld-acc-note { font-weight: 600; opacity: 0.85; }
+/* „gewollt" markierte Checks: neutral-blau statt rot */
+.ld-step.accepted { color: #3538cd; }
+
 .ld-progress {
     height: 8px;
     background: #e2e8f0;

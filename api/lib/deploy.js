@@ -8,6 +8,16 @@
  */
 const { psQuote } = require("./exorunner");
 
+// Nicht-Mail-Domains (Teams Direct Routing / SBC / Operator-Connect / Skype)
+// tragen keine Postfaecher und gehoeren nicht in Mail-Flow-Regeln
+// (RecipientDomainIs). Sie tauchen aber in Get-AcceptedDomain auf und wuerden
+// den Auto-Domain-Scope aufblaehen. Deploy und Audit ziehen die Domains aus
+// demselben Get-AcceptedDomain — deshalb hier EIN gemeinsamer Filter, damit
+// Soll (Audit) und Ist (deployte Rule) konsistent bleiben. Muster bewusst
+// konservativ; bei Bedarf um weitere Carrier-/SBC-Suffixe erweitern.
+const NON_MAIL_DOMAIN_PS_FILTER =
+  "Where-Object { $_ -notmatch '(?i)(\\.sbc\\.|\\.teamsconn\\.net$|cloudsbv|\\.od\\.online\\.lync\\.com$)' }";
+
 const PHISH_SPOOF_ACTIONS = ["Quarantine", "MoveToJmf"];
 const DMARC_Q_ACTIONS = ["Quarantine", "MoveToJmf", "Reject", "None"];
 const DMARC_R_ACTIONS = ["Reject", "Quarantine"];
@@ -227,7 +237,7 @@ function buildDeployBody(cfg) {
   const lines = [
     RETRY_HELPER,
     "try {",
-    "  $Domains = " + (cfg.domains.length ? psArray(cfg.domains) : "@(Get-AcceptedDomain | ForEach-Object DomainName)"),
+    "  $Domains = " + (cfg.domains.length ? psArray(cfg.domains) : "@(Get-AcceptedDomain | ForEach-Object DomainName | " + NON_MAIL_DOMAIN_PS_FILTER + ")"),
     "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = 'Domains nicht ermittelbar: ' + $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
     "$fileTypes = " + psArray(am.fileTypes),
     "",
@@ -308,7 +318,7 @@ function buildAuditBody() {
   return [
     "function Get-Safe([scriptblock]$sb) { try { & $sb } catch { $null } }",
     "$audit = [ordered]@{",
-    "  acceptedDomains  = @(Get-Safe { Get-AcceptedDomain | ForEach-Object DomainName })",
+    "  acceptedDomains  = @(Get-Safe { Get-AcceptedDomain | ForEach-Object DomainName | " + NON_MAIL_DOMAIN_PS_FILTER + " })",
     "  quarantineSelf   = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-SelfReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
     "  quarantineRequest = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-RequestReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
     "  antiPhish        = Get-Safe { Get-AntiPhishPolicy -Identity 'BP_AntiPhishing' -ErrorAction SilentlyContinue | Select-Object Name, Enabled, EnableSpoofIntelligence, EnableFirstContactSafetyTips, EnableUnauthenticatedSender, EnableViaTag, HonorDmarcPolicy, DmarcQuarantineAction, DmarcRejectAction, AuthenticationFailAction, SpoofQuarantineTag }",
