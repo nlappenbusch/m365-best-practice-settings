@@ -934,15 +934,28 @@ app.get("/api/autopilot/download/:token", (req, res) => {
   res.send(pkg.zip);
 });
 
-// WLAN-Export-Helper-Skript (Standalone-Download) — der Techniker fuehrt es auf
-// einem Rechner mit dem Kunden-WLAN aus und laedt die erzeugte XML dann hoch.
+// WLAN-Export-Helper (Standalone-Download) als SELBSTSTAENDIGE .cmd:
+// Batch unterliegt keiner Execution Policy — es dekodiert das eingebettete
+// PowerShell (base64) und startet es mit -ExecutionPolicy Bypass. So gibt es
+// kein "not digitally signed"-Problem beim heruntergeladenen Einzelfile.
 app.get("/api/autopilot/wlan-helper", (req, res) => {
   try {
-    const file = path.join(__dirname, "assets", "autopilot", "Export-WlanProfile.ps1");
-    const data = fs.readFileSync(file);
+    const ps1 = fs.readFileSync(path.join(__dirname, "assets", "autopilot", "Export-WlanProfile.ps1"), "utf8");
+    const b64 = Buffer.from(ps1, "utf8").toString("base64");
+    const cmd = [
+      "@echo off",
+      "REM WLAN-Export-Helper (M365 Security Policy Manager) — selbststaendig, ohne Signatur/Policy-Problem.",
+      "setlocal",
+      'set "PS1=%TEMP%\\Export-WlanProfile.ps1"',
+      'set "B64=%TEMP%\\Export-WlanProfile.b64"',
+      '>"%B64%" echo ' + b64,
+      'certutil -decode "%B64%" "%PS1%" >nul',
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%PS1%"',
+      'del "%B64%" >nul 2>&1'
+    ].join("\r\n") + "\r\n";
     res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Disposition", 'attachment; filename="Export-WlanProfile.ps1"');
-    res.send(data);
+    res.setHeader("Content-Disposition", 'attachment; filename="Export-WlanProfile.cmd"');
+    res.send(cmd);
   } catch (e) { res.status(500).json({ error: "Helper-Skript nicht verfuegbar." }); }
 });
 

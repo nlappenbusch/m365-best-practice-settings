@@ -294,6 +294,7 @@ function buildAutopilotZip(opts) {
     // autounattend dynamisch: deutsche UI, kein AutoLogon, WLAN aus Upload (persistent)
     { name: "autounattend.xml", data: buildAutounattend({ wlanProfileXml: opts.wlanProfileXml }) },
     { name: "Export-WlanProfile.ps1", data: readAsset("Export-WlanProfile.ps1") },
+    { name: "Export-WlanProfile.bat", data: readAsset("Export-WlanProfile.bat") },
     { name: "Build-Windows11-WIM-NetFx3.ps1", data: readAsset("Build-Windows11-WIM-NetFx3.ps1") },
     { name: "README-Autopilot.md", data: readAsset("README-Autopilot.md") }
   ];

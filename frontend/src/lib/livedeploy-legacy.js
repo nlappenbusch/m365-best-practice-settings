@@ -342,7 +342,7 @@ export function initializeLiveDeploy() {
                         automatischer Partitionierung, automatischer EULA und <strong>ohne AutoLogon</strong> erzeugt (Anmeldung mit M365-User via Autopilot).
                         Für WLAN-Zugang während der OOBE ein WLAN-Profil einbetten — bleibt dauerhaft gespeichert.</p>
                     <ol style="margin:0.3rem 0 0.5rem 1.1rem; line-height:1.7; font-size:0.9rem;">
-                        <li><a href="/api/autopilot/wlan-helper">⬇️ WLAN-Export-Helper herunterladen</a> und auf einem Rechner ausführen, der mit dem Kunden-WLAN verbunden ist (exportiert das Profil inkl. Passwort).</li>
+                        <li><a href="/api/autopilot/wlan-helper">⬇️ WLAN-Export-Helper herunterladen</a> (<code>.cmd</code> — einfach doppelklicken, keine Execution-Policy nötig) auf einem Rechner ausführen, der mit dem Kunden-WLAN verbunden ist (exportiert das Profil inkl. Passwort).</li>
                         <li>Die erzeugte <code>*.xml</code> hier hochladen:</li>
                     </ol>
                     <input type="file" id="apWlan" accept=".xml" />
