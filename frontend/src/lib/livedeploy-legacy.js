@@ -162,6 +162,14 @@ export function initializeLiveDeploy() {
                         </div>
                     </div>
                     <div class="ld-tenant-section">
+                        <h5>🚀 Autopilot</h5>
+                        <p class="ld-section-hint">Staging-Paket erzeugen (App-Registrierung mit Secret + Zertifikat, GroupTags aus den dynamischen Gruppen, fertiges ZIP) sowie Deployment-Profile einsehen und zuweisen.</p>
+                        <div class="ld-section-actions">
+                            <button class="btn btn-primary" data-action="autopilot">📦 Staging-Paket erstellen</button>
+                            <button class="btn btn-secondary" data-action="apProfiles">🎯 Deployment-Profile</button>
+                        </div>
+                    </div>
+                    <div class="ld-tenant-section">
                         <h5>🔎 Audit</h5>
                         <p class="ld-section-hint">Ist-Zustand aus dem Tenant lesen und mit der Vorlage vergleichen (Soll/Ist).</p>
                         <div class="ld-section-actions">
@@ -256,12 +264,169 @@ export function initializeLiveDeploy() {
             return;
         }
 
+        if (action === 'autopilot') {
+            btn.disabled = true; btn.textContent = '…';
+            log('<div class="ld-job"><div class="ld-job-head"><strong>🚀 Autopilot-Paket: ' + ldEsc(name) + '</strong></div>' +
+                '<div class="ld-step running"><span class="ld-spinner"></span> Lade GroupTags aus den dynamischen Gruppen…</div></div>');
+            try {
+                const data = await ldApi('/api/tenants/' + encodeURIComponent(id) + '/autopilot/grouptags');
+                renderAutopilot(id, name, data.groupTags || []);
+            } catch (err) {
+                log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div>' +
+                    '<div class="ld-step"><small>💡 Braucht die Graph-Permission Group.Read.All — ggf. einmal 🔧 Reparieren ausführen.</small></div></div>');
+            }
+            btn.disabled = false; btn.textContent = '📦 Staging-Paket erstellen';
+            return;
+        }
+
+        if (action === 'apProfiles') {
+            btn.disabled = true; btn.textContent = '…';
+            log('<div class="ld-job"><div class="ld-job-head"><strong>🎯 Autopilot-Profile: ' + ldEsc(name) + '</strong></div>' +
+                '<div class="ld-step running"><span class="ld-spinner"></span> Lade Deployment-Profile und Gruppen…</div></div>');
+            try {
+                const [pdata, gdata] = await Promise.all([
+                    ldApi('/api/tenants/' + encodeURIComponent(id) + '/autopilot/profiles'),
+                    ldApi('/api/tenants/' + encodeURIComponent(id) + '/groups')
+                ]);
+                renderProfiles(id, name, pdata.profiles || [], gdata.groups || []);
+            } catch (err) {
+                log('<div class="ld-job"><div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div>' +
+                    '<div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. einmal 🔧 Reparieren ausführen.</small></div></div>');
+            }
+            btn.disabled = false; btn.textContent = '🎯 Deployment-Profile';
+            return;
+        }
+
         if (action === 'deploy') {
             if (deployRunning) { alert('Es läuft bereits ein Deploy — bitte warten.'); return; }
             showDeployConfirm(id, name);
             return;
         }
     });
+
+    // ---------- Autopilot: Staging-Paket erstellen ----------
+    function renderAutopilot(tenantRecId, name, groupTags) {
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        if (!groupTags.length) {
+            log('<div class="ld-job"><div class="ld-banner warn">⚠️ Keine GroupTags in den dynamischen Security Groups gefunden.' +
+                '<br><small>Die Regeln müssen ein <code>[OrderID]:&lt;GroupTag&gt;</code> enthalten (Nils\' GroupTag-Konzept). Zuerst die AAD-DEV-*-Gruppen anlegen.</small></div></div>');
+            return;
+        }
+        const rows = groupTags.map(g => `
+            <label class="ld-oib-row" title="${ldEsc(g.groupName + ' — ' + g.rule)}">
+                <input type="checkbox" class="ap-tag" data-tag="${ldEsc(g.groupTag)}" checked>
+                <span class="ld-oib-name"><strong>${ldEsc(g.groupTag)}</strong></span>
+                <small class="ld-oib-assigned">→ ${ldEsc(g.groupName)}</small>
+            </label>`).join('');
+        log(`
+            <div class="ld-job" id="ldApBox">
+                <div class="ld-job-head"><strong>🚀 Autopilot-Staging-Paket: ${ldEsc(name)}</strong>
+                    <span class="ld-job-meta">${groupTags.length} GroupTags gefunden</span></div>
+                <div class="ld-step"><small>Das Paket enthält eine dedizierte App-Registrierung <code>IG-Autopilot-Staging</code>
+                    (Client Secret + Zertifikat, Autopilot-Permissions), das HWID-Import-Skript, den Staging-Wrapper mit
+                    Auswahlmenü der gewählten GroupTags, Start-Batch, autounattend.xml und die WIM-Bau-Anleitung.</small></div>
+                <div class="settings-group"><h4>GroupTags fürs Paket</h4>
+                    <div class="ld-oib-toolbar">
+                        <button class="btn btn-secondary" id="apAll" style="padding:0.25rem 0.7rem; font-size:0.8rem;">Alle</button>
+                        <button class="btn btn-secondary" id="apNone" style="padding:0.25rem 0.7rem; font-size:0.8rem;">Keine</button>
+                    </div>
+                    ${rows}
+                </div>
+                <div class="settings-group"><h4>Optionen</h4>
+                    <label class="checkbox-label"><input type="checkbox" id="apAssign" checked> <span>Gerät nach Import direkt der Gruppe zuweisen (Assign + Wait)</span></label>
+                    <label class="checkbox-label"><input type="checkbox" id="apReboot"> <span>Nach dem Import neu starten</span></label>
+                </div>
+                <div class="ld-confirm-actions">
+                    <button class="btn btn-primary" id="apBuild">📦 Paket erstellen (Admin-Login nötig)</button>
+                </div>
+                <div id="apResult"></div>
+            </div>`);
+        document.getElementById('apAll').addEventListener('click', () => document.querySelectorAll('.ap-tag').forEach(c => c.checked = true));
+        document.getElementById('apNone').addEventListener('click', () => document.querySelectorAll('.ap-tag').forEach(c => c.checked = false));
+        document.getElementById('apBuild').addEventListener('click', () => startAutopilotBuild(tenantRecId, name));
+    }
+
+    async function startAutopilotBuild(tenantRecId, name) {
+        const tags = [...document.querySelectorAll('.ap-tag:checked')].map(c => c.dataset.tag);
+        if (!tags.length) { alert('Mindestens einen GroupTag auswählen.'); return; }
+        const assign = document.getElementById('apAssign').checked;
+        const reboot = document.getElementById('apReboot').checked;
+        const box = document.getElementById('apResult');
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        box.innerHTML = '<div class="ld-step running"><span class="ld-spinner"></span> Starte Admin-Login…</div>';
+        let start;
+        try {
+            start = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/autopilot/start', { method: 'POST', body: { groupTags: tags, assign, reboot } });
+        } catch (e) { box.innerHTML = '<div class="ld-banner fail">❌ ' + ldEsc(e.message) + '</div>'; return; }
+        box.innerHTML = `
+            <div class="ld-onboard-step">1️⃣ Öffne <a href="${ldEsc(start.verificationUri)}" target="_blank" rel="noopener">${ldEsc(start.verificationUri)}</a></div>
+            <div class="ld-onboard-step">2️⃣ Als <strong>Admin von ${ldEsc(name)}</strong> anmelden, Code eingeben:
+                <span class="ld-code">${ldEsc(start.userCode)}</span></div>
+            <div class="ld-onboard-step">3️⃣ <span id="apStatus"><span class="ld-spinner"></span> Warte auf Anmeldung, dann wird die App angelegt und das Paket gebaut…</span></div>`;
+        const poll = async () => {
+            let r;
+            try { r = await ldApi('/api/autopilot/poll', { method: 'POST' }); }
+            catch (e) { const el = document.getElementById('apStatus'); if (el) el.innerHTML = '❌ ' + ldEsc(e.message); return; }
+            if (r.status === 'pending') { pollTimer = setTimeout(poll, (r.interval || start.interval || 5) * 1000); return; }
+            if (r.status === 'error') { const el = document.getElementById('apStatus'); if (el) el.innerHTML = '❌ ' + ldEsc(r.error); return; }
+            // done
+            const warn = (r.warnings && r.warnings.length) ? '<br>⚠️ ' + r.warnings.map(ldEsc).join('<br>⚠️ ') : '';
+            const pfxLine = r.pfxIncluded
+                ? 'PFX-Zertifikat enthalten · <strong>PFX-Passwort:</strong> <code>' + ldEsc(r.pfxPassword) + '</code> (im Paket-JSON hinterlegt)'
+                : 'Zertifikat als PEM enthalten (openssl-PFX nicht verfügbar)';
+            box.innerHTML =
+                '<div class="ld-banner ok">✅ App <code>' + ldEsc(r.appId) + '</code> angelegt, Paket gebaut.' + warn + '</div>' +
+                '<div class="ld-step"><small>GroupTags im Wrapper-Menü: ' + (r.groupTags || []).map(ldEsc).join(', ') + '<br>' + pfxLine + '</small></div>' +
+                '<div class="ld-confirm-actions"><a class="btn btn-primary" href="/api/autopilot/download/' + encodeURIComponent(r.downloadToken) + '">⬇️ ZIP herunterladen</a></div>' +
+                '<div class="ld-step"><small>💡 Der Download-Link ist einmalig und läuft nach 10 Minuten ab. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>';
+        };
+        pollTimer = setTimeout(poll, (start.interval || 5) * 1000);
+    }
+
+    // ---------- Autopilot: Deployment-Profile einsehen + zuweisen ----------
+    function renderProfiles(tenantRecId, name, profiles, groups) {
+        if (!profiles.length) {
+            log('<div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Deployment-Profile im Tenant gefunden.</div></div>');
+            return;
+        }
+        const groupOpts = groups.map(g => '<option value="' + ldEsc(g.id) + '">' + ldEsc(g.displayName) + '</option>').join('');
+        const profileCard = (p) => {
+            const oobe = p.outOfBoxExperienceSettings || {};
+            const assigned = (p.assignments || []).map(a => ldEsc(a.label)).join(', ') || 'nicht zugewiesen';
+            return `
+                <div class="ld-phase complete" data-profile="${ldEsc(p.id)}">
+                    <div class="ld-phase-title">🎯 ${ldEsc(p.displayName)}</div>
+                    <div class="ld-step"><small>${ldEsc(p.description || '(keine Beschreibung)')}</small></div>
+                    <div class="ld-step"><small>Gerätename-Template: <code>${ldEsc(p.deviceNameTemplate || '—')}</code> · Sprache: ${ldEsc(p.language || 'os-default')}</small></div>
+                    <div class="ld-step ok"><span class="ld-ico">👥</span> Zugewiesen: <small>${assigned}</small></div>
+                    <div class="ld-oib-target">
+                        <select class="ap-prof-group">${groupOpts}</select>
+                        <button class="btn btn-secondary ap-prof-assign" data-profile="${ldEsc(p.id)}" data-name="${ldEsc(p.displayName)}">Dieser Gruppe zuweisen</button>
+                    </div>
+                    <div class="ap-prof-result"></div>
+                </div>`;
+        };
+        log('<div class="ld-job"><div class="ld-job-head"><strong>🎯 Autopilot-Profile: ' + ldEsc(name) + '</strong>' +
+            '<span class="ld-job-meta">' + profiles.length + ' Profile · ' + groups.length + ' Gruppen</span></div>' +
+            profiles.map(profileCard).join('') + '</div>');
+
+        document.querySelectorAll('.ap-prof-assign').forEach(btn => btn.addEventListener('click', async () => {
+            const card = btn.closest('[data-profile]');
+            const groupId = card.querySelector('.ap-prof-group').value;
+            const gname = card.querySelector('.ap-prof-group').selectedOptions[0]?.textContent || groupId;
+            const resultBox = card.querySelector('.ap-prof-result');
+            if (!confirm('Profil „' + btn.dataset.name + '" der Gruppe „' + gname + '" zuweisen?')) return;
+            btn.disabled = true;
+            resultBox.innerHTML = '<div class="ld-step running"><span class="ld-spinner"></span> Weise zu…</div>';
+            try {
+                const r = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/autopilot/profiles/' + encodeURIComponent(btn.dataset.profile) + '/assign', { method: 'POST', body: { groupId } });
+                resultBox.innerHTML = '<div class="ld-banner ' + (r.status === 'assigned' ? 'ok">✅ Zugewiesen' : 'warn">⏭️ War bereits zugewiesen') + ' — „' + ldEsc(gname) + '"</div>';
+            } catch (err) {
+                resultBox.innerHTML = '<div class="ld-banner fail">❌ ' + ldEsc(err.message) + '</div>';
+            }
+            btn.disabled = false;
+        }));
+    }
 
     // ---------- Permission-Fixer (bestehende App-Registrierung reparieren) ----------
     async function startPermissionFix(id, name) {

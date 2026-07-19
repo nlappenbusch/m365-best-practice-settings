@@ -1,5 +1,34 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.3 - Autopilot-Paket-Generator (2026-07-19)
+
+### 🚀 Neu: Autopilot-Staging-Paket pro Tenant
+
+Im Tenant-Panel erzeugt **🚀 Autopilot → 📦 Staging-Paket erstellen** ein
+komplettes ZIP für Nils' Autopilot-Use-Case (github.com/nlappenbusch/IntuneAutopilot):
+
+- **Dedizierte App-Registrierung** `IG-Autopilot-Staging` wird per Admin-Device-Code
+  angelegt — mit **Client Secret** (Staging während OOBE) **und** self-signed
+  **Zertifikat** (PFX via openssl im Container), Autopilot-Graph-Permissions
+  (DeviceManagementServiceConfig/ManagedDevices.ReadWrite, Group.ReadWrite,
+  Directory.Read) + Admin-Consent.
+- **GroupTag-Auswahl** kommt aus den **dynamischen Security Groups** des Ziel-Tenants
+  (die Regeln werden nach `[OrderID]:<GroupTag>` geparst) — nur echte, konfigurierte
+  GroupTags sind wählbar.
+- **ZIP-Inhalt**: `AutopilotApp_config.json` (echte Tenant-/App-/Secret-/Cert-Werte),
+  `wrapper-config.json`, `Run-AutopilotWithExternalAppConfig.ps1` (mit Auswahlmenü der
+  gewählten GroupTags), das HWID-Community-Skript, `Start-Autopilot.bat`,
+  `autounattend.xml`, die WIM-Bau-Anleitung, README und die Zertifikatsdateien
+  (PFX + CER). ZIP-Erzeugung ohne externe Dependency (eigener Store/Deflate-Encoder).
+- Download-Link ist einmalig und läuft nach 10 Minuten ab (Secret/PFX nur in der ZIP).
+
+### 🎯 Neu: Autopilot-Deployment-Profile einsehen & zuweisen
+
+**🚀 Autopilot → 🎯 Deployment-Profile** listet die
+`windowsAutopilotDeploymentProfiles` inkl. bestehender Assignments und weist ein
+Profil einer Security-Gruppe zu (Merge). Dafür hat die Management-App zusätzlich
+`DeviceManagementServiceConfig.ReadWrite.All` — 🔧 Reparieren ergänzt sie.
+
 ## Version 2.2 - ASF-Defaults auf Off (2026-07-15)
 
 ### 🛡️ Breaking: Legacy-ASF-Optionen standardmäßig deaktiviert

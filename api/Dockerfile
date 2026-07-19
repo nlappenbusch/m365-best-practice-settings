@@ -7,7 +7,7 @@ RUN apt-get update \
     && dpkg -i packages-microsoft-prod.deb \
     && rm packages-microsoft-prod.deb \
     && apt-get update \
-    && apt-get install -y --no-install-recommends powershell \
+    && apt-get install -y --no-install-recommends powershell openssl \
     && apt-get purge -y wget \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
@@ -21,6 +21,7 @@ RUN npm ci --omit=dev
 
 COPY server.js ./
 COPY lib ./lib
+COPY assets ./assets
 
 ENV STATE_DIR=/app/state \
     PORT=3000

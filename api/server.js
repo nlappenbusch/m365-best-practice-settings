@@ -15,7 +15,9 @@
  */
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const crypto = require("crypto");
+const { execFileSync } = require("child_process");
 const express = require("express");
 const session = require("express-session");
 const { spawn } = require("child_process");
@@ -24,6 +26,7 @@ const EXO = require("./lib/exorunner");
 const DEPLOY = require("./lib/deploy");
 const OIB = require("./lib/oib");
 const TCM = require("./lib/tcm");
+const AUTOPILOT = require("./lib/autopilot");
 const GRAPHLIB = require("./lib/graph");
 const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
@@ -44,7 +47,7 @@ const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; /
 const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen) und
 // TCM-Snapshots (Alert-Policy-Pruefung im Audit)
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "Group.Read.All", "ConfigurationMonitoring.ReadWrite.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.Read.All", "ConfigurationMonitoring.ReadWrite.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -693,6 +696,273 @@ app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
     }
   }
   res.json({ ok: true, results });
+}));
+
+// ---------- Autopilot-Paket-Generator ----------
+const AUTOPILOT_APP_PREFIX = "IG-Autopilot-Staging";
+// Graph-Application-Permissions fuer den Autopilot-Staging-Use-Case
+const AUTOPILOT_PERMS = [
+  "DeviceManagementServiceConfig.ReadWrite.All", // Autopilot-Geraete importieren
+  "DeviceManagementManagedDevices.ReadWrite.All",
+  "Group.ReadWrite.All",                          // GroupTag/Assign
+  "Directory.Read.All"
+];
+// gebaute Pakete kurzlebig im Speicher (Download folgt direkt nach dem Bauen)
+const autopilotPackages = new Map(); // token -> { zip, filename, exp }
+
+function purgeExpiredPackages() {
+  const now = Date.now();
+  for (const [k, v] of autopilotPackages) if (v.exp < now) autopilotPackages.delete(k);
+}
+
+// PFX aus PEM (Key+Cert) via openssl bauen; bei Fehler null (dann PEM ins ZIP).
+function pemToPfx(privatePem, certPem, password) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ap-cert-"));
+  try {
+    const keyPath = path.join(dir, "k.pem");
+    const crtPath = path.join(dir, "c.pem");
+    const pfxPath = path.join(dir, "out.pfx");
+    fs.writeFileSync(keyPath, privatePem);
+    fs.writeFileSync(crtPath, certPem);
+    execFileSync("openssl", ["pkcs12", "-export", "-inkey", keyPath, "-in", crtPath,
+      "-out", pfxPath, "-passout", "pass:" + password, "-legacy"], { stdio: "pipe" });
+    return fs.readFileSync(pfxPath);
+  } catch (e) {
+    // ohne -legacy nochmal versuchen (aeltere openssl-Versionen)
+    try {
+      const keyPath = path.join(dir, "k.pem"), crtPath = path.join(dir, "c.pem"), pfxPath = path.join(dir, "o2.pfx");
+      execFileSync("openssl", ["pkcs12", "-export", "-inkey", keyPath, "-in", crtPath, "-out", pfxPath, "-passout", "pass:" + password], { stdio: "pipe" });
+      return fs.readFileSync(pfxPath);
+    } catch (e2) { return null; }
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* egal */ }
+  }
+}
+
+/**
+ * Legt eine DEDIZIERTE Autopilot-App im Tenant an (getrennt von der Management-
+ * App): Graph-Autopilot-Permissions, Admin-Consent, Client Secret + self-signed
+ * Zertifikat. Braucht einen delegierten Admin-Token (Device-Code).
+ */
+async function createAutopilotApp(token) {
+  const graphSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${GRAPH_APP_ID}'`)).value[0];
+  if (!graphSp) throw new Error("Microsoft-Graph Service-Principal nicht gefunden.");
+  const roles = AUTOPILOT_PERMS.map(v => {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (!role) throw new Error("Graph-Permission fehlt im SP: " + v);
+    return role;
+  });
+  const requiredResourceAccess = [{ resourceAppId: GRAPH_APP_ID, resourceAccess: roles.map(r => ({ id: r.id, type: "Role" })) }];
+
+  let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(AUTOPILOT_APP_PREFIX)}'`)).value[0];
+  if (app) {
+    await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess, signInAudience: "AzureADMyOrg" });
+  } else {
+    app = await gReq(token, "POST", "/applications", { displayName: AUTOPILOT_APP_PREFIX, signInAudience: "AzureADMyOrg", requiredResourceAccess });
+  }
+  let appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
+  if (!appSp) appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId });
+
+  // Admin-Consent
+  let consentOk = true, consentErr = null;
+  try {
+    const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
+    for (const r of roles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
+  } catch (e) { consentOk = false; consentErr = e.message; }
+
+  // Client Secret (24 Monate) — der Staging-Wrapper nutzt das Secret waehrend OOBE
+  const pw = await gReq(token, "POST", `/applications/${app.id}/addPassword`, {
+    passwordCredential: { displayName: AUTOPILOT_APP_PREFIX + "-secret", endDateTime: isoInMonths(24) }
+  });
+  const clientSecret = pw.secretText;
+
+  // Self-signed Zertifikat (Public Key an die App, PFX ins Paket)
+  const selfsigned = require("selfsigned");
+  const pems = selfsigned.generate([{ name: "commonName", value: AUTOPILOT_APP_PREFIX }], { keySize: 2048, days: 730, algorithm: "sha256" });
+  const certB64 = pems.cert.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const certThumbprint = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex");
+  await gReq(token, "PATCH", `/applications/${app.id}`, {
+    keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: AUTOPILOT_APP_PREFIX + "-cert" }]
+  });
+
+  return {
+    appId: app.appId, appObjectId: app.id, servicePrincipalId: appSp.id,
+    clientSecret, secretExpiresAt: isoInMonths(24),
+    certThumbprint, certExpiresAt: isoInMonths(24),
+    privatePem: pems.private, certPem: pems.cert,
+    consentOk, consentErr, permissions: AUTOPILOT_PERMS
+  };
+}
+
+function isoInMonths(m) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + m);
+  return d.toISOString();
+}
+
+// GroupTags aus den dynamischen Security Groups des Tenants (Management-App)
+app.get("/api/tenants/:id/autopilot/grouptags", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, groupTags: [
+      { groupTag: "DEV-STD", groupId: "g1", groupName: "AAD-DEV-STD", rule: '... "[OrderID]:DEV-STD" ...' },
+      { groupTag: "DEV-ADM", groupId: "g2", groupName: "AAD-DEV-ADM", rule: '... "[OrderID]:DEV-ADM" ...' }
+    ] });
+  }
+  const groupTags = await AUTOPILOT.loadGroupTags(t, certPemPath(t.tenantId));
+  res.json({ ok: true, groupTags });
+}));
+
+// Autopilot-App anlegen (Device-Code) + Paket bauen
+app.post("/api/tenants/:id/autopilot/start", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const b = req.body || {};
+  const groupTags = (Array.isArray(b.groupTags) ? b.groupTags : []).map(x => String(x)).filter(Boolean);
+  if (groupTags.length === 0) return res.status(400).json({ error: "Mindestens einen GroupTag auswaehlen." });
+
+  const opts = { groupTags, assign: b.assign !== false, reboot: b.reboot === true };
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    req.session.autopilot = { tenantRecId: t.id, fake: true, polls: 0, opts };
+    return res.json({ userCode: "FAKE-CODE", verificationUri: "https://microsoft.com/devicelogin", interval: 2 });
+  }
+
+  const loginTenant = t.organization || t.tenantId;
+  const params = new URLSearchParams({
+    client_id: GRAPH_CLI_CLIENT,
+    scope: "Application.ReadWrite.All AppRoleAssignment.ReadWrite.All Directory.ReadWrite.All offline_access openid"
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(loginTenant)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+  req.session.autopilot = {
+    tenantRecId: t.id, loginTenant, opts,
+    deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({ userCode: j.user_code, verificationUri: j.verification_uri || "https://microsoft.com/devicelogin", interval: j.interval || 5 });
+}));
+
+app.post("/api/autopilot/poll", wrap(async (req, res) => {
+  const df = req.session.autopilot;
+  if (!df) return res.status(400).json({ error: "Kein laufender Autopilot-Vorgang." });
+
+  purgeExpiredPackages();
+
+  async function finishWith(appResult, t) {
+    const pfxPassword = crypto.randomBytes(9).toString("base64").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) + "1!";
+    const pfxBuffer = appResult.privatePem ? pemToPfx(appResult.privatePem, appResult.certPem, pfxPassword) : null;
+    const zip = AUTOPILOT.buildAutopilotZip({
+      appName: AUTOPILOT_APP_PREFIX,
+      tenantId: t.tenantId, domain: t.organization,
+      appId: appResult.appId, appObjectId: appResult.appObjectId, servicePrincipalId: appResult.servicePrincipalId,
+      clientSecret: appResult.clientSecret, secretExpiresAt: appResult.secretExpiresAt,
+      certThumbprint: appResult.certThumbprint, certExpiresAt: appResult.certExpiresAt,
+      pfxPassword, consentOk: appResult.consentOk, permissions: appResult.permissions,
+      createdAt: new Date().toISOString(),
+      groupTags: df.opts.groupTags, assign: df.opts.assign, reboot: df.opts.reboot,
+      pfxBuffer, cerBuffer: pfxBuffer ? Buffer.from(appResult.certPem, "utf8") : null
+    });
+    const token = crypto.randomBytes(16).toString("hex");
+    autopilotPackages.set(token, { zip, filename: "Autopilot-" + t.id + ".zip", exp: Date.now() + 10 * 60 * 1000 });
+    delete req.session.autopilot;
+    return {
+      status: "done", downloadToken: token,
+      appId: appResult.appId, groupTags: df.opts.groupTags,
+      pfxIncluded: !!pfxBuffer, pfxPassword,
+      warnings: appResult.consentOk ? [] : ["Admin-Consent unvollstaendig: " + (appResult.consentErr || "unbekannt")]
+    };
+  }
+
+  if (df.fake) {
+    df.polls = (df.polls || 0) + 1;
+    if (df.polls < 2) return res.json({ status: "pending" });
+    const s = loadState();
+    const t = (s.tenants || []).find(x => x.id === df.tenantRecId) || { id: df.tenantRecId, tenantId: "fake", organization: "demo.onmicrosoft.com" };
+    const fakeApp = {
+      appId: "aaaaaaaa-1111-2222-3333-444444444444", appObjectId: "obj", servicePrincipalId: "sp",
+      clientSecret: "FAKE~secret~value", secretExpiresAt: isoInMonths(24),
+      certThumbprint: "ABCDEF0123456789", certExpiresAt: isoInMonths(24),
+      privatePem: null, certPem: "", consentOk: true, permissions: AUTOPILOT_PERMS
+    };
+    return res.json(await finishWith(fakeApp, t));
+  }
+
+  if (Date.now() > df.expiresAt) { delete req.session.autopilot; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.loginTenant)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.autopilot;
+    return res.json({ status: "error", error: j.error_description || j.error || ("HTTP " + r.status) });
+  }
+
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === df.tenantRecId);
+  if (!t) { delete req.session.autopilot; return res.json({ status: "error", error: "Tenant nicht mehr vorhanden." }); }
+
+  const appResult = await createAutopilotApp(j.access_token);
+  res.json(await finishWith(appResult, t));
+}));
+
+app.get("/api/autopilot/download/:token", (req, res) => {
+  purgeExpiredPackages();
+  const pkg = autopilotPackages.get(req.params.token);
+  if (!pkg) return res.status(404).json({ error: "Paket nicht gefunden oder abgelaufen — bitte neu erstellen." });
+  autopilotPackages.delete(req.params.token); // einmalig
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${pkg.filename}"`);
+  res.send(pkg.zip);
+});
+
+// Autopilot-Deployment-Profile einsehen + einer Gruppe zuweisen
+function fakeProfiles() {
+  return {
+    profiles: [
+      { id: "prof1", displayName: "AP - Standard User-Driven", description: "Entra Join, OOBE minimal", deviceNameTemplate: "IG-%SERIAL%", language: "de-CH",
+        assignments: [{ groupId: "g1", label: "AAD-DEV-STD" }] },
+      { id: "prof2", displayName: "AP - Kiosk Self-Deploying", description: "Self-Deploying", deviceNameTemplate: "KIOSK-%RAND:4%", language: "os-default", assignments: [] }
+    ]
+  };
+}
+
+app.get("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeProfiles() });
+  const profiles = await AUTOPILOT.loadAutopilotProfiles(t, certPemPath(t.tenantId));
+  res.json({ ok: true, profiles });
+}));
+
+app.post("/api/tenants/:id/autopilot/profiles/:profileId/assign", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const groupId = String((req.body || {}).groupId || "");
+  if (!groupId) return res.status(400).json({ error: "groupId erforderlich." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, status: "assigned" });
+  const status = await AUTOPILOT.assignProfileToGroup(t, certPemPath(t.tenantId), req.params.profileId, groupId);
+  res.json({ ok: true, status });
+}));
+
+// Dynamische Security Groups (fuer die Profil-Zuweisung im UI)
+app.get("/api/tenants/:id/groups", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, groups: [{ id: "g1", displayName: "AAD-DEV-STD" }, { id: "g2", displayName: "AAD-DEV-ADM" }] });
+  }
+  const groups = await GRAPHLIB.graphAllPages(t, certPemPath(t.tenantId),
+    "/groups?$filter=securityEnabled eq true&$select=id,displayName&$top=200", { beta: true });
+  res.json({ ok: true, groups: groups.map(g => ({ id: g.id, displayName: g.displayName })).sort((a, b) => a.displayName.localeCompare(b.displayName)) });
 }));
 
 // ---------- Verbindungstest + Deploy ----------
