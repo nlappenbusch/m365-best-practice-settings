@@ -66,6 +66,7 @@ export function initializeLiveDeploy() {
     let deployRunning = false;
     let pollTimer = null;    // Onboarding-Poll
     let jobTimer = null;     // Deploy-Job-Poll
+    let apWlanXml = '';      // hochgeladenes WLAN-Profil fuer die autounattend.xml
     let currentSnippet = ''; // Snippet des manuellen Alert-Policy-Schritts
     let lastAudit = null;    // letztes Audit-Ergebnis fuer den PDF-Report
     let ldDeviations = [];   // pro Tenant als "gewollt" markierte Abweichungen [{key,reason,ts}]
@@ -336,6 +337,17 @@ export function initializeLiveDeploy() {
                     <label class="checkbox-label"><input type="checkbox" id="apAssign" checked> <span>Gerät nach Import direkt der Gruppe zuweisen (Assign + Wait)</span></label>
                     <label class="checkbox-label"><input type="checkbox" id="apReboot"> <span>Nach dem Import neu starten</span></label>
                 </div>
+                <div class="settings-group"><h4>WLAN fürs Staging <small>(optional)</small></h4>
+                    <p class="ld-section-hint">Die <code>autounattend.xml</code> wird mit <strong>deutscher UI</strong>, Schweizer Locale/Tastatur,
+                        automatischer Partitionierung, automatischer EULA und <strong>ohne AutoLogon</strong> erzeugt (Anmeldung mit M365-User via Autopilot).
+                        Für WLAN-Zugang während der OOBE ein WLAN-Profil einbetten — bleibt dauerhaft gespeichert.</p>
+                    <ol style="margin:0.3rem 0 0.5rem 1.1rem; line-height:1.7; font-size:0.9rem;">
+                        <li><a href="/api/autopilot/wlan-helper">⬇️ WLAN-Export-Helper herunterladen</a> und auf einem Rechner ausführen, der mit dem Kunden-WLAN verbunden ist (exportiert das Profil inkl. Passwort).</li>
+                        <li>Die erzeugte <code>*.xml</code> hier hochladen:</li>
+                    </ol>
+                    <input type="file" id="apWlan" accept=".xml" />
+                    <div id="apWlanStatus" style="font-size:0.85rem; margin-top:0.3rem; color:#64748b;">Kein WLAN-Profil gewählt — autounattend wird ohne WLAN erzeugt.</div>
+                </div>
                 <div class="ld-confirm-actions">
                     <button class="btn btn-primary" id="apBuild">📦 Paket erstellen (Admin-Login nötig)</button>
                 </div>
@@ -343,6 +355,25 @@ export function initializeLiveDeploy() {
             </div>`);
         document.getElementById('apAll').addEventListener('click', () => document.querySelectorAll('.ap-tag').forEach(c => c.checked = true));
         document.getElementById('apNone').addEventListener('click', () => document.querySelectorAll('.ap-tag').forEach(c => c.checked = false));
+
+        // WLAN-Upload einlesen (Client-seitig, landet als Text im Build-Request)
+        apWlanXml = '';
+        document.getElementById('apWlan').addEventListener('change', (e) => {
+            const f = e.target.files && e.target.files[0];
+            const status = document.getElementById('apWlanStatus');
+            if (!f) { apWlanXml = ''; status.textContent = 'Kein WLAN-Profil gewählt — autounattend wird ohne WLAN erzeugt.'; return; }
+            if (f.size > 200000) { apWlanXml = ''; status.textContent = '❌ Datei zu groß — ist das ein netsh-WLAN-Export?'; return; }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const txt = String(reader.result || '');
+                if (!/<WLANProfile/i.test(txt)) { apWlanXml = ''; status.textContent = '❌ Keine gültige WLAN-Profil-XML (kein <WLANProfile>).'; return; }
+                apWlanXml = txt;
+                const m = txt.match(/<name>\s*([^<]+?)\s*<\/name>/i);
+                status.textContent = '✅ WLAN-Profil geladen: ' + (m ? m[1].trim() : '(Name unklar)') + ' — wird persistent eingebettet.';
+            };
+            reader.readAsText(f);
+        });
+
         document.getElementById('apBuild').addEventListener('click', () => startAutopilotBuild(tenantRecId, name));
     }
 
@@ -351,12 +382,13 @@ export function initializeLiveDeploy() {
         if (!tags.length) { alert('Mindestens einen GroupTag auswählen.'); return; }
         const assign = document.getElementById('apAssign').checked;
         const reboot = document.getElementById('apReboot').checked;
+        const wlanProfileXml = apWlanXml || '';
         const box = document.getElementById('apResult');
         if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
         box.innerHTML = '<div class="ld-step running"><span class="ld-spinner"></span> Starte Admin-Login…</div>';
         let start;
         try {
-            start = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/autopilot/start', { method: 'POST', body: { groupTags: tags, assign, reboot } });
+            start = await ldApi('/api/tenants/' + encodeURIComponent(tenantRecId) + '/autopilot/start', { method: 'POST', body: { groupTags: tags, assign, reboot, wlanProfileXml } });
         } catch (e) { box.innerHTML = '<div class="ld-banner fail">❌ ' + ldEsc(e.message) + '</div>'; return; }
         box.innerHTML = `
             <div class="ld-onboard-step">1️⃣ Öffne <a href="${ldEsc(start.verificationUri)}" target="_blank" rel="noopener">${ldEsc(start.verificationUri)}</a></div>
@@ -374,9 +406,10 @@ export function initializeLiveDeploy() {
             const pfxLine = r.pfxIncluded
                 ? 'PFX-Zertifikat enthalten · <strong>PFX-Passwort:</strong> <code>' + ldEsc(r.pfxPassword) + '</code> (im Paket-JSON hinterlegt)'
                 : 'Zertifikat als PEM enthalten (openssl-PFX nicht verfügbar)';
+            const wlanLine = r.wlanIncluded ? ' · WLAN-Profil in autounattend.xml eingebettet' : ' · autounattend.xml ohne WLAN (deutsche UI, kein AutoLogon)';
             box.innerHTML =
                 '<div class="ld-banner ok">✅ App <code>' + ldEsc(r.appId) + '</code> angelegt, Paket gebaut.' + warn + '</div>' +
-                '<div class="ld-step"><small>GroupTags im Wrapper-Menü: ' + (r.groupTags || []).map(ldEsc).join(', ') + '<br>' + pfxLine + '</small></div>' +
+                '<div class="ld-step"><small>GroupTags im Wrapper-Menü: ' + (r.groupTags || []).map(ldEsc).join(', ') + wlanLine + '<br>' + pfxLine + '</small></div>' +
                 '<div class="ld-confirm-actions"><a class="btn btn-primary" href="/api/autopilot/download/' + encodeURIComponent(r.downloadToken) + '">⬇️ ZIP herunterladen</a></div>' +
                 '<div class="ld-step"><small>💡 Der Download-Link ist einmalig und läuft nach 10 Minuten ab. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>';
         };

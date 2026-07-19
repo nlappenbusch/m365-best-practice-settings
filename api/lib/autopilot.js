@@ -14,6 +14,131 @@ const fs = require("fs");
 const path = require("path");
 const { graphReq, graphAllPages } = require("./graph");
 const { buildZip } = require("./zip");
+const { XMLParser } = require("fast-xml-parser");
+
+function xmlEsc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// Name/SSID aus einem netsh-exportierten WLAN-Profil ziehen.
+function parseWlanProfile(xml) {
+  try {
+    const p = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true });
+    const doc = p.parse(String(xml));
+    const wp = doc.WLANProfile || {};
+    const name = wp.name || (wp.SSIDConfig && wp.SSIDConfig.SSID && wp.SSIDConfig.SSID.name) || "";
+    const ssid = (wp.SSIDConfig && wp.SSIDConfig.SSID && wp.SSIDConfig.SSID.name) || name;
+    return { name: String(name).trim(), ssid: String(ssid).trim() };
+  } catch (e) {
+    const m = String(xml).match(/<name>\s*([^<]+?)\s*<\/name>/i);
+    return { name: m ? m[1].trim() : "", ssid: m ? m[1].trim() : "" };
+  }
+}
+
+/**
+ * Generiert die autounattend.xml fuer den Autopilot-Use-Case.
+ * Vorgaben: deutsche UI (de-DE), Schweizer Locale/Tastatur (de-CH),
+ * automatische Partitionierung, EULA automatisch, KEIN AutoLogon
+ * (Anmeldung mit M365-User via Autopilot user-driven), optionales WLAN
+ * (persistent, Passwort bleibt gespeichert).
+ */
+function buildAutounattend(opts) {
+  opts = opts || {};
+  const wlan = opts.wlanProfileXml ? parseWlanProfile(opts.wlanProfileXml) : null;
+
+  // WLAN-Bausteine (specialize) nur wenn ein Profil hochgeladen wurde
+  const wlanSpecialize = wlan ? [
+    '  <settings pass="specialize">',
+    '    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">',
+    '      <RunSynchronous>',
+    '        <RunSynchronousCommand wcm:action="add">',
+    '          <Order>1</Order>',
+    "          <Path>powershell.exe -NoProfile -Command \"$x=[xml]::new(); $x.Load('C:\\Windows\\Panther\\unattend.xml'); $sb=[scriptblock]::Create($x.unattend.Extensions.ExtractScript); Invoke-Command -ScriptBlock $sb -ArgumentList $x;\"</Path>",
+    '        </RunSynchronousCommand>',
+    '        <RunSynchronousCommand wcm:action="add">',
+    '          <Order>2</Order>',
+    '          <Path>powershell.exe -ExecutionPolicy Unrestricted -NoProfile -File "C:\\Windows\\Setup\\Scripts\\Specialize.ps1"</Path>',
+    '        </RunSynchronousCommand>',
+    '      </RunSynchronous>',
+    '    </component>',
+    '  </settings>'
+  ].join("\r\n") : '  <settings pass="specialize"></settings>';
+
+  const wlanExtensions = wlan ? [
+    '  <Extensions xmlns="https://schneegans.de/windows/unattend-generator/">',
+    '    <ExtractScript>',
+    'param([xml] $Document);',
+    'foreach( $file in $Document.unattend.Extensions.File ) {',
+    "  $path = [System.Environment]::ExpandEnvironmentVariables( $file.GetAttribute('path') );",
+    "  mkdir -Path ( $path | Split-Path -Parent ) -ErrorAction 'SilentlyContinue';",
+    '  [System.IO.File]::WriteAllBytes( $path, [System.Text.Encoding]::UTF8.GetPreamble() + [System.Text.Encoding]::UTF8.GetBytes( $file.InnerText.Trim() ) );',
+    '}',
+    '    </ExtractScript>',
+    '    <File path="C:\\Windows\\Setup\\Scripts\\Wifi.xml">',
+    xmlEsc(String(opts.wlanProfileXml).replace(/<\?xml[^>]*\?>/i, "").trim()),
+    '    </File>',
+    '    <File path="C:\\Windows\\Setup\\Scripts\\Specialize.ps1">',
+    xmlEsc([
+      '# WLAN-Profil dauerhaft (user=all) hinzufuegen und verbinden — Passwort bleibt gespeichert.',
+      'netsh.exe wlan add profile filename="C:\\Windows\\Setup\\Scripts\\Wifi.xml" user=all',
+      'netsh.exe wlan connect name="' + wlan.name.replace(/"/g, "") + '" ssid="' + wlan.ssid.replace(/"/g, "") + '"',
+      '# Wifi.xml bewusst NICHT loeschen — Profil/Passwort bleiben erhalten.'
+    ].join("\r\n")),
+    '    </File>',
+    '  </Extensions>'
+  ].join("\r\n") : "";
+
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">',
+    '  <!-- Generiert vom M365 Security Policy Manager (Autopilot user-driven).',
+    '       Deutsche UI (de-DE), Schweizer Locale/Tastatur (de-CH), automatische Partitionierung,',
+    '       EULA automatisch, KEIN AutoLogon (Anmeldung mit M365-User).' + (wlan ? ' WLAN: ' + xmlEsc(wlan.name) + ' (persistent).' : ' Kein WLAN eingebettet.') + ' -->',
+    '  <settings pass="offlineServicing"></settings>',
+    '  <settings pass="windowsPE">',
+    '    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">',
+    '      <UILanguage>de-DE</UILanguage>',
+    '    </component>',
+    '    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">',
+    '      <ImageInstall><OSImage><InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo></OSImage></ImageInstall>',
+    '      <UserData>',
+    '        <ProductKey><Key>VK7JG-NPHTM-C97JM-9MPGT-3V66T</Key><WillShowUI>OnError</WillShowUI></ProductKey>',
+    '        <AcceptEula>true</AcceptEula>',
+    '      </UserData>',
+    '      <UseConfigurationSet>false</UseConfigurationSet>',
+    '      <RunSynchronous>',
+    '        <RunSynchronousCommand wcm:action="add"><Order>1</Order><Path>cmd.exe /c "&gt;&gt;"X:\\diskpart.txt" (echo:SELECT DISK=0&amp;echo:CLEAN&amp;echo:CONVERT GPT&amp;echo:CREATE PARTITION EFI SIZE=300&amp;echo:FORMAT QUICK FS=FAT32 LABEL=^"System^"&amp;echo:ASSIGN LETTER=S&amp;echo:CREATE PARTITION MSR SIZE=16&amp;echo:CREATE PARTITION PRIMARY)"</Path></RunSynchronousCommand>',
+    '        <RunSynchronousCommand wcm:action="add"><Order>2</Order><Path>cmd.exe /c "&gt;&gt;"X:\\diskpart.txt" (echo:SHRINK MINIMUM=1000&amp;echo:FORMAT QUICK FS=NTFS LABEL=^"Windows^"&amp;echo:ASSIGN LETTER=W&amp;echo:CREATE PARTITION PRIMARY&amp;echo:FORMAT QUICK FS=NTFS LABEL=^"Recovery^"&amp;echo:ASSIGN LETTER=R)"</Path></RunSynchronousCommand>',
+    '        <RunSynchronousCommand wcm:action="add"><Order>3</Order><Path>cmd.exe /c "&gt;&gt;"X:\\diskpart.txt" (echo:SET ID=^"de94bba4-06d1-4d40-a16a-bfd50179d6ac^"&amp;echo:GPT ATTRIBUTES=0x8000000000000001)"</Path></RunSynchronousCommand>',
+    '        <RunSynchronousCommand wcm:action="add"><Order>4</Order><Path>cmd.exe /c "diskpart.exe /s "X:\\diskpart.txt" &gt;&gt;"X:\\diskpart.log" || ( type "X:\\diskpart.log" &amp; echo diskpart encountered an error. &amp; pause &amp; exit /b 1 )"</Path></RunSynchronousCommand>',
+    '      </RunSynchronous>',
+    '    </component>',
+    '  </settings>',
+    '  <settings pass="generalize"></settings>',
+    wlanSpecialize,
+    '  <settings pass="auditSystem"></settings>',
+    '  <settings pass="auditUser"></settings>',
+    '  <settings pass="oobeSystem">',
+    '    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">',
+    '      <InputLocale>0807:00000807</InputLocale>',
+    '      <SystemLocale>de-CH</SystemLocale>',
+    '      <UILanguage>de-DE</UILanguage>',
+    '      <UserLocale>de-CH</UserLocale>',
+    '    </component>',
+    '    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">',
+    '      <OOBE>',
+    '        <ProtectYourPC>3</ProtectYourPC>',
+    '        <HideEULAPage>true</HideEULAPage>',
+    '        <HideOnlineAccountScreens>false</HideOnlineAccountScreens>',
+    '      </OOBE>',
+    '    </component>',
+    '  </settings>',
+    wlanExtensions,
+    '</unattend>'
+  ].filter(Boolean).join("\r\n");
+}
 
 const ASSET_DIR = path.join(__dirname, "..", "assets", "autopilot");
 
@@ -166,7 +291,9 @@ function buildAutopilotZip(opts) {
     { name: "Run-AutopilotWithExternalAppConfig.ps1", data: buildRunScript(opts.groupTags) },
     { name: "Get-WindowsAutopilotInfoCommunity.ps1", data: readAsset("Get-WindowsAutopilotInfoCommunity.ps1") },
     { name: "Start-Autopilot.bat", data: readAsset("Start-Autopilot.bat") },
-    { name: "autounattend.xml", data: readAsset("autounattend.xml") },
+    // autounattend dynamisch: deutsche UI, kein AutoLogon, WLAN aus Upload (persistent)
+    { name: "autounattend.xml", data: buildAutounattend({ wlanProfileXml: opts.wlanProfileXml }) },
+    { name: "Export-WlanProfile.ps1", data: readAsset("Export-WlanProfile.ps1") },
     { name: "Build-Windows11-WIM-NetFx3.ps1", data: readAsset("Build-Windows11-WIM-NetFx3.ps1") },
     { name: "README-Autopilot.md", data: readAsset("README-Autopilot.md") }
   ];
@@ -234,4 +361,4 @@ async function assignProfileToGroup(tenant, certPemPath, profileId, groupId) {
   return "assigned";
 }
 
-module.exports = { loadGroupTags, buildAutopilotZip, tagsFromRule, loadAutopilotProfiles, assignProfileToGroup };
+module.exports = { loadGroupTags, buildAutopilotZip, buildAutounattend, parseWlanProfile, tagsFromRule, loadAutopilotProfiles, assignProfileToGroup };

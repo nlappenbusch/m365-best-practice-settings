@@ -22,6 +22,20 @@ komplettes ZIP für Nils' Autopilot-Use-Case (github.com/nlappenbusch/IntuneAuto
   (PFX + CER). ZIP-Erzeugung ohne externe Dependency (eigener Store/Deflate-Encoder).
 - Download-Link ist einmalig und läuft nach 10 Minuten ab (Secret/PFX nur in der ZIP).
 
+#### autounattend.xml jetzt dynamisch + WLAN-Upload
+
+Die `autounattend.xml` im Paket wird nicht mehr statisch mitgeliefert, sondern
+pro Paket generiert — mit den Vorgaben: **deutsche UI (de-DE)**, Schweizer
+Locale/Tastatur (de-CH), automatische Partitionierung, **EULA automatisch**,
+**kein AutoLogon** (Anmeldung mit M365-User via Autopilot user-driven — keine
+lokalen Konten).
+
+WLAN optional: **WLAN-Export-Helper** (`Export-WlanProfile.ps1`) herunterladen,
+auf einem Rechner mit dem Kunden-WLAN ausführen (Export inkl. Passwort,
+`key=clear`), die XML im Tool **hochladen** → das Profil wird persistent
+(`user=all`) in die autounattend.xml eingebettet, **Passwort bleibt gespeichert**
+(Wifi.xml wird bewusst nicht gelöscht).
+
 ### 🎯 Neu: Autopilot-Deployment-Profile einsehen & zuweisen
 
 **🚀 Autopilot → 🎯 Deployment-Profile** listet die

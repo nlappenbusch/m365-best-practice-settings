@@ -822,7 +822,13 @@ app.post("/api/tenants/:id/autopilot/start", wrap(async (req, res) => {
   const groupTags = (Array.isArray(b.groupTags) ? b.groupTags : []).map(x => String(x)).filter(Boolean);
   if (groupTags.length === 0) return res.status(400).json({ error: "Mindestens einen GroupTag auswaehlen." });
 
-  const opts = { groupTags, assign: b.assign !== false, reboot: b.reboot === true };
+  // Optionales WLAN-Profil (netsh-Export) fuer die autounattend.xml
+  let wlanProfileXml = typeof b.wlanProfileXml === "string" ? b.wlanProfileXml : "";
+  if (wlanProfileXml && (wlanProfileXml.length > 200000 || !/<WLANProfile/i.test(wlanProfileXml))) {
+    return res.status(400).json({ error: "Die hochgeladene Datei ist kein gueltiges WLAN-Profil (netsh-Export)." });
+  }
+
+  const opts = { groupTags, assign: b.assign !== false, reboot: b.reboot === true, wlanProfileXml };
 
   if (process.env.FAKE_DEPLOY === "1") {
     req.session.autopilot = { tenantRecId: t.id, fake: true, polls: 0, opts };
@@ -864,7 +870,7 @@ app.post("/api/autopilot/poll", wrap(async (req, res) => {
       certThumbprint: appResult.certThumbprint, certExpiresAt: appResult.certExpiresAt,
       pfxPassword, consentOk: appResult.consentOk, permissions: appResult.permissions,
       createdAt: new Date().toISOString(),
-      groupTags: df.opts.groupTags, assign: df.opts.assign, reboot: df.opts.reboot,
+      groupTags: df.opts.groupTags, assign: df.opts.assign, reboot: df.opts.reboot, wlanProfileXml: df.opts.wlanProfileXml,
       pfxBuffer, cerBuffer: pfxBuffer ? Buffer.from(appResult.certPem, "utf8") : null
     });
     const token = crypto.randomBytes(16).toString("hex");
@@ -874,6 +880,7 @@ app.post("/api/autopilot/poll", wrap(async (req, res) => {
       status: "done", downloadToken: token,
       appId: appResult.appId, groupTags: df.opts.groupTags,
       pfxIncluded: !!pfxBuffer, pfxPassword,
+      wlanIncluded: !!df.opts.wlanProfileXml,
       warnings: appResult.consentOk ? [] : ["Admin-Consent unvollstaendig: " + (appResult.consentErr || "unbekannt")]
     };
   }
@@ -925,6 +932,18 @@ app.get("/api/autopilot/download/:token", (req, res) => {
   res.setHeader("Content-Type", "application/zip");
   res.setHeader("Content-Disposition", `attachment; filename="${pkg.filename}"`);
   res.send(pkg.zip);
+});
+
+// WLAN-Export-Helper-Skript (Standalone-Download) — der Techniker fuehrt es auf
+// einem Rechner mit dem Kunden-WLAN aus und laedt die erzeugte XML dann hoch.
+app.get("/api/autopilot/wlan-helper", (req, res) => {
+  try {
+    const file = path.join(__dirname, "assets", "autopilot", "Export-WlanProfile.ps1");
+    const data = fs.readFileSync(file);
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", 'attachment; filename="Export-WlanProfile.ps1"');
+    res.send(data);
+  } catch (e) { res.status(500).json({ error: "Helper-Skript nicht verfuegbar." }); }
 });
 
 // Autopilot-Deployment-Profile einsehen + einer Gruppe zuweisen
