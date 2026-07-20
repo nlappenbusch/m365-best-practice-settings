@@ -820,7 +820,7 @@ app.get("/api/tenants/:id/licenses", wrap(async (req, res) => {
     return res.json({
       ok: true,
       generatedAt: new Date().toISOString(), inactiveDays: 90, signInAvailable: true,
-      totals: { users: 42, licensedUsers: 38, paidSkus: 3, freeSeats: 5, disabledWithLicense: 2, inactiveWithLicense: 3, multiSuite: 1 },
+      totals: { users: 42, licensedUsers: 38, paidSkus: 3, freeSeats: 5, disabledWithLicense: 2, inactiveWithLicense: 3, multiSuite: 2, multiSuiteTotal: 3 },
       skus: [
         { skuPartNumber: "SPB", name: "Microsoft 365 Business Premium", free: false, purchased: 40, warning: 0, suspended: 0, assigned: 36, available: 4, capabilityStatus: "Enabled" },
         { skuPartNumber: "EXCHANGESTANDARD", name: "Exchange Online (Plan 1)", free: false, purchased: 5, warning: 0, suspended: 0, assigned: 4, available: 1, capabilityStatus: "Enabled" },
@@ -838,7 +838,9 @@ app.get("/api/tenants/:id/licenses", wrap(async (req, res) => {
           { displayName: "Selten Da", upn: "selten@example.com", lastSignIn: "2026-03-20", daysInactive: 121, licenses: ["Exchange Online (Plan 1)"] }
         ],
         multiSuite: [
-          { displayName: "Doppelt Lizenziert", upn: "doppelt@example.com", licenses: ["Microsoft 365 Business Premium", "Exchange Online (Plan 1)"] }
+          { displayName: "Doppelt Lizenziert", upn: "doppelt@example.com", licenses: ["Microsoft 365 E5", "Teams Phone Standard"], verdict: "redundant", reason: "Teams Phone Standard ist bereits in Microsoft 365 E5 enthalten" },
+          { displayName: "Zwei Suiten", upn: "zweisuiten@example.com", licenses: ["Microsoft 365 Business Premium", "Microsoft 365 E3"], verdict: "check", reason: "Mehrere Basis-Suiten nebeneinander (Microsoft 365 Business Premium + Microsoft 365 E3) — Überlappung prüfen" },
+          { displayName: "Telefonie Nutzer", upn: "telefonie@example.com", licenses: ["Microsoft 365 E3", "Teams Phone Standard"], verdict: "addon", reason: "Suite + Add-on(s) — übliche, notwendige Kombination (Add-ons sind nicht in der Suite enthalten)" }
         ],
         unusedPaidSeats: [
           { skuPartNumber: "SPB", name: "Microsoft 365 Business Premium", free: false, purchased: 40, assigned: 36, available: 4, capabilityStatus: "Enabled" },

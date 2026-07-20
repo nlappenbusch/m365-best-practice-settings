@@ -82,6 +82,60 @@ const FREE_SKUS = new Set([
   "MICROSOFT_BUSINESS_CENTER", "POWERAPPS_DEV", "Power_Pages_vTrial_for_Makers"
 ]);
 
+// Suiten (Basis-Plaene) — mehrere davon nebeneinander sind grundsaetzlich pruefenswert.
+const SUITE_SKUS = new Set([
+  "SPB", "O365_BUSINESS_PREMIUM", "O365_BUSINESS_ESSENTIALS", "SMB_BUSINESS", "O365_BUSINESS",
+  "SPE_E3", "SPE_E5", "SPE_F1", "M365_F1", "DESKLESSPACK",
+  "STANDARDPACK", "ENTERPRISEPACK", "ENTERPRISEPREMIUM", "ENTERPRISEPREMIUM_NOPSTNCONF"
+]);
+
+// Bekannte Enthaltensein-Beziehungen (nur belegte Faelle, Quelle: Microsoft
+// Learn "Teams add-on licensing" + Produktbeschreibungen): SKU X enthaelt die
+// Faehigkeiten von SKU Y — X + Y gleichzeitig = doppelt bezahlt.
+// Wichtig fuers Verstaendnis: E3 enthaelt Teams Phone/Audio Conferencing NICHT
+// (dort sind MCOEV/MCOMEETADV notwendige Add-ons) — erst E5 enthaelt beides.
+const SKU_CONTAINS = {
+  SPE_E5: ["MCOEV", "MCOMEETADV", "POWER_BI_PRO", "THREAT_INTELLIGENCE", "ATP_ENTERPRISE", "WIN_DEF_ATP", "DEFENDER_ENDPOINT_P1", "ADALLOM_STANDALONE", "AAD_PREMIUM", "AAD_PREMIUM_P2", "INTUNE_A", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION", "EMS", "EMSPREMIUM"],
+  ENTERPRISEPREMIUM: ["MCOEV", "MCOMEETADV", "POWER_BI_PRO", "THREAT_INTELLIGENCE", "ATP_ENTERPRISE", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
+  ENTERPRISEPREMIUM_NOPSTNCONF: ["MCOEV", "POWER_BI_PRO", "THREAT_INTELLIGENCE", "ATP_ENTERPRISE", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
+  SPE_E3: ["AAD_PREMIUM", "INTUNE_A", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION", "EMS"],
+  ENTERPRISEPACK: ["EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
+  SPB: ["EXCHANGESTANDARD", "ATP_ENTERPRISE", "AAD_PREMIUM", "INTUNE_A", "MDE_SMB", "O365_BUSINESS_PREMIUM", "O365_BUSINESS_ESSENTIALS", "SMB_BUSINESS", "O365_BUSINESS"],
+  O365_BUSINESS_PREMIUM: ["EXCHANGESTANDARD", "O365_BUSINESS_ESSENTIALS"],
+  O365_BUSINESS_ESSENTIALS: ["EXCHANGESTANDARD"],
+  STANDARDPACK: ["EXCHANGESTANDARD"],
+  EMSPREMIUM: ["EMS", "AAD_PREMIUM", "AAD_PREMIUM_P2", "INTUNE_A", "ADALLOM_STANDALONE"],
+  EMS: ["AAD_PREMIUM", "INTUNE_A"],
+  AAD_PREMIUM_P2: ["AAD_PREMIUM"],
+  EXCHANGEENTERPRISE: ["EXCHANGESTANDARD"],
+  WIN_DEF_ATP: ["DEFENDER_ENDPOINT_P1"],
+  THREAT_INTELLIGENCE: ["ATP_ENTERPRISE"]
+};
+
+/**
+ * Kombination bezahlter SKUs eines Nutzers bewerten:
+ *  - redundant: eine Suite enthaelt eine ebenfalls zugewiesene Einzel-Lizenz
+ *  - check:     mehrere Suiten nebeneinander (Ueberlappung wahrscheinlich)
+ *  - addon:     eine Suite + notwendige Add-ons (z.B. E3 + Teams Phone) — normal
+ */
+function classifyCombo(parts) {
+  const set = new Set(parts);
+  const redundancies = [];
+  for (const p of parts) {
+    for (const contained of (SKU_CONTAINS[p] || [])) {
+      if (set.has(contained)) redundancies.push({ container: friendlySku(p), contained: friendlySku(contained) });
+    }
+  }
+  if (redundancies.length) {
+    return { verdict: "redundant", reason: redundancies.map(r => `${r.contained} ist bereits in ${r.container} enthalten`).join("; ") };
+  }
+  const suites = parts.filter(p => SUITE_SKUS.has(p));
+  if (suites.length >= 2) {
+    return { verdict: "check", reason: "Mehrere Basis-Suiten nebeneinander (" + suites.map(friendlySku).join(" + ") + ") — Überlappung prüfen" };
+  }
+  return { verdict: "addon", reason: "Suite + Add-on(s) — übliche, notwendige Kombination (Add-ons sind nicht in der Suite enthalten)" };
+}
+
 function friendlySku(part) { return SKU_NAMES[part] || part; }
 
 const INACTIVE_DAYS = 90;
@@ -151,10 +205,26 @@ async function runLicenseReport(tenant, cert) {
     }))
     .sort((a, b) => (b.daysInactive ?? 99999) - (a.daysInactive ?? 99999));
 
+  const userPaidParts = u => (u.assignedLicenses || [])
+    .map(l => skuById.get(l.skuId))
+    .filter(s => s && paidSkuIds.has(s.skuId))
+    .map(s => s.skuPartNumber);
+
   const multiSuite = licensed
-    .map(u => ({ u, paid: userLicNames(u).filter(l => l.paid) }))
-    .filter(x => x.paid.length >= 2)
-    .map(x => ({ displayName: x.u.displayName, upn: x.u.userPrincipalName, licenses: x.paid.map(l => l.name) }));
+    .map(u => ({ u, parts: userPaidParts(u) }))
+    .filter(x => x.parts.length >= 2)
+    .map(x => {
+      const cls = classifyCombo(x.parts);
+      return {
+        displayName: x.u.displayName, upn: x.u.userPrincipalName,
+        licenses: x.parts.map(friendlySku),
+        verdict: cls.verdict, reason: cls.reason
+      };
+    })
+    .sort((a, b) => {
+      const rank = { redundant: 0, check: 1, addon: 2 };
+      return rank[a.verdict] - rank[b.verdict];
+    });
 
   const unusedPaidSeats = skus.filter(s => !s.free && s.capabilityStatus === "Enabled" && s.available > 0);
 
@@ -169,11 +239,14 @@ async function runLicenseReport(tenant, cert) {
       freeSeats: unusedPaidSeats.reduce((n, s) => n + s.available, 0),
       disabledWithLicense: disabledWithLicense.length,
       inactiveWithLicense: inactiveWithLicense ? inactiveWithLicense.length : null,
-      multiSuite: multiSuite.length
+      // Nur die tatsaechlich handlungsrelevanten Kombis zaehlen — Suite+Add-on
+      // (z.B. E3 + Teams Phone) ist normal und soll keine Warnung ausloesen.
+      multiSuite: multiSuite.filter(m => m.verdict !== "addon").length,
+      multiSuiteTotal: multiSuite.length
     },
     skus,
     findings: { disabledWithLicense, inactiveWithLicense, multiSuite, unusedPaidSeats }
   };
 }
 
-module.exports = { runLicenseReport, friendlySku, SKU_NAMES, FREE_SKUS };
+module.exports = { runLicenseReport, friendlySku, classifyCombo, SKU_NAMES, FREE_SKUS, SKU_CONTAINS, SUITE_SKUS };

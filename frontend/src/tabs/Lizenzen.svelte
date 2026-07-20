@@ -49,8 +49,10 @@
       `<tr><td class="pn">${esc(u.displayName)}</td><td>${esc(u.upn)}</td>` +
       `<td>${u.lastSignIn ? esc(u.lastSignIn) + ` (${u.daysInactive} Tage)` : 'nie angemeldet'}</td>` +
       `<td>${esc(u.licenses.join(', '))}</td></tr>`).join('')
+    const verdictLabel = { redundant: '🔴 doppelt bezahlt', check: '🟠 prüfen', addon: '🟢 Add-on (normal)' }
     const multiRows = d.findings.multiSuite.map(u =>
-      `<tr><td class="pn">${esc(u.displayName)}</td><td>${esc(u.upn)}</td><td>${esc(u.licenses.join(' + '))}</td></tr>`).join('')
+      `<tr><td class="pn">${esc(u.displayName)}</td><td>${esc(u.upn)}</td><td>${esc(u.licenses.join(' + '))}</td>` +
+      `<td>${esc(verdictLabel[u.verdict] || '')}${u.reason ? '<br><span class="dim">' + esc(u.reason) + '</span>' : ''}</td></tr>`).join('')
 
     return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Lizenzreport — ${esc(t.name)}</title><style>
       * { margin:0; padding:0; box-sizing:border-box; }
@@ -73,6 +75,7 @@
       td.ok { color:#067647; }
       td.pn { font-weight:600; }
       .note { font-size:9.2pt; color:#555; border-left:3px solid #bbb; padding:5px 10px; margin:8px 0; background:#fafafa; }
+      .dim { color:#777; font-size:8.6pt; font-weight:400; }
       .empty { color:#067647; font-size:9.4pt; margin:4px 0 10px; }
       footer { margin-top:24px; padding-top:8px; border-top:1px solid #ccc; font-size:8.7pt; color:#777; }
       .print-btn { position:fixed; top:16px; right:16px; z-index:9; background:#1a1a1a; color:#fff; border:none; padding:10px 16px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.3); }
@@ -111,7 +114,7 @@
       ${d.findings.unusedPaidSeats.length ? `<p class="note">Gekaufte, aber niemandem zugewiesene Lizenzen. Empfehlung: beim naechsten Renewal reduzieren, falls kein kurzfristiger Bedarf besteht.</p><table><thead><tr><th>Produkt</th><th style="text-align:right">gekauft</th><th style="text-align:right">zugewiesen</th><th style="text-align:right">frei</th></tr></thead><tbody>${d.findings.unusedPaidSeats.map(s => `<tr><td class="pn">${esc(s.name)}</td><td class="num">${s.purchased}</td><td class="num">${s.assigned}</td><td class="num warn">${s.available}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">✓ Keine — jeder gekaufte Seat ist zugewiesen.</p>'}
 
       <h2>Handlungsfeld 4 — Mehrfach-Lizenzierung</h2>
-      ${multiRows ? `<p class="note">Konten mit mehreren bezahlten Produkten. Nicht zwingend falsch (Add-ons!), aber pruefenswert auf ueberlappende Suiten.</p><table><thead><tr><th>Name</th><th>Anmeldename</th><th>Lizenzen</th></tr></thead><tbody>${multiRows}</tbody></table>` : '<p class="empty">✓ Keine Konten mit mehreren bezahlten Produkten.</p>'}
+      ${multiRows ? `<p class="note">Konten mit mehreren bezahlten Produkten, automatisch bewertet: 🔴 = die Suite enthaelt die Zusatzlizenz bereits (doppelt bezahlt, kuendbar) · 🟠 = mehrere Basis-Suiten, Ueberlappung pruefen · 🟢 = uebliche Suite+Add-on-Kombination, kein Handlungsbedarf (z.B. E3 + Teams Phone — Teams Phone ist erst in E5 enthalten).</p><table><thead><tr><th>Name</th><th>Anmeldename</th><th>Lizenzen</th><th>Bewertung</th></tr></thead><tbody>${multiRows}</tbody></table>` : '<p class="empty">✓ Keine Konten mit mehreren bezahlten Produkten.</p>'}
 
       <footer>Erzeugt vom M365 Security Policy Manager am ${today}. Read-only-Report ohne Preisdaten — Seats und Konten sind belastbar aus Microsoft Graph gelesen (subscribedSkus, users inkl. signInActivity), Kostenbewertung erfolgt bewusst nicht automatisch.</footer>
     </div></body></html>`
@@ -149,7 +152,7 @@
       <span class="ld-badge {data.totals.freeSeats ? 'warn' : 'ok'}">💺 {data.totals.freeSeats} bezahlte Seats frei</span>
       <span class="ld-badge {data.totals.disabledWithLicense ? 'warn' : 'ok'}">🚫 {data.totals.disabledWithLicense} an deaktivierten Konten</span>
       <span class="ld-badge {data.totals.inactiveWithLicense ? 'warn' : 'ok'}">😴 {data.totals.inactiveWithLicense ?? '–'} inaktiv &gt;{data.inactiveDays}d</span>
-      <span class="ld-badge {data.totals.multiSuite ? 'warn' : 'ok'}">📚 {data.totals.multiSuite} mehrfach lizenziert</span>
+      <span class="ld-badge {data.totals.multiSuite ? 'warn' : 'ok'}">📚 {data.totals.multiSuite} Lizenz-Überlappungen</span>
     </div>
 
     <div class="ld-job" style="margin-bottom:1.25rem;">
@@ -197,12 +200,21 @@
 
     <div class="ld-job">
       <div class="ld-job-head"><strong>📚 Mehrfach-Lizenzierung</strong>
-        <span class="ld-job-meta">{data.findings.multiSuite.length}</span></div>
+        <span class="ld-job-meta">{data.totals.multiSuite ?? data.findings.multiSuite.length} prüfenswert · {data.findings.multiSuite.length} gesamt</span></div>
       {#if data.findings.multiSuite.length}
         {#each data.findings.multiSuite as u (u.upn)}
-          <div class="ld-step retry"><span class="ld-ico">📚</span> {u.displayName} <small>({u.upn}) — {u.licenses.join(' + ')}</small></div>
+          {#if u.verdict === 'redundant'}
+            <div class="ld-step fail"><span class="ld-ico">🔴</span> {u.displayName}
+              <small>({u.upn}) — {u.licenses.join(' + ')} · <b>doppelt bezahlt:</b> {u.reason}</small></div>
+          {:else if u.verdict === 'check'}
+            <div class="ld-step retry"><span class="ld-ico">🟠</span> {u.displayName}
+              <small>({u.upn}) — {u.licenses.join(' + ')} · {u.reason}</small></div>
+          {:else}
+            <div class="ld-step ok"><span class="ld-ico">🟢</span> {u.displayName}
+              <small>({u.upn}) — {u.licenses.join(' + ')} · notwendiges Add-on (nicht in der Suite enthalten), kein Handlungsbedarf</small></div>
+          {/if}
         {/each}
-        <div class="ld-step"><small>💡 Nicht zwingend falsch (Add-ons wie Copilot/Telefonie sind normal) — prüfenswert sind überlappende Suiten.</small></div>
+        <div class="ld-step"><small>💡 🔴 = die Suite enthält die Zusatzlizenz bereits (kündbar) · 🟠 = mehrere Suiten, Überlappung prüfen · 🟢 = übliche Suite+Add-on-Kombi (z.B. E3 + Teams Phone — Teams Phone ist erst in E5 enthalten).</small></div>
       {:else}
         <div class="ld-banner ok">✅ Keine Konten mit mehreren bezahlten Produkten.</div>
       {/if}
