@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { apiGet, apiPost } from '../lib/api.js'
+  import { session } from '../lib/session.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
@@ -29,16 +30,29 @@
   let actionBusy = $state({}) // policyId -> bool
   let lastTenantId = null
 
+  let tiersLoaded = false
   async function loadTiers() {
     tiersError = null
     try {
       const r = await apiGet('/api/conditionalaccess/tiers')
       tiers = r.tiers
+      tiersLoaded = true
     } catch (e) {
       tiersError = e.message
     }
   }
-  loadTiers()
+
+  // Alle Tabs sind von Anfang an gemountet (siehe App.svelte) — beim ersten
+  // Render ist die Session evtl. noch nicht bestaetigt. Reaktiv statt einmalig
+  // beim Erzeugen der Komponente laden, sonst bleibt ein "Nicht angemeldet"
+  // aus dem allerersten Versuch dauerhaft stehen, auch nachdem man sich
+  // angemeldet hat.
+  $effect(() => {
+    if ($session.ready && $session.online && $session.loggedIn && !tiersLoaded) {
+      loadTiers()
+    }
+    if (!($session.loggedIn && $session.online)) tiersLoaded = false
+  })
 
   $effect(() => {
     const id = $activeTenant?.id ?? null
