@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte'
   import { apiGet, apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
@@ -44,6 +45,17 @@
   let assigning = $state(false)
   let assignResult = $state(null)  // { error } | { results, gname }
   let lastTenantId = null
+
+  // ---------- Baseline-Import (OpenIntuneBaseline -> Tenant) ----------
+  let importOpen = $state(false)
+  let baseline = $state(null)        // { oibVersion, policies: [{folder, fileName, name}] }
+  let baselineLoading = $state(false)
+  let baselineError = $state(null)
+  let importChecked = $state({})     // fileName -> bool
+  let importJob = $state(null)
+  let importJobId = $state(null)
+  let importBusy = $state(false)
+  let importTimer = null
 
   $effect(() => {
     const id = $activeTenant?.id ?? null
@@ -118,6 +130,71 @@
     checked = next
   }
 
+  const existingNames = $derived(new Set((data?.policies || []).map(p => p.name)))
+  const importByFolder = $derived.by(() => {
+    if (!baseline?.policies) return []
+    const list = []
+    for (const p of baseline.policies) {
+      let grp = list.find(g => g.folder === p.folder)
+      if (!grp) { grp = { folder: p.folder, items: [] }; list.push(grp) }
+      grp.items.push(p)
+    }
+    return list
+  })
+  const importSelectedCount = $derived(Object.values(importChecked).filter(Boolean).length)
+
+  async function toggleImport() {
+    importOpen = !importOpen
+    if (importOpen && !baseline) await loadBaseline()
+  }
+  async function loadBaseline() {
+    baselineLoading = true
+    baselineError = null
+    try {
+      const r = await apiGet('/api/oib/baseline')
+      baseline = { oibVersion: r.oibVersion, policies: r.policies || [] }
+      // Vorauswahl: alles, was noch nicht im Tenant existiert
+      const next = {}
+      for (const p of baseline.policies) if (!existingNames.has(p.name)) next[p.fileName] = true
+      importChecked = next
+    } catch (e) {
+      baselineError = e.message
+    }
+    baselineLoading = false
+  }
+  function importSelectAll(val) {
+    const next = {}
+    for (const p of (baseline?.policies || [])) if (val && !existingNames.has(p.name)) next[p.fileName] = true
+    importChecked = next
+  }
+
+  async function startImport() {
+    const files = (baseline?.policies || []).filter(p => importChecked[p.fileName]).map(p => ({ folder: p.folder, fileName: p.fileName }))
+    if (!files.length) { alert('Keine Policies ausgewählt.'); return }
+    if (!confirm(`${files.length} Baseline-Policies in "${$activeTenant.name}" importieren?\n\nBereits vorhandene Policies (gleicher Name) werden übersprungen, nie überschrieben. Die Policies werden OHNE Zuweisung angelegt — das Zuweisen passiert danach wie gewohnt unten im Tab.`)) return
+    importBusy = true
+    importJob = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib/import`, { files })
+      importJobId = r.jobId
+      pollImportJob()
+    } catch (e) {
+      alert('Start fehlgeschlagen: ' + e.message)
+      importBusy = false
+    }
+  }
+  function pollImportJob() {
+    importTimer = setTimeout(async () => {
+      let j
+      try { j = await apiGet(`/api/appjobs/${encodeURIComponent(importJobId)}`) }
+      catch (e) { importBusy = false; return }
+      importJob = j
+      if (j.status === 'running') { pollImportJob(); return }
+      importBusy = false
+      load() // Overview neu laden — importierte Policies erscheinen in der Zuweisungsliste
+    }, 1000)
+  }
+
   async function assign() {
     const selectedPolicies = data.policies.filter(p => checked[p.id])
     if (!selectedPolicies.length) { alert('Keine Policies ausgewählt.'); return }
@@ -152,14 +229,80 @@
     }
     assigning = false
   }
+
+  onDestroy(() => { if (importTimer) clearTimeout(importTimer) })
 </script>
 
 <TenantContext>
   <div class="settings-group">
     <h4>💻 Intune-Baseline <small>(OpenIntuneBaseline)</small></h4>
-    <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen.</p>
-    <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
+    <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen — oder die Baseline zuerst direkt aus dem OpenIntuneBaseline-Repo importieren.</p>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
+      <button class="btn btn-primary" onclick={toggleImport} disabled={importBusy}>
+        {importOpen ? '✕ Import schließen' : '⬇️ Baseline importieren'}
+      </button>
+    </div>
   </div>
+
+  {#if importOpen}
+    <div class="ld-job" style="margin-bottom:1.5rem;">
+      <div class="ld-job-head"><strong>⬇️ OpenIntuneBaseline importieren{baseline?.oibVersion ? ` (v${baseline.oibVersion})` : ''}</strong>
+        {#if baseline}<span class="ld-job-meta">{importSelectedCount}/{baseline.policies.length} ausgewählt</span>{/if}</div>
+      <p class="ld-section-hint">Lädt die Windows-Baseline direkt aus <a href="https://github.com/SkipToTheEndpoint/OpenIntuneBaseline" target="_blank" rel="noopener">SkipToTheEndpoint/OpenIntuneBaseline</a> und legt die Policies OHNE Zuweisung im Tenant an. Bereits vorhandene Policies (gleicher Name) werden übersprungen — nie überschrieben. Zuweisen danach wie gewohnt unten.</p>
+
+      {#if baselineLoading}
+        <div class="ld-step running"><span class="ld-spinner"></span> Lade Baseline-Index von GitHub…</div>
+      {:else if baselineError}
+        <div class="ld-banner fail">❌ {baselineError}</div>
+      {:else if baseline}
+        <div class="ld-oib-toolbar">
+          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => importSelectAll(true)}>Alle neuen</button>
+          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => importSelectAll(false)}>Keine</button>
+        </div>
+        {#each importByFolder as grp (grp.folder)}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">📁 {grp.folder} ({grp.items.length})</div>
+            {#each grp.items as p (p.fileName)}
+              {@const already = existingNames.has(p.name)}
+              <label class="ld-oib-row" class:already>
+                <input type="checkbox" checked={!!importChecked[p.fileName]} disabled={already}
+                       onchange={(e) => (importChecked = { ...importChecked, [p.fileName]: e.target.checked })} />
+                <span class="ld-oib-name">{p.name}</span>
+                {#if already}<small class="ld-oib-assigned">✓ bereits im Tenant</small>{/if}
+              </label>
+            {/each}
+          </div>
+        {/each}
+        <div class="ld-confirm-actions">
+          <button class="btn btn-primary" onclick={startImport} disabled={importBusy || importSelectedCount === 0}>
+            {importBusy ? 'Importiere…' : `⬇️ ${importSelectedCount} Policies importieren`}
+          </button>
+        </div>
+      {/if}
+
+      {#if importJob}
+        {#if importJob.status === 'failed'}
+          <div class="ld-banner fail">❌ {importJob.error}</div>
+          {#if importJob.hint}<div class="ld-step"><small>💡 {importJob.hint}</small></div>{/if}
+        {:else if importJob.status === 'done'}
+          <div class="ld-banner {importJob.results?.failed ? 'warn' : 'ok'}">
+            {importJob.results?.failed ? '⚠️' : '✅'} Import fertig — {importJob.results?.created ?? 0} angelegt, {importJob.results?.skipped ?? 0} übersprungen{importJob.results?.failed ? `, ${importJob.results.failed} fehlgeschlagen` : ''}.
+          </div>
+          {#each (importJob.results?.details || []).filter(d => d.status === 'failed') as d}
+            <div class="ld-step fail"><span class="ld-ico">❌</span> {d.name} <small>({d.error})</small></div>
+          {/each}
+        {/if}
+        {#each importJob.steps as s}
+          {#if s.state === 'running'}
+            <div class="ld-step running"><span class="ld-spinner"></span> {s.name}</div>
+          {:else if s.state === 'done'}
+            <div class="ld-step ok"><span class="ld-ico">✅</span> {s.name}</div>
+          {/if}
+        {/each}
+      {/if}
+    </div>
+  {/if}
 
   {#if loading}
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Policies und dynamische Gruppen aus dem Tenant…</div></div>

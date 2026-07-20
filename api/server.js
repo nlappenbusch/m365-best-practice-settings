@@ -34,6 +34,7 @@ const WIN32APP = require("./lib/win32app");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
+const OIBIMPORT = require("./lib/oibImport");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -758,6 +759,56 @@ app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
     }
   }
   res.json({ ok: true, results });
+}));
+
+// ---------- OIB-Baseline-Import (OIBDeployer-Port) ----------
+// Index 10 Minuten cachen — die GitHub-Contents-API ist unauthentifiziert auf
+// 60 Requests/Stunde limitiert (ein Index-Abruf kostet ~6 Requests).
+let oibBaselineCache = { data: null, exp: 0 };
+app.get("/api/oib/baseline", wrap(async (req, res) => {
+  if (oibBaselineCache.data && Date.now() < oibBaselineCache.exp) {
+    return res.json({ ok: true, ...oibBaselineCache.data });
+  }
+  const data = await OIBIMPORT.fetchBaselineIndex();
+  oibBaselineCache = { data, exp: Date.now() + 10 * 60 * 1000 };
+  res.json({ ok: true, ...data });
+}));
+
+app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const files = Array.isArray((req.body || {}).files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ error: "files erforderlich." });
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, ["Bestehende Policies laden", "Baseline importieren"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        onProgress("Bestehende Policies laden"); await new Promise(r => setTimeout(r, 500));
+        for (let i = 1; i <= files.length; i++) { onProgress(`Policy ${i}/${files.length}`); await new Promise(r => setTimeout(r, 120)); }
+        job.results = { created: Math.max(0, files.length - 1), skipped: Math.min(1, files.length), failed: 0 };
+      } else {
+        const results = await OIBIMPORT.importPolicies(t, certPemPath(t.tenantId), files, onProgress);
+        job.results = {
+          created: results.filter(x => x.status === "created").length,
+          skipped: results.filter(x => x.status === "skipped").length,
+          failed: results.filter(x => x.status === "failed").length,
+          details: results
+        };
+      }
+      finishAppJob(job, true);
+    } catch (e) {
+      const isPermIssue = e.status === 403 || /insufficient privileges|authorization|forbidden/i.test(String(e.message || ""));
+      finishAppJob(job, false, e.message, isPermIssue
+        ? "Der Baseline-Import braucht DeviceManagementConfiguration.ReadWrite.All — im Tab 'Tenants' einmal Reparieren ausfuehren."
+        : null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
 }));
 
 // ---------- Autopilot-Paket-Generator ----------
