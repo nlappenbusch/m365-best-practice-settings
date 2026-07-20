@@ -21,9 +21,18 @@ function isConfigured(sso) {
   return !!(sso && sso.tenantId && sso.clientId && sso.clientSecret);
 }
 
-/** Redirect-URI aus dem Request ableiten (hinter nginx: trust proxy ist gesetzt). */
+/**
+ * Redirect-URI aus dem Request ableiten. Fuer Nicht-localhost-Hosts wird
+ * IMMER https verwendet: Entra akzeptiert fuer oeffentliche Hosts ohnehin
+ * nur https-Redirect-URIs, und hinter einer mehrstufigen Proxy-Kette (NPM ->
+ * Container-nginx) kommt X-Forwarded-Proto nicht zwingend sauber bis hier
+ * durch (real passiert: AADSTS50011 wegen abgeleitetem http://).
+ */
 function redirectUri(req) {
-  return `${req.protocol}://${req.get("host")}/api/auth/sso/callback`;
+  const host = req.get("host") || "";
+  const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+  const proto = isLocal ? req.protocol : "https";
+  return `${proto}://${host}/api/auth/sso/callback`;
 }
 
 /** Authorize-URL bauen + state/nonce in der Session ablegen. */
