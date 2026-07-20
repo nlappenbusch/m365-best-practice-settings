@@ -37,6 +37,7 @@ const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
 const ASSIGNCHECK = require("./lib/assignmentCheck");
 const LICENSES = require("./lib/licenses");
+const IBACKUP = require("./lib/intuneBackup");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -808,6 +809,108 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
       finishAppJob(job, false, e.message, isPermIssue
         ? "Der Baseline-Import braucht DeviceManagementConfiguration.ReadWrite.All — im Tab 'Tenants' einmal Reparieren ausfuehren."
         : null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Intune-Backup & -Restore (TenuVault-Idee, app-only) ----------
+const FAKE_BACKUP = {
+  backupId: "2026-07-20T18-00-00-000Z",
+  createdAt: "2026-07-20T18:00:00.000Z",
+  counts: { settingsCatalog: 4, compliance: 2, deviceConfigurations: 1, scripts: 2, featureUpdates: 1, qualityUpdates: 0, driverUpdates: 0, total: 10 }
+};
+
+app.get("/api/tenants/:id/intunebackup", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, backups: [FAKE_BACKUP], categories: IBACKUP.CATEGORIES.map(c => ({ key: c.key, label: c.label })) });
+  res.json({ ok: true, backups: IBACKUP.listBackups(STATE_DIR, t.id), categories: IBACKUP.CATEGORIES.map(c => ({ key: c.key, label: c.label })) });
+}));
+
+app.post("/api/tenants/:id/intunebackup", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+  }
+  const job = createAppJob(t, ["Konfiguration sichern"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        for (const s of ["Settings Catalog sichern", "Compliance-Policies sichern", "Device Configurations sichern", "Plattform-Skripte sichern", "Update-Profile sichern"]) {
+          onProgress(s); await new Promise(r => setTimeout(r, 350));
+        }
+        job.results = { backupId: FAKE_BACKUP.backupId, counts: FAKE_BACKUP.counts };
+      } else {
+        job.results = await IBACKUP.runBackup(STATE_DIR, t, certPemPath(t.tenantId), onProgress);
+      }
+      finishAppJob(job, true);
+    } catch (e) {
+      finishAppJob(job, false, e.message, null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// Inhalt eines Snapshots (nur Namen je Kategorie — fuer den Restore-Picker).
+app.get("/api/tenants/:id/intunebackup/:backupId", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true, backupId: req.params.backupId,
+      items: {
+        settingsCatalog: ["Win - OIB - SC - Device Security - D - Local Security Policies - v3.7", "Win - OIB - SC - Credential Management - D - Passwordless - v3.5", "Win - OIB - SC - Microsoft Edge - U - User Experience - v3.8", "Eigene Policy - Kiosk"],
+        compliance: ["Win - OIB - Compliance - D - Baseline", "Compliance iOS"],
+        deviceConfigurations: ["Legacy WUfB Ring"],
+        scripts: ["Map-Drives.ps1", "Set-Timezone.ps1"],
+        featureUpdates: ["Win11 24H2 Rollout"], qualityUpdates: [], driverUpdates: []
+      }
+    });
+  }
+  const doc = IBACKUP.loadBackup(STATE_DIR, t.id, req.params.backupId);
+  const items = {};
+  for (const c of IBACKUP.CATEGORIES) items[c.key] = (doc.categories[c.key] || []).map(p => c.nameOf(p) || "(ohne Namen)");
+  res.json({ ok: true, backupId: req.params.backupId, items });
+}));
+
+app.get("/api/tenants/:id/intunebackup/:backupId/download", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    res.setHeader("Content-Disposition", `attachment; filename="intune-backup-fake.json"`);
+    return res.json({ meta: { fake: true }, categories: {} });
+  }
+  const doc = IBACKUP.loadBackup(STATE_DIR, t.id, req.params.backupId);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="intune-backup-${t.id}-${req.params.backupId}.json"`);
+  res.send(JSON.stringify(doc, null, 2));
+}));
+
+app.post("/api/tenants/:id/intunebackup/:backupId/restore", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const items = Array.isArray((req.body || {}).items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: "items erforderlich." });
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+  }
+  const backupId = req.params.backupId;
+  const job = createAppJob(t, ["Wiederherstellen"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        for (let i = 1; i <= items.length; i++) { onProgress(`Restore ${i}/${items.length}`); await new Promise(r => setTimeout(r, 250)); }
+        job.results = { created: items.length, failed: 0, details: items.map((it, i) => ({ name: `[Restored] Objekt ${i + 1}`, status: "created" })) };
+      } else {
+        const results = await IBACKUP.restoreItems(STATE_DIR, t, certPemPath(t.tenantId), backupId, items, onProgress);
+        job.results = {
+          created: results.filter(x => x.status === "created").length,
+          failed: results.filter(x => x.status === "failed").length,
+          details: results
+        };
+      }
+      finishAppJob(job, true);
+    } catch (e) {
+      finishAppJob(job, false, e.message, null);
     }
   })();
   res.json({ ok: true, jobId: job.id });

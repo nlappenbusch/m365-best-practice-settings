@@ -57,6 +57,82 @@
   let importBusy = $state(false)
   let importTimer = null
 
+  // ---------- Intune-Backup & -Restore (TenuVault-Idee) ----------
+  let bkOpen = $state(false)
+  let bkList = $state(null)          // { backups, categories }
+  let bkLoading = $state(false)
+  let bkError = $state(null)
+  let bkJob = $state(null)
+  let bkJobId = $state(null)
+  let bkBusy = $state(false)
+  let bkTimer = null
+  let bkRestoreOpen = $state(null)   // backupId des geoeffneten Restore-Pickers
+  let bkItems = $state(null)         // { items: { cat: [names] } }
+  let bkChecked = $state({})         // 'cat:index' -> bool
+  const bkCatLabel = $derived(new Map((bkList?.categories || []).map(c => [c.key, c.label])))
+
+  async function toggleBackup() {
+    bkOpen = !bkOpen
+    if (bkOpen && !bkList) await loadBackups()
+  }
+  async function loadBackups() {
+    bkLoading = true
+    bkError = null
+    try { bkList = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup`) }
+    catch (e) { bkError = e.message }
+    bkLoading = false
+  }
+  async function startBackup() {
+    bkBusy = true
+    bkJob = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup`, {})
+      bkJobId = r.jobId
+      pollBackupJob()
+    } catch (e) { alert('Start fehlgeschlagen: ' + e.message); bkBusy = false }
+  }
+  function pollBackupJob() {
+    bkTimer = setTimeout(async () => {
+      let j
+      try { j = await apiGet(`/api/appjobs/${encodeURIComponent(bkJobId)}`) }
+      catch (e) { bkBusy = false; return }
+      bkJob = j
+      if (j.status === 'running') { pollBackupJob(); return }
+      bkBusy = false
+      loadBackups()
+    }, 1000)
+  }
+  async function openRestore(backupId) {
+    if (bkRestoreOpen === backupId) { bkRestoreOpen = null; return }
+    bkRestoreOpen = backupId
+    bkItems = null
+    bkChecked = {}
+    try { bkItems = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(backupId)}`) }
+    catch (e) { bkError = e.message; bkRestoreOpen = null }
+  }
+  const bkSelCount = $derived(Object.values(bkChecked).filter(Boolean).length)
+  async function startRestore() {
+    const items = []
+    for (const [k, v] of Object.entries(bkChecked)) {
+      if (!v) continue
+      const [category, idx] = k.split('::')
+      items.push({ category, index: Number(idx) })
+    }
+    if (!items.length) { alert('Nichts ausgewählt.'); return }
+    if (!confirm(`${items.length} Objekt(e) wiederherstellen?\n\nEs werden ausschliesslich NEUE Objekte mit dem Präfix „[Restored]" und OHNE Zuweisungen angelegt — bestehende Konfiguration wird nie verändert.`)) return
+    bkBusy = true
+    bkJob = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(bkRestoreOpen)}/restore`, { items })
+      bkJobId = r.jobId
+      bkRestoreOpen = null
+      pollBackupJob()
+    } catch (e) { alert('Start fehlgeschlagen: ' + e.message); bkBusy = false }
+  }
+  function downloadBackup(backupId) {
+    window.open(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(backupId)}/download`, '_blank')
+  }
+
   // ---------- Assignment-Check (read-only Zuweisungs-Audit) ----------
   let checkOpen = $state(false)
   let checkLoading = $state(false)
@@ -261,7 +337,7 @@
   }
   const checkVisible = $derived((checkData?.results || []).filter(r => !checkOnlyIssues || r.issues.length))
 
-  onDestroy(() => { if (importTimer) clearTimeout(importTimer) })
+  onDestroy(() => { if (importTimer) clearTimeout(importTimer); if (bkTimer) clearTimeout(bkTimer) })
 </script>
 
 <TenantContext>
@@ -276,8 +352,91 @@
       <button class="btn btn-secondary" onclick={toggleCheck} disabled={checkLoading}>
         {checkOpen ? '✕ Check schließen' : '🔍 Assignment-Check'}
       </button>
+      <button class="btn btn-secondary" onclick={toggleBackup} disabled={bkBusy}>
+        {bkOpen ? '✕ Backup schließen' : '💾 Backup & Restore'}
+      </button>
     </div>
   </div>
+
+  {#if bkOpen}
+    <div class="ld-job" style="margin-bottom:1.5rem;">
+      <div class="ld-job-head"><strong>💾 Intune-Backup &amp; -Restore: {$activeTenant.name}</strong>
+        {#if bkList}<span class="ld-job-meta">{bkList.backups.length} Snapshot{bkList.backups.length === 1 ? '' : 's'}</span>{/if}</div>
+      <p class="ld-section-hint">Sichert Settings Catalog (inkl. Einstellungen), Compliance, Device Configurations, Plattform-Skripte (inkl. Inhalt) und Update-Profile als Snapshot. Restore legt ausschliesslich <b>neue</b> Objekte mit „[Restored]"-Präfix und ohne Zuweisungen an — bestehende Konfiguration wird nie verändert. Admin Templates (ADMX) sind bewusst nicht enthalten.</p>
+
+      <div class="ld-oib-toolbar">
+        <button class="btn btn-primary" onclick={startBackup} disabled={bkBusy}>{bkBusy ? 'Läuft…' : '📸 Backup jetzt erstellen'}</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={loadBackups} disabled={bkLoading}>🔄</button>
+      </div>
+
+      {#if bkJob}
+        {#if bkJob.status === 'failed'}
+          <div class="ld-banner fail">❌ {bkJob.error}</div>
+        {:else if bkJob.status === 'done' && bkJob.results?.backupId}
+          <div class="ld-banner ok">✅ Backup erstellt — {bkJob.results.counts?.total ?? '?'} Objekte gesichert.</div>
+        {:else if bkJob.status === 'done' && bkJob.results?.details}
+          <div class="ld-banner {bkJob.results.failed ? 'warn' : 'ok'}">
+            {bkJob.results.failed ? '⚠️' : '✅'} Restore fertig — {bkJob.results.created} angelegt{bkJob.results.failed ? `, ${bkJob.results.failed} fehlgeschlagen` : ''}. Wiederhergestellte Objekte sind unzugewiesen und heissen „[Restored] …".
+          </div>
+          {#each bkJob.results.details.filter(d => d.status === 'failed') as d}
+            <div class="ld-step fail"><span class="ld-ico">❌</span> {d.name} <small>({d.error})</small></div>
+          {/each}
+        {/if}
+        {#each bkJob.steps as s}
+          {#if s.state === 'running'}
+            <div class="ld-step running"><span class="ld-spinner"></span> {s.name}</div>
+          {:else if s.state === 'done'}
+            <div class="ld-step ok"><span class="ld-ico">✅</span> {s.name}</div>
+          {/if}
+        {/each}
+      {/if}
+
+      {#if bkLoading}
+        <div class="ld-step running"><span class="ld-spinner"></span> Lade Snapshots…</div>
+      {:else if bkError}
+        <div class="ld-banner fail">❌ {bkError}</div>
+      {:else if bkList}
+        {#if !bkList.backups.length}
+          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Snapshots — oben das erste Backup erstellen.</div>
+        {/if}
+        {#each bkList.backups as b (b.backupId)}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">📸 {new Date(b.createdAt).toLocaleString('de-CH')} <small style="font-weight:400; color:var(--text-dim);">· {b.counts.total} Objekte</small></div>
+            <div class="ld-step"><small>{(bkList.categories || []).map(c => `${c.label}: ${b.counts[c.key] ?? 0}`).join(' · ')}</small></div>
+            <div class="ld-oib-target" style="margin-top:0;">
+              <button class="btn btn-secondary" onclick={() => downloadBackup(b.backupId)}>⬇️ JSON herunterladen</button>
+              <button class="btn btn-secondary" onclick={() => openRestore(b.backupId)}>{bkRestoreOpen === b.backupId ? '✕ Restore schließen' : '♻️ Restore öffnen'}</button>
+            </div>
+            {#if bkRestoreOpen === b.backupId}
+              {#if !bkItems}
+                <div class="ld-step running"><span class="ld-spinner"></span> Lade Snapshot-Inhalt…</div>
+              {:else}
+                {#each Object.entries(bkItems.items) as [cat, names]}
+                  {#if names.length}
+                    <div class="ld-phase complete" style="margin-left:0.5rem;">
+                      <div class="ld-phase-title">📁 {bkCatLabel.get(cat) || cat} ({names.length})</div>
+                      {#each names as n, i}
+                        <label class="ld-oib-row">
+                          <input type="checkbox" checked={!!bkChecked[cat + '::' + i]}
+                                 onchange={(e) => (bkChecked = { ...bkChecked, [cat + '::' + i]: e.target.checked })} />
+                          <span class="ld-oib-name">{n}</span>
+                        </label>
+                      {/each}
+                    </div>
+                  {/if}
+                {/each}
+                <div class="ld-confirm-actions">
+                  <button class="btn btn-primary" onclick={startRestore} disabled={bkBusy || bkSelCount === 0}>
+                    ♻️ {bkSelCount} Objekt(e) wiederherstellen (als „[Restored]“, unzugewiesen)
+                  </button>
+                </div>
+              {/if}
+            {/if}
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
 
   {#if checkOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
