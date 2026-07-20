@@ -1,19 +1,28 @@
 <script>
   import { onMount } from 'svelte'
   import { refreshSession } from './lib/session.js'
+  import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Config from './tabs/Config.svelte'
-  import LiveDeploy from './tabs/LiveDeploy.svelte'
+  import TenantsOverview from './tabs/TenantsOverview.svelte'
+  import MailSecurity from './tabs/MailSecurity.svelte'
+  import Audit from './tabs/Audit.svelte'
+  import Intune from './tabs/Intune.svelte'
+  import Autopilot from './tabs/Autopilot.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
   const tabs = [
-    { id: 'config',     label: '⚙️ Vorlage' },
-    { id: 'tenants',    label: '🏢 Tenants' },
-    { id: 'downloads',  label: '📦 Agents' },
-    { id: 'wissen',     label: '📖 Wissen' }
+    { id: 'config',      label: '⚙️ Vorlage' },
+    { id: 'tenants',     label: '🏢 Tenants' },
+    { id: 'mailsec',      label: '🛡 Mail-Security' },
+    { id: 'audit',       label: '🔎 Audit' },
+    { id: 'intune',      label: '💻 Intune' },
+    { id: 'autopilot',   label: '🚀 Autopilot', isNew: true },
+    { id: 'downloads',   label: '📦 Agents' },
+    { id: 'wissen',      label: '📖 Wissen' }
   ]
   let active = $state('config')
   let exportOpen = $state(false)
@@ -34,13 +43,11 @@
     <div class="header-content">
       <div class="logo-section">
         <div>
-          <h1 style="margin:0;font-size:1.5rem">M365 Security Policy Manager</h1>
-          <p class="subtitle" style="margin:.25rem 0 0 0;font-size:.875rem;opacity:.8">
-            Best Practice Configuration Tool
-          </p>
+          <h1>M365 Security Policy Manager</h1>
+          <p class="subtitle">Best Practice Configuration &amp; Autopilot Staging</p>
         </div>
       </div>
-      <div class="header-actions" style="display:flex;gap:.75rem;align-items:center">
+      <div class="header-actions">
         {#if active === 'config'}
           <div style="display:flex;gap:.5rem">
             <button class="btn btn-secondary" onclick={doImport}>Import</button>
@@ -49,6 +56,7 @@
             <button class="btn btn-primary" onclick={() => (exportOpen = true)}>Export PowerShell</button>
           </div>
         {/if}
+        <TenantSwitcher onManage={() => (active = 'tenants')} />
         <SessionWidget />
       </div>
     </div>
@@ -59,20 +67,22 @@
       {#each tabs as t}
         <button class="tab-btn" class:active={active === t.id} onclick={() => (active = t.id)}>
           {t.label}
+          {#if t.isNew}<span class="tab-pill-new">Neu</span>{/if}
         </button>
       {/each}
     </nav>
 
-    <div class="tab-content active">
-      {#if active === 'config'}
-        <Config />
-      {:else if active === 'tenants'}
-        <LiveDeploy />
-      {:else if active === 'downloads'}
-        <Downloads />
-      {:else if active === 'wissen'}
-        <Wissen />
-      {/if}
+    <!-- Alle Tabs bleiben gemountet (nur via CSS versteckt), damit laufende
+         Device-Code-/Job-Polls beim Tab-Wechsel nicht abbrechen. -->
+    <div class="tab-content">
+      <div class:tab-hidden={active !== 'config'}><Config /></div>
+      <div class:tab-hidden={active !== 'tenants'}><TenantsOverview /></div>
+      <div class:tab-hidden={active !== 'mailsec'}><MailSecurity /></div>
+      <div class:tab-hidden={active !== 'audit'}><Audit /></div>
+      <div class:tab-hidden={active !== 'intune'}><Intune /></div>
+      <div class:tab-hidden={active !== 'autopilot'}><Autopilot /></div>
+      <div class:tab-hidden={active !== 'downloads'}><Downloads /></div>
+      <div class:tab-hidden={active !== 'wissen'}><Wissen /></div>
     </div>
   </main>
 </div>

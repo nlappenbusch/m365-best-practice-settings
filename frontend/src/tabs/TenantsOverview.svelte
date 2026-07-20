@@ -1,0 +1,244 @@
+<script>
+  import { onDestroy } from 'svelte'
+  import { session } from '../lib/session.js'
+  import { apiPost } from '../lib/api.js'
+  import { tenants, tenantsLoaded, activeTenantId, loadTenants, selectTenant, removeTenant, tenantReady, tenantMissing } from '../lib/tenantStore.js'
+
+  // ---------- Onboarding (Device-Code) ----------
+  let onboardTenant = $state('')
+  let onboardBusy = $state(false)
+  let onboardStep = $state(null)     // { verificationUri, userCode, interval } waehrend Warten auf Anmeldung
+  let onboardResult = $state(null)   // { error } | { tenant, setup, warnings }
+  let onboardCopied = $state(false)
+  let onboardTimer = null
+
+  async function startOnboard() {
+    onboardBusy = true
+    onboardStep = null
+    onboardResult = null
+    let start
+    try {
+      start = await apiPost('/api/onboard/start', { tenant: onboardTenant.trim() })
+    } catch (e) {
+      onboardResult = { error: e.message }
+      onboardBusy = false
+      return
+    }
+    onboardStep = start
+    scheduleOnboardPoll(start.interval || 5)
+  }
+
+  function scheduleOnboardPoll(interval) {
+    onboardTimer = setTimeout(async () => {
+      let r
+      try { r = await apiPost('/api/onboard/poll') }
+      catch (e) { onboardResult = { error: e.message }; onboardBusy = false; onboardStep = null; return }
+      if (r.status === 'pending') { scheduleOnboardPoll(r.interval || interval); return }
+      if (r.status === 'error') { onboardResult = { error: r.error }; onboardBusy = false; onboardStep = null; return }
+      onboardResult = { tenant: r.tenant, setup: r.setup || {}, warnings: r.warnings || [] }
+      onboardBusy = false
+      onboardStep = null
+      onboardTenant = ''
+      await loadTenants()
+    }, interval * 1000)
+  }
+
+  function copyOnboardCode() {
+    if (!onboardStep) return
+    navigator.clipboard.writeText(onboardStep.userCode).then(() => { onboardCopied = true })
+  }
+
+  // ---------- Reparieren (bestehende App-Registrierung, Device-Code) ----------
+  let fixTargetId = $state(null)
+  let fixTargetName = $state('')
+  let fixStep = $state(null)
+  let fixResult = $state(null)       // { error } | { items }
+  let fixCopied = $state(false)
+  let fixTimer = null
+
+  async function startFix(t) {
+    if (fixTimer) { clearTimeout(fixTimer); fixTimer = null }
+    fixTargetId = t.id
+    fixTargetName = t.name
+    fixStep = null
+    fixResult = null
+    fixCopied = false
+    let start
+    try {
+      start = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/fix/start`)
+    } catch (e) {
+      fixResult = { error: e.message }
+      return
+    }
+    fixStep = start
+    scheduleFixPoll(start.interval || 5)
+  }
+
+  function scheduleFixPoll(interval) {
+    fixTimer = setTimeout(async () => {
+      let r
+      try { r = await apiPost('/api/fix/poll') }
+      catch (e) { fixResult = { error: e.message }; fixStep = null; return }
+      if (r.status === 'pending') { scheduleFixPoll(r.interval || interval); return }
+      if (r.status === 'error') { fixResult = { error: r.error }; fixStep = null; return }
+      fixResult = { items: r.items || [] }
+      fixStep = null
+      await loadTenants()
+    }, interval * 1000)
+  }
+
+  function copyFixCode() {
+    if (!fixStep) return
+    navigator.clipboard.writeText(fixStep.userCode).then(() => { fixCopied = true })
+  }
+
+  function closeFixPanel() {
+    if (fixTimer) { clearTimeout(fixTimer); fixTimer = null }
+    fixTargetId = null
+    fixStep = null
+    fixResult = null
+  }
+
+  async function doRemove(t) {
+    if (!confirm(`Tenant "${t.name}" aus dem Tool entfernen? (Die App-Registrierung im Tenant bleibt bestehen.)`)) return
+    try { await removeTenant(t.id) }
+    catch (e) { alert(e.message) }
+    if (fixTargetId === t.id) closeFixPanel()
+  }
+
+  const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌' }
+  const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen' }
+
+  $effect(() => {
+    if ($session.online && $session.loggedIn) loadTenants()
+  })
+
+  onDestroy(() => {
+    if (onboardTimer) clearTimeout(onboardTimer)
+    if (fixTimer) clearTimeout(fixTimer)
+  })
+</script>
+
+{#if !$session.online}
+  <div class="alert alert-warning"><strong>⚠️ Backend nicht erreichbar.</strong> Läuft nur im Docker-Stack (<code>docker compose up -d</code>).</div>
+{:else if !$session.loggedIn}
+  <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.</div>
+{:else}
+  <div class="settings-group">
+    <h4>🏢 Onboardete Tenants</h4>
+    {#if !$tenantsLoaded}
+      <p class="ld-section-hint">Lade…</p>
+    {:else if $tenants.length === 0}
+      <p class="ld-section-hint">Noch keine Tenants onboardet — unten den ersten hinzufügen.</p>
+    {:else}
+      <div class="tlist">
+        {#each $tenants as t (t.id)}
+          {@const ready = tenantReady(t)}
+          {@const missing = tenantMissing(t)}
+          <div class="trow" class:active={$activeTenantId === t.id}
+               onclick={() => selectTenant(t.id)} onkeydown={(e) => e.key === 'Enter' && selectTenant(t.id)}
+               role="button" tabindex="0">
+            <div class="trow-info">
+              <div class="trow-name">
+                {t.name}
+                {#if ready}
+                  <span class="tbadge ok">✓ bereit</span>
+                {:else}
+                  <span class="tbadge warn" title="{missing.join(', ')} fehlt — Tenant neu onboarden">⚠ {missing.join(', ')} fehlt</span>
+                {/if}
+              </div>
+              <div class="trow-meta">{t.organization || t.tenantId} · App {(t.appId || '').slice(0, 8)}…</div>
+            </div>
+            <div class="trow-actions">
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startFix(t) }}
+                      title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); doRemove(t) }}
+                      title="Tenant aus dem Tool entfernen">✕ Entfernen</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  {#if fixTargetId}
+    <div class="ld-job" style="margin-bottom:1.5rem">
+      <div class="ld-job-head">
+        <strong>🔧 App-Registrierung reparieren: {fixTargetName}</strong>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>✕ schließen</button>
+      </div>
+      {#if fixStep}
+        <div class="ld-step"><small>Prüft und repariert: Exchange.ManageAsApp, Admin-Consent, Exchange-Admin- + Compliance-Rolle, Zertifikat-Hinterlegung. Das bestehende Zertifikat bleibt unangetastet.</small></div>
+        <div class="ld-onboard-step">1️⃣ Öffne <a href={fixStep.verificationUri} target="_blank" rel="noopener">{fixStep.verificationUri}</a></div>
+        <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin von {fixTargetName}</strong> an und gib diesen Code ein:
+          <span class="ld-code">{fixStep.userCode}</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={copyFixCode}>{fixCopied ? '✓ Kopiert' : 'Kopieren'}</button>
+        </div>
+        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf deine Anmeldung…</div>
+      {:else if fixResult?.error}
+        <div class="ld-banner fail">❌ {fixResult.error}</div>
+      {:else if fixResult?.items}
+        {@const failed = fixResult.items.filter(i => i.state === 'failed').length}
+        {@const fixedCount = fixResult.items.filter(i => i.state === 'fixed').length}
+        {#if failed > 0}
+          <div class="ld-banner warn">⚠️ {failed} Punkt(e) konnten nicht repariert werden — Details unten.</div>
+        {:else if fixedCount > 0}
+          <div class="ld-banner ok">✅ Reparatur abgeschlossen — {fixedCount} Punkt(e) korrigiert, Rest war bereits korrekt.</div>
+        {:else}
+          <div class="ld-banner ok">✅ Alles bereits korrekt — nichts zu reparieren.</div>
+        {/if}
+        {#each fixResult.items as i}
+          <div class="ld-step {i.state === 'failed' ? 'fail' : 'ok'}">
+            <span class="ld-ico">{fixIcons[i.state]}</span> {i.name}
+            <small>({fixText[i.state]}{i.detail ? ' — ' + i.detail : ''})</small>
+          </div>
+        {/each}
+        <div class="ld-step"><small>💡 Danach im Tab „🛡 Mail-Security" mit „Verbindung testen" prüfen — frisch reparierte Rollen brauchen ggf. ein paar Minuten Replikationszeit.</small></div>
+      {/if}
+    </div>
+  {/if}
+
+  <div class="settings-group">
+    <h4>➕ Neuen Tenant onboarden</h4>
+    <p class="ld-section-hint">Legt im Ziel-Tenant eine App-Registrierung mit Exchange.ManageAsApp + Zertifikat an (Device-Code-Anmeldung als Admin).</p>
+    <div class="input-group" style="max-width:420px; margin-bottom:0.75rem;">
+      <label for="tOnboardTenant">Tenant-Domain oder Tenant-ID <small>(optional)</small></label>
+      <input id="tOnboardTenant" type="text" placeholder="kunde.onmicrosoft.com" bind:value={onboardTenant} disabled={onboardBusy || !!onboardStep} />
+    </div>
+    <button class="btn btn-primary" onclick={startOnboard} disabled={onboardBusy || !!onboardStep}>
+      {onboardBusy && !onboardStep ? '…' : '🚀 Onboarding starten'}
+    </button>
+
+    {#if onboardStep}
+      <div class="ld-job" style="margin-top:1rem">
+        <div class="ld-onboard-step">1️⃣ Öffne <a href={onboardStep.verificationUri} target="_blank" rel="noopener">{onboardStep.verificationUri}</a></div>
+        <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin des Ziel-Tenants</strong> an und gib diesen Code ein:
+          <span class="ld-code">{onboardStep.userCode}</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={copyOnboardCode}>{onboardCopied ? '✓ Kopiert' : 'Kopieren'}</button>
+        </div>
+        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf deine Anmeldung… (Code ist ca. 15 Minuten gültig)</div>
+      </div>
+    {:else if onboardResult?.error}
+      <div class="ld-banner fail" style="margin-top:1rem">❌ {onboardResult.error}</div>
+    {:else if onboardResult?.tenant}
+      {@const su = onboardResult.setup}
+      <div class="ld-job" style="margin-top:1rem">
+        <div class="ld-banner ok">✅ <strong>{onboardResult.tenant.name}</strong> ist onboardet.</div>
+        <div class="ld-setup-list">
+          <span class="ld-badge {su.app ? 'ok' : 'warn'}">{su.app ? '✓' : '⚠'} App-Registrierung</span>
+          <span class="ld-badge {su.consent ? 'ok' : 'warn'}">{su.consent ? '✓' : '⚠'} Admin-Consent</span>
+          <span class="ld-badge {su.exoRole ? 'ok' : 'warn'}">{su.exoRole ? '✓' : '⚠'} Exchange-Admin-Rolle</span>
+          <span class="ld-badge {su.sccRole ? 'ok' : 'warn'}">{su.sccRole ? '✓' : '⚠'} Compliance-Rolle</span>
+          <span class="ld-badge {su.tcm ? 'ok' : 'warn'}">{su.tcm ? '✓' : '⚠'} TCM (Alert-Prüfung)</span>
+          <span class="ld-badge {su.cert ? 'ok' : 'warn'}">{su.cert ? '✓' : '⚠'} Zertifikat</span>
+        </div>
+        {#if onboardResult.warnings?.length}
+          <div style="margin-top:0.4rem;">
+            {#each onboardResult.warnings as w}<div>⚠️ {w}</div>{/each}
+          </div>
+        {/if}
+        <div class="ld-step" style="margin-top:0.5rem;"><small>💡 Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit — erst im Tab „🛡 Mail-Security" mit „Test" prüfen, dann deployen.</small></div>
+      </div>
+    {/if}
+  </div>
+{/if}

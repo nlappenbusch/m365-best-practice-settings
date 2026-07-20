@@ -16,6 +16,11 @@ export async function apiPost(path, body) {
   return handle(r)
 }
 
+export async function apiDelete(path) {
+  const r = await fetch(path, { method: 'DELETE', credentials: 'same-origin' })
+  return handle(r)
+}
+
 async function handle(r) {
   let data = null
   try { data = await r.json() } catch { /* kein JSON */ }
