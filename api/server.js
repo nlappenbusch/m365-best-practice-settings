@@ -997,6 +997,34 @@ app.get("/api/tenants/:id/groups", wrap(async (req, res) => {
   res.json({ ok: true, groups: groups.map(g => ({ id: g.id, displayName: g.displayName })).sort((a, b) => a.displayName.localeCompare(b.displayName)) });
 }));
 
+// Autopilot-Geraete einsehen + GroupTag direkt zuweisen (keine Zusatz-
+// Permission noetig, DeviceManagementServiceConfig.ReadWrite.All ist bereits vorhanden).
+function fakeAutopilotDevices() {
+  return {
+    devices: [
+      { id: "dev1", serialNumber: "PF3ABCDE", model: "Latitude 5440", manufacturer: "Dell Inc.", groupTag: "DEV-STD", enrollmentState: "enrolled", lastContactedDateTime: new Date(Date.now() - 3600e3).toISOString(), addressableUserName: "" },
+      { id: "dev2", serialNumber: "5CD1234XYZ", model: "EliteBook 840", manufacturer: "HP", groupTag: "", enrollmentState: "notContacted", lastContactedDateTime: null, addressableUserName: "" },
+      { id: "dev3", serialNumber: "R9K2N4P1", model: "ThinkPad T14", manufacturer: "LENOVO", groupTag: "DEV-ADM", enrollmentState: "notContacted", lastContactedDateTime: new Date(Date.now() - 86400e3 * 2).toISOString(), addressableUserName: "" }
+    ]
+  };
+}
+
+app.get("/api/tenants/:id/autopilot/devices", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeAutopilotDevices() });
+  const devices = await AUTOPILOT.loadAutopilotDevices(t, certPemPath(t.tenantId));
+  res.json({ ok: true, devices });
+}));
+
+app.post("/api/tenants/:id/autopilot/devices/:deviceId/grouptag", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const groupTag = String((req.body || {}).groupTag || "").trim();
+  if (!groupTag) return res.status(400).json({ error: "groupTag erforderlich." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
+  await AUTOPILOT.updateDeviceGroupTag(t, certPemPath(t.tenantId), req.params.deviceId, groupTag);
+  res.json({ ok: true });
+}));
+
 // ---------- Verbindungstest + Deploy ----------
 function requireTenant(req) {
   const s = loadState();

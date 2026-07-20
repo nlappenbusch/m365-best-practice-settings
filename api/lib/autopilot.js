@@ -362,4 +362,31 @@ async function assignProfileToGroup(tenant, certPemPath, profileId, groupId) {
   return "assigned";
 }
 
-module.exports = { loadGroupTags, buildAutopilotZip, buildAutounattend, parseWlanProfile, tagsFromRule, loadAutopilotProfiles, assignProfileToGroup };
+/**
+ * Autopilot-Geraete des Tenants laden (v1.0, keine Zusatz-Permission noetig —
+ * DeviceManagementServiceConfig.ReadWrite.All deckt Lesen+Schreiben ab).
+ * Rueckgabe: [{ id, serialNumber, model, manufacturer, groupTag, enrollmentState, lastContactedDateTime }]
+ */
+async function loadAutopilotDevices(tenant, certPemPath) {
+  const devices = await graphAllPages(tenant, certPemPath,
+    "/deviceManagement/windowsAutopilotDeviceIdentities?$select=id,serialNumber,model,manufacturer,groupTag,enrollmentState,lastContactedDateTime,addressableUserName&$top=200");
+  return devices.map(d => ({
+    id: d.id,
+    serialNumber: d.serialNumber || "",
+    model: d.model || "",
+    manufacturer: d.manufacturer || "",
+    groupTag: d.groupTag || "",
+    enrollmentState: d.enrollmentState || "",
+    lastContactedDateTime: d.lastContactedDateTime || null,
+    addressableUserName: d.addressableUserName || ""
+  })).sort((a, b) => (a.serialNumber || "").localeCompare(b.serialNumber || ""));
+}
+
+/** GroupTag (OrderID) eines einzelnen Autopilot-Geraets setzen. */
+async function updateDeviceGroupTag(tenant, certPemPath, deviceId, groupTag) {
+  await graphReq(tenant, certPemPath, "POST",
+    `/deviceManagement/windowsAutopilotDeviceIdentities/${encodeURIComponent(deviceId)}/updateDeviceProperties`,
+    { groupTag: String(groupTag || "") });
+}
+
+module.exports = { loadGroupTags, buildAutopilotZip, buildAutounattend, parseWlanProfile, tagsFromRule, loadAutopilotProfiles, assignProfileToGroup, loadAutopilotDevices, updateDeviceGroupTag };

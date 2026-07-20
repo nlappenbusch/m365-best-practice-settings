@@ -6,7 +6,7 @@
 
   const WLAN_IDLE = 'Kein WLAN-Profil gewählt — autounattend wird ohne WLAN erzeugt.'
 
-  let subTab = $state('staging') // 'staging' | 'profiles'
+  let subTab = $state('staging') // 'staging' | 'profiles' | 'devices'
   let lastTenantId = null
 
   // ---------- Staging-Paket: GroupTags ----------
@@ -141,12 +141,59 @@
     assigningProfile = { ...assigningProfile, [p.id]: false }
   }
 
+  // ---------- Geräte: Liste + GroupTag direkt zuweisen ----------
+  let devicesLoading = $state(false)
+  let devicesError = $state(null)
+  let devices = $state([])
+  let groupTagDraft = $state({})    // deviceId -> string (editierbarer Wert im Feld)
+  let savingDevice = $state({})     // deviceId -> bool
+  let deviceResult = $state({})     // deviceId -> { error } | { ok }
+
+  async function loadDevices() {
+    if (!$activeTenant) return
+    devicesLoading = true
+    devicesError = null
+    try {
+      const d = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/autopilot/devices`)
+      devices = d.devices || []
+      const draft = {}
+      for (const dev of devices) draft[dev.id] = dev.groupTag || ''
+      groupTagDraft = draft
+      deviceResult = {}
+    } catch (e) {
+      devicesError = e.message
+    }
+    devicesLoading = false
+  }
+
+  async function saveGroupTag(dev) {
+    const tag = (groupTagDraft[dev.id] || '').trim()
+    if (!tag) { alert('GroupTag darf nicht leer sein.'); return }
+    savingDevice = { ...savingDevice, [dev.id]: true }
+    deviceResult = { ...deviceResult, [dev.id]: null }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/autopilot/devices/${encodeURIComponent(dev.id)}/grouptag`, { groupTag: tag })
+      dev.groupTag = tag
+      devices = [...devices]
+      deviceResult = { ...deviceResult, [dev.id]: { ok: true } }
+    } catch (e) {
+      deviceResult = { ...deviceResult, [dev.id]: { error: e.message } }
+    }
+    savingDevice = { ...savingDevice, [dev.id]: false }
+  }
+
+  function fmtContact(iso) {
+    if (!iso) return 'nie kontaktiert'
+    return new Date(iso).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
   // ---------- Sub-Tab-Wechsel + Tenant-Wechsel ----------
   function selectSubTab(t) {
     subTab = t
     if (!$activeTenant) return
     if (t === 'staging' && !groupTags.length && !groupTagsLoading && !groupTagsError) loadGroupTags()
     if (t === 'profiles' && !profiles.length && !profilesLoading && !profilesError) loadProfiles()
+    if (t === 'devices' && !devices.length && !devicesLoading && !devicesError) loadDevices()
   }
 
   $effect(() => {
@@ -158,9 +205,11 @@
       building = false; buildStep = null; buildResult = null
       if (buildTimer) { clearTimeout(buildTimer); buildTimer = null }
       wlanXml = ''; wlanStatus = WLAN_IDLE
+      devices = []; devicesError = null; groupTagDraft = {}; savingDevice = {}; deviceResult = {}
       if (id) {
         if (subTab === 'staging') loadGroupTags()
-        else loadProfiles()
+        else if (subTab === 'profiles') loadProfiles()
+        else loadDevices()
       }
     }
   })
@@ -177,6 +226,7 @@
   <div class="dl-subtabs">
     <button type="button" class="dl-subtab" class:active={subTab === 'staging'} onclick={() => selectSubTab('staging')}>📦 Staging-Paket</button>
     <button type="button" class="dl-subtab" class:active={subTab === 'profiles'} onclick={() => selectSubTab('profiles')}>🎯 Deployment-Profile</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'devices'} onclick={() => selectSubTab('devices')}>📱 Geräte</button>
   </div>
 
   <div class="dl-panel" class:active={subTab === 'staging'}>
@@ -301,6 +351,52 @@
               <div class="ld-banner {res.status === 'assigned' ? 'ok' : 'warn'}">
                 {res.status === 'assigned' ? '✅ Zugewiesen' : '⏭️ War bereits zugewiesen'} — „{res.gname}"
               </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <div class="dl-panel" class:active={subTab === 'devices'}>
+    {#if devicesLoading}
+      <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Autopilot-Geräte…</div></div>
+    {:else if devicesError}
+      <div class="ld-job">
+        <div class="ld-banner fail">❌ {devicesError}</div>
+        <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+      </div>
+    {:else if !devices.length}
+      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Geräte im Tenant registriert.</div></div>
+    {:else}
+      <datalist id="apKnownGroupTags">
+        {#each groupTags as g (g.groupTag)}<option value={g.groupTag}></option>{/each}
+      </datalist>
+      <div class="ld-job">
+        <div class="ld-job-head"><strong>📱 Autopilot-Geräte: {$activeTenant.name}</strong>
+          <span class="ld-job-meta">{devices.length} Geräte</span>
+          <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadDevices}>🔄 Neu laden</button>
+        </div>
+        <div class="ld-step"><small>GroupTag hier setzen/ändern wirkt wie ein nachträgliches „Etikett wechseln" — das Gerät rutscht dadurch
+          über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Tab „📖 Wissen → 🏷️ Namenskonventionen").</small></div>
+
+        {#each devices as dev (dev.id)}
+          {@const res = deviceResult[dev.id]}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">💻 {dev.model || 'Unbekanntes Modell'} <small style="font-weight:400;">({dev.manufacturer || '—'})</small></div>
+            <div class="ld-step"><small>Seriennummer: <code>{dev.serialNumber || '—'}</code> · Enrollment: {dev.enrollmentState || 'unbekannt'} · Letzter Kontakt: {fmtContact(dev.lastContactedDateTime)}</small></div>
+            <div class="ld-oib-target">
+              <input type="text" list="apKnownGroupTags" placeholder="z.B. DEV-STD" style="min-width:200px; padding:0.35rem 0.5rem; border:1px solid var(--rule); border-radius:var(--radius-sm); background:var(--bg-raised); color:var(--text);"
+                     value={groupTagDraft[dev.id] || ''} oninput={(e) => (groupTagDraft = { ...groupTagDraft, [dev.id]: e.target.value })} />
+              <button class="btn btn-secondary" onclick={() => saveGroupTag(dev)} disabled={savingDevice[dev.id]}>
+                {savingDevice[dev.id] ? 'Speichere…' : 'GroupTag setzen'}
+              </button>
+              {#if dev.groupTag}<span class="tbadge ok">aktuell: {dev.groupTag}</span>{:else}<span class="tbadge warn">kein GroupTag</span>{/if}
+            </div>
+            {#if res?.error}
+              <div class="ld-banner fail">❌ {res.error}</div>
+            {:else if res?.ok}
+              <div class="ld-banner ok">✅ GroupTag gesetzt — Gerät fällt bei nächster Sync in die passende dynamische Gruppe.</div>
             {/if}
           </div>
         {/each}
