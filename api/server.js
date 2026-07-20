@@ -32,6 +32,7 @@ const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
 const WIN32APP = require("./lib/win32app");
 const APPGROUPS = require("./lib/appGroups");
+const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -48,10 +49,11 @@ const EXCHANGE_ADMIN_ROLE_TEMPLATE = "29232cdf-9323-42fd-ade2-1d097af3e4de"; // 
 const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; // Compliance Administrator (Security & Compliance PowerShell)
 const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen), TCM-Snapshots
-// (Alert-Policy-Pruefung im Audit) und App-Deployment (AAD-APP-*-Gruppe anlegen/
-// verschachteln + Win32-App-Upload). Bestehende Tenants brauchen dafuer einmal
-// "Reparieren" (idempotent additiv, siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All"];
+// (Alert-Policy-Pruefung im Audit), App-Deployment (AAD-APP-*-Gruppe anlegen/
+// verschachteln + Win32-App-Upload) und Conditional-Access-Deployment.
+// Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
+// siehe repairAppReg — kein Neu-Onboarding noetig).
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -1392,6 +1394,120 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   const job = createAppJob(t, APPDEPLOY_PHASES);
   runAppDeployJob(job, t, b);
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Conditional Access ----------
+app.get("/api/conditionalaccess/tiers", (req, res) => {
+  const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
+  const tiers = {};
+  for (const key of Object.keys(CONDACCESS.TIER_META)) {
+    tiers[key] = { ...CONDACCESS.TIER_META[key], policyCount: (CA_POLICY_TEMPLATES[key] || []).length };
+  }
+  res.json({ ok: true, tiers });
+});
+
+function fakeCaPolicies() {
+  return {
+    supportGroups: [
+      { key: "breakGlass", name: "AAD-CA-BreakGlass", id: "ca-g1", memberCount: 0 },
+      { key: "syncAccounts", name: "AAD-CA-SyncAccounts", id: "ca-g2", memberCount: 1 },
+      { key: "exclusionTemp", name: "AAD-CA-ExclusionTemp", id: "ca-g3", memberCount: 0 },
+      { key: "exclusionPerm", name: "AAD-CA-ExclusionPermanent", id: "ca-g4", memberCount: 0 }
+    ],
+    policies: [
+      { id: "ca-p1", displayName: "100 - BP - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins" },
+      { id: "ca-p2", displayName: "200 - BP - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "Alle" },
+      { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients", state: "enabled", scope: "Alle" }
+    ]
+  };
+}
+
+app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeCaPolicies() });
+  const cert = certPemPath(t.tenantId);
+  const [policies, groups] = await Promise.all([
+    CONDACCESS.listManagedPolicies(t, cert),
+    GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true })
+  ]);
+  const groupName = new Map(groups.map(g => [g.id, g.displayName]));
+  const supportGroups = [];
+  for (const g of CONDACCESS.SUPPORT_GROUPS) {
+    const match = groups.find(x => x.displayName === g.name);
+    let memberCount = 0;
+    if (match) {
+      try { memberCount = (await GRAPHLIB.graphAllPages(t, cert, `/groups/${match.id}/members?$select=id`, { retryTransient: true })).length; } catch (e) { /* egal */ }
+    }
+    supportGroups.push({ key: g.key, name: g.name, id: match ? match.id : null, memberCount });
+  }
+  res.json({
+    ok: true,
+    supportGroups,
+    policies: policies.map(p => {
+      const u = (p.conditions && p.conditions.users) || {};
+      const scope = (u.includeGroups || []).length ? (u.includeGroups.map(id => groupName.get(id) || id).join(", "))
+        : (u.includeRoles || []).length ? "Rollen (" + u.includeRoles.length + ")"
+        : "Alle";
+      return { id: p.id, displayName: p.displayName, state: p.state, scope };
+    })
+  });
+}));
+
+app.post("/api/tenants/:id/conditionalaccess/deploy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const tier = String((req.body || {}).tier || "");
+  if (!CONDACCESS.TIER_META[tier]) return res.status(400).json({ error: "Unbekanntes Tier: " + tier });
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, ["Schutzgruppen sicherstellen", "Bestehende Policies laden", "Policies ausrollen"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        onProgress("Schutzgruppen sicherstellen"); await new Promise(r => setTimeout(r, 600));
+        onProgress("Bestehende Policies laden"); await new Promise(r => setTimeout(r, 400));
+        const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
+        const count = (CA_POLICY_TEMPLATES[tier] || []).length;
+        for (let i = 1; i <= count; i++) { onProgress(`Policy ${i}/${count}`); await new Promise(r => setTimeout(r, 150)); }
+        job.results = { created: count, updated: 0, failed: 0 };
+      } else {
+        const r = await CONDACCESS.deployTier(t, certPemPath(t.tenantId), tier, onProgress);
+        const created = r.results.filter(x => x.status === "created").length;
+        const updated = r.results.filter(x => x.status === "updated").length;
+        const failed = r.results.filter(x => x.status === "failed").length;
+        job.results = { created, updated, failed, details: r.results };
+      }
+      finishAppJob(job, true);
+    } catch (e) {
+      const isPermIssue = e.status === 403 || /insufficient privileges|authorization|forbidden/i.test(String(e.message || ""));
+      finishAppJob(job, false, e.message, isPermIssue
+        ? "Conditional-Access-Deployment braucht Policy.ReadWrite.ConditionalAccess — im Tab 'Tenants' einmal Reparieren ausfuehren."
+        : null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/state", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const state = String((req.body || {}).state || "");
+  if (!["enabledForReportingButNotEnforced", "enabled", "disabled"].includes(state)) {
+    return res.status(400).json({ error: "Ungültiger state." });
+  }
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
+  await CONDACCESS.setPolicyState(t, certPemPath(t.tenantId), req.params.policyId, state);
+  res.json({ ok: true });
+}));
+
+app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const pilotGroupId = (req.body || {}).pilotGroupId || null;
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
+  await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, pilotGroupId);
+  res.json({ ok: true });
 }));
 
 // Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant (EXO) und

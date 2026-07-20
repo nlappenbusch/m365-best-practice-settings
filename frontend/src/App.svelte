@@ -12,6 +12,7 @@
   import Audit from './tabs/Audit.svelte'
   import Intune from './tabs/Intune.svelte'
   import Autopilot from './tabs/Autopilot.svelte'
+  import ConditionalAccess from './tabs/ConditionalAccess.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
@@ -21,7 +22,8 @@
     { id: 'mailsec',      label: '🛡 Mail-Security' },
     { id: 'audit',       label: '🔎 Audit' },
     { id: 'intune',      label: '💻 Intune' },
-    { id: 'autopilot',   label: '🚀 Autopilot', isNew: true },
+    { id: 'autopilot',   label: '🚀 Autopilot' },
+    { id: 'ca',          label: '🔐 Conditional Access', isNew: true },
     { id: 'downloads',   label: '📦 Agents' },
     { id: 'wissen',      label: '📖 Wissen' }
   ]
@@ -92,6 +94,7 @@
       <div class:tab-hidden={active !== 'audit'}><Audit /></div>
       <div class:tab-hidden={active !== 'intune'}><Intune /></div>
       <div class:tab-hidden={active !== 'autopilot'}><Autopilot /></div>
+      <div class:tab-hidden={active !== 'ca'}><ConditionalAccess /></div>
       <div class:tab-hidden={active !== 'downloads'}><Downloads /></div>
       <div class:tab-hidden={active !== 'wissen'}><Wissen /></div>
     </div>
