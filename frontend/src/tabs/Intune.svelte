@@ -6,6 +6,20 @@
   const oibIcon = { assigned: '✅', skipped: '⏭️', failed: '❌' }
   const oibText = { assigned: 'zugewiesen', skipped: 'war bereits zugewiesen', failed: 'Fehler' }
 
+  // Bekannte Break-Risiken aus der OIB-Doku: koennen bestehenden Zugriff
+  // brechen, wenn ungetestet scharf ausgerollt. Matching auf den vollen
+  // Policy-Namen ("Win - OIB - <Typ> - ..."), damit es Prefix-unabhaengig bleibt.
+  const BREAK_RISK = [
+    { match: /disable ntlm/i, risk: 'RDP per IP, Legacy-Apps/-Dienste mit NTLM' },
+    { match: /local security policies/i, risk: 'Alte NAS/Drucker/SMBv1, LAN-Manager-/SMB-Signing-Auth' },
+    { match: /device guard.*credential guard|credential guard.*hvci/i, risk: 'NTLMv1-SSO, RDP/VPN/802.1x mit Passwort-SSO, gespeicherte RDP-Creds, inkompatible Treiber' },
+    { match: /remote desktop services and rpc/i, risk: 'RDP, Legacy-RPC-Apps' }
+  ]
+  function breakRiskFor(name) {
+    const hit = BREAK_RISK.find(b => b.match.test(name || ''))
+    return hit ? hit.risk : null
+  }
+
   let loading = $state(false)
   let loadError = $state(null)
   let data = $state(null)          // { groups, policies, intentsError }
@@ -71,9 +85,16 @@
   }
 
   async function assign() {
-    const selected = data.policies.filter(p => checked[p.id]).map(p => ({ id: p.id, apiType: p.apiType }))
-    if (!selected.length) { alert('Keine Policies ausgewählt.'); return }
+    const selectedPolicies = data.policies.filter(p => checked[p.id])
+    if (!selectedPolicies.length) { alert('Keine Policies ausgewählt.'); return }
+    const selected = selectedPolicies.map(p => ({ id: p.id, apiType: p.apiType }))
     const gname = data.groups.find(g => g.id === selectedGroupId)?.displayName || selectedGroupId
+
+    const risky = selectedPolicies.map(p => ({ p, risk: breakRiskFor(p.name) })).filter(x => x.risk)
+    if (risky.length) {
+      const lines = risky.map(x => `• ${x.p.name}\n  → kann brechen: ${x.risk}`).join('\n\n')
+      if (!confirm(`⚠️ ${risky.length} ausgewählte Policy/Policies gelten als Break-Risiko — vor scharfem Rollout testen:\n\n${lines}\n\nTrotzdem der Gruppe "${gname}" zuweisen?`)) return
+    }
     if (!confirm(`${selected.length} Policy/Policies der Gruppe "${gname}" zuweisen?\n\nBestehende Assignments bleiben erhalten (Merge).`)) return
     assigning = true
     assignResult = null
@@ -146,10 +167,14 @@
             </div>
             {#each grp.items as p (p.id)}
               {@const already = alreadyInSelected(p)}
-              <label class="ld-oib-row" class:already>
+              {@const risk = breakRiskFor(p.name)}
+              <label class="ld-oib-row" class:already class:breakrisk={!!risk}>
                 <input type="checkbox" checked={!!checked[p.id]} disabled={already}
                        onchange={(e) => (checked = { ...checked, [p.id]: e.target.checked })} />
                 <span class="ld-oib-name">{p.name}</span>
+                {#if risk}
+                  <span class="ld-oib-risk" title="Break-Risiko: {risk}">⚠ Break-Risiko</span>
+                {/if}
                 <small class="ld-oib-assigned">
                   {already ? '✓ bereits dieser Gruppe zugewiesen · ' : ''}{(p.assignments || []).length ? '→ ' + p.assignments.map(a => a.label).join(', ') : '→ nicht zugewiesen'}
                 </small>
