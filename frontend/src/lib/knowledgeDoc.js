@@ -60,7 +60,14 @@ function knowledgeDocCss() {
   table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 9.3pt; }
   th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid #e2e2e2; }
   th { background: #f3f3f3; font-weight: 600; border-bottom: 1.5px solid #bbb; }
-  tr { break-inside: avoid; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  /* Saubere Seitenumbrueche: nie mitten in Absaetzen/Listenpunkten/Tabellen/
+     Hinweisboxen brechen; bricht eine Tabelle doch (laenger als eine Seite),
+     wiederholt thead den Kopf. Ueberschriften nie verwaist am Seitenende. */
+  p, li, .note, .alert-box, pre { break-inside: avoid; page-break-inside: avoid; }
+  table { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; break-inside: avoid; }
   code, .mono { font-family: Consolas, monospace; font-size: 9.2pt; background: #f4f4f4; padding: 0 3px; border-radius: 2px; }
   pre { font-family: Consolas, monospace; font-size: 8.6pt; line-height: 1.5; background: #1e293b; color: #e2e8f0; padding: 10px 14px; border-radius: 6px; margin: 8px 0 12px; overflow-x: auto; white-space: pre; }
   .note, .alert-box { font-size: 9.2pt; color: #444; border-left: 3px solid #bbb; padding: 6px 10px; margin: 8px 0; background: #fafafa; }

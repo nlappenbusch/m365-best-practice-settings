@@ -226,7 +226,15 @@ function docCss() {
   table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 9.7pt; }
   th, td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid #e2e2e2; }
   th { background: #f3f3f3; font-weight: 600; border-bottom: 1.5px solid #bbb; }
-  tr { break-inside: avoid; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  /* Saubere Seitenumbrueche: nie mitten in Absaetzen/Listenpunkten/Tabellen
+     brechen (der Browser bricht trotzdem, wenn ein Element laenger als eine
+     Seite ist — dann wiederholt thead den Tabellenkopf). Ueberschriften nie
+     verwaist am Seitenende stehen lassen. */
+  p, li, .note { break-inside: avoid; page-break-inside: avoid; }
+  table { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; break-inside: avoid; }
   td.p { font-family: Consolas, monospace; font-size: 9.2pt; color: #202a37; }
   td.v { font-family: Consolas, monospace; font-size: 9.2pt; font-weight: 600; }
   .dim { color: #777; font-weight: 400; font-family: "Segoe UI", sans-serif; font-size: 9pt; }

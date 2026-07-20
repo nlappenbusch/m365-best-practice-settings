@@ -433,6 +433,11 @@
       '.rsn{font-size:10px;color:#3538cd;margin-top:3px;font-style:italic}',
       '.rpt-foot{margin-top:20px;padding-top:12px;border-top:1px solid #eaecf0;font-size:10.5px;color:#98a2b3;line-height:1.5}',
       '.print-btn{position:fixed;top:16px;right:16px;z-index:9;background:#4338ca;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(67,56,202,.35)}',
+      // Saubere Seitenumbrueche: nie mitten in Zeilen/Absaetzen brechen; bricht
+      // eine lange Tabelle doch, wiederholt thead den Kopf auf der Folgeseite.
+      'tr,p,li{break-inside:avoid;page-break-inside:avoid}',
+      'thead{display:table-header-group}',
+      'h1,h2,h3,h4,.cat-head{break-after:avoid;page-break-after:avoid;break-inside:avoid}',
       '@media print{body{background:#fff}.no-print{display:none!important}.page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}.rpt-head{margin-top:0}}',
       '@page{size:A4;margin:14mm}'
     ].join('')
@@ -586,7 +591,10 @@
       'table{width:100%;border-collapse:collapse;margin:6px 0 10px;font-size:9.5pt}',
       'th,td{text-align:left;vertical-align:top;padding:5px 8px;border-bottom:1px solid #e2e2e2}',
       'th{background:#f3f3f3;font-weight:600;border-bottom:1.5px solid #bbb}',
-      'tr{break-inside:avoid}',
+      'tr,p,li,.note{break-inside:avoid;page-break-inside:avoid}',
+      'table{break-inside:avoid;page-break-inside:avoid}',
+      'thead{display:table-header-group}',
+      'h1,h2,h3,h4{break-after:avoid;page-break-after:avoid;break-inside:avoid}',
       'td.pn{font-weight:600;color:#1a1a1a}',
       'td.v{font-family:Consolas,monospace;font-size:9pt;color:#202a37;word-break:break-word}',
       'code,.mono{font-family:Consolas,monospace;font-size:9.2pt;background:#f4f4f4;padding:0 3px;border-radius:2px}',

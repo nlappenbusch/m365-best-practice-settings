@@ -64,6 +64,15 @@
     💡 Die Doku eines <em>konkreten Tenants</em> (Ist-Zustand + gewollte Abweichungen mit Begründung)
     gibt es im Tab <strong>🔎 Audit</strong>.
   </p>
+  <div class="alert alert-info" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:0.75rem;">
+    <div style="flex:1;min-width:260px;">
+      <strong>🔗 Nützliche externe Tools:</strong> Schnellzugriff auf alle Microsoft-Admin-Portale —
+      <a href="https://cmd.ms" target="_blank" rel="noopener"><strong>cmd.ms</strong></a>
+      (merkbares URL-Schema, z.B. <code>entra.cmd.ms</code>, <code>intune.cmd.ms</code>, <code>ca.cmd.ms</code>) und
+      <a href="https://msportals.io" target="_blank" rel="noopener"><strong>msportals.io</strong></a>
+      (durchsuchbare Linkliste sämtlicher Admin-Portale inkl. Deep-Links).
+    </div>
+  </div>
 </section>
 
 <div class="dl-subtabs">

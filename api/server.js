@@ -36,6 +36,7 @@ const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
 const ASSIGNCHECK = require("./lib/assignmentCheck");
+const LICENSES = require("./lib/licenses");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -57,7 +58,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // verschachteln + Win32-App-Upload) und Conditional-Access-Deployment.
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -810,6 +811,44 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
     }
   })();
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Lizenz-Optimizer (read-only Lizenzreport) ----------
+app.get("/api/tenants/:id/licenses", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      generatedAt: new Date().toISOString(), inactiveDays: 90, signInAvailable: true,
+      totals: { users: 42, licensedUsers: 38, paidSkus: 3, freeSeats: 5, disabledWithLicense: 2, inactiveWithLicense: 3, multiSuite: 1 },
+      skus: [
+        { skuPartNumber: "SPB", name: "Microsoft 365 Business Premium", free: false, purchased: 40, warning: 0, suspended: 0, assigned: 36, available: 4, capabilityStatus: "Enabled" },
+        { skuPartNumber: "EXCHANGESTANDARD", name: "Exchange Online (Plan 1)", free: false, purchased: 5, warning: 0, suspended: 0, assigned: 4, available: 1, capabilityStatus: "Enabled" },
+        { skuPartNumber: "Microsoft_365_Copilot", name: "Microsoft 365 Copilot", free: false, purchased: 2, warning: 0, suspended: 0, assigned: 2, available: 0, capabilityStatus: "Enabled" },
+        { skuPartNumber: "FLOW_FREE", name: "Power Automate (kostenlos)", free: true, purchased: 10000, warning: 0, suspended: 0, assigned: 7, available: 9993, capabilityStatus: "Enabled" }
+      ],
+      findings: {
+        disabledWithLicense: [
+          { displayName: "Ex Mitarbeiter", upn: "ex.mitarbeiter@example.com", licenses: ["Microsoft 365 Business Premium"] },
+          { displayName: "Alte Praktikantin", upn: "praktikant@example.com", licenses: ["Exchange Online (Plan 1)"] }
+        ],
+        inactiveWithLicense: [
+          { displayName: "Urlauber Lang", upn: "urlauber@example.com", lastSignIn: "2026-02-01", daysInactive: 168, licenses: ["Microsoft 365 Business Premium"] },
+          { displayName: "Nie Angemeldet", upn: "nie@example.com", lastSignIn: null, daysInactive: null, licenses: ["Microsoft 365 Business Premium"] },
+          { displayName: "Selten Da", upn: "selten@example.com", lastSignIn: "2026-03-20", daysInactive: 121, licenses: ["Exchange Online (Plan 1)"] }
+        ],
+        multiSuite: [
+          { displayName: "Doppelt Lizenziert", upn: "doppelt@example.com", licenses: ["Microsoft 365 Business Premium", "Exchange Online (Plan 1)"] }
+        ],
+        unusedPaidSeats: [
+          { skuPartNumber: "SPB", name: "Microsoft 365 Business Premium", free: false, purchased: 40, assigned: 36, available: 4, capabilityStatus: "Enabled" },
+          { skuPartNumber: "EXCHANGESTANDARD", name: "Exchange Online (Plan 1)", free: false, purchased: 5, assigned: 4, available: 1, capabilityStatus: "Enabled" }
+        ]
+      }
+    });
+  }
+  const data = await LICENSES.runLicenseReport(t, certPemPath(t.tenantId));
+  res.json({ ok: true, ...data });
 }));
 
 // ---------- Assignment-Check (read-only Zuweisungs-Audit) ----------

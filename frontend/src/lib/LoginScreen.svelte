@@ -65,7 +65,7 @@
       <div class="login-brand">
         <div class="login-logo">🛡</div>
         <h1>M365 Security Policy Manager</h1>
-        <p class="login-sub">iGeeks AG · Managed M365 Security</p>
+        <p class="login-sub">Managed M365 Security</p>
       </div>
 
       {#if ssoError}
@@ -83,10 +83,13 @@
               <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
               <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
             </svg>
-            Mit Microsoft anmelden (iGeeks)
+            Mit Microsoft anmelden
           </button>
-          <button type="button" class="linklike login-fallback-toggle" onclick={() => (showPassword = !showPassword)}>
-            {showPassword ? '▴ Passwort-Anmeldung verbergen' : '▾ Stattdessen mit Passwort anmelden'}
+          <div class="login-divider"><span>oder</span></div>
+          <button type="button" class="login-pw-toggle" class:open={showPassword} onclick={() => (showPassword = !showPassword)}>
+            <span class="login-pw-toggle-ico">🔑</span>
+            {showPassword ? 'Passwort-Anmeldung verbergen' : 'Mit Passwort anmelden'}
+            <span class="login-pw-toggle-car">{showPassword ? '▴' : '▾'}</span>
           </button>
         {/if}
 
@@ -108,7 +111,7 @@
               {busy ? '…' : 'Anmelden'}
             </button>
             {#if !ssoEnabled}
-              <p class="login-hint">💡 SSO über den iGeeks-Tenant lässt sich nach der Anmeldung im Tab „🏢 Tenants“ einrichten.</p>
+              <p class="login-hint">💡 Microsoft-Login (SSO) lässt sich nach der Anmeldung im Tab „🏢 Tenants“ einrichten.</p>
             {/if}
           </div>
         {/if}
