@@ -30,6 +30,28 @@
   let actionBusy = $state({}) // policyId -> bool
   let lastTenantId = null
 
+  // Batch-Auswahl fuer die Policy-Liste
+  let selectedPolicies = $state({}) // policyId -> bool
+  let batchScopeChoice = $state('')
+  let batchBusy = $state(false)
+  let batchProgress = $state(null) // { done, total } waehrend eines Batch-Laufs
+
+  // Schutzgruppen-Assignment-Assistent: bestehenden Nutzer suchen + hinzufuegen
+  let memberSearchOpen = $state({}) // groupKey -> bool
+  let memberQuery = $state({}) // groupKey -> string
+  let memberResults = $state({}) // groupKey -> array
+  let memberSearchBusy = $state({}) // groupKey -> bool
+  let memberAddBusy = $state({}) // userId -> bool
+  let memberSearchTimer = null
+
+  // Break-Glass: dediziertes Notfallzugriffskonto anlegen
+  let bgFormOpen = $state(false)
+  let bgUsername = $state('')
+  let bgBusy = $state(false)
+  let bgError = $state(null)
+  let bgResult = $state(null) // { userPrincipalName, password } -- nur einmalig sichtbar
+  let bgAcked = $state(false)
+
   let tiersLoaded = false
   async function loadTiers() {
     tiersError = null
@@ -160,7 +182,101 @@
     actionBusy = { ...actionBusy, [p.id]: false }
   }
 
-  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer) })
+  const selectedIds = $derived(Object.keys(selectedPolicies).filter(id => selectedPolicies[id]))
+  const allSelected = $derived(policies.length > 0 && policies.every(p => selectedPolicies[p.id]))
+
+  function toggleAll() {
+    const next = !allSelected
+    const upd = { ...selectedPolicies }
+    for (const p of policies) upd[p.id] = next
+    selectedPolicies = upd
+  }
+  function clearSelection() { selectedPolicies = {} }
+
+  async function batchRun(label, fn) {
+    const ids = selectedIds
+    if (!ids.length) return
+    batchBusy = true
+    batchProgress = { done: 0, total: ids.length }
+    for (const id of ids) {
+      try { await fn(id) } catch (e) { /* einzelne Fehler nicht abbrechen -- am Ende neu laden zeigt den Ist-Stand */ }
+      batchProgress = { done: batchProgress.done + 1, total: ids.length }
+    }
+    batchBusy = false
+    batchProgress = null
+    clearSelection()
+    await loadPolicies()
+  }
+
+  async function batchActivate() {
+    if (!confirm(`⚠️ ${selectedIds.length} ausgewählte Policies SCHARF SCHALTEN?\n\nAb jetzt werden diese Regeln tatsächlich durchgesetzt (nicht mehr nur protokolliert). Wirklich aktivieren?`)) return
+    await batchRun('activate', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/state`, { state: 'enabled' }))
+  }
+  async function batchDeactivate() {
+    if (!confirm(`${selectedIds.length} ausgewählte Policies zurück auf Report-only setzen?`)) return
+    await batchRun('deactivate', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/state`, { state: 'enabledForReportingButNotEnforced' }))
+  }
+  async function batchSetScope() {
+    const groupId = batchScopeChoice || null
+    const gname = groupId ? (groups.find(g => g.id === groupId)?.displayName || groupId) : 'Alle'
+    if (!confirm(`Scope von ${selectedIds.length} ausgewählten Policies auf „${gname}" setzen?`)) return
+    await batchRun('scope', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/scope`, { pilotGroupId: groupId }))
+  }
+
+  function toggleMemberSearch(key) {
+    memberSearchOpen = { ...memberSearchOpen, [key]: !memberSearchOpen[key] }
+    if (!memberSearchOpen[key]) { memberQuery = { ...memberQuery, [key]: '' }; memberResults = { ...memberResults, [key]: [] } }
+  }
+  function onMemberQueryInput(key, value) {
+    memberQuery = { ...memberQuery, [key]: value }
+    if (memberSearchTimer) clearTimeout(memberSearchTimer)
+    memberSearchTimer = setTimeout(() => searchMembers(key), 350)
+  }
+  async function searchMembers(key) {
+    const q = (memberQuery[key] || '').trim()
+    if (q.length < 2) { memberResults = { ...memberResults, [key]: [] }; return }
+    memberSearchBusy = { ...memberSearchBusy, [key]: true }
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/users?q=${encodeURIComponent(q)}`)
+      memberResults = { ...memberResults, [key]: r.users || [] }
+    } catch (e) { memberResults = { ...memberResults, [key]: [] } }
+    memberSearchBusy = { ...memberSearchBusy, [key]: false }
+  }
+  async function addMember(key, user) {
+    memberAddBusy = { ...memberAddBusy, [user.id]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/supportgroups/${encodeURIComponent(key)}/members`, { userId: user.id })
+      toggleMemberSearch(key)
+      await loadPolicies()
+    } catch (e) {
+      alert('Fehler: ' + e.message)
+    }
+    memberAddBusy = { ...memberAddBusy, [user.id]: false }
+  }
+
+  function toggleBgForm() {
+    bgFormOpen = !bgFormOpen
+    bgUsername = ''; bgError = null
+  }
+  async function createBreakGlass() {
+    const local = bgUsername.trim()
+    if (!local) return
+    bgBusy = true; bgError = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/breakglass/create`, { username: local })
+      bgResult = { userPrincipalName: r.userPrincipalName, password: r.password }
+      bgAcked = false
+      bgFormOpen = false
+      await loadPolicies()
+    } catch (e) {
+      bgError = e.message
+    }
+    bgBusy = false
+  }
+  function copyBgPassword() { if (bgResult) navigator.clipboard.writeText(bgResult.password) }
+  function ackBgResult() { bgResult = null; bgAcked = false }
+
+  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer); if (memberSearchTimer) clearTimeout(memberSearchTimer) })
 
   const breakGlassEmpty = $derived(supportGroups.find(g => g.key === 'breakGlass' && g.memberCount === 0))
 </script>
@@ -236,7 +352,50 @@
           <span class="ld-ico">{g.memberCount === 0 && g.key === 'breakGlass' ? '⚠️' : '✅'}</span>
           <code>{g.name}</code> <small>({g.memberCount} Mitglied{g.memberCount === 1 ? '' : 'er'})</small>
         </div>
+        <div class="ld-oib-target" style="margin-top:0; margin-bottom:0.4rem;">
+          <button class="btn btn-secondary" onclick={() => toggleMemberSearch(g.key)}>{memberSearchOpen[g.key] ? '✕ Schließen' : '+ Mitglied hinzufügen'}</button>
+          {#if g.key === 'breakGlass'}
+            <button class="btn btn-secondary" onclick={toggleBgForm}>{bgFormOpen ? '✕ Schließen' : '➕ Notfallzugriff anlegen'}</button>
+          {/if}
+        </div>
+        {#if memberSearchOpen[g.key]}
+          <div class="ld-oib-target">
+            <input type="text" placeholder="Name oder E-Mail suchen (min. 2 Zeichen)…"
+                   value={memberQuery[g.key] || ''} oninput={(e) => onMemberQueryInput(g.key, e.target.value)} style="min-width:280px;" />
+            {#if memberSearchBusy[g.key]}<span class="ld-spinner"></span>{/if}
+          </div>
+          {#if (memberResults[g.key] || []).length}
+            {#each memberResults[g.key] as u (u.id)}
+              <div class="ld-oib-target" style="margin-top:0;">
+                <span>👤 {u.displayName} <small style="color:var(--text-dim);">({u.userPrincipalName})</small></span>
+                <button class="btn btn-secondary" onclick={() => addMember(g.key, u)} disabled={memberAddBusy[u.id]}>+ hinzufügen</button>
+              </div>
+            {/each}
+          {:else if (memberQuery[g.key] || '').trim().length >= 2 && !memberSearchBusy[g.key]}
+            <div class="ld-step pending"><small>Keine Treffer.</small></div>
+          {/if}
+        {/if}
+        {#if g.key === 'breakGlass' && bgFormOpen}
+          <div class="ld-oib-target">
+            <input type="text" placeholder="z.B. breakglass1" bind:value={bgUsername} style="max-width:200px;" />
+            <span><small>@{$activeTenant.organization || $activeTenant.tenantId}</small></span>
+            <button class="btn btn-primary" onclick={createBreakGlass} disabled={bgBusy || !bgUsername.trim()}>{bgBusy ? '…' : 'Anlegen + Passwort generieren'}</button>
+          </div>
+          {#if bgError}<div class="ld-banner fail">❌ {bgError}</div>{/if}
+        {/if}
       {/each}
+    </div>
+  {/if}
+
+  {#if bgResult}
+    <div class="ld-banner ok" style="display:flex; flex-direction:column; align-items:flex-start; gap:0.5rem;">
+      <div>✅ Break-Glass-Konto <b>{bgResult.userPrincipalName}</b> angelegt und der Schutzgruppe zugewiesen.</div>
+      <div>⚠️ <b>Dieses Passwort wird nur JETZT angezeigt</b> — Microsoft speichert es nicht im Klartext, ein späteres Auslesen ist nicht möglich. Jetzt sicher speichern (Passwort-Manager)!</div>
+      <div style="display:flex; gap:0.6rem; align-items:center;">
+        <code style="font-size:1rem; padding:0.3rem 0.6rem; border-radius:4px; background:var(--rule);">{bgResult.password}</code>
+        <button class="btn btn-secondary" onclick={copyBgPassword}>📋 Kopieren</button>
+      </div>
+      <button class="btn btn-primary" onclick={ackBgResult}>Ich habe das Passwort sicher gespeichert</button>
     </div>
   {/if}
 
@@ -244,10 +403,33 @@
     <div class="ld-job">
       <div class="ld-job-head"><strong>📋 Ausgerollte Policies</strong>
         <span class="ld-job-meta">{policies.length} Policies</span></div>
+      <div class="ld-step">
+        <label><input type="checkbox" checked={allSelected} onchange={toggleAll} /> Alle auswählen</label>
+      </div>
+      {#if selectedIds.length}
+        <div class="ld-oib-target">
+          <b>{selectedIds.length} ausgewählt:</b>
+          <select bind:value={batchScopeChoice}>
+            <option value="">— Alle (kein Pilot) —</option>
+            {#each groups as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+          </select>
+          <button class="btn btn-secondary" onclick={batchSetScope} disabled={batchBusy}>Scope für Auswahl setzen</button>
+          <button class="btn btn-secondary" onclick={batchDeactivate} disabled={batchBusy}>⏸ Auswahl auf Report-only</button>
+          <button class="btn btn-primary" onclick={batchActivate} disabled={batchBusy}>🔓 Auswahl aktivieren</button>
+          <button class="btn btn-secondary" onclick={clearSelection} disabled={batchBusy}>Auswahl aufheben</button>
+        </div>
+        {#if batchProgress}
+          <div class="ld-step running"><span class="ld-spinner"></span> {batchProgress.done}/{batchProgress.total} verarbeitet…</div>
+        {/if}
+      {/if}
       {#each policies as p (p.id)}
         {@const st = STATE_META[p.state] || { label: p.state, cls: '' }}
         <div class="ld-phase complete">
-          <div class="ld-phase-title">{p.displayName}</div>
+          <div class="ld-phase-title">
+            <input type="checkbox" checked={!!selectedPolicies[p.id]}
+                   onchange={(e) => (selectedPolicies = { ...selectedPolicies, [p.id]: e.target.checked })} />
+            {p.displayName}
+          </div>
           <div class="ld-step"><small>Scope: {p.scope} · <span class="tbadge {st.cls}">{st.label}</span></small></div>
           <div class="ld-oib-target">
             <select bind:value={pilotChoice[p.id]}>

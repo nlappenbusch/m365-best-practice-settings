@@ -72,7 +72,7 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
   const url = path.startsWith("https://") ? path : base + path;
   const r = await fetch(url, {
     method,
-    headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}), ...(opts && opts.headers) },
     body: body ? JSON.stringify(body) : undefined
   });
   const text = await r.text();

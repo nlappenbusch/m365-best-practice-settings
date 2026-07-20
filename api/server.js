@@ -32,6 +32,7 @@ const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
 const WIN32APP = require("./lib/win32app");
 const APPGROUPS = require("./lib/appGroups");
+const ENTRAUSERS = require("./lib/entraUsers");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -53,7 +54,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // verschachteln + Win32-App-Upload) und Conditional-Access-Deployment.
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -1310,7 +1311,13 @@ function buildWin32AppPayload(b, fileName) {
     returnCodes: [{ "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 0, type: "success" }],
     rules,
     setupFilePath: fileName,
-    minimumSupportedWindowsRelease: "Windows10_1607"
+    // "Windows10_1607" (vorheriger Wert) ist kein gueltiger Wert -- Graph lehnt es mit
+    // "Unknown MinimumSupportedWindowsRelease" ab. Das Namensschema wechselt ab 21H2
+    // von kurzen Strings ("1607".."21H1") auf "Windows10_"/"Windows11_"-Praefixe; wir
+    // setzen hier bewusst die niedrigste Version in diesem gueltigen Schema, die noch
+    // deutlich unter jedem real verwalteten Geraet 2026 liegt (Quelle: MSEndpointMgr/
+    // IntuneWin32App-Modul, New-IntuneWin32AppRequirementRule.ps1 OperatingSystemTable).
+    minimumSupportedWindowsRelease: "Windows10_21H2"
   };
 }
 
@@ -1512,6 +1519,53 @@ app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(asy
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
   await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, pilotGroupId);
   res.json({ ok: true });
+}));
+
+// Nutzer-Suche fuer den Schutzgruppen-Assignment-Assistenten (z.B. Break-Glass befuellen).
+app.get("/api/tenants/:id/conditionalaccess/users", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const q = String(req.query.q || "");
+  if (process.env.FAKE_DEPLOY === "1") {
+    const fake = [
+      { id: "fake-u1", displayName: "Anna Admin", userPrincipalName: "anna.admin@" + (t.organization || "test.onmicrosoft.com"), mail: "anna.admin@example.com" },
+      { id: "fake-u2", displayName: "Max Mustermann", userPrincipalName: "max.mustermann@" + (t.organization || "test.onmicrosoft.com"), mail: "max.mustermann@example.com" }
+    ];
+    return res.json({ ok: true, users: q.length < 2 ? [] : fake.filter(u => u.displayName.toLowerCase().includes(q.toLowerCase())) });
+  }
+  const users = await ENTRAUSERS.searchUsers(t, certPemPath(t.tenantId), q);
+  res.json({ ok: true, users });
+}));
+
+// Bestehenden Nutzer in eine Schutzgruppe aufnehmen (Assignment-Assistent).
+app.post("/api/tenants/:id/conditionalaccess/supportgroups/:key/members", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const key = req.params.key;
+  const userId = String((req.body || {}).userId || "");
+  if (!CONDACCESS.SUPPORT_GROUPS.some(g => g.key === key)) return res.status(400).json({ error: "Unbekannte Schutzgruppe: " + key });
+  if (!userId) return res.status(400).json({ error: "userId fehlt." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
+  const cert = certPemPath(t.tenantId);
+  const groupIds = await CONDACCESS.ensureSupportGroups(t, cert);
+  await APPGROUPS.nestGroupAsMember(t, cert, groupIds[key].id, userId);
+  res.json({ ok: true });
+}));
+
+// Dediziertes Break-Glass-Notfallzugriffskonto anlegen + direkt der Schutzgruppe zuweisen.
+// Passwort wird NUR in dieser Antwort sichtbar (Graph speichert es nicht im Klartext) —
+// das Frontend muss es einmalig anzeigen und darf es nicht weiter cachen/loggen.
+app.post("/api/tenants/:id/conditionalaccess/breakglass/create", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const username = String((req.body || {}).username || "").trim();
+  if (!username) return res.status(400).json({ error: "Benutzername fehlt." });
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, userPrincipalName: username + "@" + (t.organization || "test.onmicrosoft.com"), password: "Fake-" + Math.random().toString(36).slice(2, 10) + "!Aa1" });
+  }
+  const cert = certPemPath(t.tenantId);
+  const domain = t.organization || t.tenantId;
+  const created = await ENTRAUSERS.createBreakGlassUser(t, cert, domain, username);
+  const groupIds = await CONDACCESS.ensureSupportGroups(t, cert);
+  await APPGROUPS.nestGroupAsMember(t, cert, groupIds.breakGlass.id, created.id);
+  res.json({ ok: true, userPrincipalName: created.userPrincipalName, password: created.password });
 }));
 
 // Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant (EXO) und
