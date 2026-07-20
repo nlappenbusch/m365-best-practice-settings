@@ -35,6 +35,7 @@ const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
+const ASSIGNCHECK = require("./lib/assignmentCheck");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -809,6 +810,26 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
     }
   })();
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Assignment-Check (read-only Zuweisungs-Audit) ----------
+app.get("/api/tenants/:id/assignmentcheck", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      summary: { total: 5, unassigned: 1, emptyGroup: 1, missingGroup: 1, broadAll: 1 },
+      results: [
+        { name: "Win - OIB - SC - Credential Management - D - Passwordless", type: "Settings Catalog", assignments: [], issues: ["unassigned"] },
+        { name: "Win - OIB - ES - Encryption - D - BitLocker (OS Disk)", type: "Endpoint Security", assignments: [{ kind: "group", exclude: false, label: "AAD-DEV-KIOSK", memberCount: 0, missingGroup: false }], issues: ["emptyGroup"] },
+        { name: "Alte Baseline-Policy", type: "Device Configuration", assignments: [{ kind: "group", exclude: false, label: "11111111-dead-dead-dead-111111111111", memberCount: null, missingGroup: true }], issues: ["missingGroup"] },
+        { name: "Win - OIB - SC - Device Security - D - Local Security Policies", type: "Settings Catalog", assignments: [{ kind: "allDevices", exclude: false, label: "Alle Geräte", memberCount: null, missingGroup: false }], issues: ["broadAll"] },
+        { name: "Win - OIB - ES - Defender Antivirus - D - AV Configuration", type: "Endpoint Security", assignments: [{ kind: "group", exclude: false, label: "AAD-DEV-STD", memberCount: 12, missingGroup: false }], issues: [] }
+      ]
+    });
+  }
+  const data = await ASSIGNCHECK.runAssignmentCheck(t, certPemPath(t.tenantId));
+  res.json({ ok: true, ...data });
 }));
 
 // ---------- Autopilot-Paket-Generator ----------

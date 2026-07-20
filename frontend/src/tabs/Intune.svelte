@@ -57,6 +57,20 @@
   let importBusy = $state(false)
   let importTimer = null
 
+  // ---------- Assignment-Check (read-only Zuweisungs-Audit) ----------
+  let checkOpen = $state(false)
+  let checkLoading = $state(false)
+  let checkError = $state(null)
+  let checkData = $state(null)       // { summary, results }
+  let checkOnlyIssues = $state(true)
+
+  const ISSUE_META = {
+    unassigned: { label: 'Ohne Zuweisung', icon: '🚫', hint: 'Policy/App ist niemandem zugewiesen — wirkt nirgends.' },
+    emptyGroup: { label: 'Leere Gruppe', icon: '🕳️', hint: 'Zuweisung zeigt auf eine Gruppe mit 0 Mitgliedern.' },
+    missingGroup: { label: 'Gruppe fehlt', icon: '❓', hint: 'Zugewiesene Gruppe existiert nicht mehr (gelöscht).' },
+    broadAll: { label: 'Alle Benutzer/Geräte', icon: '🌐', hint: 'Breite Zuweisung — bewusst prüfen, kein Fehler per se.' }
+  }
+
   $effect(() => {
     const id = $activeTenant?.id ?? null
     if (id !== lastTenantId) {
@@ -230,6 +244,23 @@
     assigning = false
   }
 
+  async function toggleCheck() {
+    checkOpen = !checkOpen
+    if (checkOpen && !checkData) await runCheck()
+  }
+  async function runCheck() {
+    checkLoading = true
+    checkError = null
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/assignmentcheck`)
+      checkData = { summary: r.summary, results: r.results || [] }
+    } catch (e) {
+      checkError = e.message
+    }
+    checkLoading = false
+  }
+  const checkVisible = $derived((checkData?.results || []).filter(r => !checkOnlyIssues || r.issues.length))
+
   onDestroy(() => { if (importTimer) clearTimeout(importTimer) })
 </script>
 
@@ -242,8 +273,58 @@
       <button class="btn btn-primary" onclick={toggleImport} disabled={importBusy}>
         {importOpen ? '✕ Import schließen' : '⬇️ Baseline importieren'}
       </button>
+      <button class="btn btn-secondary" onclick={toggleCheck} disabled={checkLoading}>
+        {checkOpen ? '✕ Check schließen' : '🔍 Assignment-Check'}
+      </button>
     </div>
   </div>
+
+  {#if checkOpen}
+    <div class="ld-job" style="margin-bottom:1.5rem;">
+      <div class="ld-job-head"><strong>🔍 Assignment-Check: {$activeTenant.name}</strong>
+        {#if checkData}<span class="ld-job-meta">{checkData.summary.total} Objekte geprüft</span>{/if}</div>
+      <p class="ld-section-hint">Read-only-Audit aller Intune-Policies und -Apps: findet Objekte ohne Zuweisung, Zuweisungen auf leere oder gelöschte Gruppen und breite „Alle Benutzer/Geräte"-Zuweisungen.</p>
+
+      {#if checkLoading}
+        <div class="ld-step running"><span class="ld-spinner"></span> Lese alle Policies, Apps und Zuweisungen aus dem Tenant… (kann bei vielen Objekten etwas dauern)</div>
+      {:else if checkError}
+        <div class="ld-banner fail">❌ {checkError}</div>
+      {:else if checkData}
+        <div class="ld-setup-list" style="margin-bottom:0.6rem;">
+          <span class="ld-badge {checkData.summary.unassigned ? 'warn' : 'ok'}">{ISSUE_META.unassigned.icon} {checkData.summary.unassigned} ohne Zuweisung</span>
+          <span class="ld-badge {checkData.summary.emptyGroup ? 'warn' : 'ok'}">{ISSUE_META.emptyGroup.icon} {checkData.summary.emptyGroup} auf leere Gruppen</span>
+          <span class="ld-badge {checkData.summary.missingGroup ? 'warn' : 'ok'}">{ISSUE_META.missingGroup.icon} {checkData.summary.missingGroup} auf gelöschte Gruppen</span>
+          <span class="ld-badge ok">{ISSUE_META.broadAll.icon} {checkData.summary.broadAll} auf Alle Benutzer/Geräte</span>
+        </div>
+        <div class="ld-oib-toolbar">
+          <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; cursor:pointer;">
+            <input type="checkbox" bind:checked={checkOnlyIssues} /> Nur Auffälligkeiten zeigen
+          </label>
+          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={runCheck}>🔄 Neu prüfen</button>
+        </div>
+        {#if !checkVisible.length}
+          <div class="ld-banner ok">✅ {checkOnlyIssues ? 'Keine Auffälligkeiten — alle Zuweisungen sehen sauber aus.' : 'Keine Objekte gefunden.'}</div>
+        {/if}
+        {#each checkVisible as r}
+          <div class="ld-phase {r.issues.length ? '' : 'complete'}" class:active={r.issues.length > 0}>
+            <div class="ld-phase-title">{r.name} <small style="font-weight:400; color:var(--text-dim);">· {r.type}</small></div>
+            {#if r.issues.length}
+              <div class="ld-step"><small>
+                {#each r.issues as iss, i}{i > 0 ? ' · ' : ''}<span title={ISSUE_META[iss]?.hint}>{ISSUE_META[iss]?.icon} {ISSUE_META[iss]?.label}</span>{/each}
+              </small></div>
+            {/if}
+            <div class="ld-step"><small>
+              {#if r.assignments.length}
+                → {r.assignments.map(a => (a.exclude ? '⛔ ' : '') + a.label + (a.memberCount !== null && a.kind === 'group' ? ` (${a.memberCount})` : '')).join(', ')}
+              {:else}
+                → keine Zuweisung
+              {/if}
+            </small></div>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {/if}
 
   {#if importOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
