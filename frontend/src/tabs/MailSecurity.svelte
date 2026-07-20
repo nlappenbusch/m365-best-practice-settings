@@ -4,6 +4,16 @@
   import { apiPost, apiGet } from '../lib/api.js'
   import { activeTenant, autoDomains } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
+  import { buildAlertPolicySnippet } from '../lib/alertPolicySnippet.js'
+
+  let snippetCopied = $state(false)
+  let alertSnippet = $derived(buildAlertPolicySnippet($config.global))
+  function copyAlertSnippet() {
+    navigator.clipboard.writeText(alertSnippet).then(() => {
+      snippetCopied = true
+      setTimeout(() => (snippetCopied = false), 2000)
+    })
+  }
 
   const LD_PHASE_ICONS = {
     'Quarantine Policies': '🔒',
@@ -136,6 +146,28 @@
       </button>
       <button class="btn btn-primary" onclick={openConfirm} disabled={deployRunning}>Deployen</button>
     </div>
+  </div>
+
+  <div class="ld-job" style="margin-bottom:1.25rem;">
+    <div class="ld-job-head"><strong>🪟 Was per Web/API nicht geht</strong></div>
+    <div class="ld-banner warn">
+      ⚠️ Die Warnungsrichtlinie <code>BP_UserRequestReleaseStatus</code> (Alert Policy für Freigabe-Anfragen aus der
+      Quarantäne) kann dieses Tool <strong>nicht automatisch</strong> setzen: Security &amp; Compliance PowerShell
+      (<code>Connect-IPPSSession</code>) läuft laut Microsoft-Dokumentation nicht auf Linux — das Backend läuft aber
+      in einem Linux-Container. Alles andere auf dieser Seite läuft vollautomatisch per Exchange-Online-App-only.
+    </div>
+    <p class="ld-section-hint">So richtest du es ein — dauert unter 2 Minuten, einmalig pro Tenant:</p>
+    <ol style="margin:0 0 0.7rem 1.2rem; line-height:1.7; font-size:0.9rem;">
+      <li>Snippet unten kopieren.</li>
+      <li>Auf einem <strong>Windows-Rechner</strong> mit Global-Admin-Rechten für diesen Tenant PowerShell öffnen
+        (Modul <code>ExchangeOnlineManagement</code> nötig — falls nicht vorhanden: <code>Install-Module ExchangeOnlineManagement</code>).</li>
+      <li>Snippet einfügen und ausführen — fragt interaktiv nach der Anmeldung.</li>
+    </ol>
+    <pre class="ld-snippet">{alertSnippet}</pre>
+    <button class="btn btn-secondary" style="padding:0.3rem 0.8rem; font-size:0.82rem;" onclick={copyAlertSnippet}>
+      {snippetCopied ? '✓ Kopiert' : '📋 Snippet kopieren'}
+    </button>
+    <div class="ld-step" style="margin-top:0.4rem;"><small>💡 Empfänger ({[$config.global.adminEmail, $config.global.igeeksEmail].filter(Boolean).join(', ')}) kommen live aus dem Tab „⚙️ Vorlage" — Snippet passt sich automatisch an.</small></div>
   </div>
 
   {#if testBusy}
