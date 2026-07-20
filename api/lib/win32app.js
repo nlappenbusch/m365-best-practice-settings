@@ -207,14 +207,29 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
     await graphReq(tenant, certPemPath, "PATCH", `/deviceAppManagement/mobileApps/${appId}`,
       { "@odata.type": "#microsoft.graph.win32LobApp", committedContentVersion: String(contentVersionId) },
       { ...BETA, retryTransient: true });
-
-    return { appId };
   } catch (e) {
     // Fehlgeschlagenen Entwurf nicht in Intune liegen lassen — der naechste
     // Lauf legt sauber neu an (und raeumt zur Sicherheit oben nochmal auf).
     try { await graphReq(tenant, certPemPath, "DELETE", `/deviceAppManagement/mobileApps/${appId}`, null, BETA); } catch (e2) { /* egal */ }
     throw e;
   }
+
+  // Nach dem committedContentVersion-PATCH wechselt die App asynchron von
+  // "processing" zu "published" — ein sofortiges assign scheitert mit
+  // "app's PublishingState is not 'Published'" (real aufgetreten). Warten,
+  // BEWUSST ausserhalb des Cleanup-try: bei einem Timeout ist der Content
+  // vollstaendig hochgeladen, die App darf liegen bleiben (naechster Lauf
+  // oder spaeteres manuelles Zuweisen im Portal funktionieren dann).
+  onProgress("Auf Veroeffentlichung warten");
+  let lastState = "";
+  for (let tries = 0; tries < 60; tries++) {
+    const cur = await graphReq(tenant, certPemPath, "GET",
+      `/deviceAppManagement/mobileApps/${appId}?$select=publishingState`, null, CONTENT_RETRY);
+    lastState = String(cur.publishingState || "");
+    if (lastState.toLowerCase() === "published") return { appId };
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  throw new Error(`App wurde nicht rechtzeitig veroeffentlicht (publishingState: ${lastState || "unbekannt"}) — der Upload ist komplett; in ein paar Minuten erneut deployen oder im Intune-Portal zuweisen.`);
 }
 
 async function assignAppToGroup(tenant, certPemPath, appId, groupId) {
