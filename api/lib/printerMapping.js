@@ -58,9 +58,11 @@ async function ensureAdmx(tenant, cert, onProgress) {
   let file = files.find(f => String(f.fileName || "").toLowerCase() === ADMX_FILE.toLowerCase());
   if (!file) {
     notify("ADMX-Vorlage importieren");
+    // defaultLanguageCode darf NICHT gesetzt sein — der Dienst lehnt das mit
+    // "ADMXDefaultLanguageCodeNotNull" ab (real aufgetreten) und leitet die
+    // Sprache selbst aus der ADML-Datei ab.
     file = await graphReq(tenant, cert, "POST", "/deviceManagement/groupPolicyUploadedDefinitionFiles", {
       fileName: ADMX_FILE,
-      defaultLanguageCode: "en-US",
       content: fs.readFileSync(path.join(ASSET_DIR, ADMX_FILE)).toString("base64"),
       groupPolicyUploadedLanguageFiles: [{
         fileName: ADML_FILE,
