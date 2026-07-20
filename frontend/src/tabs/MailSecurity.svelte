@@ -39,6 +39,7 @@
   let job = $state(null)
   let jobTimer = null
   let lastTenantId = null
+  let manualAck = $state({}) // Schrittname -> bool ("ich habe das manuell erledigt")
 
   // Tenant im globalen Umschalter gewechselt -> lokale Tenant-Workspace-
   // Ausgabe zuruecksetzen (ein laufender Job auf dem Backend laeuft trotzdem
@@ -81,6 +82,7 @@
     deployRunning = true
     deployError = null
     job = null
+    manualAck = {}
     if (jobTimer) { clearTimeout(jobTimer); jobTimer = null }
     const tenantId = $activeTenant.id
     let start
@@ -105,8 +107,8 @@
     }, 1500)
   }
 
-  function copySnippet() {
-    if (currentSnippet) navigator.clipboard.writeText(currentSnippet)
+  function copySnippet(text) {
+    if (text) navigator.clipboard.writeText(text)
   }
 
   onDestroy(() => { if (jobTimer) clearTimeout(jobTimer) })
@@ -115,10 +117,14 @@
   // mutiert — Svelte 5 verbietet Zustandsmutation waehrend der Auswertung
   // eines $derived (state_unsafe_mutation) und haette die Reaktivitaet
   // stillschweigend abgebrochen, sobald ein "manual"-Schritt auftaucht.
+  // Automatische und manuelle Schritte sauber getrennt: automatische Schritte
+  // bleiben nach Phase gruppiert, manuelle Schritte (aktuell nur Alert Policy)
+  // landen in einer eigenen Liste mit Bestaetigungs-Checkbox.
   const phases = $derived.by(() => {
     if (!job) return []
     const list = []
     for (const s of job.steps) {
+      if (s.state === 'manual') continue
       let ph = list.find(p => p.name === s.phase)
       if (!ph) { ph = { name: s.phase, steps: [] }; list.push(ph) }
       ph.steps.push(s)
@@ -126,10 +132,8 @@
     return list
   })
 
-  const currentSnippet = $derived.by(() => {
-    const manual = job?.steps.find(s => s.state === 'manual')
-    return manual ? (manual.snippet || '') : ''
-  })
+  const manualSteps = $derived(job ? job.steps.filter(s => s.state === 'manual') : [])
+  const allManualAcked = $derived(manualSteps.length > 0 && manualSteps.every(s => manualAck[s.name]))
 </script>
 
 <TenantContext>
@@ -235,8 +239,10 @@
       <div class="ld-progress-label">{finished} / {total} Schritte</div>
 
       {#if job.status === 'done'}
-        {#if manualCount > 0}
-          <div class="ld-banner ok">✅ Alle automatischen Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}) — {manualCount} manueller Schritt übrig (siehe 📋 unten).</div>
+        {#if manualCount > 0 && !allManualAcked}
+          <div class="ld-banner ok">✅ Alle automatischen Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}) — {manualCount} manueller Schritt übrig (siehe „📋 Manuelle Schritte" unten).</div>
+        {:else if manualCount > 0}
+          <div class="ld-banner ok">✅ Fertig — alle automatischen Schritte erfolgreich, manuelle Schritte von dir bestätigt.</div>
         {:else}
           <div class="ld-banner ok">✅ Fertig — alle {total} Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}).</div>
         {/if}
@@ -250,35 +256,50 @@
         <div class="ld-step"><small>Rules gelten für: {job.domains.join(', ')}</small></div>
       {/if}
 
-      {#each phases as ph (ph.name)}
-        {@const allDone = ph.steps.every(s => s.state === 'done')}
-        {@const anyActive = ph.steps.some(s => s.state === 'running' || s.state === 'retry')}
-        <div class="ld-phase" class:active={anyActive} class:complete={!anyActive && allDone}>
-          <div class="ld-phase-title">{LD_PHASE_ICONS[ph.name] || '⚙️'} {ph.name}</div>
-          {#each ph.steps as s}
-            {#if s.state === 'pending'}
-              <div class="ld-step pending"><span class="ld-ico">○</span> {s.name}</div>
-            {:else if s.state === 'running'}
-              <div class="ld-step running"><span class="ld-spinner"></span> {s.name} <small>wird angewendet…</small></div>
-            {:else if s.state === 'retry'}
-              <div class="ld-step retry"><span class="ld-ico">🔁</span> {s.name} <small>{s.try}. Versuch läuft… ({(s.lastError || '').slice(0, 120)})</small></div>
-            {:else if s.state === 'done'}
-              <div class="ld-step ok"><span class="ld-ico">✅</span> {s.name} <small>({LD_ACTION_DE[s.action] || s.action}{s.tries > 1 ? ', ' + s.tries + '. Versuch' : ''})</small></div>
-            {:else if s.state === 'manual'}
-              <div class="ld-step manual">
-                <span class="ld-ico">📋</span> {s.name} — <small>manueller Schritt</small>
-                <div class="ld-manual-box">
-                  <small>{s.info || ''}</small>
-                  <pre class="ld-snippet">{s.snippet || ''}</pre>
-                  <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={copySnippet}>📋 Snippet kopieren</button>
-                </div>
-              </div>
-            {:else}
-              <div class="ld-step fail"><span class="ld-ico">❌</span> {s.name} — <small>{s.error || 'Fehler'}</small></div>
-            {/if}
-          {/each}
-        </div>
-      {/each}
+      {#if phases.length}
+        <div class="ld-step-section-title">⚙️ Automatische Schritte</div>
+        {#each phases as ph (ph.name)}
+          {@const allDone = ph.steps.every(s => s.state === 'done')}
+          {@const anyActive = ph.steps.some(s => s.state === 'running' || s.state === 'retry')}
+          <div class="ld-phase" class:active={anyActive} class:complete={!anyActive && allDone}>
+            <div class="ld-phase-title">{LD_PHASE_ICONS[ph.name] || '⚙️'} {ph.name}</div>
+            {#each ph.steps as s}
+              {#if s.state === 'pending'}
+                <div class="ld-step pending"><span class="ld-ico">○</span> {s.name}</div>
+              {:else if s.state === 'running'}
+                <div class="ld-step running"><span class="ld-spinner"></span> {s.name} <small>wird angewendet…</small></div>
+              {:else if s.state === 'retry'}
+                <div class="ld-step retry"><span class="ld-ico">🔁</span> {s.name} <small>{s.try}. Versuch läuft… ({(s.lastError || '').slice(0, 120)})</small></div>
+              {:else if s.state === 'done'}
+                <div class="ld-step ok"><span class="ld-ico">✅</span> {s.name} <small>({LD_ACTION_DE[s.action] || s.action}{s.tries > 1 ? ', ' + s.tries + '. Versuch' : ''})</small></div>
+              {:else}
+                <div class="ld-step fail"><span class="ld-ico">❌</span> {s.name} — <small>{s.error || 'Fehler'}</small></div>
+              {/if}
+            {/each}
+          </div>
+        {/each}
+      {/if}
+
+      {#if manualSteps.length}
+        <div class="ld-step-section-title manual">📋 Manuelle Schritte <small>(dieses Tool kann sie nicht selbst ausführen)</small></div>
+        {#each manualSteps as s (s.name)}
+          <div class="ld-phase manual-phase" class:complete={manualAck[s.name]}>
+            <div class="ld-phase-title">
+              <span class="ld-ico">{manualAck[s.name] ? '✅' : '📋'}</span> {s.name}
+            </div>
+            <div class="ld-manual-box">
+              <small>{s.info || ''}</small>
+              <pre class="ld-snippet">{s.snippet || ''}</pre>
+              <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => copySnippet(s.snippet)}>📋 Snippet kopieren</button>
+            </div>
+            <label class="checkbox-label" style="margin-top:0.5rem;">
+              <input type="checkbox" checked={!!manualAck[s.name]}
+                     onchange={(e) => (manualAck = { ...manualAck, [s.name]: e.target.checked })} />
+              <span>Ich habe diesen Schritt manuell ausgeführt</span>
+            </label>
+          </div>
+        {/each}
+      {/if}
     </div>
   {/if}
 </TenantContext>

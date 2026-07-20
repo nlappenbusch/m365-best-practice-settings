@@ -1299,6 +1299,10 @@ function buildWin32AppPayload(b, fileName) {
     displayName: b.appName,
     description: b.description || "",
     publisher: b.vendor === "bitdefender" ? "Bitdefender" : "N-able (N-sight RMM)",
+    // fileName (mobileLobApp) und setupFilePath (win32LobApp) sind ZWEI verschiedene
+    // Felder — ohne fileName lehnt Graph die App-Erstellung ab ("FileName for
+    // Win32 LOB app cannot be empty"), auch wenn setupFilePath gesetzt ist.
+    fileName,
     installCommandLine: b.installCommandLine,
     uninstallCommandLine: b.uninstallCommandLine,
     applicableArchitectures: "x64",

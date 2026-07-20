@@ -107,7 +107,7 @@ function substitutePolicy(template, groupIds) {
 
 /** Bereits vorhandene, von diesem Tool verwaltete CA-Policies auflisten (Namensschema "<Nr> - BP - "). */
 async function listManagedPolicies(tenant, certPemPath) {
-  const all = await graphAllPages(tenant, certPemPath, "/identity/conditionalAccessPolicies", { retryTransient: true });
+  const all = await graphAllPages(tenant, certPemPath, "/identity/conditionalAccess/policies", { retryTransient: true });
   return all.filter(p => /^\d+ - BP - /.test(String(p.displayName || "")));
 }
 
@@ -119,10 +119,10 @@ async function upsertPolicy(tenant, certPemPath, policyJson, existingByName) {
     // Report-only-Zustand befindlichen Policy aktualisiert — eine bereits vom
     // Admin scharf geschaltete Policy wird nicht ueberschrieben/zurueckgesetzt.
     if (existing.state !== "enabledForReportingButNotEnforced") return { status: "skipped-active", id: existing.id };
-    await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccessPolicies/${existing.id}`, policyJson, { retryTransient: true });
+    await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccess/policies/${existing.id}`, policyJson, { retryTransient: true });
     return { status: "updated", id: existing.id };
   }
-  const created = await graphReq(tenant, certPemPath, "POST", "/identity/conditionalAccessPolicies", policyJson, { retryTransient: true });
+  const created = await graphReq(tenant, certPemPath, "POST", "/identity/conditionalAccess/policies", policyJson, { retryTransient: true });
   return { status: "created", id: created.id };
 }
 
@@ -162,7 +162,7 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress) {
 async function setPolicyState(tenant, certPemPath, policyId, state) {
   const allowed = ["enabledForReportingButNotEnforced", "enabled", "disabled"];
   if (!allowed.includes(state)) throw new Error("Ungültiger state: " + state);
-  await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccessPolicies/${policyId}`, { state }, { retryTransient: true });
+  await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccess/policies/${policyId}`, { state }, { retryTransient: true });
 }
 
 /**
@@ -176,7 +176,7 @@ async function setPolicyState(tenant, certPemPath, policyId, state) {
  * Glass-/Sync-Konten-Ausschluesse aufheben).
  */
 async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
-  const current = await graphReq(tenant, certPemPath, "GET", `/identity/conditionalAccessPolicies/${policyId}`, null, { retryTransient: true });
+  const current = await graphReq(tenant, certPemPath, "GET", `/identity/conditionalAccess/policies/${policyId}`, null, { retryTransient: true });
   const conditions = JSON.parse(JSON.stringify(current.conditions || {}));
   conditions.users = conditions.users || {};
   if (pilotGroupId) {
@@ -186,7 +186,7 @@ async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
     conditions.users.includeUsers = (conditions.users.includeRoles || []).length ? [] : ["All"];
     conditions.users.includeGroups = [];
   }
-  await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccessPolicies/${policyId}`,
+  await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccess/policies/${policyId}`,
     { conditions }, { retryTransient: true });
 }
 
