@@ -15,6 +15,7 @@
   import Autopilot from './tabs/Autopilot.svelte'
   import ConditionalAccess from './tabs/ConditionalAccess.svelte'
   import Lizenzen from './tabs/Lizenzen.svelte'
+  import Mappings from './tabs/Mappings.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
@@ -26,7 +27,8 @@
     { id: 'intune',      label: '💻 Intune' },
     { id: 'autopilot',   label: '🚀 Autopilot' },
     { id: 'ca',          label: '🔐 Conditional Access' },
-    { id: 'lizenzen',    label: '💰 Lizenzen', isNew: true },
+    { id: 'lizenzen',    label: '💰 Lizenzen' },
+    { id: 'mappings',    label: '🗺️ Mappings', isNew: true },
     { id: 'downloads',   label: '📦 Agents' },
     { id: 'wissen',      label: '📖 Wissen' }
   ]
@@ -99,6 +101,7 @@
       <div class:tab-hidden={active !== 'autopilot'}><Autopilot /></div>
       <div class:tab-hidden={active !== 'ca'}><ConditionalAccess /></div>
       <div class:tab-hidden={active !== 'lizenzen'}><Lizenzen /></div>
+      <div class:tab-hidden={active !== 'mappings'}><Mappings /></div>
       <div class:tab-hidden={active !== 'downloads'}><Downloads /></div>
       <div class:tab-hidden={active !== 'wissen'}><Wissen /></div>
     </div>

@@ -38,6 +38,7 @@ const OIBIMPORT = require("./lib/oibImport");
 const ASSIGNCHECK = require("./lib/assignmentCheck");
 const LICENSES = require("./lib/licenses");
 const IBACKUP = require("./lib/intuneBackup");
+const DRIVEMAP = require("./lib/driveMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -812,6 +813,38 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
     }
   })();
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Drive-Mapping-Konfigurator (nicolonsky/IntuneDriveMapping-Port) ----------
+app.get("/api/tenants/:id/drivemappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      profiles: [{
+        id: "dm-1", profileName: "Standard", displayName: "WIN - DriveMapping - Standard",
+        config: { mappings: [{ driveLetter: "H", path: "\\\\srv01\\home$", label: "Home", groupFilter: "" }, { driveLetter: "S", path: "\\\\srv01\\share", label: "Firma", groupFilter: "GG-Vertrieb" }], searchRoot: "", removeStaleDrives: true },
+        groupIds: ["g1"]
+      }]
+    });
+  }
+  res.json({ ok: true, profiles: await DRIVEMAP.listProfiles(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/drivemappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    // Validierung auch im Fake-Modus echt laufen lassen (UI-Fehlerbild testbar)
+    DRIVEMAP.buildScript({ mappings: b.mappings, searchRoot: b.searchRoot, removeStaleDrives: b.removeStaleDrives });
+    return res.json({ ok: true, scriptId: "dm-1", displayName: "WIN - DriveMapping - " + String(b.profileName || ""), updated: false });
+  }
+  const r = await DRIVEMAP.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName, mappings: b.mappings,
+    searchRoot: b.searchRoot, removeStaleDrives: !!b.removeStaleDrives,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  res.json({ ok: true, ...r });
 }));
 
 // ---------- Intune-Backup & -Restore (TenuVault-Idee, app-only) ----------
@@ -1646,7 +1679,16 @@ async function runAppDeployJob(job, t, b) {
     } else {
       // {file} im Kommando durch den tatsaechlich heruntergeladenen Dateinamen
       // ersetzen — Admin muss den (erst beim Download bekannten) Namen nicht raten.
-      const subst = { ...b, installCommandLine: String(b.installCommandLine || "").replace(/\{file\}/g, fileName),
+      let installCmd = String(b.installCommandLine || "").replace(/\{file\}/g, fileName);
+      // Silent-Switches je Vendor IMMER erzwingen (fehlende ergaenzen) — ein
+      // interaktiver Installer haengt sonst unsichtbar im SYSTEM-Kontext:
+      //   Bitdefender: "<datei>" /bdparams /silent   ·   N-sight: "<datei>" /quiet /norestart
+      const requiredSwitches = b.vendor === "bitdefender" ? ["/bdparams", "/silent"] : ["/quiet", "/norestart"];
+      if (!installCmd.trim()) installCmd = `"${fileName}"`;
+      for (const sw of requiredSwitches) {
+        if (!new RegExp(sw.replace("/", "\\/") + "\\b", "i").test(installCmd)) installCmd += " " + sw;
+      }
+      const subst = { ...b, installCommandLine: installCmd,
         uninstallCommandLine: String(b.uninstallCommandLine || "").replace(/\{file\}/g, fileName) };
       const payload = buildWin32AppPayload(subst, fileName);
       const r = await WIN32APP.createWin32AppWithContent(t, cert, {
