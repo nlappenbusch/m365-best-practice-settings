@@ -49,8 +49,12 @@
       `<tr><td class="pn">${esc(u.displayName)}</td><td>${esc(u.upn)}</td>` +
       `<td>${u.lastSignIn ? esc(u.lastSignIn) + ` (${u.daysInactive} Tage)` : 'nie angemeldet'}</td>` +
       `<td>${esc(u.licenses.join(', '))}</td></tr>`).join('')
-    const verdictLabel = { redundant: '🔴 doppelt bezahlt', check: '🟠 prüfen', addon: '🟢 Add-on (normal)' }
-    const multiRows = d.findings.multiSuite.map(u =>
+    // Nur die handlungsrelevanten Kombis ins PDF — normale Suite+Add-on-Kombis
+    // (verdict "addon") verwirren im Report nur und bleiben draussen.
+    const verdictLabel = { redundant: '🔴 doppelt bezahlt', check: '🟠 prüfen' }
+    const multiActionable = d.findings.multiSuite.filter(u => u.verdict !== 'addon')
+    const multiAddonCount = d.findings.multiSuite.length - multiActionable.length
+    const multiRows = multiActionable.map(u =>
       `<tr><td class="pn">${esc(u.displayName)}</td><td>${esc(u.upn)}</td><td>${esc(u.licenses.join(' + '))}</td>` +
       `<td>${esc(verdictLabel[u.verdict] || '')}${u.reason ? '<br><span class="dim">' + esc(u.reason) + '</span>' : ''}</td></tr>`).join('')
 
@@ -114,7 +118,9 @@
       ${d.findings.unusedPaidSeats.length ? `<p class="note">Gekaufte, aber niemandem zugewiesene Lizenzen. Empfehlung: beim naechsten Renewal reduzieren, falls kein kurzfristiger Bedarf besteht.</p><table><thead><tr><th>Produkt</th><th style="text-align:right">gekauft</th><th style="text-align:right">zugewiesen</th><th style="text-align:right">frei</th></tr></thead><tbody>${d.findings.unusedPaidSeats.map(s => `<tr><td class="pn">${esc(s.name)}</td><td class="num">${s.purchased}</td><td class="num">${s.assigned}</td><td class="num warn">${s.available}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">✓ Keine — jeder gekaufte Seat ist zugewiesen.</p>'}
 
       <h2>Handlungsfeld 4 — Mehrfach-Lizenzierung</h2>
-      ${multiRows ? `<p class="note">Konten mit mehreren bezahlten Produkten, automatisch bewertet: 🔴 = die Suite enthaelt die Zusatzlizenz bereits (doppelt bezahlt, kuendbar) · 🟠 = mehrere Basis-Suiten, Ueberlappung pruefen · 🟢 = uebliche Suite+Add-on-Kombination, kein Handlungsbedarf (z.B. E3 + Teams Phone — Teams Phone ist erst in E5 enthalten).</p><table><thead><tr><th>Name</th><th>Anmeldename</th><th>Lizenzen</th><th>Bewertung</th></tr></thead><tbody>${multiRows}</tbody></table>` : '<p class="empty">✓ Keine Konten mit mehreren bezahlten Produkten.</p>'}
+      ${multiRows
+        ? `<p class="note">Nur handlungsrelevante Kombinationen: 🔴 = die Suite enthaelt die Zusatzlizenz bereits (doppelt bezahlt, kuendbar) · 🟠 = mehrere Basis-Suiten, Ueberlappung pruefen.${multiAddonCount ? ` ${multiAddonCount} uebliche Suite+Add-on-Kombination(en) (z.B. E3 + Teams Phone) sind korrekt lizenziert und hier bewusst nicht aufgefuehrt.` : ''}</p><table><thead><tr><th>Name</th><th>Anmeldename</th><th>Lizenzen</th><th>Bewertung</th></tr></thead><tbody>${multiRows}</tbody></table>`
+        : `<p class="empty">✓ Keine doppelt bezahlten oder ueberlappenden Lizenzkombinationen.${multiAddonCount ? ` (${multiAddonCount} uebliche Suite+Add-on-Kombination(en) sind korrekt lizenziert und nicht aufgefuehrt.)` : ''}</p>`}
 
       <footer>Erzeugt vom M365 Security Policy Manager am ${today}. Read-only-Report ohne Preisdaten — Seats und Konten sind belastbar aus Microsoft Graph gelesen (subscribedSkus, users inkl. signInActivity), Kostenbewertung erfolgt bewusst nicht automatisch.</footer>
     </div></body></html>`
