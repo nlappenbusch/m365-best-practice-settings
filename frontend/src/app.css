@@ -432,6 +432,8 @@ a { color: var(--accent); }
 .ld-oib-row.already .ld-oib-assigned { color: var(--ok); }
 .ld-oib-row.breakrisk { background: var(--warn-wash); border-radius: var(--radius-sm); padding-left: 0.4rem; border-left: 3px solid var(--warn); }
 .ld-oib-risk { font-size: 0.72rem; font-weight: 700; color: var(--warn); background: var(--bg-raised); border: 1px solid var(--warn); border-radius: 999px; padding: 0.05rem 0.5rem; white-space: nowrap; }
+.ld-oib-row.outdated { opacity: 0.7; }
+.ld-oib-outdated-tag { font-size: 0.72rem; font-weight: 700; color: var(--accent); background: var(--bg-raised); border: 1px solid var(--accent); border-radius: 999px; padding: 0.05rem 0.5rem; white-space: nowrap; }
 
 /* ---------------- Agent-Downloads (Bitdefender / N-sight RMM) ---------------- */
 .dl-subtabs { display: flex; gap: 0.5rem; border-bottom: 2px solid var(--rule); margin-bottom: 1rem; }

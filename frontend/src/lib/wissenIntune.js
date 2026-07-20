@@ -358,8 +358,14 @@ Bindestrich-getrennt, keine Leerzeichen, keine Umlaute, keine Kundenkürzel.</p>
     <tr><td>App-Gruppe (manuell/selbstpaketiert)</td><td><code>AAD-APP-&lt;APP&gt;</code></td><td><code>AAD-APP-ZeiterfassungXY</code></td><td>eine Gruppe pro selbst paketierter App</td></tr>
     <tr><td>Benutzergruppe (sparsam)</td><td><code>AAD-USR-&lt;ZWECK&gt;</code></td><td><code>AAD-USR-AppProtection</code></td><td>nur wo der Benutzer das Ziel ist</td></tr>
     <tr><td>Rolle / RBAC</td><td><code>AAD-ROLE-&lt;ZWECK&gt;</code></td><td><code>AAD-ROLE-Helpdesk</code></td><td>Admin-/Rollenzuweisung</td></tr>
+    <tr><td>Notfallzugriffskonto (Break-Glass)</td><td><code>breakglass-&lt;NN&gt;</code></td><td><code>breakglass-01</code></td><td>dediziertes Konto fuer Conditional-Access-Notfallzugriff, niemals fuer taegliche Arbeit</td></tr>
   </tbody>
 </table>
+<p>Break-Glass-Konten sind <b>Benutzerobjekte</b>, nicht Gruppen — daher lowercase (UPN-Konvention) statt
+Grossbuchstaben-Gruppenschema, aber gleiche Idee: kurz, sprechend, durchnummeriert (<code>-01</code>,
+<code>-02</code>, …), da Microsoft mindestens zwei Notfallkonten empfiehlt. Kein Versuch, den Zweck zu
+verschleiern — der Schutz kommt aus starkem Passwort, Monitoring und CA-Ausschluss (Gruppe
+<code>AAD-CA-BreakGlass</code>), nicht aus einem unauffälligen Namen.</p>
 <p>Geräterolle (<code>&lt;ROLLE&gt;</code>) ist die primäre Dimension — nach Zweck, nicht nach Formfaktor
 (WS/NB brauchen selten eigene Configs und blähen nur auf). Beispiele: <code>STD</code> (Standard-Client /
 Office / Knowledge-Worker), <code>PROD</code> (Produktionsgerät / Shopfloor), <code>KIOSK</code>, <code>EXEC</code>.

@@ -669,7 +669,9 @@ function fakeOib() {
       { id: "p1", name: "Win - OIB - ES - Defender Antivirus - D - AV Configuration", apiType: "intents", type: "Endpoint Security", assignments: [{ groupId: "g1", label: "AAD-DEV-STD" }] },
       { id: "p2", name: "Win - OIB - ES - Encryption - D - BitLocker (OS Disk)", apiType: "intents", type: "Endpoint Security", assignments: [] },
       { id: "p3", name: "Win - OIB - SC - Device Security - D - Local Security Policies", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [{ groupId: null, label: "Alle Geräte" }] },
-      { id: "p4", name: "Win - OIB - SC - Credential Management - D - Passwordless", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [] }
+      { id: "p4", name: "Win - OIB - SC - Credential Management - D - Passwordless", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [] },
+      { id: "p5", name: "Win - OIB - SC - Microsoft Edge - U - User Experience - v3.7", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [] },
+      { id: "p6", name: "Win - OIB - SC - Microsoft Edge - U - User Experience - v3.8", apiType: "configurationPolicies", type: "Settings Catalog", assignments: [{ groupId: "g1", label: "AAD-DEV-STD" }] }
     ]
   };
 }
@@ -1412,7 +1414,15 @@ app.get("/api/conditionalaccess/tiers", (req, res) => {
   const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
   const tiers = {};
   for (const key of Object.keys(CONDACCESS.TIER_META)) {
-    tiers[key] = { ...CONDACCESS.TIER_META[key], policyCount: (CA_POLICY_TEMPLATES[key] || []).length };
+    const templates = CA_POLICY_TEMPLATES[key] || [];
+    tiers[key] = {
+      ...CONDACCESS.TIER_META[key],
+      policyCount: templates.length,
+      // Fuer die Vorschau vor dem Deploy: Namen bereits mit <RING> -> "BP"
+      // (wie substitutePolicy() es beim echten Deploy tut), damit die
+      // Vorschau exakt zeigt, was spaeter im Tenant angelegt wird.
+      policyNames: templates.map(t => String(t.displayName || "").replace(/<RING>/g, "BP"))
+    };
   }
   res.json({ ok: true, tiers });
 });
@@ -1467,6 +1477,7 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
 app.post("/api/tenants/:id/conditionalaccess/deploy", wrap(async (req, res) => {
   const t = requireTenant(req);
   const tier = String((req.body || {}).tier || "");
+  const indices = Array.isArray((req.body || {}).indices) ? (req.body.indices.map(Number).filter(n => Number.isInteger(n) && n >= 0)) : null;
   if (!CONDACCESS.TIER_META[tier]) return res.status(400).json({ error: "Unbekanntes Tier: " + tier });
   for (const j of appJobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
@@ -1481,11 +1492,11 @@ app.post("/api/tenants/:id/conditionalaccess/deploy", wrap(async (req, res) => {
         onProgress("Schutzgruppen sicherstellen"); await new Promise(r => setTimeout(r, 600));
         onProgress("Bestehende Policies laden"); await new Promise(r => setTimeout(r, 400));
         const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
-        const count = (CA_POLICY_TEMPLATES[tier] || []).length;
+        const count = indices ? indices.length : (CA_POLICY_TEMPLATES[tier] || []).length;
         for (let i = 1; i <= count; i++) { onProgress(`Policy ${i}/${count}`); await new Promise(r => setTimeout(r, 150)); }
         job.results = { created: count, updated: 0, failed: 0 };
       } else {
-        const r = await CONDACCESS.deployTier(t, certPemPath(t.tenantId), tier, onProgress);
+        const r = await CONDACCESS.deployTier(t, certPemPath(t.tenantId), tier, onProgress, indices);
         const created = r.results.filter(x => x.status === "created").length;
         const updated = r.results.filter(x => x.status === "updated").length;
         const failed = r.results.filter(x => x.status === "failed").length;

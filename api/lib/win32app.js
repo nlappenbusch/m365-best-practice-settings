@@ -121,11 +121,17 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
   onProgress("App-Objekt anlegen");
   const app = await graphReq(tenant, certPemPath, "POST", "/deviceAppManagement/mobileApps", opts.appPayload);
   const appId = app.id;
+  // Frisch angelegtes App-Objekt kurz bestaetigen, bevor die verschachtelte
+  // contentVersions-Ressource referenziert wird -- sonst gelegentlich
+  // "Resource not found for the segment 'contentVersions'" durch
+  // Verzeichnis-/Service-Replikationslag (gleiches Muster wie bei frisch
+  // angelegten Gruppen, siehe appGroups.js::ensureAppGroup).
+  await graphReq(tenant, certPemPath, "GET", `/deviceAppManagement/mobileApps/${appId}?$select=id`, null, { retryTransient: true });
 
   onProgress("Content-Version anlegen");
   const cv = await graphReq(tenant, certPemPath, "POST",
     `/deviceAppManagement/mobileApps/${appId}/contentVersions`,
-    { "@odata.type": "#microsoft.graph.mobileAppContent" });
+    { "@odata.type": "#microsoft.graph.mobileAppContent" }, { retryTransient: true });
   const contentVersionId = cv.id;
 
   onProgress("Installer verschluesseln");

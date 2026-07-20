@@ -14,6 +14,8 @@
 
   let tiers = $state(null)
   let tiersError = $state(null)
+  let previewOpen = $state({}) // tierKey -> bool
+  let previewSelected = $state({}) // tierKey -> { index: bool }
 
   let policiesLoading = $state(false)
   let policiesError = $state(null)
@@ -108,18 +110,48 @@
     } catch (e) { /* egal, Pilot-Auswahl bleibt dann leer */ }
   }
 
+  // Vorschau/Feinjustierung: vor dem Deploy erst die enthaltenen Policy-Namen
+  // zeigen und einzelne abwaehlen koennen, statt blind alles auszurollen.
+  function togglePreview(tierKey) {
+    const opening = !previewOpen[tierKey]
+    previewOpen = { ...previewOpen, [tierKey]: opening }
+    if (opening && !previewSelected[tierKey]) {
+      const names = tiers[tierKey].policyNames || []
+      const all = {}
+      names.forEach((_, i) => (all[i] = true))
+      previewSelected = { ...previewSelected, [tierKey]: all }
+    }
+  }
+  function previewSelectAll(tierKey, val) {
+    const names = tiers[tierKey].policyNames || []
+    const next = {}
+    names.forEach((_, i) => (next[i] = val))
+    previewSelected = { ...previewSelected, [tierKey]: next }
+  }
+  function setPreviewChecked(tierKey, i, val) {
+    previewSelected = { ...previewSelected, [tierKey]: { ...(previewSelected[tierKey] || {}), [i]: val } }
+  }
+  function previewSelectedCount(tierKey) {
+    const sel = previewSelected[tierKey] || {}
+    return Object.values(sel).filter(Boolean).length
+  }
+
   async function deployTier(tierKey) {
     const meta = tiers[tierKey]
+    const sel = previewSelected[tierKey] || {}
+    const indices = Object.keys(sel).filter(i => sel[i]).map(Number)
+    if (!indices.length) { alert('Keine Policies ausgewählt.'); return }
     if (!confirm(
-      `Tier "${meta.label}" ausrollen (${meta.policyCount} Policies)?\n\n` +
+      `Tier "${meta.label}" ausrollen (${indices.length} von ${meta.policyCount} Policies ausgewählt)?\n\n` +
       `Alle Policies werden ausschliesslich im Report-only-Zustand angelegt — ` +
       `NICHTS wird dadurch scharf geschaltet. Vier Schutzgruppen (Break-Glass, ` +
       `Sync-Konten, 2× Ausnahmen) werden dabei angelegt, falls noch nicht vorhanden.`
     )) return
     deploying = true
     job = null
+    previewOpen = { ...previewOpen, [tierKey]: false }
     try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/deploy`, { tier: tierKey })
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/deploy`, { tier: tierKey, indices })
       jobId = r.jobId
       pollJob()
     } catch (e) {
@@ -254,9 +286,27 @@
     memberAddBusy = { ...memberAddBusy, [user.id]: false }
   }
 
-  function toggleBgForm() {
-    bgFormOpen = !bgFormOpen
-    bgUsername = ''; bgError = null
+  // Namenskonvention (siehe Wissen -> Namenskonventionen): breakglass-<NN>,
+  // durchnummeriert. Naechste freie Nummer per Live-Suche ermitteln, damit
+  // das Feld beim Oeffnen schon sinnvoll vorbelegt ist statt leer zu sein.
+  async function suggestBreakGlassUsername() {
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/users?q=breakglass`)
+      const nums = (r.users || [])
+        .map(u => /^breakglass-(\d+)@/i.exec(u.userPrincipalName || ''))
+        .filter(Boolean)
+        .map(m => parseInt(m[1], 10))
+      const next = nums.length ? Math.max(...nums) + 1 : 1
+      return 'breakglass-' + String(next).padStart(2, '0')
+    } catch (e) {
+      return 'breakglass-01'
+    }
+  }
+  async function toggleBgForm() {
+    const opening = !bgFormOpen
+    bgFormOpen = opening
+    bgError = null
+    bgUsername = opening ? await suggestBreakGlassUsername() : ''
   }
   async function createBreakGlass() {
     const local = bgUsername.trim()
@@ -305,13 +355,40 @@
             <h4 style="margin-bottom:0.3rem;">{t.label}</h4>
             <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:0.5rem;">{t.description}</p>
             <p style="font-size:0.78rem; color:var(--text-faint); margin-bottom:0.7rem;">📄 {t.policyCount} Policies · {t.license}</p>
-            <button class="btn btn-primary" style="width:100%;" onclick={() => deployTier(key)} disabled={deploying}>
-              {deploying ? '…' : '🚀 Ausrollen (Report-only)'}
+            <button class="btn btn-primary" style="width:100%;" onclick={() => togglePreview(key)} disabled={deploying}>
+              {previewOpen[key] ? '✕ Vorschau schließen' : '👁 Vorschau & Ausrollen'}
             </button>
           </div>
         </div>
       {/each}
     </div>
+
+    {#each TIER_ORDER as key}
+      {@const t = tiers[key]}
+      {#if previewOpen[key]}
+        <div class="ld-job" style="margin-bottom:1.5rem;">
+          <div class="ld-job-head"><strong>👁 Vorschau: {t.label}</strong>
+            <span class="ld-job-meta">{previewSelectedCount(key)}/{(t.policyNames || []).length} ausgewählt</span></div>
+          <p class="ld-section-hint">Alle Policies werden trotzdem nur im Report-only-Zustand angelegt — die Auswahl hier bestimmt nur, WELCHE der Vorlagen-Policies überhaupt angelegt werden.</p>
+          <div class="ld-oib-toolbar">
+            <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, true)}>Alle</button>
+            <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, false)}>Keine</button>
+          </div>
+          {#each (t.policyNames || []) as name, i}
+            <label class="ld-oib-row">
+              <input type="checkbox" checked={!!previewSelected[key]?.[i]}
+                     onchange={(e) => setPreviewChecked(key, i, e.target.checked)} />
+              <span class="ld-oib-name">{name}</span>
+            </label>
+          {/each}
+          <div class="ld-confirm-actions">
+            <button class="btn btn-primary" onclick={() => deployTier(key)} disabled={deploying || previewSelectedCount(key) === 0}>
+              {deploying ? '…' : `🚀 ${previewSelectedCount(key)} Policies ausrollen (Report-only)`}
+            </button>
+          </div>
+        </div>
+      {/if}
+    {/each}
   {/if}
 
   {#if job}

@@ -20,6 +20,22 @@
     return hit ? hit.risk : null
   }
 
+  // Policy-Namen enden oft auf "... - v3.7" / "... - v3.8" (OIB-Versionsschema).
+  // Fuer uns ist immer nur die neueste Version je Basisname relevant — aeltere
+  // werden markiert und NIE automatisch mit ausgewaehlt.
+  function parseVersioned(name) {
+    const m = /^(.*)\s-\s[vV](\d+(?:\.\d+)*)$/.exec(String(name || '').trim())
+    return m ? { base: m[1], version: m[2] } : null
+  }
+  function compareVersions(a, b) {
+    const pa = a.split('.').map(Number), pb = b.split('.').map(Number)
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0)
+      if (d) return d
+    }
+    return 0
+  }
+
   let loading = $state(false)
   let loadError = $state(null)
   let data = $state(null)          // { groups, policies, intentsError }
@@ -72,15 +88,33 @@
     return (p.assignments || []).some(a => a.groupId === selectedGroupId)
   }
 
+  const latestVersionByBase = $derived.by(() => {
+    const map = new Map()
+    for (const p of (data?.policies || [])) {
+      const v = parseVersioned(p.name)
+      if (!v) continue
+      const cur = map.get(v.base)
+      if (!cur || compareVersions(v.version, cur) > 0) map.set(v.base, v.version)
+    }
+    return map
+  })
+  function outdatedInfo(p) {
+    const v = parseVersioned(p.name)
+    if (!v) return null
+    const latest = latestVersionByBase.get(v.base)
+    if (!latest || compareVersions(v.version, latest) >= 0) return null
+    return { latest }
+  }
+
   function selectAll() {
     const next = {}
-    for (const p of data.policies) if (!alreadyInSelected(p)) next[p.id] = true
+    for (const p of data.policies) if (!alreadyInSelected(p) && !outdatedInfo(p)) next[p.id] = true
     checked = next
   }
   function selectNone() { checked = {} }
   function selectTypeAll(type) {
     const next = { ...checked }
-    for (const p of data.policies) if (p.type === type && !alreadyInSelected(p)) next[p.id] = true
+    for (const p of data.policies) if (p.type === type && !alreadyInSelected(p) && !outdatedInfo(p)) next[p.id] = true
     checked = next
   }
 
@@ -168,10 +202,14 @@
             {#each grp.items as p (p.id)}
               {@const already = alreadyInSelected(p)}
               {@const risk = breakRiskFor(p.name)}
-              <label class="ld-oib-row" class:already class:breakrisk={!!risk}>
+              {@const outdated = outdatedInfo(p)}
+              <label class="ld-oib-row" class:already class:breakrisk={!!risk} class:outdated={!!outdated}>
                 <input type="checkbox" checked={!!checked[p.id]} disabled={already}
                        onchange={(e) => (checked = { ...checked, [p.id]: e.target.checked })} />
                 <span class="ld-oib-name">{p.name}</span>
+                {#if outdated}
+                  <span class="ld-oib-outdated-tag" title="Neuere Version verfügbar: v{outdated.latest} — wird bei „Alle auswählen“ bewusst NICHT mit ausgewählt, Haken muss hier explizit gesetzt werden.">🆕 Neuere Version verfügbar (v{outdated.latest})</span>
+                {/if}
                 {#if risk}
                   <span class="ld-oib-risk" title="Break-Risiko: {risk}">⚠ Break-Risiko</span>
                 {/if}

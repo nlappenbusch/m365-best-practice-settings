@@ -128,11 +128,14 @@ async function upsertPolicy(tenant, certPemPath, policyJson, existingByName) {
 
 /**
  * Komplettes Tier ausrollen. onProgress(label) fuer Fortschrittsanzeige.
+ * indices (optional): nur diese Positionen aus der Tier-Vorlage ausrollen —
+ * Ergebnis der Vorschau/Feinjustierung im Frontend (siehe ConditionalAccess.svelte).
  * Rueckgabe: { groupIds, results: [{ name, status }] }
  */
-async function deployTier(tenant, certPemPath, tierKey, onProgress) {
-  const templates = CA_POLICY_TEMPLATES[tierKey];
+async function deployTier(tenant, certPemPath, tierKey, onProgress, indices) {
+  let templates = CA_POLICY_TEMPLATES[tierKey];
   if (!templates) throw new Error("Unbekanntes Tier: " + tierKey);
+  if (Array.isArray(indices)) templates = indices.map(i => templates[i]).filter(Boolean);
   const notify = onProgress || (() => {});
 
   notify("Schutzgruppen sicherstellen");
