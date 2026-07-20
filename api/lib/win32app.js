@@ -91,11 +91,19 @@ async function uploadToAzureBlob(azureStorageUri, buffer, onChunk) {
   if (!r.ok) throw new Error("Azure-Blob-Blockliste-Commit fehlgeschlagen: HTTP " + r.status);
 }
 
+// Content-Upload-Pfade: IMMER ueber den Typ-Cast microsoft.graph.win32LobApp
+// und beta — der flache v1.0-Pfad /mobileApps/{id}/contentVersions antwortet
+// in der Praxis mit "Resource not found for the segment 'contentVersions'"
+// (real aufgetreten). Gleiches Rezept wie das MSEndpointMgr/IntuneWin32App-
+// Modul, das seit Jahren gegen den echten Dienst laeuft.
+const BETA = { beta: true };
+function cvBase(appId) { return `/deviceAppManagement/mobileApps/${appId}/microsoft.graph.win32LobApp/contentVersions`; }
+
 async function pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId, wantStates, failStates, timeoutMsg) {
   let status;
   for (let tries = 0; tries < 90; tries++) {
     status = await graphReq(tenant, certPemPath, "GET",
-      `/deviceAppManagement/mobileApps/${appId}/contentVersions/${contentVersionId}/files/${fileId}`);
+      `${cvBase(appId)}/${contentVersionId}/files/${fileId}`, null, BETA);
     if (wantStates.includes(status.uploadState)) return status;
     if (failStates.includes(status.uploadState)) throw new Error("Upload-Status: " + status.uploadState);
     await new Promise(r => setTimeout(r, 2000));
@@ -119,19 +127,13 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
   const onProgress = opts.onProgress || (() => {});
 
   onProgress("App-Objekt anlegen");
-  const app = await graphReq(tenant, certPemPath, "POST", "/deviceAppManagement/mobileApps", opts.appPayload);
+  const app = await graphReq(tenant, certPemPath, "POST", "/deviceAppManagement/mobileApps", opts.appPayload, BETA);
   const appId = app.id;
-  // Frisch angelegtes App-Objekt kurz bestaetigen, bevor die verschachtelte
-  // contentVersions-Ressource referenziert wird -- sonst gelegentlich
-  // "Resource not found for the segment 'contentVersions'" durch
-  // Verzeichnis-/Service-Replikationslag (gleiches Muster wie bei frisch
-  // angelegten Gruppen, siehe appGroups.js::ensureAppGroup).
-  await graphReq(tenant, certPemPath, "GET", `/deviceAppManagement/mobileApps/${appId}?$select=id`, null, { retryTransient: true });
+  // Frisch angelegtes App-Objekt kurz bestaetigen (Service-Replikationslag).
+  await graphReq(tenant, certPemPath, "GET", `/deviceAppManagement/mobileApps/${appId}?$select=id`, null, { ...BETA, retryTransient: true });
 
   onProgress("Content-Version anlegen");
-  const cv = await graphReq(tenant, certPemPath, "POST",
-    `/deviceAppManagement/mobileApps/${appId}/contentVersions`,
-    { "@odata.type": "#microsoft.graph.mobileAppContent" }, { retryTransient: true });
+  const cv = await graphReq(tenant, certPemPath, "POST", cvBase(appId), {}, { ...BETA, retryTransient: true });
   const contentVersionId = cv.id;
 
   onProgress("Installer verschluesseln");
@@ -139,14 +141,14 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
 
   onProgress("Content-Datei registrieren");
   const filePlaceholder = await graphReq(tenant, certPemPath, "POST",
-    `/deviceAppManagement/mobileApps/${appId}/contentVersions/${contentVersionId}/files`,
+    `${cvBase(appId)}/${contentVersionId}/files`,
     {
       "@odata.type": "#microsoft.graph.mobileAppContentFile",
       name: opts.setupFileName,
       size: unencryptedContentSize,
       sizeEncrypted: encryptedBuffer.length,
       isDependency: false
-    });
+    }, { ...BETA, retryTransient: true });
   const fileId = filePlaceholder.id;
 
   onProgress("Auf Azure-Storage-URI warten");
@@ -160,8 +162,8 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
 
   onProgress("Upload committen");
   await graphReq(tenant, certPemPath, "POST",
-    `/deviceAppManagement/mobileApps/${appId}/contentVersions/${contentVersionId}/files/${fileId}/commit`,
-    { fileEncryptionInfo });
+    `${cvBase(appId)}/${contentVersionId}/files/${fileId}/commit`,
+    { fileEncryptionInfo }, { ...BETA, retryTransient: true });
 
   onProgress("Auf Commit-Bestaetigung warten");
   await pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId,
@@ -170,7 +172,8 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
 
   onProgress("App veroeffentlichen");
   await graphReq(tenant, certPemPath, "PATCH", `/deviceAppManagement/mobileApps/${appId}`,
-    { "@odata.type": "#microsoft.graph.win32LobApp", committedContentVersion: String(contentVersionId) });
+    { "@odata.type": "#microsoft.graph.win32LobApp", committedContentVersion: String(contentVersionId) },
+    { ...BETA, retryTransient: true });
 
   return { appId };
 }

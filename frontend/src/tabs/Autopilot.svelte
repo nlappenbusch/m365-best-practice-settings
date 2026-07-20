@@ -320,7 +320,11 @@
     {:else if profilesError}
       <div class="ld-job">
         <div class="ld-banner fail">❌ {profilesError}</div>
-        <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+        {#if /internal server error/i.test(profilesError)}
+          <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Dienst antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
+        {:else}
+          <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+        {/if}
       </div>
     {:else if !profiles.length}
       <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Deployment-Profile im Tenant gefunden.</div></div>
@@ -364,7 +368,11 @@
     {:else if devicesError}
       <div class="ld-job">
         <div class="ld-banner fail">❌ {devicesError}</div>
-        <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+        {#if /internal server error/i.test(devicesError)}
+          <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Geräte-Endpoint antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
+        {:else}
+          <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+        {/if}
       </div>
     {:else if !devices.length}
       <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Geräte im Tenant registriert.</div></div>

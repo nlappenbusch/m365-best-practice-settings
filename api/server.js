@@ -1537,10 +1537,10 @@ app.get("/api/conditionalaccess/tiers", (req, res) => {
     tiers[key] = {
       ...CONDACCESS.TIER_META[key],
       policyCount: templates.length,
-      // Fuer die Vorschau vor dem Deploy: Namen bereits mit <RING> -> "BP"
-      // (wie substitutePolicy() es beim echten Deploy tut), damit die
-      // Vorschau exakt zeigt, was spaeter im Tenant angelegt wird.
-      policyNames: templates.map(t => String(t.displayName || "").replace(/<RING>/g, "BP"))
+      // Namen mit <RING>-Platzhalter roh ausliefern — das Frontend ersetzt
+      // live mit dem gewaehlten Ring, damit die Vorschau exakt zeigt, was
+      // beim Deploy angelegt wird.
+      policyNames: templates.map(t => String(t.displayName || ""))
     };
   }
   res.json({ ok: true, tiers });
@@ -1552,11 +1552,12 @@ function fakeCaPolicies() {
       { key: "breakGlass", name: "AAD-CA-BreakGlass", id: "ca-g1", memberCount: 0 },
       { key: "syncAccounts", name: "AAD-CA-SyncAccounts", id: "ca-g2", memberCount: 1 },
       { key: "exclusionTemp", name: "AAD-CA-ExclusionTemp", id: "ca-g3", memberCount: 0 },
-      { key: "exclusionPerm", name: "AAD-CA-ExclusionPermanent", id: "ca-g4", memberCount: 0 }
+      { key: "exclusionPerm", name: "AAD-CA-ExclusionPermanent", id: "ca-g4", memberCount: 0 },
+      { key: "ring:PILOT", name: "AAD-CA-RING-PILOT", id: "ca-g5", memberCount: 0 }
     ],
     policies: [
-      { id: "ca-p1", displayName: "100 - BP - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins" },
-      { id: "ca-p2", displayName: "200 - BP - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "Alle" },
+      { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins" },
+      { id: "ca-p2", displayName: "200 - PILOT - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "AAD-CA-RING-PILOT" },
       { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients", state: "enabled", scope: "Alle" }
     ]
   };
@@ -1580,6 +1581,13 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
     }
     supportGroups.push({ key: g.key, name: g.name, id: match ? match.id : null, memberCount });
   }
+  // Ring-Zielgruppen (AAD-CA-RING-*) mit anzeigen — sie steuern, WEN ein
+  // ring-getargetetes Deployment trifft, und brauchen dieselbe Mitglieder-Pflege.
+  for (const g of groups.filter(x => /^AAD-CA-RING-[A-Z0-9]{2,12}$/i.test(String(x.displayName || "")))) {
+    let memberCount = 0;
+    try { memberCount = (await GRAPHLIB.graphAllPages(t, cert, `/groups/${g.id}/members?$select=id`, { retryTransient: true })).length; } catch (e) { /* egal */ }
+    supportGroups.push({ key: "ring:" + g.displayName.replace(/^AAD-CA-RING-/i, "").toUpperCase(), name: g.displayName, id: g.id, memberCount });
+  }
   res.json({
     ok: true,
     supportGroups,
@@ -1597,6 +1605,10 @@ app.post("/api/tenants/:id/conditionalaccess/deploy", wrap(async (req, res) => {
   const t = requireTenant(req);
   const tier = String((req.body || {}).tier || "");
   const indices = Array.isArray((req.body || {}).indices) ? (req.body.indices.map(Number).filter(n => Number.isInteger(n) && n >= 0)) : null;
+  const ringTargeted = !!(req.body || {}).ringTargeted;
+  let ring;
+  try { ring = CONDACCESS.normalizeRing((req.body || {}).ring || "BP"); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
   if (!CONDACCESS.TIER_META[tier]) return res.status(400).json({ error: "Unbekanntes Tier: " + tier });
   for (const j of appJobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
@@ -1615,11 +1627,11 @@ app.post("/api/tenants/:id/conditionalaccess/deploy", wrap(async (req, res) => {
         for (let i = 1; i <= count; i++) { onProgress(`Policy ${i}/${count}`); await new Promise(r => setTimeout(r, 150)); }
         job.results = { created: count, updated: 0, failed: 0 };
       } else {
-        const r = await CONDACCESS.deployTier(t, certPemPath(t.tenantId), tier, onProgress, indices);
+        const r = await CONDACCESS.deployTier(t, certPemPath(t.tenantId), tier, onProgress, { indices, ring, ringTargeted });
         const created = r.results.filter(x => x.status === "created").length;
         const updated = r.results.filter(x => x.status === "updated").length;
         const failed = r.results.filter(x => x.status === "failed").length;
-        job.results = { created, updated, failed, details: r.results };
+        job.results = { created, updated, failed, ring, ringGroup: r.ringGroup ? r.ringGroup.name : null, details: r.results };
       }
       finishAppJob(job, true);
     } catch (e) {
@@ -1666,17 +1678,24 @@ app.get("/api/tenants/:id/conditionalaccess/users", wrap(async (req, res) => {
   res.json({ ok: true, users });
 }));
 
-// Bestehenden Nutzer in eine Schutzgruppe aufnehmen (Assignment-Assistent).
+// Bestehenden Nutzer in eine Schutz- oder Ring-Gruppe aufnehmen (Assignment-Assistent).
+// key: einer der SUPPORT_GROUPS-Keys ODER "ring:<RING>" fuer AAD-CA-RING-<RING>.
 app.post("/api/tenants/:id/conditionalaccess/supportgroups/:key/members", wrap(async (req, res) => {
   const t = requireTenant(req);
   const key = req.params.key;
   const userId = String((req.body || {}).userId || "");
-  if (!CONDACCESS.SUPPORT_GROUPS.some(g => g.key === key)) return res.status(400).json({ error: "Unbekannte Schutzgruppe: " + key });
+  const isRing = key.startsWith("ring:");
+  if (!isRing && !CONDACCESS.SUPPORT_GROUPS.some(g => g.key === key)) return res.status(400).json({ error: "Unbekannte Schutzgruppe: " + key });
   if (!userId) return res.status(400).json({ error: "userId fehlt." });
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
   const cert = certPemPath(t.tenantId);
-  const groupIds = await CONDACCESS.ensureSupportGroups(t, cert);
-  await APPGROUPS.nestGroupAsMember(t, cert, groupIds[key].id, userId);
+  let groupId;
+  if (isRing) {
+    groupId = (await CONDACCESS.ensureRingGroup(t, cert, key.slice(5))).id;
+  } else {
+    groupId = (await CONDACCESS.ensureSupportGroups(t, cert))[key].id;
+  }
+  await APPGROUPS.nestGroupAsMember(t, cert, groupId, userId);
   res.json({ ok: true });
 }));
 

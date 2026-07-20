@@ -86,8 +86,11 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
     }
     const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
     if (opts && opts.retryTransient && isTransientGraphError(r.status, msg)) {
+      // retryTransient: true = 5 Versuche; alternativ eine Zahl fuer Endpoints,
+      // die laenger stoerrisch sind (z.B. windowsAutopilotDeviceIdentities).
+      const maxTries = typeof opts.retryTransient === "number" ? opts.retryTransient : 5;
       const tries = (opts._transientTries || 0) + 1;
-      if (tries <= 5) {
+      if (tries <= maxTries) {
         await new Promise(res => setTimeout(res, 1500 * tries));
         return graphReq(tenant, certPemPath, method, path, body, { ...opts, _transientTries: tries });
       }

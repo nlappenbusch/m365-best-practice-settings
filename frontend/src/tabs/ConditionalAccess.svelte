@@ -16,6 +16,23 @@
   let tiersError = $state(null)
   let previewOpen = $state({}) // tierKey -> bool
   let previewSelected = $state({}) // tierKey -> { index: bool }
+  // Ring-Konzept (AlexFilipin): Ring-Name ersetzt <RING> im Policy-Namen;
+  // "ring-getargetet" scoped "Alle Benutzer"-Policies auf AAD-CA-RING-<RING>.
+  let ringChoice = $state({})   // tierKey -> 'PILOT'|'UAT'|'BROAD'|'CUSTOM'
+  let ringCustom = $state({})   // tierKey -> freier Ring-Name
+  let ringTargeted = $state({}) // tierKey -> bool
+
+  function ringFor(tierKey) {
+    const c = ringChoice[tierKey] || 'PILOT'
+    const r = c === 'CUSTOM' ? String(ringCustom[tierKey] || '').trim().toUpperCase() : c
+    return /^[A-Z0-9]{2,12}$/.test(r) ? r : null
+  }
+  function onRingChange(tierKey, value) {
+    ringChoice = { ...ringChoice, [tierKey]: value }
+    // Sinnvolle Vorbelegung: Test-Ringe getargetet, der breite Ring auf alle.
+    if (value === 'BROAD') ringTargeted = { ...ringTargeted, [tierKey]: false }
+    else if (value !== 'CUSTOM') ringTargeted = { ...ringTargeted, [tierKey]: true }
+  }
 
   let policiesLoading = $state(false)
   let policiesError = $state(null)
@@ -121,6 +138,10 @@
       names.forEach((_, i) => (all[i] = true))
       previewSelected = { ...previewSelected, [tierKey]: all }
     }
+    if (opening && !ringChoice[tierKey]) {
+      ringChoice = { ...ringChoice, [tierKey]: 'PILOT' }
+      ringTargeted = { ...ringTargeted, [tierKey]: true }
+    }
   }
   function previewSelectAll(tierKey, val) {
     const names = tiers[tierKey].policyNames || []
@@ -141,8 +162,14 @@
     const sel = previewSelected[tierKey] || {}
     const indices = Object.keys(sel).filter(i => sel[i]).map(Number)
     if (!indices.length) { alert('Keine Policies ausgewählt.'); return }
+    const ring = ringFor(tierKey)
+    if (!ring) { alert('Ungültiger Ring-Name (2–12 Zeichen, A-Z/0-9).'); return }
+    const targeted = !!ringTargeted[tierKey]
     if (!confirm(
-      `Tier "${meta.label}" ausrollen (${indices.length} von ${meta.policyCount} Policies ausgewählt)?\n\n` +
+      `Tier "${meta.label}" als Ring "${ring}" ausrollen (${indices.length} von ${meta.policyCount} Policies)?\n\n` +
+      (targeted
+        ? `🎯 Ring-getargetet: Policies, die sonst "Alle Benutzer" treffen würden, gelten nur für Mitglieder der Gruppe AAD-CA-RING-${ring} (wird leer angelegt — danach Mitglieder pflegen!).\n\n`
+        : `🌐 Nicht ring-getargetet: Policies mit "Alle Benutzer"-Ziel gelten für ALLE Benutzer (abzüglich Schutzgruppen-Ausnahmen).\n\n`) +
       `Alle Policies werden ausschliesslich im Report-only-Zustand angelegt — ` +
       `NICHTS wird dadurch scharf geschaltet. Vier Schutzgruppen (Break-Glass, ` +
       `Sync-Konten, 2× Ausnahmen) werden dabei angelegt, falls noch nicht vorhanden.`
@@ -151,7 +178,7 @@
     job = null
     previewOpen = { ...previewOpen, [tierKey]: false }
     try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/deploy`, { tier: tierKey, indices })
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/deploy`, { tier: tierKey, indices, ring, ringTargeted: targeted })
       jobId = r.jobId
       pollJob()
     } catch (e) {
@@ -370,6 +397,27 @@
           <div class="ld-job-head"><strong>👁 Vorschau: {t.label}</strong>
             <span class="ld-job-meta">{previewSelectedCount(key)}/{(t.policyNames || []).length} ausgewählt</span></div>
           <p class="ld-section-hint">Alle Policies werden trotzdem nur im Report-only-Zustand angelegt — die Auswahl hier bestimmt nur, WELCHE der Vorlagen-Policies überhaupt angelegt werden.</p>
+
+          <div class="ld-oib-target">
+            <label for="ring-{key}"><strong>Rollout-Ring:</strong></label>
+            <select id="ring-{key}" value={ringChoice[key] || 'PILOT'} onchange={(e) => onRingChange(key, e.target.value)}>
+              <option value="PILOT">PILOT — Testgruppe</option>
+              <option value="UAT">UAT — erweiterter Test</option>
+              <option value="BROAD">BROAD — alle Benutzer</option>
+              <option value="CUSTOM">Eigener Ring-Name…</option>
+            </select>
+            {#if ringChoice[key] === 'CUSTOM'}
+              <input type="text" placeholder="z.B. RING1" style="max-width:140px; text-transform:uppercase;"
+                     value={ringCustom[key] || ''} oninput={(e) => (ringCustom = { ...ringCustom, [key]: e.target.value })} />
+            {/if}
+            <label style="display:flex; align-items:center; gap:0.35rem; cursor:pointer; font-size:0.84rem;">
+              <input type="checkbox" checked={!!ringTargeted[key]}
+                     onchange={(e) => (ringTargeted = { ...ringTargeted, [key]: e.target.checked })} />
+              🎯 nur auf Ring-Gruppe <code>AAD-CA-RING-{ringFor(key) || '…'}</code> statt „Alle Benutzer"
+            </label>
+          </div>
+          <p class="ld-section-hint">Der Ring-Name ersetzt <code>&lt;RING&gt;</code> im Policy-Namen — dasselbe Set kann so mehrfach nebeneinander existieren (z.B. erst PILOT ring-getargetet testen, später BROAD für alle ausrollen).</p>
+
           <div class="ld-oib-toolbar">
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, true)}>Alle</button>
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, false)}>Keine</button>
@@ -378,7 +426,7 @@
             <label class="ld-oib-row">
               <input type="checkbox" checked={!!previewSelected[key]?.[i]}
                      onchange={(e) => setPreviewChecked(key, i, e.target.checked)} />
-              <span class="ld-oib-name">{name}</span>
+              <span class="ld-oib-name">{name.replace(/<RING>/g, ringFor(key) || '<RING>')}</span>
             </label>
           {/each}
           <div class="ld-confirm-actions">
@@ -399,8 +447,11 @@
         {#if job.hint}<div class="ld-step"><small>💡 {job.hint}</small></div>{/if}
       {:else if job.status === 'done'}
         <div class="ld-banner ok">
-          ✅ Fertig — {job.results?.created ?? 0} angelegt, {job.results?.updated ?? 0} aktualisiert{job.results?.failed ? `, ${job.results.failed} fehlgeschlagen` : ''}.
+          ✅ Fertig — {job.results?.created ?? 0} angelegt, {job.results?.updated ?? 0} aktualisiert{job.results?.failed ? `, ${job.results.failed} fehlgeschlagen` : ''}{job.results?.ring ? ` (Ring ${job.results.ring})` : ''}.
         </div>
+        {#if job.results?.ringGroup}
+          <div class="ld-banner warn">🎯 Ring-getargetet ausgerollt: Die Policies gelten nur für Mitglieder von <code>{job.results.ringGroup}</code> — unten bei den Schutzgruppen jetzt die Ring-Mitglieder pflegen, sonst wirkt der Ring auf niemanden.</div>
+        {/if}
       {/if}
       {#each job.steps as s}
         {#if s.state === 'running'}

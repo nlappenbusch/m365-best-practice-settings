@@ -54,6 +54,40 @@ const SUPPORT_GROUPS = [
 
 function odataLit(s) { return String(s || "").replace(/'/g, "''"); }
 
+/**
+ * Ring-Konzept (aus AlexFilipin/ConditionalAccess Deploy-Policies.ps1):
+ * Der Ring-Name ersetzt den <RING>-Platzhalter im Policy-Namen — dasselbe
+ * Policy-Set kann so mehrfach nebeneinander existieren (z.B. PILOT und BROAD).
+ * "Ring-getargetet" bedeutet: Policies, die auf "All users" zielen wuerden,
+ * zielen stattdessen auf die Ring-Gruppe AAD-CA-RING-<RING> — damit testet
+ * man das Set erst an einer Pilotgruppe, bevor der breite Ring auf alle geht.
+ */
+function normalizeRing(ring) {
+  const r = String(ring || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(r)) throw new Error("Ungueltiger Ring-Name (2-12 Zeichen, A-Z/0-9): " + ring);
+  return r;
+}
+
+function ringGroupName(ring) { return "AAD-CA-RING-" + normalizeRing(ring); }
+
+/** Ring-Gruppe sicherstellen (idempotent, leer angelegt). Rueckgabe: { id, name, created }. */
+async function ensureRingGroup(tenant, certPemPath, ring) {
+  const name = ringGroupName(ring);
+  const existing = await graphAllPages(tenant, certPemPath,
+    `/groups?$filter=displayName eq '${odataLit(name)}'&$select=id,displayName`, { retryTransient: true });
+  if (existing.length) return { id: existing[0].id, name, created: false };
+  const created = await graphReq(tenant, certPemPath, "POST", "/groups", {
+    displayName: name,
+    description: `Ring-Zielgruppe fuer Conditional-Access-Rollout (Ring ${normalizeRing(ring)}) — automatisch angelegt vom M365 Security Policy Manager. Mitglieder = Nutzer, fuer die dieser Ring gilt.`,
+    mailEnabled: false,
+    mailNickname: name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+    securityEnabled: true,
+    groupTypes: []
+  });
+  await graphReq(tenant, certPemPath, "GET", `/groups/${created.id}?$select=id`, null, { retryTransient: true });
+  return { id: created.id, name, created: true };
+}
+
 /** Die vier Schutzgruppen sicherstellen (idempotent, leer angelegt). */
 async function ensureSupportGroups(tenant, certPemPath) {
   const ids = {};
@@ -75,8 +109,14 @@ async function ensureSupportGroups(tenant, certPemPath) {
   return ids;
 }
 
-/** Platzhalter in einer Policy-Vorlage durch echte IDs ersetzen (tiefe Kopie, Original bleibt unveraendert). */
-function substitutePolicy(template, groupIds) {
+/**
+ * Platzhalter in einer Policy-Vorlage durch echte IDs ersetzen (tiefe Kopie,
+ * Original bleibt unveraendert). ring ersetzt <RING> im Namen; ringGroupId
+ * (optional, "Ring-getargetet") ersetzt ein "All"-Nutzer-Targeting durch die
+ * Ring-Gruppe — Policies mit spezifischem Targeting (Rollen, Gruppen, Gaeste)
+ * bleiben unangetastet, exakt wie im Original-Skript.
+ */
+function substitutePolicy(template, groupIds, ring, ringGroupId) {
   const json = JSON.parse(JSON.stringify(template));
   const map = {
     "<ExclusionTempGroup>": groupIds.exclusionTemp.id,
@@ -97,7 +137,12 @@ function substitutePolicy(template, groupIds) {
     return node;
   }
   walk(json);
-  json.displayName = String(json.displayName || "").replace(/<RING>/g, "BP");
+  json.displayName = String(json.displayName || "").replace(/<RING>/g, normalizeRing(ring || "BP"));
+  if (ringGroupId && json.conditions && json.conditions.users &&
+      Array.isArray(json.conditions.users.includeUsers) && json.conditions.users.includeUsers.includes("All")) {
+    json.conditions.users.includeUsers = [];
+    json.conditions.users.includeGroups = [ringGroupId];
+  }
   // Sicherheitsleitplanke: state kommt NIE aus der Vorlage.
   json.state = "enabledForReportingButNotEnforced";
   delete json.createdDateTime;
@@ -105,10 +150,12 @@ function substitutePolicy(template, groupIds) {
   return json;
 }
 
-/** Bereits vorhandene, von diesem Tool verwaltete CA-Policies auflisten (Namensschema "<Nr> - BP - "). */
+/** Bereits vorhandene, von diesem Tool verwaltete CA-Policies auflisten.
+ *  Namensschema "<Nr> - <RING> - ..." — matcht jeden Ring (PILOT, BROAD, BP, ...),
+ *  Fremd-Policies ohne dieses Schema werden nie angefasst. */
 async function listManagedPolicies(tenant, certPemPath) {
   const all = await graphAllPages(tenant, certPemPath, "/identity/conditionalAccess/policies", { retryTransient: true });
-  return all.filter(p => /^\d+ - BP - /.test(String(p.displayName || "")));
+  return all.filter(p => /^\d+ - [A-Za-z0-9]{1,12} - /.test(String(p.displayName || "")));
 }
 
 /** Policy anlegen oder aktualisieren (idempotent nach displayName), immer im Report-only-Zustand. */
@@ -128,11 +175,15 @@ async function upsertPolicy(tenant, certPemPath, policyJson, existingByName) {
 
 /**
  * Komplettes Tier ausrollen. onProgress(label) fuer Fortschrittsanzeige.
- * indices (optional): nur diese Positionen aus der Tier-Vorlage ausrollen —
- * Ergebnis der Vorschau/Feinjustierung im Frontend (siehe ConditionalAccess.svelte).
- * Rueckgabe: { groupIds, results: [{ name, status }] }
+ * opts: { indices, ring, ringTargeted }
+ *  - indices: nur diese Positionen aus der Tier-Vorlage (Vorschau/Feinjustierung)
+ *  - ring: ersetzt <RING> im Policy-Namen (Default "BP" fuer Bestandskompatibilitaet)
+ *  - ringTargeted: "All users"-Policies auf die Ring-Gruppe AAD-CA-RING-<RING>
+ *    einschraenken (Staged Rollout) statt auf alle Nutzer
+ * Rueckgabe: { groupIds, ringGroup, results: [{ name, status }] }
  */
-async function deployTier(tenant, certPemPath, tierKey, onProgress, indices) {
+async function deployTier(tenant, certPemPath, tierKey, onProgress, opts) {
+  const { indices, ring = "BP", ringTargeted = false } = opts || {};
   let templates = CA_POLICY_TEMPLATES[tierKey];
   if (!templates) throw new Error("Unbekanntes Tier: " + tierKey);
   if (Array.isArray(indices)) templates = indices.map(i => templates[i]).filter(Boolean);
@@ -140,6 +191,11 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress, indices) {
 
   notify("Schutzgruppen sicherstellen");
   const groupIds = await ensureSupportGroups(tenant, certPemPath);
+  let ringGroup = null;
+  if (ringTargeted) {
+    notify("Ring-Gruppe sicherstellen");
+    ringGroup = await ensureRingGroup(tenant, certPemPath, ring);
+  }
 
   notify("Bestehende Policies laden");
   const existing = await listManagedPolicies(tenant, certPemPath);
@@ -149,7 +205,7 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress, indices) {
   let i = 0;
   for (const template of templates) {
     i++;
-    const policyJson = substitutePolicy(template, groupIds);
+    const policyJson = substitutePolicy(template, groupIds, ring, ringGroup ? ringGroup.id : null);
     notify(`Policy ${i}/${templates.length}: ${policyJson.displayName}`);
     try {
       const r = await upsertPolicy(tenant, certPemPath, policyJson, existingByName);
@@ -158,7 +214,7 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress, indices) {
       results.push({ name: policyJson.displayName, status: "failed", error: e.message });
     }
   }
-  return { groupIds, results };
+  return { groupIds, ringGroup, results };
 }
 
 /** Zustand einer Policy setzen — die einzige Stelle, die eine Policy scharf schalten kann. */
@@ -195,5 +251,6 @@ async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
 
 module.exports = {
   TIER_META, SUPPORT_GROUPS,
-  ensureSupportGroups, substitutePolicy, listManagedPolicies, deployTier, setPolicyState, setPolicyScope
+  ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName,
+  substitutePolicy, listManagedPolicies, deployTier, setPolicyState, setPolicyScope
 };
