@@ -170,6 +170,8 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
 }
 
 async function assignAppToGroup(tenant, certPemPath, appId, groupId) {
+  // retryTransient: groupId kann eine in diesem selben Lauf frisch angelegte
+  // Gruppe sein — Verzeichnis-Replikation kann noch nachhinken.
   await graphReq(tenant, certPemPath, "POST", `/deviceAppManagement/mobileApps/${appId}/assign`, {
     mobileAppAssignments: [
       {
@@ -178,7 +180,7 @@ async function assignAppToGroup(tenant, certPemPath, appId, groupId) {
         target: { "@odata.type": "microsoft.graph.groupAssignmentTarget", groupId }
       }
     ]
-  });
+  }, { retryTransient: true });
 }
 
 module.exports = { encryptForIntune, selfTestEncryption, createWin32AppWithContent, assignAppToGroup };

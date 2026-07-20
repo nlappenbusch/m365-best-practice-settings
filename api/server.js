@@ -1368,7 +1368,13 @@ async function runAppDeployJob(job, t, b) {
     job.deviceGroupName = deviceGroupName;
     finishAppJob(job, true);
   } catch (e) {
-    finishAppJob(job, false, e.message, e.hint || "App-Deployment braucht Group.ReadWrite.All + DeviceManagementApps.ReadWrite.All — ggf. im Tab 'Tenants' einmal Reparieren ausfuehren.");
+    // Nur bei einem tatsaechlichen Berechtigungsfehler auf "Reparieren" hinweisen —
+    // sonst waere der Hinweis irrefuehrend (z.B. bei einem echten Downloadfehler
+    // oder einer nach mehreren Versuchen weiter bestehenden Replikationsverzoegerung).
+    const isPermIssue = e.status === 403 || /insufficient privileges|authorization|forbidden/i.test(String(e.message || ""));
+    finishAppJob(job, false, e.message, e.hint || (isPermIssue
+      ? "App-Deployment braucht Group.ReadWrite.All + DeviceManagementApps.ReadWrite.All — im Tab 'Tenants' einmal Reparieren ausfuehren."
+      : null));
   }
 }
 

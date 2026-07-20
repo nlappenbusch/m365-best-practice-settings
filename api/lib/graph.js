@@ -51,6 +51,20 @@ async function getGraphToken(tenant, certPemPath) {
 
 function clearTenantToken(tenantId) { tokenCache.delete(tenantId); }
 
+// Manche Graph-Ressourcen sind nach dem Anlegen kurz nicht sofort ueberall
+// lesbar/referenzierbar (Verzeichnis-Replikation) — betrifft v.a. frisch
+// erzeugte Gruppen, die man direkt danach referenziert (Member hinzufuegen).
+// Ausserdem antwortet windowsAutopilotDeviceIdentities in der Praxis gelegentlich
+// mit einem transienten 5xx ("An internal server error has occurred") ohne
+// erkennbaren Client-Fehler. opts.retryTransient aktiviert fuer beides ein
+// Retry mit Backoff, bevor der Aufruf als fehlgeschlagen gilt.
+function isTransientGraphError(status, message) {
+  if (status >= 500) return true;
+  if (status === 404) return true;
+  if (status === 400 && /does not exist|not present/i.test(String(message || ""))) return true;
+  return false;
+}
+
 /** Graph-Request app-only. path beginnt mit '/', opts.beta fuer beta-Endpoint. */
 async function graphReq(tenant, certPemPath, method, path, body, opts) {
   const token = await getGraphToken(tenant, certPemPath);
@@ -71,6 +85,13 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
       return graphReq(tenant, certPemPath, method, path, body, { ...(opts || {}), _retried: true });
     }
     const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
+    if (opts && opts.retryTransient && isTransientGraphError(r.status, msg)) {
+      const tries = (opts._transientTries || 0) + 1;
+      if (tries <= 5) {
+        await new Promise(res => setTimeout(res, 1500 * tries));
+        return graphReq(tenant, certPemPath, method, path, body, { ...opts, _transientTries: tries });
+      }
+    }
     throw Object.assign(new Error(msg), { status: r.status });
   }
   return j;

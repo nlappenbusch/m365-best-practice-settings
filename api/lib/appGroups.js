@@ -19,7 +19,7 @@ function odataLit(s) { return String(s || "").replace(/'/g, "''"); }
 async function ensureAppGroup(tenant, certPemPath, appName) {
   const displayName = "AAD-APP-" + sanitizeAppNameForGroup(appName);
   const existing = await graphAllPages(tenant, certPemPath,
-    `/groups?$filter=displayName eq '${odataLit(displayName)}'&$select=id,displayName`);
+    `/groups?$filter=displayName eq '${odataLit(displayName)}'&$select=id,displayName`, { retryTransient: true });
   if (existing.length) return { id: existing[0].id, displayName, created: false };
 
   const g = await graphReq(tenant, certPemPath, "POST", "/groups", {
@@ -30,16 +30,20 @@ async function ensureAppGroup(tenant, certPemPath, appName) {
     securityEnabled: true,
     groupTypes: []
   });
+  // Verzeichnis-Replikation abwarten: eine frisch angelegte Gruppe ist nicht
+  // ueberall sofort lesbar/referenzierbar — der naechste Schritt (Member
+  // hinzufuegen) griffe sonst oft ins Leere ("Resource does not exist").
+  await graphReq(tenant, certPemPath, "GET", `/groups/${g.id}?$select=id`, null, { retryTransient: true });
   return { id: g.id, displayName, created: true };
 }
 
 /** Kindgruppe (z.B. dynamische Geraetegruppe) als Mitglied der Elterngruppe aufnehmen (idempotent). */
 async function nestGroupAsMember(tenant, certPemPath, parentGroupId, childGroupId) {
-  const members = await graphAllPages(tenant, certPemPath, `/groups/${parentGroupId}/members?$select=id`);
+  const members = await graphAllPages(tenant, certPemPath, `/groups/${parentGroupId}/members?$select=id`, { retryTransient: true });
   if (members.some(m => m.id === childGroupId)) return "skipped";
   await graphReq(tenant, certPemPath, "POST", `/groups/${parentGroupId}/members/$ref`, {
     "@odata.id": `https://graph.microsoft.com/v1.0/directoryObjects/${childGroupId}`
-  });
+  }, { retryTransient: true });
   return "added";
 }
 
