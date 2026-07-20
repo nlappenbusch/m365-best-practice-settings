@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { refreshSession } from './lib/session.js'
+  import { theme, cycleTheme } from './lib/theme.js'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
   import ExportModal from './lib/ExportModal.svelte'
@@ -24,6 +25,12 @@
     { id: 'downloads',   label: '📦 Agents' },
     { id: 'wissen',      label: '📖 Wissen' }
   ]
+  const THEME_META = {
+    auto:  { icon: '🌓', label: 'Auto' },
+    light: { icon: '☀️', label: 'Hell' },
+    dark:  { icon: '🌙', label: 'Dunkel' }
+  }
+
   let active = $state('config')
   let exportOpen = $state(false)
   let toast = $state(null)   // { ok, msg }
@@ -56,6 +63,10 @@
             <button class="btn btn-primary" onclick={() => (exportOpen = true)}>Export PowerShell</button>
           </div>
         {/if}
+        <button class="btn btn-secondary theme-toggle" onclick={cycleTheme}
+                title="Darstellung: {THEME_META[$theme].label} (klicken zum Wechseln)">
+          {THEME_META[$theme].icon} {THEME_META[$theme].label}
+        </button>
         <TenantSwitcher onManage={() => (active = 'tenants')} />
         <SessionWidget />
       </div>

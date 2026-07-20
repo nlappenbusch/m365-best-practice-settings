@@ -164,6 +164,7 @@ a { color: var(--accent); }
 .btn-primary:hover:not(:disabled) { background: var(--accent-strong); }
 .btn-secondary { background: var(--bg-inset); color: var(--text); border-color: var(--rule); }
 .btn-secondary:hover:not(:disabled) { background: var(--rule); }
+.theme-toggle { min-width: 88px; justify-content: center; }
 
 /* ---------------- Forms ---------------- */
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.1rem; margin-bottom: 1.25rem; }

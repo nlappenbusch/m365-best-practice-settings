@@ -447,7 +447,7 @@ app.get("/api/tenants", (req, res) => {
   const s = loadState();
   res.json((s.tenants || []).map(t => ({
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
-    appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, addedAt: t.addedAt,
+    appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
     certPresent: fs.existsSync(certPemPath(t.tenantId))
   })));
 });
