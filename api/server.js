@@ -1416,11 +1416,33 @@ function fakeAutopilotDevices() {
   };
 }
 
+// windowsAutopilotDeviceIdentities antwortet bei manchen Tenants ueber Stunden
+// hinweg durchgaengig mit 500 (echte MS-seitige Stoerung, kein Config-Fehler
+// — real bei Faltin Travel beobachtet: jeder Reload haengt 8 Retries lang und
+// scheitert dann). Letzte erfolgreiche Liste wird deshalb gecacht, damit der
+// Tenant waehrend eines laengeren Ausfalls nicht komplett blockiert ist.
+const AUTOPILOT_CACHE_DIR = path.join(STATE_DIR, "autopilot-cache");
+fs.mkdirSync(AUTOPILOT_CACHE_DIR, { recursive: true });
+function autopilotCachePath(tenantId) { return path.join(AUTOPILOT_CACHE_DIR, `${tenantId}.json`); }
+function readAutopilotCache(tenantId) {
+  try { return JSON.parse(fs.readFileSync(autopilotCachePath(tenantId), "utf8")); } catch { return null; }
+}
+function writeAutopilotCache(tenantId, devices) {
+  try { fs.writeFileSync(autopilotCachePath(tenantId), JSON.stringify({ devices, cachedAt: new Date().toISOString() })); } catch { /* Cache ist best-effort */ }
+}
+
 app.get("/api/tenants/:id/autopilot/devices", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeAutopilotDevices() });
-  const devices = await AUTOPILOT.loadAutopilotDevices(t, certPemPath(t.tenantId));
-  res.json({ ok: true, devices });
+  try {
+    const devices = await AUTOPILOT.loadAutopilotDevices(t, certPemPath(t.tenantId));
+    writeAutopilotCache(t.tenantId, devices);
+    res.json({ ok: true, devices });
+  } catch (e) {
+    const cached = /internal server error/i.test(String(e.message || "")) ? readAutopilotCache(t.tenantId) : null;
+    if (!cached) throw e;
+    res.json({ ok: true, devices: cached.devices, stale: true, cachedAt: cached.cachedAt, warning: e.message });
+  }
 }));
 
 app.post("/api/tenants/:id/autopilot/devices/:deviceId/grouptag", wrap(async (req, res) => {

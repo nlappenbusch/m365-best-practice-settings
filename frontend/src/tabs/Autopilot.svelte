@@ -145,6 +145,9 @@
   let devicesLoading = $state(false)
   let devicesError = $state(null)
   let devices = $state([])
+  let devicesStale = $state(false)
+  let devicesStaleWarning = $state(null)
+  let devicesCachedAt = $state(null)
   let groupTagDraft = $state({})    // deviceId -> string (editierbarer Wert im Feld)
   let savingDevice = $state({})     // deviceId -> bool
   let deviceResult = $state({})     // deviceId -> { error } | { ok }
@@ -156,6 +159,9 @@
     try {
       const d = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/autopilot/devices`)
       devices = d.devices || []
+      devicesStale = !!d.stale
+      devicesStaleWarning = d.warning || null
+      devicesCachedAt = d.cachedAt || null
       const draft = {}
       for (const dev of devices) draft[dev.id] = dev.groupTag || ''
       groupTagDraft = draft
@@ -205,7 +211,7 @@
       building = false; buildStep = null; buildResult = null
       if (buildTimer) { clearTimeout(buildTimer); buildTimer = null }
       wlanXml = ''; wlanStatus = WLAN_IDLE
-      devices = []; devicesError = null; groupTagDraft = {}; savingDevice = {}; deviceResult = {}
+      devices = []; devicesError = null; devicesStale = false; devicesStaleWarning = null; devicesCachedAt = null; groupTagDraft = {}; savingDevice = {}; deviceResult = {}
       if (id) {
         if (subTab === 'staging') loadGroupTags()
         else if (subTab === 'profiles') loadProfiles()
@@ -377,6 +383,12 @@
     {:else if !devices.length}
       <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Geräte im Tenant registriert.</div></div>
     {:else}
+      {#if devicesStale}
+        <div class="ld-job">
+          <div class="ld-banner warn">⚠️ Microsoft-Dienst antwortet weiterhin mit 500 — zeige zuletzt erfolgreich geladene Liste{#if devicesCachedAt} vom {new Date(devicesCachedAt).toLocaleString('de-CH')}{/if}.</div>
+          <div class="ld-step"><small>💡 GroupTag-Änderungen unten gehen direkt an einen anderen Endpoint und funktionieren meist trotzdem — die Liste selbst ist nur nicht taggenau aktuell.</small></div>
+        </div>
+      {/if}
       <datalist id="apKnownGroupTags">
         {#each groupTags as g (g.groupTag)}<option value={g.groupTag}></option>{/each}
       </datalist>
