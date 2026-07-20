@@ -12,6 +12,65 @@ export function docsHtml() {
             <li>Nachvollziehbare Admin-Benachrichtigung</li>
         </ul>
 
+        <div class="flow-diagram" role="img" aria-label="Mail-Flow: Internet, EOP-Filter, Aktion je Kategorie, Postfach">
+          <svg viewBox="0 0 860 230" xmlns="http://www.w3.org/2000/svg" font-family="inherit">
+            <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5">
+              <rect x="6" y="90" width="110" height="50" rx="9"></rect>
+            </g>
+            <text x="61" y="120" text-anchor="middle" style="fill:var(--text);font-size:13px;font-weight:700">Internet</text>
+
+            <path d="M116 115 H176" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#arrow1)"></path>
+
+            <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5">
+              <rect x="180" y="70" width="150" height="90" rx="9"></rect>
+            </g>
+            <text x="255" y="98" text-anchor="middle" style="fill:var(--accent);font-size:12px;font-weight:700">EOP-Filter</text>
+            <text x="255" y="118" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">Anti-Spam</text>
+            <text x="255" y="133" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">Anti-Phishing</text>
+            <text x="255" y="148" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">Anti-Malware</text>
+
+            <path d="M330 78 H392" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#arrow1)"></path>
+            <path d="M330 115 H392" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#arrow1)"></path>
+            <path d="M330 152 H392" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#arrow1)"></path>
+
+            <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="396" y="6" width="220" height="34" rx="8"></rect></g>
+            <text x="506" y="28" text-anchor="middle" style="fill:var(--ok);font-size:11.5px;font-weight:700">Spam/Phishing → Quarantäne (Self-Release)</text>
+
+            <g style="fill:var(--warn-wash);stroke:var(--warn)" stroke-width="1.5"><rect x="396" y="98" width="220" height="34" rx="8"></rect></g>
+            <text x="506" y="120" text-anchor="middle" style="fill:var(--warn);font-size:11.5px;font-weight:700">High-Conf. Phishing → Quarantäne (Request)</text>
+
+            <g style="fill:var(--crit-wash);stroke:var(--crit)" stroke-width="1.5"><rect x="396" y="190" width="220" height="34" rx="8"></rect></g>
+            <text x="506" y="212" text-anchor="middle" style="fill:var(--crit);font-size:11.5px;font-weight:700">Malware → Reject (NDR)</text>
+
+            <path d="M616 23 H676" style="stroke:var(--ok)" stroke-width="2" marker-end="url(#arrowOk)"></path>
+            <path d="M616 115 H676" style="stroke:var(--warn)" stroke-width="2" marker-end="url(#arrowWarn)"></path>
+            <path d="M616 207 H676" style="stroke:var(--crit)" stroke-width="2" marker-end="url(#arrowCrit)"></path>
+
+            <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="680" y="70" width="174" height="90" rx="9"></rect></g>
+            <text x="767" y="105" text-anchor="middle" style="fill:var(--text);font-size:12.5px;font-weight:700">📥 Postfach</text>
+            <text x="767" y="126" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">Quarantäne-Mail</text>
+            <text x="767" y="141" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px">mit Freigabe-Option</text>
+
+            <defs>
+              <marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker>
+              <marker id="arrowOk" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--ok)"></path></marker>
+              <marker id="arrowWarn" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--warn)"></path></marker>
+              <marker id="arrowCrit" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--crit)"></path></marker>
+            </defs>
+          </svg>
+        </div>
+
+        <div class="tool-tie-in">
+          <span>🛠️</span>
+          <div><b>So macht das unser Tool:</b> Alle <code>BP_</code>-Policies dieser Seite werden per Klick
+          ausgerollt im Tab <b>🛡 Mail-Security</b>; der aktuelle Ist-Zustand eines Tenants inkl. gewollter
+          Abweichungen mit Begründung steht im Tab <b>🔎 Audit</b>.
+          <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+            <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="mailsec">🛡 Zu Mail-Security</button>
+            <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="audit">🔎 Zum Audit</button>
+          </div></div>
+        </div>
+
         <h3>🔐 Warum eigene Quarantäne-Policies zwingend sind</h3>
         <div class="alert alert-warning">
             <strong>⚠️ Microsoft Default Verhalten:</strong>

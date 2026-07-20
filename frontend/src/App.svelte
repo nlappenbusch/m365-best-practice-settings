@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { refreshSession } from './lib/session.js'
   import { theme, cycleTheme } from './lib/theme.js'
+  import { activeTab } from './lib/tabStore.js'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
   import LoginScreen from './lib/LoginScreen.svelte'
@@ -38,7 +39,6 @@
     dark:  { icon: '🌙', label: 'Dunkel' }
   }
 
-  let active = $state('config')
   let exportOpen = $state(false)
   let toast = $state(null)   // { ok, msg }
 
@@ -62,7 +62,7 @@
         </div>
       </div>
       <div class="header-actions">
-        {#if active === 'config'}
+        {#if $activeTab === 'config'}
           <div style="display:flex;gap:.5rem">
             <button class="btn btn-secondary" onclick={doImport}>Import</button>
             <button class="btn btn-secondary" onclick={exportJson}>Export JSON</button>
@@ -74,7 +74,7 @@
                 title="Darstellung: {THEME_META[$theme].label} (klicken zum Wechseln)">
           {THEME_META[$theme].icon} {THEME_META[$theme].label}
         </button>
-        <TenantSwitcher onManage={() => (active = 'tenants')} />
+        <TenantSwitcher onManage={() => ($activeTab = 'tenants')} />
         <SessionWidget />
       </div>
     </div>
@@ -83,7 +83,7 @@
   <main class="main-content">
     <nav class="tabs">
       {#each tabs as t}
-        <button class="tab-btn" class:active={active === t.id} onclick={() => (active = t.id)}>
+        <button class="tab-btn" class:active={$activeTab === t.id} onclick={() => ($activeTab = t.id)}>
           {t.label}
           {#if t.isNew}<span class="tab-pill-new">Neu</span>{/if}
         </button>
@@ -93,17 +93,17 @@
     <!-- Alle Tabs bleiben gemountet (nur via CSS versteckt), damit laufende
          Device-Code-/Job-Polls beim Tab-Wechsel nicht abbrechen. -->
     <div class="tab-content">
-      <div class:tab-hidden={active !== 'config'}><Config /></div>
-      <div class:tab-hidden={active !== 'tenants'}><TenantsOverview /></div>
-      <div class:tab-hidden={active !== 'mailsec'}><MailSecurity /></div>
-      <div class:tab-hidden={active !== 'audit'}><Audit /></div>
-      <div class:tab-hidden={active !== 'intune'}><Intune /></div>
-      <div class:tab-hidden={active !== 'autopilot'}><Autopilot /></div>
-      <div class:tab-hidden={active !== 'ca'}><ConditionalAccess /></div>
-      <div class:tab-hidden={active !== 'lizenzen'}><Lizenzen /></div>
-      <div class:tab-hidden={active !== 'mappings'}><Mappings /></div>
-      <div class:tab-hidden={active !== 'downloads'}><Downloads /></div>
-      <div class:tab-hidden={active !== 'wissen'}><Wissen /></div>
+      <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
+      <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
+      <div class:tab-hidden={$activeTab !== 'mailsec'}><MailSecurity /></div>
+      <div class:tab-hidden={$activeTab !== 'audit'}><Audit /></div>
+      <div class:tab-hidden={$activeTab !== 'intune'}><Intune /></div>
+      <div class:tab-hidden={$activeTab !== 'autopilot'}><Autopilot /></div>
+      <div class:tab-hidden={$activeTab !== 'ca'}><ConditionalAccess /></div>
+      <div class:tab-hidden={$activeTab !== 'lizenzen'}><Lizenzen /></div>
+      <div class:tab-hidden={$activeTab !== 'mappings'}><Mappings /></div>
+      <div class:tab-hidden={$activeTab !== 'downloads'}><Downloads /></div>
+      <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
     </div>
   </main>
 </div>

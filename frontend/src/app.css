@@ -259,6 +259,55 @@ a { color: var(--accent); }
 .risk-badge.gering { background: var(--ok-wash); color: var(--ok); }
 .tool-tie-in { display: flex; align-items: flex-start; gap: 0.6rem; background: var(--accent-wash); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin: 0.7rem 0 1.1rem; font-size: 0.88rem; }
 .tool-tie-in b { color: var(--accent); }
+.tool-jump-btn { font-size: 0.8rem; padding: 0.4rem 0.75rem; }
+
+/* ---------------- Wissen: Hero, Themen-Karten, Diagramme, Accordion ---------------- */
+.wissen-hero { margin-bottom: 1.25rem; }
+.wissen-hero h1 { font-size: 1.35rem; margin-bottom: 0.3rem; }
+.wissen-hero p { color: var(--text-dim); font-size: 0.9rem; max-width: 62ch; }
+
+.quick-tools-row { display: flex; flex-wrap: wrap; gap: 0.55rem; margin: 0.9rem 0 0.2rem; }
+.quick-tool-chip {
+    display: flex; align-items: center; gap: 0.45rem; padding: 0.5rem 0.9rem;
+    background: var(--bg-raised); border: 1px solid var(--rule); border-radius: 999px;
+    cursor: pointer; font-size: 0.82rem; font-weight: 600; color: var(--text);
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.quick-tool-chip:hover { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); }
+
+.topic-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin: 1rem 0 1.4rem; }
+.topic-card {
+    display: flex; flex-direction: column; gap: 0.3rem; text-align: left;
+    background: var(--bg-raised); border: 1px solid var(--rule); border-radius: var(--radius-lg);
+    padding: 1rem 1.1rem; cursor: pointer; box-shadow: var(--shadow-sm); font: inherit; color: var(--text);
+}
+.topic-card:hover { border-color: var(--accent); }
+.topic-card.active { border-color: var(--accent); background: var(--accent-wash); box-shadow: 0 0 0 1px var(--accent) inset; }
+.topic-card .topic-icon { font-size: 1.5rem; }
+.topic-card b { font-size: 0.94rem; }
+.topic-card span { font-size: 0.78rem; color: var(--text-dim); line-height: 1.4; }
+
+.flow-diagram { background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-lg); padding: 0.75rem 1rem; margin: 0.8rem 0 1.1rem; overflow-x: auto; }
+.flow-diagram svg { display: block; width: 100%; height: auto; min-width: 640px; }
+
+.wissen-accordion { background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-md); margin: 0.6rem 0; overflow: hidden; }
+.wissen-accordion summary { padding: 0.65rem 0.9rem; cursor: pointer; font-weight: 700; font-size: 0.88rem; list-style: none; display: flex; align-items: center; gap: 0.45rem; }
+.wissen-accordion summary::-webkit-details-marker { display: none; }
+.wissen-accordion summary::before { content: "▸"; color: var(--accent); display: inline-block; transition: transform 0.15s; }
+.wissen-accordion[open] summary::before { transform: rotate(90deg); }
+.wissen-accordion p { padding: 0 0.9rem 0.85rem; margin: 0; font-size: 0.86rem; color: var(--text-dim); line-height: 1.6; }
+
+.name-builder { background: var(--bg-raised); border: 1px solid var(--rule); border-radius: var(--radius-lg); padding: 1rem 1.2rem; margin: 0.8rem 0 1.2rem; box-shadow: var(--shadow-sm); }
+.name-builder h4 { margin-bottom: 0.7rem; }
+.name-builder-row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.85rem; }
+.name-builder-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--text-dim); }
+.name-builder-field select, .name-builder-field input {
+    padding: 0.45rem 0.6rem; border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: var(--bg-raised); color: var(--text); font: inherit; font-size: 0.86rem;
+}
+.name-builder-output { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; background: var(--accent-wash); border: 1px dashed var(--accent); border-radius: var(--radius-sm); padding: 0.6rem 0.85rem; }
+.name-builder-output code { font-family: var(--font-mono); font-size: 1.05rem; font-weight: 700; color: var(--accent); }
+.name-builder-hint { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.6rem; }
 
 .quick-wins-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin: 1rem 0; }
 .quick-win-card { background: var(--bg-inset); padding: 1rem; border-radius: var(--radius-md); border-left: 4px solid var(--ok); }

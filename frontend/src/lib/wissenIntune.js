@@ -18,20 +18,47 @@ automatisch — ohne Login, ohne Passwort, ohne MFA am Gerät.</p>
   per Klick (inkl. Device-Code-Login statt Client-Secret-im-Klartext-Problem). Deployment-Profile weist man im
   selben Tab unter <b>🎯 Deployment-Profile</b> zu, OIB-Policies im Tab <b>💻 Intune</b>. Der Abschnitt „Teil A" unten
   bleibt als Referenz stehen, falls man den manuellen Weg (z.B. für Bulk-Staging ohne das Tool) verstehen oder
-  nutzen möchte — im Alltag braucht es ihn nicht mehr.</div>
+  nutzen möchte — im Alltag braucht es ihn nicht mehr.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="autopilot">🚀 Zu Autopilot</button>
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="intune">💻 Zu Intune</button>
+  </div></div>
 </div>
 
 <h3>🔗 Die Kette (so hängt alles zusammen)</h3>
-<pre>   Gerät
-     │   im OOBE: Stick rein, Skript starten, GroupTag aus Menü wählen
-     ▼
-   GroupTag  z.B.  DEV-STD           ← das Einzige, was pro Gerät gewählt wird
-     │   wird automatisch erkannt (OrderID)
-     ▼
-   Gruppe    z.B.  AAD-DEV-STD       ← Gerät rutscht automatisch rein
-     │
-     ├──►  Autopilot-Profil + ESP    ← steuert das Windows-Setup (OOBE)
-     └──►  alle Policies (OIB)        ← Sicherheit, Apps, Updates</pre>
+<div class="flow-diagram" role="img" aria-label="Kette: Geraet, GroupTag, Gruppe, Autopilot-Profil und Policies">
+  <svg viewBox="0 0 860 210" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="4" y="82" width="118" height="46" rx="9"></rect></g>
+    <text x="63" y="110" text-anchor="middle" style="fill:var(--text);font-size:12.5px;font-weight:700">📱 Gerät</text>
+
+    <path d="M122 105 H182" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#apArrow)"></path>
+    <text x="152" y="96" text-anchor="middle" style="fill:var(--text-faint);font-size:9px">OOBE-Skript</text>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="186" y="76" width="150" height="58" rx="9"></rect></g>
+    <text x="261" y="100" text-anchor="middle" style="fill:var(--accent);font-size:12px;font-weight:700">GroupTag</text>
+    <text x="261" y="119" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px" font-family="var(--font-mono)">z.B. DEV-STD</text>
+
+    <path d="M336 105 H396" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#apArrow)"></path>
+    <text x="366" y="96" text-anchor="middle" style="fill:var(--text-faint);font-size:9px">OrderID</text>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="400" y="76" width="160" height="58" rx="9"></rect></g>
+    <text x="480" y="100" text-anchor="middle" style="fill:var(--accent);font-size:12px;font-weight:700">Gruppe</text>
+    <text x="480" y="119" text-anchor="middle" style="fill:var(--text-dim);font-size:10.5px" font-family="var(--font-mono)">AAD-DEV-STD</text>
+
+    <path d="M560 90 C 610 90, 610 30, 660 30" style="fill:none;stroke:var(--text-faint)" stroke-width="2" marker-end="url(#apArrow)"></path>
+    <path d="M560 120 C 610 120, 610 180, 660 180" style="fill:none;stroke:var(--text-faint)" stroke-width="2" marker-end="url(#apArrow)"></path>
+
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="664" y="6" width="192" height="48" rx="9"></rect></g>
+    <text x="760" y="26" text-anchor="middle" style="fill:var(--ok);font-size:11.5px;font-weight:700">Autopilot-Profil + ESP</text>
+    <text x="760" y="42" text-anchor="middle" style="fill:var(--text-dim);font-size:9.5px">steuert das Windows-Setup</text>
+
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="664" y="156" width="192" height="48" rx="9"></rect></g>
+    <text x="760" y="176" text-anchor="middle" style="fill:var(--ok);font-size:11.5px;font-weight:700">Policies (OIB) + Apps</text>
+    <text x="760" y="192" text-anchor="middle" style="fill:var(--text-dim);font-size:9.5px">Sicherheit, Updates</text>
+
+    <defs><marker id="apArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker></defs>
+  </svg>
+</div>
 <p><b>Merksatz:</b> Ein GroupTag = ein komplett fertig eingerichtetes Gerät.</p>
 
 <h3>👥 Zwei Rollen — wer macht was?</h3>
@@ -147,14 +174,16 @@ Windows-Installationsmedium gebaut werden:</p>
 </table>
 <p>Vollständig im Abschnitt „🏷️ Namenskonventionen" dieses Wissen-Bereichs.</p>
 
-<h3>📎 Referenz: manueller Weg ohne das Tool</h3>
-<p>Der ursprüngliche, tool-unabhängige Weg (eigene App-Registrierung <code>createApp.ps1</code>, USB-Stick mit
-<code>Start-Autopilot.bat</code> / <code>Run-AutopilotWithExternalAppConfig.ps1</code> /
-<code>get-windowsautopilotinfocommunity.ps1</code> / <code>wrapper-config.json</code>) bleibt als Fallback nutzbar
-und liegt im Repo <a href="https://github.com/nlappenbusch/IntuneAutopilot" target="_blank">nlappenbusch/IntuneAutopilot</a>.
-Die auswählbaren GroupTags stehen dort im Skript <code>Run-AutopilotWithExternalAppConfig.ps1</code> in der Zeile
-<code>$availableGroupTags = @(...)</code> — bei Umstellung auf neue Rollen/Namen bitte synchron mit den
-dynamischen Gruppen halten. Für den Alltag ist das Staging-Paket aus dem Tool jedoch der kürzere, sicherere Weg.</p>
+<details class="wissen-accordion">
+  <summary>📎 Referenz: manueller Weg ohne das Tool</summary>
+  <p>Der ursprüngliche, tool-unabhängige Weg (eigene App-Registrierung <code>createApp.ps1</code>, USB-Stick mit
+  <code>Start-Autopilot.bat</code> / <code>Run-AutopilotWithExternalAppConfig.ps1</code> /
+  <code>get-windowsautopilotinfocommunity.ps1</code> / <code>wrapper-config.json</code>) bleibt als Fallback nutzbar
+  und liegt im Repo <a href="https://github.com/nlappenbusch/IntuneAutopilot" target="_blank">nlappenbusch/IntuneAutopilot</a>.
+  Die auswählbaren GroupTags stehen dort im Skript <code>Run-AutopilotWithExternalAppConfig.ps1</code> in der Zeile
+  <code>$availableGroupTags = @(...)</code> — bei Umstellung auf neue Rollen/Namen bitte synchron mit den
+  dynamischen Gruppen halten. Für den Alltag ist das Staging-Paket aus dem Tool jedoch der kürzere, sicherere Weg.</p>
+</details>
 `
 }
 
@@ -179,7 +208,35 @@ Benchmark-Umsetzung ab.</p>
   dynamische Gerätegruppe läuft über den Tab <b>💻 Intune</b> (Merge-Zuweisung, „bereits zugewiesen"-Erkennung).
   Die vier bekannten <b>Break-Risk-Policies</b> (Abschnitt „⚠️ Policies mit Break-Risiko" unten) sind dort direkt
   in der Liste markiert und lösen vor dem Zuweisen einen zusätzlichen Bestätigungsdialog mit der konkreten
-  Risikobeschreibung aus.</div>
+  Risikobeschreibung aus.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="intune">💻 Zu Intune</button>
+  </div></div>
+</div>
+
+<div class="flow-diagram" role="img" aria-label="Vergleich: OIB stabil, Microsoft Baseline und CIS Benchmark riskant fuer Autopilot">
+  <svg viewBox="0 0 860 130" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="4" y="6" width="270" height="118" rx="10"></rect></g>
+    <text x="139" y="32" text-anchor="middle" style="fill:var(--ok);font-size:13px;font-weight:700">OpenIntuneBaseline</text>
+    <text x="139" y="54" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Autopilot stabil, kein Neustart</text>
+    <text x="139" y="72" text-anchor="middle" style="fill:var(--text);font-size:10.5px">1× zusätzlich MFA (WHfB)</text>
+    <text x="139" y="90" text-anchor="middle" style="fill:var(--text);font-size:10.5px">BitLocker + Helpdesk funktionieren</text>
+    <text x="139" y="108" text-anchor="middle" style="fill:var(--ok);font-size:10.5px;font-weight:700">→ produktiv im Einsatz</text>
+
+    <g style="fill:var(--warn-wash);stroke:var(--warn)" stroke-width="1.5"><rect x="295" y="6" width="270" height="118" rx="10"></rect></g>
+    <text x="430" y="32" text-anchor="middle" style="fill:var(--warn);font-size:13px;font-weight:700">Microsoft Baseline</text>
+    <text x="430" y="54" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Neustart erforderlich</text>
+    <text x="430" y="72" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Bis zu 3× MFA</text>
+    <text x="430" y="90" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Defender vs. Windows-Konflikte</text>
+    <text x="430" y="108" text-anchor="middle" style="fill:var(--warn);font-size:10.5px;font-weight:700">→ nur mit Anpassung nutzbar</text>
+
+    <g style="fill:var(--crit-wash);stroke:var(--crit)" stroke-width="1.5"><rect x="586" y="6" width="270" height="118" rx="10"></rect></g>
+    <text x="721" y="32" text-anchor="middle" style="fill:var(--crit);font-size:13px;font-weight:700">CIS Benchmark (1:1)</text>
+    <text x="721" y="54" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Bricht Autopilot ab</text>
+    <text x="721" y="72" text-anchor="middle" style="fill:var(--text);font-size:10.5px">Bis 3× MFA + Strg+Alt+Entf</text>
+    <text x="721" y="90" text-anchor="middle" style="fill:var(--text);font-size:10.5px">BitLocker enthalten, funktioniert nicht</text>
+    <text x="721" y="108" text-anchor="middle" style="fill:var(--crit);font-size:10.5px;font-weight:700">→ so nicht praxistauglich</text>
+  </svg>
 </div>
 
 <h3>📐 Geltungsbereich</h3>
@@ -248,17 +305,21 @@ gelten für moderne Cloud-Umgebungen als überholt.</p>
 </table>
 
 <h3>❓ Auditor-Q&amp;A (Auszug)</h3>
-<p><b>Warum nicht 100&nbsp;% CIS?</b> CIS ist ein Empfehlungskatalog, kein zwingender Standard. Alle Controls
+<details class="wissen-accordion"><summary>Warum nicht 100&nbsp;% CIS?</summary>
+<p>CIS ist ein Empfehlungskatalog, kein zwingender Standard. Alle Controls
 wurden bewertet und an die cloud-native Architektur angepasst; nicht anwendbare oder geschäftskritische Controls
-sind dokumentiert und durch alternative Maßnahmen ersetzt — CIS selbst empfiehlt dieses Vorgehen.</p>
-<p><b>Ist das Sicherheitsniveau wirklich gleichwertig?</b> Ja — lokale Controls werden durch überlegene zentrale
+sind dokumentiert und durch alternative Maßnahmen ersetzt — CIS selbst empfiehlt dieses Vorgehen.</p></details>
+<details class="wissen-accordion"><summary>Ist das Sicherheitsniveau wirklich gleichwertig?</summary>
+<p>Ja — lokale Controls werden durch überlegene zentrale
 Mechanismen ersetzt (Entra ID, Defender for Endpoint, Conditional Access, WHfB). In vielen Bereichen ist das
-Ergebnis strenger als eine ungeprüfte 1:1-CIS-Umsetzung.</p>
-<p><b>Warum kein lokales PowerShell-Logging?</b> CIS selbst dokumentiert das Credential-Exposure-Risiko bei
+Ergebnis strenger als eine ungeprüfte 1:1-CIS-Umsetzung.</p></details>
+<details class="wissen-accordion"><summary>Warum kein lokales PowerShell-Logging?</summary>
+<p>CIS selbst dokumentiert das Credential-Exposure-Risiko bei
 aktivierter Transkription. Defender for Endpoint bietet zentrales, manipulationssicheres Monitoring — der
-sicherere Ansatz.</p>
-<p><b>Warum ist UAC nicht restriktiver?</b> Volle Blockade würde LAPS, Remote-Diagnose und Fehlerbehebung in der
-Benutzersitzung verhindern. UAC wird kontrolliert statt blockiert konfiguriert.</p>
+sicherere Ansatz.</p></details>
+<details class="wissen-accordion"><summary>Warum ist UAC nicht restriktiver?</summary>
+<p>Volle Blockade würde LAPS, Remote-Diagnose und Fehlerbehebung in der
+Benutzersitzung verhindern. UAC wird kontrolliert statt blockiert konfiguriert.</p></details>
 
 <h3>🏷️ Policy-Präfixe je Typ</h3>
 <table class="comparison-table">
@@ -280,7 +341,7 @@ Windows-Builds neuer als 24H2 einsetzen, jeweils diese Variante ausrollen.</p>
 dynamische Mitgliedschaftsregel wird das Gerät automatisch Mitglied der passenden Sicherheitsgruppe. Die
 Policy-Zuweisung erfolgt anschliessend nicht pro Gerät, sondern ausschliesslich an diese dynamischen
 Gerätegruppen — Details siehe „🏷️ Namenskonventionen".</p>
-<pre>(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD</pre>
+<pre style="font-size:.78rem">(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD</pre>
 
 <h3>⚠️ Policies mit Break-Risiko (vor dem Enforce testen)</h3>
 <p>Folgende Policies können bestehenden Zugriff brechen und sollten vor dem scharfen Ausrollen getestet werden
@@ -409,10 +470,35 @@ dass jemand versehentlich eine synchronisierte On-Prem-Gruppe für eine Intune-/
 stille Fehler erntet.</p>
 
 <h3>🗺️ Die Kette im Überblick</h3>
-<pre>Gerät → GroupTag (z.B. DEV-STD) → AAD-DEV-STD
-                                     ├──► Autopilot-Profil + ESP   (Autopilot-Wissen)
-                                     ├──► OIB-Policies              (OpenIntuneBaseline-Wissen)
-                                     └──► App-Gruppen AAD-PMP-*     (Patch My PC)</pre>
+<div class="flow-diagram" role="img" aria-label="Geraet ueber GroupTag zur Gruppe, die Autopilot-Profil, OIB-Policies und App-Gruppen zieht">
+  <svg viewBox="0 0 860 200" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="4" y="76" width="110" height="48" rx="9"></rect></g>
+    <text x="59" y="105" text-anchor="middle" style="fill:var(--text);font-size:12.5px;font-weight:700">Gerät</text>
+    <path d="M114 100 H174" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#nmArrow)"></path>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="178" y="70" width="150" height="60" rx="9"></rect></g>
+    <text x="253" y="95" text-anchor="middle" style="fill:var(--accent);font-size:11.5px;font-weight:700">GroupTag</text>
+    <text x="253" y="113" text-anchor="middle" style="fill:var(--text-dim);font-size:10px" font-family="var(--font-mono)">z.B. DEV-STD</text>
+    <path d="M328 100 H388" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#nmArrow)"></path>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="392" y="70" width="150" height="60" rx="9"></rect></g>
+    <text x="467" y="95" text-anchor="middle" style="fill:var(--accent);font-size:11.5px;font-weight:700">Gruppe</text>
+    <text x="467" y="113" text-anchor="middle" style="fill:var(--text-dim);font-size:10px" font-family="var(--font-mono)">AAD-DEV-STD</text>
+
+    <path d="M542 84 C 590 84, 590 14, 638 14" style="fill:none;stroke:var(--text-faint)" stroke-width="2" marker-end="url(#nmArrow)"></path>
+    <path d="M542 100 H638" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#nmArrow)"></path>
+    <path d="M542 116 C 590 116, 590 186, 638 186" style="fill:none;stroke:var(--text-faint)" stroke-width="2" marker-end="url(#nmArrow)"></path>
+
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="642" y="0" width="214" height="40" rx="8"></rect></g>
+    <text x="749" y="24" text-anchor="middle" style="fill:var(--ok);font-size:11px;font-weight:700">Autopilot-Profil + ESP</text>
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="642" y="80" width="214" height="40" rx="8"></rect></g>
+    <text x="749" y="104" text-anchor="middle" style="fill:var(--ok);font-size:11px;font-weight:700">OIB-Policies</text>
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="642" y="166" width="214" height="34" rx="8"></rect></g>
+    <text x="749" y="188" text-anchor="middle" style="fill:var(--ok);font-size:10.5px;font-weight:700">App-Gruppen AAD-PMP-*</text>
+
+    <defs><marker id="nmArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker></defs>
+  </svg>
+</div>
 
 <h3>🛡️ Technische Leitplanken (Microsoft-Best-Practice)</h3>
 <ul>
@@ -464,6 +550,28 @@ Microsoft Intune: er verpackt aktuelle Versionen gängiger Drittanbieter-Softwar
 u.&nbsp;v.&nbsp;m.) automatisch als Intune-Win32-Apps inkl. Erkennungsregeln und Update-Erkennung, und hält sie
 laufend aktuell — ohne dass man jede App-Version manuell neu paketieren muss.</p>
 
+<div class="flow-diagram" role="img" aria-label="Patch My PC Ablauf: Hersteller-Feed, automatisches Repackaging, Intune Win32-App, Geraetegruppe">
+  <svg viewBox="0 0 860 100" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="4" y="26" width="180" height="48" rx="9"></rect></g>
+    <text x="94" y="55" text-anchor="middle" style="fill:var(--text);font-size:11.5px;font-weight:700">Hersteller-Feed</text>
+    <path d="M184 50 H244" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#pmpArrow)"></path>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="248" y="26" width="180" height="48" rx="9"></rect></g>
+    <text x="338" y="55" text-anchor="middle" style="fill:var(--accent);font-size:11.5px;font-weight:700">Auto-Repackaging</text>
+    <path d="M428 50 H488" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#pmpArrow)"></path>
+
+    <g style="fill:var(--accent-wash);stroke:var(--accent)" stroke-width="1.5"><rect x="492" y="26" width="180" height="48" rx="9"></rect></g>
+    <text x="582" y="55" text-anchor="middle" style="fill:var(--accent);font-size:11.5px;font-weight:700">Intune Win32-App</text>
+    <path d="M672 50 H732" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#pmpArrow)"></path>
+
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="736" y="26" width="120" height="48" rx="9"></rect></g>
+    <text x="796" y="47" text-anchor="middle" style="fill:var(--ok);font-size:10.5px;font-weight:700">AAD-PMP-*</text>
+    <text x="796" y="63" text-anchor="middle" style="fill:var(--text-dim);font-size:9px">Gerätegruppe</text>
+
+    <defs><marker id="pmpArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker></defs>
+  </svg>
+</div>
+
 <h3>🔗 Einordnung ins Gruppenkonzept</h3>
 <p>Jede über Patch My PC verwaltete App bekommt <b>genau eine</b> Zielgruppe nach dem Schema
 <code>AAD-PMP-&lt;APP&gt;</code> (z.&nbsp;B. <code>AAD-PMP-GoogleChrome</code>) — 1:1, keine Sammelgruppen. Diese
@@ -476,7 +584,10 @@ Schema <code>AAD-APP-&lt;APP&gt;</code>.</p>
   <span>🛠️</span>
   <div><b>Bezug zum Tool:</b> Die im Tab <b>📦 Agents</b> gelisteten Bitdefender-/N-sight-Installer sind
   klassische selbst verteilte Agents (nicht Patch-My-PC-verwaltet) und folgen daher der
-  <code>AAD-APP-&lt;Name&gt;</code>-Konvention, sobald sie direkt nach Intune bereitgestellt werden.</div>
+  <code>AAD-APP-&lt;Name&gt;</code>-Konvention, sobald sie direkt nach Intune bereitgestellt werden.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="downloads">📦 Zu Agents</button>
+  </div></div>
 </div>
 `
 }
