@@ -51,6 +51,16 @@ function sanitizePrinters(raw) {
   });
 }
 
+/** XML-Datei als base64 lesen — ein UTF-8-BOM wird entfernt: der GroupPolicy-
+ *  Dienst parst den dekodierten Inhalt als String und scheitert sonst mit
+ *  "Content Parsing exception: Data at the root level is invalid. Line 1,
+ *  position 1" (real aufgetreten; die Original-Releases sind mit BOM kodiert). */
+function readXmlBase64(filePath) {
+  let b = fs.readFileSync(filePath);
+  if (b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) b = b.subarray(3);
+  return b.toString("base64");
+}
+
 /** ADMX/ADML des Tools sicherstellen (einmalig pro Tenant importiert). */
 async function ensureAdmx(tenant, cert, onProgress) {
   const notify = onProgress || (() => {});
@@ -63,11 +73,11 @@ async function ensureAdmx(tenant, cert, onProgress) {
     // Sprache selbst aus der ADML-Datei ab.
     file = await graphReq(tenant, cert, "POST", "/deviceManagement/groupPolicyUploadedDefinitionFiles", {
       fileName: ADMX_FILE,
-      content: fs.readFileSync(path.join(ASSET_DIR, ADMX_FILE)).toString("base64"),
+      content: readXmlBase64(path.join(ASSET_DIR, ADMX_FILE)),
       groupPolicyUploadedLanguageFiles: [{
         fileName: ADML_FILE,
         languageCode: "en-US",
-        content: fs.readFileSync(path.join(ASSET_DIR, ADML_FILE)).toString("base64")
+        content: readXmlBase64(path.join(ASSET_DIR, ADML_FILE))
       }]
     }, BETA);
   }
