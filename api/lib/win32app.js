@@ -12,7 +12,7 @@
  */
 const crypto = require("crypto");
 const { buildZip } = require("./zip");
-const { graphReq } = require("./graph");
+const { graphReq, graphAllPages } = require("./graph");
 
 const CHUNK_SIZE = 6 * 1024 * 1024; // 6 MiB, wie Microsofts eigenes Upload-Tooling
 
@@ -99,11 +99,16 @@ async function uploadToAzureBlob(azureStorageUri, buffer, onChunk) {
 const BETA = { beta: true };
 function cvBase(appId) { return `/deviceAppManagement/mobileApps/${appId}/microsoft.graph.win32LobApp/contentVersions`; }
 
+// Der Intune-Content-Dienst antwortet auch auf diesem Pfad gelegentlich mit
+// generischen 500ern ("An error has occurred", Operation ID 0000...) — real
+// aufgetreten. Daher ueberall auf dem Content-Pfad grosszuegig wiederholen.
+const CONTENT_RETRY = { ...BETA, retryTransient: 8 };
+
 async function pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId, wantStates, failStates, timeoutMsg) {
   let status;
   for (let tries = 0; tries < 90; tries++) {
     status = await graphReq(tenant, certPemPath, "GET",
-      `${cvBase(appId)}/${contentVersionId}/files/${fileId}`, null, BETA);
+      `${cvBase(appId)}/${contentVersionId}/files/${fileId}`, null, CONTENT_RETRY);
     if (wantStates.includes(status.uploadState)) return status;
     if (failStates.includes(status.uploadState)) throw new Error("Upload-Status: " + status.uploadState);
     await new Promise(r => setTimeout(r, 2000));
@@ -127,55 +132,80 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
   const onProgress = opts.onProgress || (() => {});
 
   onProgress("App-Objekt anlegen");
+  // Entwurfs-Leichen gleicher App aus frueheren fehlgeschlagenen Laeufen
+  // entfernen (notPublished) — sonst sammeln sich bei jedem Retry weitere
+  // halbfertige App-Objekte in Intune an. Veroeffentlichte Apps bleiben
+  // selbstverstaendlich unangetastet. Best effort.
+  try {
+    const nameLit = String(opts.appPayload.displayName || "").replace(/'/g, "''");
+    const dupes = await graphAllPages(tenant, certPemPath,
+      `/deviceAppManagement/mobileApps?$filter=displayName eq '${nameLit}'&$select=id,publishingState`, CONTENT_RETRY);
+    for (const d of dupes) {
+      if (d.publishingState !== "published") {
+        try { await graphReq(tenant, certPemPath, "DELETE", `/deviceAppManagement/mobileApps/${d.id}`, null, BETA); } catch (e) { /* egal */ }
+      }
+    }
+  } catch (e) { /* Aufraeumen ist optional */ }
+
   const app = await graphReq(tenant, certPemPath, "POST", "/deviceAppManagement/mobileApps", opts.appPayload, BETA);
   const appId = app.id;
-  // Frisch angelegtes App-Objekt kurz bestaetigen (Service-Replikationslag).
-  await graphReq(tenant, certPemPath, "GET", `/deviceAppManagement/mobileApps/${appId}?$select=id`, null, { ...BETA, retryTransient: true });
 
-  onProgress("Content-Version anlegen");
-  const cv = await graphReq(tenant, certPemPath, "POST", cvBase(appId), {}, { ...BETA, retryTransient: true });
-  const contentVersionId = cv.id;
+  try {
+    // Frisch angelegtes App-Objekt kurz bestaetigen (Service-Replikationslag).
+    await graphReq(tenant, certPemPath, "GET", `/deviceAppManagement/mobileApps/${appId}?$select=id`, null, CONTENT_RETRY);
 
-  onProgress("Installer verschluesseln");
-  const { encryptedBuffer, unencryptedContentSize, fileEncryptionInfo } = encryptForIntune(opts.installerBuffer, opts.setupFileName);
+    onProgress("Content-Version anlegen");
+    const cv = await graphReq(tenant, certPemPath, "POST", cvBase(appId), {}, CONTENT_RETRY);
+    const contentVersionId = cv.id;
 
-  onProgress("Content-Datei registrieren");
-  const filePlaceholder = await graphReq(tenant, certPemPath, "POST",
-    `${cvBase(appId)}/${contentVersionId}/files`,
-    {
-      "@odata.type": "#microsoft.graph.mobileAppContentFile",
-      name: opts.setupFileName,
-      size: unencryptedContentSize,
-      sizeEncrypted: encryptedBuffer.length,
-      isDependency: false
-    }, { ...BETA, retryTransient: true });
-  const fileId = filePlaceholder.id;
+    onProgress("Installer verschluesseln");
+    const { encryptedBuffer, unencryptedContentSize, fileEncryptionInfo } = encryptForIntune(opts.installerBuffer, opts.setupFileName);
 
-  onProgress("Auf Azure-Storage-URI warten");
-  const ready = await pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId,
-    ["azureStorageUriRequestSuccess"], ["azureStorageUriRequestFailed", "azureStorageUriRequestTimedOut"],
-    "Azure-Storage-URI nicht erhalten (Timeout).");
+    onProgress("Content-Datei registrieren");
+    // Body exakt wie das IntuneWin32App-Modul (inkl. manifest: null).
+    const filePlaceholder = await graphReq(tenant, certPemPath, "POST",
+      `${cvBase(appId)}/${contentVersionId}/files`,
+      {
+        "@odata.type": "#microsoft.graph.mobileAppContentFile",
+        name: opts.setupFileName,
+        size: unencryptedContentSize,
+        sizeEncrypted: encryptedBuffer.length,
+        manifest: null,
+        isDependency: false
+      }, CONTENT_RETRY);
+    const fileId = filePlaceholder.id;
 
-  onProgress("Installer hochladen");
-  await uploadToAzureBlob(ready.azureStorageUri, encryptedBuffer,
-    (done, total) => onProgress("Installer hochladen", { done, total }));
+    onProgress("Auf Azure-Storage-URI warten");
+    const ready = await pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId,
+      ["azureStorageUriRequestSuccess"], ["azureStorageUriRequestFailed", "azureStorageUriRequestTimedOut"],
+      "Azure-Storage-URI nicht erhalten (Timeout).");
 
-  onProgress("Upload committen");
-  await graphReq(tenant, certPemPath, "POST",
-    `${cvBase(appId)}/${contentVersionId}/files/${fileId}/commit`,
-    { fileEncryptionInfo }, { ...BETA, retryTransient: true });
+    onProgress("Installer hochladen");
+    await uploadToAzureBlob(ready.azureStorageUri, encryptedBuffer,
+      (done, total) => onProgress("Installer hochladen", { done, total }));
 
-  onProgress("Auf Commit-Bestaetigung warten");
-  await pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId,
-    ["commitFileSuccess"], ["commitFileFailed", "commitFileTimedOut"],
-    "Commit-Bestaetigung nicht erhalten (Timeout).");
+    onProgress("Upload committen");
+    await graphReq(tenant, certPemPath, "POST",
+      `${cvBase(appId)}/${contentVersionId}/files/${fileId}/commit`,
+      { fileEncryptionInfo }, CONTENT_RETRY);
 
-  onProgress("App veroeffentlichen");
-  await graphReq(tenant, certPemPath, "PATCH", `/deviceAppManagement/mobileApps/${appId}`,
-    { "@odata.type": "#microsoft.graph.win32LobApp", committedContentVersion: String(contentVersionId) },
-    { ...BETA, retryTransient: true });
+    onProgress("Auf Commit-Bestaetigung warten");
+    await pollFileStatus(tenant, certPemPath, appId, contentVersionId, fileId,
+      ["commitFileSuccess"], ["commitFileFailed", "commitFileTimedOut"],
+      "Commit-Bestaetigung nicht erhalten (Timeout).");
 
-  return { appId };
+    onProgress("App veroeffentlichen");
+    await graphReq(tenant, certPemPath, "PATCH", `/deviceAppManagement/mobileApps/${appId}`,
+      { "@odata.type": "#microsoft.graph.win32LobApp", committedContentVersion: String(contentVersionId) },
+      { ...BETA, retryTransient: true });
+
+    return { appId };
+  } catch (e) {
+    // Fehlgeschlagenen Entwurf nicht in Intune liegen lassen — der naechste
+    // Lauf legt sauber neu an (und raeumt zur Sicherheit oben nochmal auf).
+    try { await graphReq(tenant, certPemPath, "DELETE", `/deviceAppManagement/mobileApps/${appId}`, null, BETA); } catch (e2) { /* egal */ }
+    throw e;
+  }
 }
 
 async function assignAppToGroup(tenant, certPemPath, appId, groupId) {
