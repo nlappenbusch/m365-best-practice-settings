@@ -39,6 +39,7 @@ const ASSIGNCHECK = require("./lib/assignmentCheck");
 const LICENSES = require("./lib/licenses");
 const IBACKUP = require("./lib/intuneBackup");
 const DRIVEMAP = require("./lib/driveMapping");
+const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -845,6 +846,57 @@ app.post("/api/tenants/:id/drivemappings", wrap(async (req, res) => {
     groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
   });
   res.json({ ok: true, ...r });
+}));
+
+// ---------- Printer-Mapping-Konfigurator (Weatherlights-Tool, app-only) ----------
+app.get("/api/tenants/:id/printermappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true, autostartPfn: PRINTMAP.AUTOSTART_PFN, maxPrinters: PRINTMAP.MAX_PRINTERS,
+      profiles: [{
+        id: "pm-1", profileName: "Buero EG", displayName: "WIN - PrinterMapping - Buero EG",
+        enabled: true, scope: "user",
+        printers: [
+          { path: "\\\\printsrv\\Kyocera-EG", operation: "Add", setDefault: true },
+          { path: "\\\\printsrv\\Etiketten", operation: "Add", setDefault: false }
+        ],
+        groupIds: ["g1"]
+      }]
+    });
+  }
+  res.json({ ok: true, autostartPfn: PRINTMAP.AUTOSTART_PFN, maxPrinters: PRINTMAP.MAX_PRINTERS, profiles: await PRINTMAP.listProfiles(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/printermappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  try { PRINTMAP.sanitizeProfileName(b.profileName); PRINTMAP.sanitizePrinters(b.printers); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+  }
+  const job = createAppJob(t, ["Drucker-Profil ausrollen"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        for (const s of ["ADMX-Vorlage importieren", "ADMX-Verarbeitung abwarten (pending)", "ADMX-Definitionen laden", "Konfigurationsprofil anlegen", "Richtlinienwerte setzen", "Gruppen zuweisen", ...(b.deployApp ? ["Store-App bereitstellen"] : [])]) {
+          onProgress(s); await new Promise(r => setTimeout(r, 300));
+        }
+        job.results = { configId: "pm-1", displayName: "WIN - PrinterMapping - " + b.profileName, updated: false, app: b.deployApp ? { appId: "app-1", created: true } : null };
+      } else {
+        job.results = await PRINTMAP.deployProfile(t, certPemPath(t.tenantId), b, onProgress);
+      }
+      finishAppJob(job, true);
+    } catch (e) {
+      const isPermIssue = e.status === 403 || /insufficient privileges|authorization|not authorized|forbidden/i.test(String(e.message || ""));
+      finishAppJob(job, false, e.message, isPermIssue
+        ? "Braucht DeviceManagementConfiguration + DeviceManagementApps (ReadWrite) — im Tab 'Tenants' einmal Reparieren ausfuehren."
+        : null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
 }));
 
 // ---------- Intune-Backup & -Restore (TenuVault-Idee, app-only) ----------
