@@ -60,7 +60,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // verschachteln + Win32-App-Upload) und Conditional-Access-Deployment.
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";

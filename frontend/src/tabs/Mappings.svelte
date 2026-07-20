@@ -168,7 +168,12 @@
   {#if loading && !profiles}
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Profile aus dem Tenant…</div></div>
   {:else if loadError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {loadError}</div></div>
+    <div class="ld-job">
+      <div class="ld-banner fail">❌ {loadError}</div>
+      {#if /DeviceManagementScripts|not authorized/i.test(loadError)}
+        <div class="ld-step"><small>💡 Braucht die Graph-Permission <code>DeviceManagementScripts.ReadWrite.All</code> — im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen (danach ein paar Minuten Consent-Replikation abwarten).</small></div>
+      {/if}
+    </div>
   {:else if profiles}
     <div class="ld-job">
       <div class="ld-job-head"><strong>📜 Deployte Profile</strong>
