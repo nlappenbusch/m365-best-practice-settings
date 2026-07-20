@@ -30,6 +30,8 @@ const AUTOPILOT = require("./lib/autopilot");
 const GRAPHLIB = require("./lib/graph");
 const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
+const WIN32APP = require("./lib/win32app");
+const APPGROUPS = require("./lib/appGroups");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -45,9 +47,11 @@ const EXO_APP_ID = "00000002-0000-0ff1-ce00-000000000000"; // Office 365 Exchang
 const EXCHANGE_ADMIN_ROLE_TEMPLATE = "29232cdf-9323-42fd-ade2-1d097af3e4de"; // Exchange Administrator (EXO PowerShell)
 const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; // Compliance Administrator (Security & Compliance PowerShell)
 const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
-// Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen) und
-// TCM-Snapshots (Alert-Policy-Pruefung im Audit)
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.Read.All", "ConfigurationMonitoring.ReadWrite.All"];
+// Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen), TCM-Snapshots
+// (Alert-Policy-Pruefung im Audit) und App-Deployment (AAD-APP-*-Gruppe anlegen/
+// verschachteln + Win32-App-Upload). Bestehende Tenants brauchen dafuer einmal
+// "Reparieren" (idempotent additiv, siehe repairAppReg — kein Neu-Onboarding noetig).
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -412,10 +416,16 @@ app.use("/api", (req, res, next) => {
 app.get("/api/downloads/config", (req, res) => {
   const bd = BD.config();
   const rmm = NSIGHT.config();
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, bd: true, rmm: true, bdHost: bd.host, rmmServer: "fake.systemmonitor.eu.com" });
   res.json({ ok: true, bd: bd.enabled, rmm: rmm.enabled, bdHost: bd.host, rmmServer: rmm.fixed || null });
 });
 
 app.get("/api/downloads/bd/packages", wrap(async (req, res) => {
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, packages: [
+      { packageName: "Bitdefender Endpoint Security (Standard)", installLinkWindows: "https://cloudgz.gravityzone.bitdefender.com/fake-installer.exe", fullKitWindowsX64: "https://cloudgz.gravityzone.bitdefender.com/fake-full-x64.exe" }
+    ] });
+  }
   res.json({ ok: true, packages: await BD.listPackages() });
 }));
 
@@ -1215,6 +1225,168 @@ app.get("/api/jobs/:id", (req, res) => {
   if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
   res.json(job);
 });
+
+// ---------- App-Deployment-Jobs: Agent (Bitdefender/N-sight) -> Intune-Win32-App ----------
+// Zielgruppe ist immer AAD-APP-<Name> (siehe lib/appGroups.js); die gewaehlte
+// dynamische GroupTag-Geraetegruppe wird als Mitglied genestet, damit ihre
+// Geraete transitiv adressiert werden (Intune unterstuetzt das fuer App-Assignment).
+const appJobs = new Map(); // jobId -> Job
+const APPDEPLOY_PHASES = ["Installer holen", "Gruppen vorbereiten", "App erzeugen & hochladen", "Veröffentlichen & zuweisen"];
+
+function createAppJob(t, phaseNames) {
+  const id = crypto.randomBytes(8).toString("hex");
+  const steps = phaseNames.map(name => ({ phase: name, name, state: "pending" }));
+  const job = {
+    id, tenantId: t.id, tenantName: t.name,
+    status: "running", phase: phaseNames[0] || "Vorbereitung", steps,
+    appId: null, appGroupName: null, deviceGroupName: null, error: null, hint: null,
+    startedAt: new Date().toISOString(), finishedAt: null
+  };
+  if (appJobs.size >= 20) {
+    for (const [k, j] of appJobs) { if (appJobs.size < 20) break; if (j.status !== "running") appJobs.delete(k); }
+  }
+  appJobs.set(id, job);
+  return job;
+}
+
+// Feingranularer, linearer Fortschritt: jedes neue Label wird ein eigener
+// Schritt; vorherige "running"-Schritte gelten dann automatisch als erledigt.
+function appJobProgress(job) {
+  return (label, extra) => {
+    let st = job.steps.find(s => s.name === label);
+    if (!st) { st = { phase: label, name: label, state: "pending" }; job.steps.push(st); }
+    for (const s of job.steps) {
+      if (s === st) break;
+      if (s.state === "running") s.state = "done";
+    }
+    job.phase = label;
+    st.state = "running";
+    if (extra && extra.total) st.detail = `${extra.done}/${extra.total} Chunks`;
+  };
+}
+
+function finishAppJob(job, ok, error, hint) {
+  for (const s of job.steps) { if (s.state === "running") s.state = "done"; }
+  job.status = ok ? "done" : "failed";
+  if (!ok) { job.error = error; job.hint = hint || null; }
+  job.finishedAt = new Date().toISOString();
+}
+
+app.get("/api/appjobs/:id", (req, res) => {
+  const job = appJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
+  res.json(job);
+});
+
+function buildWin32AppPayload(b, fileName) {
+  const rules = [b.detection && b.detection.type === "registry"
+    ? {
+        "@odata.type": "microsoft.graph.win32LobAppRegistryRule",
+        ruleType: "detection", check32BitOn64System: true,
+        keyPath: (b.detection.keyPath || "").trim(), valueName: (b.detection.valueName || "").trim(),
+        operationType: "exists"
+      }
+    : {
+        "@odata.type": "microsoft.graph.win32LobAppFileSystemRule",
+        ruleType: "detection", check32BitOn64System: true,
+        path: (b.detection && b.detection.path || "").trim(), fileOrFolderName: (b.detection && b.detection.fileOrFolderName || "").trim(),
+        operationType: "exists"
+      }];
+  return {
+    "@odata.type": "#microsoft.graph.win32LobApp",
+    displayName: b.appName,
+    description: b.description || "",
+    publisher: b.vendor === "bitdefender" ? "Bitdefender" : "N-able (N-sight RMM)",
+    installCommandLine: b.installCommandLine,
+    uninstallCommandLine: b.uninstallCommandLine,
+    applicableArchitectures: "x64",
+    installExperience: { "@odata.type": "microsoft.graph.win32LobAppInstallExperience", runAsAccount: "system", deviceRestartBehavior: "suppress" },
+    returnCodes: [{ "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 0, type: "success" }],
+    rules,
+    setupFilePath: fileName,
+    minimumSupportedWindowsRelease: "Windows10_1607"
+  };
+}
+
+async function runAppDeployJob(job, t, b) {
+  const onProgress = appJobProgress(job);
+  const cert = certPemPath(t.tenantId);
+  try {
+    onProgress("Installer holen");
+    let buffer, fileName;
+    if (process.env.FAKE_DEPLOY === "1") {
+      await new Promise(r => setTimeout(r, 800));
+      buffer = Buffer.from("Fake-Installer-Bytes fuer UI-Test — kein echtes Graph-Upload.");
+      fileName = b.vendor === "bitdefender" ? "BitdefenderSetup.exe" : "RMM-Agent-Setup.exe";
+    } else if (b.vendor === "bitdefender") {
+      ({ buffer, fileName } = await BD.fetchInstallerBuffer(b.source.downloadUrl));
+    } else {
+      ({ buffer, fileName } = await NSIGHT.downloadAgentBuffer(b.source || {}));
+    }
+
+    onProgress("Gruppen vorbereiten");
+    let appGroupId, deviceGroupName;
+    if (process.env.FAKE_DEPLOY === "1") {
+      await new Promise(r => setTimeout(r, 600));
+      appGroupId = "fake-app-group"; deviceGroupName = "AAD-" + (b.groupTag || "DEV-STD");
+    } else {
+      const tags = await AUTOPILOT.loadGroupTags(t, cert);
+      const match = tags.find(g => g.groupTag === b.groupTag);
+      if (!match) throw new Error("GroupTag '" + b.groupTag + "' nicht (mehr) unter den dynamischen Gruppen gefunden.");
+      deviceGroupName = match.groupName;
+      const appGroup = await APPGROUPS.ensureAppGroup(t, cert, b.appName);
+      appGroupId = appGroup.id;
+      await APPGROUPS.nestGroupAsMember(t, cert, appGroupId, match.groupId);
+    }
+
+    onProgress("App erzeugen & hochladen");
+    let appId;
+    if (process.env.FAKE_DEPLOY === "1") {
+      for (let i = 1; i <= 5; i++) { onProgress("Installer hochladen", { done: i, total: 5 }); await new Promise(r => setTimeout(r, 400)); }
+      appId = "fake-app-id-1234";
+    } else {
+      // {file} im Kommando durch den tatsaechlich heruntergeladenen Dateinamen
+      // ersetzen — Admin muss den (erst beim Download bekannten) Namen nicht raten.
+      const subst = { ...b, installCommandLine: String(b.installCommandLine || "").replace(/\{file\}/g, fileName),
+        uninstallCommandLine: String(b.uninstallCommandLine || "").replace(/\{file\}/g, fileName) };
+      const payload = buildWin32AppPayload(subst, fileName);
+      const r = await WIN32APP.createWin32AppWithContent(t, cert, {
+        appPayload: payload, setupFileName: fileName, installerBuffer: buffer, onProgress
+      });
+      appId = r.appId;
+    }
+
+    onProgress("Veröffentlichen & zuweisen");
+    if (process.env.FAKE_DEPLOY !== "1") {
+      await WIN32APP.assignAppToGroup(t, cert, appId, appGroupId);
+    } else {
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    job.appId = appId;
+    job.appGroupName = "AAD-APP-" + APPGROUPS.sanitizeAppNameForGroup(b.appName);
+    job.deviceGroupName = deviceGroupName;
+    finishAppJob(job, true);
+  } catch (e) {
+    finishAppJob(job, false, e.message, e.hint || "App-Deployment braucht Group.ReadWrite.All + DeviceManagementApps.ReadWrite.All — ggf. im Tab 'Tenants' einmal Reparieren ausfuehren.");
+  }
+}
+
+app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (!b.vendor || !b.appName || !b.installCommandLine || !b.uninstallCommandLine || !b.groupTag) {
+    return res.status(400).json({ error: "vendor, appName, installCommandLine, uninstallCommandLine und groupTag sind erforderlich." });
+  }
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein App-Deployment.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, APPDEPLOY_PHASES);
+  runAppDeployJob(job, t, b);
+  res.json({ ok: true, jobId: job.id });
+}));
 
 // Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant (EXO) und
 // startet parallel einen TCM-Snapshot fuer die Alert Policy (Graph).

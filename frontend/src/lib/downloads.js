@@ -1,5 +1,5 @@
 // Datenschicht fuer den Agent-Downloads-Tab. Kapselt die /api/downloads/*-Calls.
-import { apiGet, fileDownload } from './api.js'
+import { apiGet, apiPost, fileDownload } from './api.js'
 
 export const dlApi = {
   config: () => apiGet('/api/downloads/config'),
@@ -11,5 +11,8 @@ export const dlApi = {
     '/api/downloads/rmm/download?endcustomerid=' + encodeURIComponent(endcustomerid) +
     '&siteid=' + encodeURIComponent(siteid) +
     '&type=' + encodeURIComponent(type) +
-    '&os=' + encodeURIComponent(os))
+    '&os=' + encodeURIComponent(os)),
+  groupTags: (tenantId) => apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/autopilot/grouptags`),
+  appDeployStart: (tenantId, body) => apiPost(`/api/tenants/${encodeURIComponent(tenantId)}/appdeploy/start`, body),
+  appDeployPoll: (jobId) => apiGet(`/api/appjobs/${encodeURIComponent(jobId)}`)
 }

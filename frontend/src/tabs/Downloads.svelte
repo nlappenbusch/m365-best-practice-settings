@@ -1,6 +1,10 @@
 <script>
   import { session } from '../lib/session.js'
   import { dlApi } from '../lib/downloads.js'
+  import { activeTenant } from '../lib/tenantStore.js'
+  import AppDeployModal from '../lib/AppDeployModal.svelte'
+
+  let deployModal = $state(null) // { vendor, appNameDefault, source } | null
 
   // Config kommt vom Backend (welcher Bereich hat einen Key). Wird geladen,
   // sobald man angemeldet ist und der Tab offen ist (lazy).
@@ -139,6 +143,10 @@
                       {b.t}
                     </button>
                   {/each}
+                  <button class="btn btn-secondary" title="Direkt als Win32-App in Intune bereitstellen"
+                          onclick={() => (deployModal = { vendor: 'bitdefender', appNameDefault: p.packageName, source: { downloadUrl: p.installLinkWindows || p.fullKitWindowsX64 } })}>
+                    🟦 In Intune
+                  </button>
                 </div>
               </div>
             {/each}
@@ -186,6 +194,10 @@
                                   onclick={() => { dlApi.rmmDownload({ endcustomerid: cl.id, siteid: s.id, type: 'remote_worker', os: rmmOs }); rmmStatus = 'Download gestartet (remote_worker, ' + rmmOs + '). Build kann dauern.' }}>⬇ Remote Worker</button>
                           <button class="btn btn-secondary"
                                   onclick={() => { dlApi.rmmDownload({ endcustomerid: cl.id, siteid: s.id, type: 'group_policy', os: rmmOs }); rmmStatus = 'Download gestartet (group_policy, ' + rmmOs + '). Build kann dauern.' }}>Group Policy</button>
+                          <button class="btn btn-secondary" title="Direkt als Win32-App in Intune bereitstellen"
+                                  onclick={() => (deployModal = { vendor: 'nsight', appNameDefault: cl.name + ' RMM-Agent', source: { endcustomerid: cl.id, siteid: s.id, type: 'remote_worker', os: rmmOs } })}>
+                            🟦 In Intune
+                          </button>
                         </div>
                       </div>
                     {/each}
@@ -200,3 +212,9 @@
     </div>
   {/if}
 </section>
+
+{#if deployModal}
+  <AppDeployModal open={true} onclose={() => (deployModal = null)}
+                   vendor={deployModal.vendor} appNameDefault={deployModal.appNameDefault} source={deployModal.source}
+                   tenantId={$activeTenant?.id ?? null} tenantName={$activeTenant?.name ?? ''} />
+{/if}

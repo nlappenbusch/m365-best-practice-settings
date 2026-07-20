@@ -160,8 +160,12 @@ async function listSites(clientid) {
 /**
  * Einen Download-Versuch. Liefert true, wenn wirklich eine Datei gestreamt
  * wurde - false, wenn die API stattdessen XML (= Fehler/kein Build) schickt.
+ * sink: { res } streamt wie bisher an die Express-Response, { collect: true }
+ * sammelt stattdessen in sink.result = { buffer, fileName } (fuer den
+ * App-Deployment-Upload, der die Bytes im Speicher braucht statt an den Client
+ * zu streamen).
  */
-async function tryStream(server, extra, res) {
+async function tryStream(server, extra, sink) {
   const url = buildUrl(server, "get_site_installation_package", extra);
   let r;
   try {
@@ -191,6 +195,18 @@ async function tryStream(server, extra, res) {
   const fallback = extra.type === "group_policy" ? "RMM-GroupPolicy-Package.zip" : "RMM-Agent-Setup.exe";
   const fileName = fileNameFromDisposition(r.headers.get("content-disposition"), fallback);
 
+  if (sink.collect) {
+    const chunks = [Buffer.from(first.value)];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(Buffer.from(value));
+    }
+    sink.result = { buffer: Buffer.concat(chunks), fileName };
+    return true;
+  }
+
+  const res = sink.res;
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
   res.setHeader("Cache-Control", "no-store");
@@ -234,8 +250,8 @@ async function downloadAgent({ endcustomerid, siteid, type, os }, res) {
   try { await xmlGet(server, "get_site_installation_package", { ...base, mode: "authenticate" }); }
   catch (e) { authMsg = e.message; }
 
-  if (await tryStream(server, { ...base, mode: dlMode }, res)) return;
-  if (await tryStream(server, base, res)) return;
+  if (await tryStream(server, { ...base, mode: dlMode }, { res })) return;
+  if (await tryStream(server, base, { res })) return;
 
   throw Object.assign(
     new Error("Agent-Download fehlgeschlagen: " +
@@ -244,4 +260,39 @@ async function downloadAgent({ endcustomerid, siteid, type, os }, res) {
   );
 }
 
-module.exports = { config, listClients, listSites, downloadAgent };
+/**
+ * Wie downloadAgent, liefert die Bytes aber als Buffer zurueck statt an eine
+ * Response zu streamen — fuer den Intune-App-Upload, der den Installer im
+ * Speicher braucht (verschluesseln + hochladen), bevor irgendetwas an den
+ * Browser geht.
+ */
+async function downloadAgentBuffer({ endcustomerid, siteid, type, os }) {
+  const cfg = config();
+  if (!cfg.enabled) throw Object.assign(new Error("Kein N-sight-Key konfiguriert."), { status: 400 });
+  if (!endcustomerid || !siteid) throw Object.assign(new Error("endcustomerid/siteid fehlt."), { status: 400 });
+
+  if (!resolvedServer) await listClients();
+  const server = resolvedServer;
+
+  const useOs = os && String(os).trim() ? String(os).trim() : "windows";
+  const useType = type && String(type).trim() ? String(type).trim() : "remote_worker";
+  const dlMode = useType === "group_policy" ? "downloadgp" : "downloadrwbuild";
+  const base = { endcustomerid, siteid, os: useOs, type: useType };
+
+  let authMsg = null;
+  try { await xmlGet(server, "get_site_installation_package", { ...base, mode: "authenticate" }); }
+  catch (e) { authMsg = e.message; }
+
+  const sink1 = { collect: true };
+  if (await tryStream(server, { ...base, mode: dlMode }, sink1)) return sink1.result;
+  const sink2 = { collect: true };
+  if (await tryStream(server, base, sink2)) return sink2.result;
+
+  throw Object.assign(
+    new Error("Agent-Download fehlgeschlagen: " +
+      (authMsg || "Keine Datei zurueck. Berechtigung 'Site Installation Package' pruefen.")),
+    { status: 502 }
+  );
+}
+
+module.exports = { config, listClients, listSites, downloadAgent, downloadAgentBuffer };

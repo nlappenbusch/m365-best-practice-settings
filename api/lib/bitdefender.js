@@ -130,4 +130,38 @@ async function streamDownload(rawUrl, res) {
   Readable.fromWeb(r.body).pipe(res);
 }
 
-module.exports = { config, listPackages, streamDownload };
+/**
+ * Wie streamDownload, liefert den Installer aber als Buffer zurueck statt an
+ * eine Response zu streamen — fuer den Intune-App-Upload (Bytes muessen erst
+ * verschluesselt werden, bevor irgendetwas den Prozess verlaesst).
+ */
+async function fetchInstallerBuffer(rawUrl) {
+  const cfg = config();
+  if (!cfg.enabled) throw Object.assign(new Error("Kein Bitdefender-Key konfiguriert."), { status: 400 });
+
+  let u;
+  try { u = new URL(rawUrl); } catch (e) {
+    throw Object.assign(new Error("Ungueltige URL."), { status: 400 });
+  }
+  if (u.protocol !== "https:" || u.hostname.toLowerCase() !== cfg.host.toLowerCase()) {
+    throw Object.assign(new Error("URL nicht erlaubt (nur GravityZone-Host)."), { status: 400 });
+  }
+
+  let r;
+  try {
+    r = await fetch(u, { headers: { Authorization: cfg.authHeader }, redirect: "follow", signal: AbortSignal.timeout(600000) });
+  } catch (e) {
+    throw Object.assign(new Error("Download fehlgeschlagen: " + e.message), { status: 502 });
+  }
+  if (!r.ok || !r.body) throw Object.assign(new Error(`Download fehlgeschlagen (HTTP ${r.status}).`), { status: 502 });
+
+  let fallback = "BitdefenderSetup.exe";
+  const seg = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "");
+  if (/\.(exe|tar|dmg|gz|msi)$/i.test(seg)) fallback = seg;
+  const fileName = fileNameFromDisposition(r.headers.get("content-disposition"), fallback);
+
+  const buffer = Buffer.from(await r.arrayBuffer());
+  return { buffer, fileName };
+}
+
+module.exports = { config, listPackages, streamDownload, fetchInstallerBuffer };
