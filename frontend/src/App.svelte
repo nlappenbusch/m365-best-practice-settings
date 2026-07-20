@@ -4,6 +4,7 @@
   import { theme, cycleTheme } from './lib/theme.js'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
+  import LoginScreen from './lib/LoginScreen.svelte'
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Config from './tabs/Config.svelte'
@@ -102,6 +103,11 @@
 </div>
 
 <ExportModal open={exportOpen} onclose={() => (exportOpen = false)} />
+
+<!-- Vollbild-Login-Gate (SSO primaer, Passwort-Fallback) — liegt ueber allem,
+     solange die Session nicht angemeldet ist. Die Tabs bleiben darunter
+     gemountet, damit nichts an laufendem Zustand verloren geht. -->
+<LoginScreen />
 
 {#if toast}
   <div class="app-toast {toast.ok ? 'ok' : 'err'}">{toast.ok ? '✅ ' : '❌ '}{toast.msg}</div>

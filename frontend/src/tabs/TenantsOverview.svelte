@@ -1,7 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { session } from '../lib/session.js'
-  import { apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, apiDelete } from '../lib/api.js'
   import { tenants, tenantsLoaded, activeTenantId, loadTenants, selectTenant, removeTenant, tenantReady, tenantMissing } from '../lib/tenantStore.js'
 
   // ---------- Onboarding (Device-Code) ----------
@@ -109,8 +109,51 @@
   const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌' }
   const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen' }
 
+  // ---------- SSO-Konfiguration (iGeeks-Tenant "verheiraten") ----------
+  let ssoInfo = $state(null)        // { enabled, redirectUri }
+  let ssoFormOpen = $state(false)
+  let ssoTenantId = $state('')
+  let ssoClientId = $state('')
+  let ssoClientSecret = $state('')
+  let ssoBusy = $state(false)
+  let ssoMsg = $state(null)         // { ok, text }
+  let ssoLoaded = false
+
+  async function loadSsoInfo() {
+    try { ssoInfo = await apiGet('/api/sso/config') } catch (e) { ssoInfo = null }
+  }
+  async function saveSso() {
+    ssoBusy = true; ssoMsg = null
+    try {
+      await apiPost('/api/sso/config', { tenantId: ssoTenantId.trim(), clientId: ssoClientId.trim(), clientSecret: ssoClientSecret.trim() })
+      ssoMsg = { ok: true, text: 'SSO gespeichert — der Microsoft-Login erscheint ab jetzt auf dem Anmeldebildschirm.' }
+      ssoClientSecret = ''
+      ssoFormOpen = false
+      await loadSsoInfo()
+    } catch (e) {
+      ssoMsg = { ok: false, text: e.message }
+    }
+    ssoBusy = false
+  }
+  async function removeSso() {
+    if (!confirm('SSO-Konfiguration entfernen? Danach ist nur noch der Passwort-Login möglich.')) return
+    ssoBusy = true; ssoMsg = null
+    try {
+      await apiDelete('/api/sso/config')
+      ssoMsg = { ok: true, text: 'SSO-Konfiguration entfernt.' }
+      await loadSsoInfo()
+    } catch (e) {
+      ssoMsg = { ok: false, text: e.message }
+    }
+    ssoBusy = false
+  }
+
   $effect(() => {
-    if ($session.online && $session.loggedIn) loadTenants()
+    if ($session.online && $session.loggedIn) {
+      loadTenants()
+      if (!ssoLoaded) { ssoLoaded = true; loadSsoInfo() }
+    }
+    if (!($session.online && $session.loggedIn)) ssoLoaded = false
   })
 
   onDestroy(() => {
@@ -239,6 +282,50 @@
         {/if}
         <div class="ld-step" style="margin-top:0.5rem;"><small>💡 Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit — erst im Tab „🛡 Mail-Security" mit „Test" prüfen, dann deployen.</small></div>
       </div>
+    {/if}
+  </div>
+
+  <div class="settings-group">
+    <h4>🔗 SSO: Anmeldung über den iGeeks-Tenant</h4>
+    <p class="ld-section-hint">Verheiratet das Tool mit dem iGeeks-M365-Tenant als primäre Anmeldemethode — dient NUR dem Zugriff auf dieses Tool, nicht dem Management des iGeeks-Tenants. Der Passwort-Login bleibt als Fallback erhalten.</p>
+
+    {#if ssoInfo?.enabled}
+      <div class="ld-banner ok">✅ SSO ist aktiv — der Anmeldebildschirm zeigt „Mit Microsoft anmelden" als primären Weg.</div>
+      <button class="btn btn-secondary" onclick={removeSso} disabled={ssoBusy}>✕ SSO-Konfiguration entfernen</button>
+    {:else}
+      <button class="btn btn-primary" onclick={() => (ssoFormOpen = !ssoFormOpen)} disabled={ssoBusy}>
+        {ssoFormOpen ? '✕ Schließen' : '🔗 iGeeks-Tenant verheiraten'}
+      </button>
+    {/if}
+
+    {#if ssoFormOpen && !ssoInfo?.enabled}
+      <div class="ld-job" style="margin-top:1rem">
+        <div class="ld-step"><small>Einmalig im <b>iGeeks-Tenant</b> eine App-Registrierung anlegen (Entra Admin Center → App-Registrierungen → Neu):
+          Typ „Web", Redirect-URI wie unten, dann unter „Zertifikate &amp; Geheimnisse" ein Client-Secret erzeugen.
+          Keine API-Berechtigungen nötig — der Standard-<code>openid</code>-Scope reicht.</small></div>
+        <div class="ld-onboard-step">📋 Redirect-URI für die App-Registrierung: <code>{ssoInfo?.redirectUri || '…'}</code></div>
+        <div class="settings-grid" style="margin-top:0.75rem;">
+          <div class="input-group">
+            <label for="ssoTid">iGeeks Tenant-ID</label>
+            <input id="ssoTid" type="text" placeholder="00000000-0000-0000-0000-000000000000" bind:value={ssoTenantId} />
+          </div>
+          <div class="input-group">
+            <label for="ssoCid">Client-ID (App-Registrierung)</label>
+            <input id="ssoCid" type="text" placeholder="00000000-0000-0000-0000-000000000000" bind:value={ssoClientId} />
+          </div>
+          <div class="input-group">
+            <label for="ssoSec">Client-Secret</label>
+            <input id="ssoSec" type="password" placeholder="Wert des Secrets (nicht die Secret-ID)" bind:value={ssoClientSecret} />
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick={saveSso} disabled={ssoBusy || !ssoTenantId.trim() || !ssoClientId.trim() || !ssoClientSecret.trim()}>
+          {ssoBusy ? '…' : '💾 SSO aktivieren'}
+        </button>
+      </div>
+    {/if}
+
+    {#if ssoMsg}
+      <div class="ld-banner {ssoMsg.ok ? 'ok' : 'fail'}" style="margin-top:0.75rem;">{ssoMsg.ok ? '✅' : '❌'} {ssoMsg.text}</div>
     {/if}
   </div>
 {/if}

@@ -33,6 +33,7 @@ const NSIGHT = require("./lib/nsight");
 const WIN32APP = require("./lib/win32app");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
+const SSO = require("./lib/sso");
 const CONDACCESS = require("./lib/conditionalAccess");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -407,10 +408,56 @@ app.post("/api/login", (req, res) => {
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
+// ---------- SSO ueber iGeeks-Tenant (vor dem Auth-Guard: Login-Flow ist public) ----------
+// Login-Screen muss VOR der Anmeldung wissen, ob SSO verfuegbar ist — keine Secrets in der Antwort.
+app.get("/api/sso/config", (req, res) => {
+  const s = loadState();
+  res.json({ ok: true, enabled: SSO.isConfigured(s.sso), redirectUri: SSO.redirectUri(req) });
+});
+
+app.get("/api/auth/sso/start", (req, res) => {
+  const s = loadState();
+  if (!SSO.isConfigured(s.sso)) return res.redirect("/?ssoError=" + encodeURIComponent("SSO ist nicht konfiguriert."));
+  res.redirect(SSO.buildAuthorizeUrl(req, s.sso));
+});
+
+app.get("/api/auth/sso/callback", wrap(async (req, res) => {
+  const s = loadState();
+  if (!SSO.isConfigured(s.sso)) return res.redirect("/?ssoError=" + encodeURIComponent("SSO ist nicht konfiguriert."));
+  try {
+    const who = await SSO.handleCallback(req, s.sso);
+    req.session.user = "sso:" + who.upn;
+    req.session.ssoName = who.name;
+    res.redirect("/");
+  } catch (e) {
+    res.redirect("/?ssoError=" + encodeURIComponent(e.message));
+  }
+}));
+
 // Auth-Guard fuer alles Weitere
 app.use("/api", (req, res, next) => {
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
+});
+
+// SSO-Konfiguration schreiben/loeschen — nur fuer bereits angemeldete Admins.
+app.post("/api/sso/config", (req, res) => {
+  const b = req.body || {};
+  const tenantId = String(b.tenantId || "").trim();
+  const clientId = String(b.clientId || "").trim();
+  const clientSecret = String(b.clientSecret || "").trim();
+  if (!tenantId || !clientId || !clientSecret) return res.status(400).json({ error: "tenantId, clientId und clientSecret sind erforderlich." });
+  const s = loadState();
+  s.sso = { tenantId, clientId, clientSecret };
+  saveState(s);
+  res.json({ ok: true });
+});
+
+app.delete("/api/sso/config", (req, res) => {
+  const s = loadState();
+  delete s.sso;
+  saveState(s);
+  res.json({ ok: true });
 });
 
 // ---------- Agent-Downloads (Bitdefender / N-sight RMM) ----------
