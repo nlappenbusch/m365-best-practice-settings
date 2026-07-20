@@ -93,18 +93,29 @@ async function ensureAdmx(tenant, cert, onProgress) {
   throw new Error("ADMX-Import nicht rechtzeitig verfuegbar (Timeout).");
 }
 
-/** Definitionen der importierten Vorlage einsammeln: Master-Schalter + Drucker-Slots. */
-async function loadDefinitions(tenant, cert, fileId) {
+/** Definitionen per displayName-Filter suchen — die dokumentierte Navigation
+ *  groupPolicyUploadedDefinitionFiles/{id}/definitions existiert im Dienst
+ *  NICHT ("No OData route exists", real aufgetreten). policyType
+ *  'admxIngested' unterscheidet unsere importierten Definitionen von
+ *  eingebauten gleichen Namens. */
+async function findDefinitionsByName(tenant, cert, displayName) {
+  const lit = String(displayName).replace(/'/g, "''");
   const defs = await graphAllPages(tenant, cert,
-    `/deviceManagement/groupPolicyUploadedDefinitionFiles/${fileId}/definitions?$top=100`, BETA);
-  const enable = defs.find(d => /enable intune printer mapping/i.test(String(d.displayName || "")) && String(d.classType).toLowerCase() === "machine");
-  if (!enable) throw new Error("ADMX-Definition 'Enable Intune Printer Mapping' nicht gefunden.");
+    `/deviceManagement/groupPolicyDefinitions?$filter=displayName eq '${lit}'&$select=id,displayName,classType,policyType`, BETA);
+  return defs.filter(d => String(d.policyType || "").toLowerCase() === "admxingested");
+}
+
+/** Master-Schalter + benoetigte Drucker-Slots (0..count-1) einsammeln. */
+async function loadDefinitions(tenant, cert, printerCount) {
+  const enableMatches = await findDefinitionsByName(tenant, cert, "Enable Intune Printer Mapping");
+  const enable = enableMatches.find(d => String(d.classType).toLowerCase() === "machine");
+  if (!enable) throw new Error("ADMX-Definition 'Enable Intune Printer Mapping' nicht gefunden — ADMX-Import noch nicht fertig repliziert? In 1-2 Minuten erneut versuchen.");
   const printers = { user: [], machine: [] };
-  for (const d of defs) {
-    const m = /^Printer operation (\d+)$/i.exec(String(d.displayName || "").trim());
-    if (!m) continue;
-    const cls = String(d.classType).toLowerCase() === "machine" ? "machine" : "user";
-    printers[cls][Number(m[1])] = d;
+  for (let i = 0; i < printerCount; i++) {
+    for (const d of await findDefinitionsByName(tenant, cert, `Printer operation ${i}`)) {
+      const cls = String(d.classType).toLowerCase() === "machine" ? "machine" : "user";
+      printers[cls][i] = d;
+    }
   }
   return { enable, printers };
 }
@@ -138,9 +149,9 @@ async function deployProfile(tenant, cert, opts, onProgress) {
   const scope = opts.scope === "machine" ? "machine" : "user";
   const groupIds = (Array.isArray(opts.groupIds) ? opts.groupIds : []).filter(Boolean);
 
-  const admxFile = await ensureAdmx(tenant, cert, notify);
+  await ensureAdmx(tenant, cert, notify);
   notify("ADMX-Definitionen laden");
-  const defs = await loadDefinitions(tenant, cert, admxFile.id);
+  const defs = await loadDefinitions(tenant, cert, printers.length);
   for (let i = 0; i < printers.length; i++) {
     if (!defs.printers[scope][i]) throw new Error(`ADMX-Slot 'Printer operation ${i}' (${scope}) nicht gefunden.`);
   }

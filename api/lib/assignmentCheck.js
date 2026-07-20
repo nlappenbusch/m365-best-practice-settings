@@ -11,7 +11,7 @@
  */
 const { graphReq, graphAllPages } = require("./graph");
 
-const BETA = { beta: true, retryTransient: true };
+const BETA = { beta: true, retryTransient: 8 };
 
 function classifyTarget(target) {
   const t = String((target && target["@odata.type"]) || "");
@@ -24,7 +24,9 @@ function classifyTarget(target) {
 
 /** Policy-Quellen: [pfad, typLabel, namensfeld, assignmentsInline] */
 const POLICY_SOURCES = [
-  ["/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=100", "Settings Catalog", p => p.name, true],
+  // $top=50: Folgeseiten mit $expand=assignments werfen bei grossen Bestaenden
+  // gelegentlich generische 500er (siehe oib.js) — BETA enthaelt retryTransient.
+  ["/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=50", "Settings Catalog", p => p.name, true],
   ["/deviceManagement/deviceCompliancePolicies?$expand=assignments", "Compliance", p => p.displayName, true],
   ["/deviceManagement/deviceConfigurations?$expand=assignments", "Device Configuration", p => p.displayName, true],
   ["/deviceManagement/groupPolicyConfigurations?$expand=assignments", "Admin Template", p => p.displayName, true],

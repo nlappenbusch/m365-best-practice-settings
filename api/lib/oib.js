@@ -47,11 +47,14 @@ function describeTarget(t, groupNames) {
 async function loadOibOverview(tenant, certPemPath) {
   const beta = { beta: true };
 
+  // configurationPolicies mit $expand=assignments: die Folgeseiten (skiptoken)
+  // liefern bei grossen Bestaenden gelegentlich generische 500er (real
+  // aufgetreten bei ~100+ CIS-Policies) — retryTransient + kleinere Seiten.
   const [groups, configPolicies] = await Promise.all([
     graphAllPages(tenant, certPemPath,
       "/groups?$filter=groupTypes/any(c:c+eq+'DynamicMembership') and securityEnabled eq true&$select=id,displayName,membershipRule,membershipRuleProcessingState&$top=100", beta),
     graphAllPages(tenant, certPemPath,
-      "/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=100", beta)
+      "/deviceManagement/configurationPolicies?$expand=assignments&$select=id,name&$top=50", { ...beta, retryTransient: 8 })
   ]);
 
   // Endpoint-Security-Intents separat und fehlertolerant: der Legacy-Endpoint
