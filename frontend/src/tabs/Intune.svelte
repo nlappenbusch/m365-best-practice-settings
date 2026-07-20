@@ -133,6 +133,21 @@
     window.open(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(backupId)}/download`, '_blank')
   }
 
+  // Drift-Vergleich (TenuVault-Idee): zwei Snapshots auf Namensebene vergleichen
+  let cmpA = $state('')
+  let cmpB = $state('')
+  let cmpResult = $state(null)
+  let cmpBusy = $state(false)
+  async function runCompare() {
+    if (!cmpA || !cmpB || cmpA === cmpB) { alert('Zwei verschiedene Snapshots wählen.'); return }
+    cmpBusy = true
+    cmpResult = null
+    try {
+      cmpResult = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(cmpA)}/compare/${encodeURIComponent(cmpB)}`)
+    } catch (e) { alert('❌ ' + e.message) }
+    cmpBusy = false
+  }
+
   // ---------- Assignment-Check (read-only Zuweisungs-Audit) ----------
   let checkOpen = $state(false)
   let checkLoading = $state(false)
@@ -398,6 +413,27 @@
       {:else if bkList}
         {#if !bkList.backups.length}
           <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Snapshots — oben das erste Backup erstellen.</div>
+        {/if}
+        {#if bkList.backups.length >= 2}
+          <div class="ld-oib-target">
+            <strong>🔍 Drift-Vergleich:</strong>
+            <select bind:value={cmpA}><option value="">— älterer Snapshot —</option>{#each bkList.backups as b2 (b2.backupId)}<option value={b2.backupId}>{new Date(b2.createdAt).toLocaleString('de-CH')}</option>{/each}</select>
+            <select bind:value={cmpB}><option value="">— neuerer Snapshot —</option>{#each bkList.backups as b2 (b2.backupId)}<option value={b2.backupId}>{new Date(b2.createdAt).toLocaleString('de-CH')}</option>{/each}</select>
+            <button class="btn btn-secondary" onclick={runCompare} disabled={cmpBusy || !cmpA || !cmpB}>{cmpBusy ? '…' : 'Vergleichen'}</button>
+          </div>
+        {/if}
+        {#if cmpResult}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">🔍 Drift zwischen den Snapshots</div>
+            {#each cmpResult.diff.filter(d => d.added.length || d.removed.length) as d}
+              <div class="ld-step"><strong>{d.label}</strong> <small>({d.same} unverändert)</small></div>
+              {#each d.added as n}<div class="ld-step ok"><span class="ld-ico">➕</span> {n}</div>{/each}
+              {#each d.removed as n}<div class="ld-step fail"><span class="ld-ico">➖</span> {n}</div>{/each}
+            {/each}
+            {#if !cmpResult.diff.some(d => d.added.length || d.removed.length)}
+              <div class="ld-banner ok">✅ Kein Drift — beide Snapshots enthalten dieselben Objekte (auf Namensebene).</div>
+            {/if}
+          </div>
         {/if}
         {#each bkList.backups as b (b.backupId)}
           <div class="ld-phase complete">

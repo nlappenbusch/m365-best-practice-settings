@@ -153,12 +153,12 @@
       <div class="ld-step"><small>💡 Braucht Organization.Read.All + AuditLog.Read.All — im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
     </div>
   {:else if data}
-    <div class="ld-setup-list" style="margin-bottom:1rem;">
-      <span class="ld-badge ok">👥 {data.totals.licensedUsers}/{data.totals.users} lizenziert</span>
-      <span class="ld-badge {data.totals.freeSeats ? 'warn' : 'ok'}">💺 {data.totals.freeSeats} bezahlte Seats frei</span>
-      <span class="ld-badge {data.totals.disabledWithLicense ? 'warn' : 'ok'}">🚫 {data.totals.disabledWithLicense} an deaktivierten Konten</span>
-      <span class="ld-badge {data.totals.inactiveWithLicense ? 'warn' : 'ok'}">😴 {data.totals.inactiveWithLicense ?? '–'} inaktiv &gt;{data.inactiveDays}d</span>
-      <span class="ld-badge {data.totals.multiSuite ? 'warn' : 'ok'}">📚 {data.totals.multiSuite} Lizenz-Überlappungen</span>
+    <div class="kpi-grid">
+      <div class="kpi-tile ok"><b>{data.totals.licensedUsers}<small style="font-size:0.9rem; color:var(--text-faint);">/{data.totals.users}</small></b><span>👥 lizenzierte Benutzer</span></div>
+      <div class="kpi-tile {data.totals.freeSeats ? 'warn' : 'ok'}"><b>{data.totals.freeSeats}</b><span>💺 bezahlte Seats frei</span></div>
+      <div class="kpi-tile {data.totals.disabledWithLicense ? 'bad' : 'ok'}"><b>{data.totals.disabledWithLicense}</b><span>🚫 Lizenzen an deaktivierten Konten</span></div>
+      <div class="kpi-tile {data.totals.inactiveWithLicense ? 'warn' : 'ok'}"><b>{data.totals.inactiveWithLicense ?? '–'}</b><span>😴 inaktiv &gt;{data.inactiveDays} Tage</span></div>
+      <div class="kpi-tile {data.totals.multiSuite ? 'warn' : 'ok'}"><b>{data.totals.multiSuite}</b><span>📚 Lizenz-Überlappungen</span></div>
     </div>
 
     <div class="ld-job" style="margin-bottom:1.25rem;">

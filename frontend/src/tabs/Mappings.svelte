@@ -69,6 +69,34 @@
   function addRow() { mappings = [...mappings, { driveLetter: '', path: '', label: '', groupFilter: '' }] }
   function removeRow(i) { mappings = mappings.filter((_, j) => j !== i) }
 
+  // Generator-UX des Originals: Skript ohne Deploy herunterladen + einlesen
+  let importOpen = $state(false)
+  let importText = $state('')
+  let importError = $state(null)
+
+  async function downloadScript() {
+    try {
+      const r = await apiPost('/api/drivemappings/generate', { mappings, searchRoot, removeStaleDrives })
+      const blob = new Blob([r.script], { type: 'text/plain' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'DriveMapping.ps1'
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (e) { alert('❌ ' + e.message) }
+  }
+  async function importScript() {
+    importError = null
+    try {
+      const r = await apiPost('/api/drivemappings/parse', { script: importText })
+      mappings = r.config.mappings.length ? r.config.mappings : mappings
+      searchRoot = r.config.searchRoot || ''
+      removeStaleDrives = !!r.config.removeStaleDrives
+      importOpen = false
+      importText = ''
+    } catch (e) { importError = e.message }
+  }
+
   const selGroupCount = $derived(Object.values(selGroups).filter(Boolean).length)
 
   // ---------- Drucker-Mappings (Weatherlights Intune Printer Mapping) ----------
@@ -211,21 +239,40 @@
         <small>Skriptname in Intune: <code>WIN - DriveMapping - {profileName || '…'}</code></small>
       </div>
 
-      {#each mappings as m, i}
-        <div class="ld-oib-target">
-          <select bind:value={m.driveLetter} style="min-width:70px;">
-            <option value="">–</option>
-            {#each LETTERS as l}<option value={l}>{l}:</option>{/each}
-          </select>
-          <input type="text" bind:value={m.path} placeholder="\\server\share" style="flex:2; min-width:220px;" />
-          <input type="text" bind:value={m.label} placeholder="Anzeigename (optional)" style="flex:1; min-width:140px;" />
-          <input type="text" bind:value={m.groupFilter} placeholder="AD-Gruppenfilter, kommagetrennt (optional)" style="flex:1; min-width:180px;" />
-          <button class="btn btn-secondary" onclick={() => removeRow(i)} disabled={mappings.length <= 1} title="Zeile entfernen">✕</button>
-        </div>
-      {/each}
+      <div style="overflow-x:auto;">
+        <table class="map-table">
+          <thead><tr><th style="width:90px;">Laufwerk</th><th>UNC-Pfad</th><th>Anzeigename</th><th>AD-Gruppenfilter (kommagetrennt)</th><th style="width:44px;"></th></tr></thead>
+          <tbody>
+            {#each mappings as m, i}
+              <tr>
+                <td>
+                  <select bind:value={m.driveLetter}>
+                    <option value="">–</option>
+                    {#each LETTERS as l}<option value={l}>{l}:</option>{/each}
+                  </select>
+                </td>
+                <td><input type="text" bind:value={m.path} placeholder="\\server\share" /></td>
+                <td><input type="text" bind:value={m.label} placeholder="optional" /></td>
+                <td><input type="text" bind:value={m.groupFilter} placeholder="optional, nur hybrid" /></td>
+                <td><button class="btn btn-secondary map-remove" onclick={() => removeRow(i)} disabled={mappings.length <= 1} title="Zeile entfernen">✕</button></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
       <div class="ld-oib-toolbar">
         <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={addRow}>+ Laufwerk</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={downloadScript}>⬇️ PowerShell-Skript herunterladen</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => (importOpen = !importOpen)}>{importOpen ? '✕ Import schließen' : '📥 Bestehendes Skript einlesen'}</button>
       </div>
+      {#if importOpen}
+        <div class="input-group" style="margin-bottom:0.75rem;">
+          <label for="dmImport">Vorhandenes DriveMapping-Skript hier einfügen (aus Intune oder dem Original-Generator) — die Konfiguration wird herausgelesen und füllt die Tabelle:</label>
+          <textarea id="dmImport" rows="5" bind:value={importText} placeholder="Inhalt der DriveMapping.ps1 einfügen…" style="font-family:var(--font-mono); font-size:0.78rem;"></textarea>
+          <div><button class="btn btn-primary" onclick={importScript} disabled={!importText.trim()}>📥 Einlesen</button></div>
+          {#if importError}<div class="ld-banner fail">❌ {importError}</div>{/if}
+        </div>
+      {/if}
 
       <div class="ld-oib-target">
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.84rem;">
@@ -343,19 +390,26 @@
         </div>
       </div>
 
-      {#each pmPrinters as p, i}
-        <div class="ld-oib-target">
-          <input type="text" bind:value={p.path} placeholder="\\printserver\Drucker" style="flex:2; min-width:240px;" />
-          <select bind:value={p.operation} style="min-width:120px;">
-            <option value="Add">Verbinden</option>
-            <option value="Delete">Entfernen</option>
-          </select>
-          <label style="display:flex; align-items:center; gap:0.3rem; cursor:pointer; font-size:0.84rem;">
-            <input type="checkbox" bind:checked={p.setDefault} /> Standarddrucker
-          </label>
-          <button class="btn btn-secondary" onclick={() => pmRemoveRow(i)} disabled={pmPrinters.length <= 1} title="Zeile entfernen">✕</button>
-        </div>
-      {/each}
+      <div style="overflow-x:auto;">
+        <table class="map-table">
+          <thead><tr><th>Druckerpfad (UNC)</th><th style="width:140px;">Aktion</th><th style="width:120px;">Standard</th><th style="width:44px;"></th></tr></thead>
+          <tbody>
+            {#each pmPrinters as p, i}
+              <tr>
+                <td><input type="text" bind:value={p.path} placeholder="\\printserver\Drucker" /></td>
+                <td>
+                  <select bind:value={p.operation}>
+                    <option value="Add">Verbinden</option>
+                    <option value="Delete">Entfernen</option>
+                  </select>
+                </td>
+                <td style="text-align:center;"><input type="checkbox" bind:checked={p.setDefault} title="Als Standarddrucker setzen" /></td>
+                <td><button class="btn btn-secondary map-remove" onclick={() => pmRemoveRow(i)} disabled={pmPrinters.length <= 1} title="Zeile entfernen">✕</button></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
       <div class="ld-oib-toolbar">
         <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={pmAddRow} disabled={pmPrinters.length >= (pmData?.maxPrinters || 15)}>+ Drucker ({pmPrinters.length}/{pmData?.maxPrinters || 15})</button>
       </div>

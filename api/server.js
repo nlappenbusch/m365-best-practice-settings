@@ -817,6 +817,21 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
 }));
 
 // ---------- Drive-Mapping-Konfigurator (nicolonsky/IntuneDriveMapping-Port) ----------
+// Generator-UX des Originals: Skript ohne Deploy erzeugen (Download) und
+// bestehendes Skript wieder einlesen (Konfig-Roundtrip) — tenant-unabhaengig.
+app.post("/api/drivemappings/generate", (req, res) => {
+  const b = req.body || {};
+  try {
+    res.json({ ok: true, script: DRIVEMAP.buildScript({ mappings: b.mappings, searchRoot: b.searchRoot, removeStaleDrives: !!b.removeStaleDrives }) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/drivemappings/parse", (req, res) => {
+  const cfg = DRIVEMAP.parseScript(String((req.body || {}).script || ""));
+  if (!cfg) return res.status(400).json({ error: "Kein DriveMapping-Skript erkannt (JSON-Block nicht gefunden)." });
+  res.json({ ok: true, config: cfg });
+});
+
 app.get("/api/tenants/:id/drivemappings", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") {
@@ -956,6 +971,35 @@ app.get("/api/tenants/:id/intunebackup/:backupId", wrap(async (req, res) => {
   const items = {};
   for (const c of IBACKUP.CATEGORIES) items[c.key] = (doc.categories[c.key] || []).map(p => c.nameOf(p) || "(ohne Namen)");
   res.json({ ok: true, backupId: req.params.backupId, items });
+}));
+
+// Drift-Vergleich zweier Snapshots (TenuVault-Idee): je Kategorie, was auf
+// Namensebene hinzugekommen/weggefallen ist (A = aelter, B = neuer).
+app.get("/api/tenants/:id/intunebackup/:backupId/compare/:otherId", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      diff: [
+        { key: "settingsCatalog", label: "Settings Catalog", added: ["Win - OIB - SC - Neue Policy - v3.9"], removed: ["Alte Test-Policy"], same: 3 },
+        { key: "compliance", label: "Compliance", added: [], removed: [], same: 2 },
+        { key: "scripts", label: "Plattform-Skripte", added: ["WIN - DriveMapping - Standard"], removed: [], same: 2 }
+      ]
+    });
+  }
+  const a = IBACKUP.loadBackup(STATE_DIR, t.id, req.params.backupId);
+  const b2 = IBACKUP.loadBackup(STATE_DIR, t.id, req.params.otherId);
+  const diff = IBACKUP.CATEGORIES.map(c => {
+    const namesA = new Set((a.categories[c.key] || []).map(p => c.nameOf(p) || ""));
+    const namesB = new Set((b2.categories[c.key] || []).map(p => c.nameOf(p) || ""));
+    return {
+      key: c.key, label: c.label,
+      added: [...namesB].filter(n => !namesA.has(n)),
+      removed: [...namesA].filter(n => !namesB.has(n)),
+      same: [...namesB].filter(n => namesA.has(n)).length
+    };
+  });
+  res.json({ ok: true, diff });
 }));
 
 app.get("/api/tenants/:id/intunebackup/:backupId/download", wrap(async (req, res) => {

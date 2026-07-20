@@ -529,3 +529,30 @@ a { color: var(--accent); }
 .login-pw-btn { width: 100%; }
 .login-alert { margin: 0; }
 .login-hint { font-size: 0.78rem; color: var(--text-dim); margin: 0; text-align: center; }
+
+/* ---------------- Mapping-Tabellen (Drive/Printer, Generator-UX) ---------------- */
+.map-table { width: 100%; border-collapse: collapse; margin: 0.5rem 0 0.75rem; }
+.map-table th {
+    text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-dim); padding: 0.35rem 0.5rem;
+    border-bottom: 1.5px solid var(--rule); background: var(--bg-inset);
+}
+.map-table td { padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.map-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-inset) 45%, transparent); }
+.map-table input[type="text"], .map-table select {
+    width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: var(--bg-raised); color: var(--text); font: inherit; font-size: 0.85rem;
+}
+.map-table input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+.map-table .map-remove { padding: 0.3rem 0.55rem; }
+
+/* ---------------- KPI-Kacheln (Lizenzen, M365Optimizer-Stil) ---------------- */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.7rem; margin-bottom: 1.25rem; }
+.kpi-tile { border: 1px solid var(--rule); border-radius: var(--radius-md); padding: 0.7rem 0.9rem; background: var(--bg-raised); }
+.kpi-tile b { display: block; font-size: 1.5rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi-tile span { font-size: 0.76rem; color: var(--text-dim); }
+.kpi-tile.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-wash); }
+.kpi-tile.warn b { color: var(--warn); }
+.kpi-tile.bad { border-color: color-mix(in srgb, var(--crit) 45%, transparent); background: var(--crit-wash); }
+.kpi-tile.bad b { color: var(--crit); }
+.kpi-tile.ok b { color: var(--ok); }
