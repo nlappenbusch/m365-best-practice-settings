@@ -16,6 +16,14 @@ const { graphReq, graphAllPages } = require("./graph");
 
 const CHUNK_SIZE = 6 * 1024 * 1024; // 6 MiB, wie Microsofts eigenes Upload-Tooling
 
+// Name des Content-Blobs im Upload-Protokoll. Das IntuneWin32App-Modul sendet
+// hier (und im App-fileName) IMMER "IntunePackage.intunewin" — NICHT den
+// Setup-Dateinamen. Wichtig, weil z.B. Bitdefender-Installer als
+// "setupdownloader_[<base64>].exe" heissen (150+ Zeichen, Klammern) — der
+// echte Name darf nur in setupFilePath und im Zip-Eintrag stehen (der Stub
+// liest seine Konfiguration aus dem eigenen Dateinamen, umbenennen verboten).
+const INTUNE_PACKAGE_NAME = "IntunePackage.intunewin";
+
 /** Installer-Buffer fuer den Intune-Content-Upload vorbereiten. */
 function encryptForIntune(installerBuffer, setupFileName) {
   const zipBuf = buildZip([{ name: setupFileName, data: installerBuffer }]);
@@ -162,12 +170,13 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
     const { encryptedBuffer, unencryptedContentSize, fileEncryptionInfo } = encryptForIntune(opts.installerBuffer, opts.setupFileName);
 
     onProgress("Content-Datei registrieren");
-    // Body exakt wie das IntuneWin32App-Modul (inkl. manifest: null).
+    // Body exakt wie das IntuneWin32App-Modul: name ist IMMER der Paketname,
+    // nie der Setup-Dateiname (siehe INTUNE_PACKAGE_NAME oben).
     const filePlaceholder = await graphReq(tenant, certPemPath, "POST",
       `${cvBase(appId)}/${contentVersionId}/files`,
       {
         "@odata.type": "#microsoft.graph.mobileAppContentFile",
-        name: opts.setupFileName,
+        name: INTUNE_PACKAGE_NAME,
         size: unencryptedContentSize,
         sizeEncrypted: encryptedBuffer.length,
         manifest: null,
@@ -222,4 +231,4 @@ async function assignAppToGroup(tenant, certPemPath, appId, groupId) {
   }, { retryTransient: true });
 }
 
-module.exports = { encryptForIntune, selfTestEncryption, createWin32AppWithContent, assignAppToGroup };
+module.exports = { encryptForIntune, selfTestEncryption, createWin32AppWithContent, assignAppToGroup, INTUNE_PACKAGE_NAME };

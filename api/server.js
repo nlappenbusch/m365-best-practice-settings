@@ -1361,6 +1361,19 @@ function fakeAudit() {
 
 // Live-Deploy starten: legt einen Job an und antwortet sofort mit der Job-Id.
 // Die UI pollt /api/jobs/:id fuer den Live-Fortschritt.
+// Platzhalter-Werte duerfen NIE in einen echten Tenant deployt werden — die
+// Vorlage kommt mit example.com-Beispielen, die der Admin ersetzen muss.
+function findPlaceholderValues(cfg) {
+  // Feldnamen des SANITISIERTEN cfg (deploy.js): domains (inkl. gemergter
+  // onmicrosoft-Domain), adminEmail, mspEmail.
+  const bad = [];
+  const isPlaceholder = v => /(^|[@.])example\.(com|de|org|net)$/i.test(String(v || "").trim());
+  for (const d of (cfg.domains || [])) if (isPlaceholder(d)) bad.push(`Domain "${d}"`);
+  if (isPlaceholder(cfg.adminEmail)) bad.push(`Admin-Email "${cfg.adminEmail}"`);
+  if (isPlaceholder(cfg.mspEmail)) bad.push(`MSP-Alert-Email "${cfg.mspEmail}"`);
+  return bad;
+}
+
 app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   const t = requireTenant(req);
   const b = req.body || {};
@@ -1371,6 +1384,13 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   // autoDomains: Rules bekommen die Accepted Domains des Ziel-Tenants
   // (Get-AcceptedDomain zur Laufzeit) statt der Domains aus der Tool-Config.
   if (b.autoDomains) cfg.domains = [];
+
+  const placeholders = findPlaceholderValues(cfg);
+  if (placeholders.length) {
+    return res.status(400).json({
+      error: "Platzhalter-Werte in der Vorlage — bitte im Tab '⚙️ Vorlage' anpassen, bevor deployt wird: " + placeholders.join(", ")
+    });
+  }
 
   for (const j of jobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
@@ -1463,9 +1483,10 @@ function buildWin32AppPayload(b, fileName) {
     description: b.description || "",
     publisher: b.vendor === "bitdefender" ? "Bitdefender" : "N-able (N-sight RMM)",
     // fileName (mobileLobApp) und setupFilePath (win32LobApp) sind ZWEI verschiedene
-    // Felder — ohne fileName lehnt Graph die App-Erstellung ab ("FileName for
-    // Win32 LOB app cannot be empty"), auch wenn setupFilePath gesetzt ist.
-    fileName,
+    // Felder. fileName ist der PAKET-Name — das IntuneWin32App-Modul sendet hier
+    // immer "IntunePackage.intunewin", nie den Setup-Dateinamen (der kann bei
+    // Bitdefender 150+ Zeichen mit Klammern sein und gehoert nur in setupFilePath).
+    fileName: WIN32APP.INTUNE_PACKAGE_NAME,
     installCommandLine: b.installCommandLine,
     uninstallCommandLine: b.uninstallCommandLine,
     applicableArchitectures: "x64",

@@ -7,11 +7,31 @@
 
   function addDomain() { $config.global.domains = [...$config.global.domains, ''] }
   function removeDomain(i) { $config.global.domains = $config.global.domains.filter((_, j) => j !== i) }
+
+  // Platzhalter-Erkennung: example.* darf nie in einen echten Tenant deployt
+  // werden — das Backend blockt den Deploy hart, hier die sichtbare Warnung.
+  const isPlaceholder = (v) => /(^|[@.])example\.(com|de|org|net)$/i.test(String(v || '').trim())
+  const placeholderFields = $derived.by(() => {
+    const g = $config.global
+    const bad = []
+    for (const d of (g.domains || [])) if (isPlaceholder(d)) bad.push(`Domain „${d}“`)
+    if (isPlaceholder(g.onmicrosoftDomain)) bad.push('OnMicrosoft-Domain')
+    if (isPlaceholder(g.adminEmail)) bad.push('Admin Notification Email')
+    if (isPlaceholder(g.igeeksEmail)) bad.push('MSP Alert Email')
+    return bad
+  })
 </script>
 
 <!-- Globale Einstellungen -->
 <section class="settings-section">
   <h2>Globale Einstellungen</h2>
+  {#if placeholderFields.length}
+    <div class="alert alert-warning">
+      ⚠️ <strong>Platzhalter-Werte gefunden:</strong> {placeholderFields.join(', ')} —
+      <code>example.*</code> sind Beispielwerte und müssen ersetzt werden.
+      <strong>Der Live-Deploy ist blockiert, bis das angepasst ist.</strong>
+    </div>
+  {/if}
   <div class="settings-grid">
     <div class="input-group" style="grid-column: 1 / -1;">
       <label>Accepted Domains</label>
