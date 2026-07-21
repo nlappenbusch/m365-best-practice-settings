@@ -34,13 +34,13 @@ export function docsHtml() {
             <path d="M330 152 H392" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#arrow1)"></path>
 
             <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="396" y="6" width="220" height="34" rx="8"></rect></g>
-            <text x="506" y="28" text-anchor="middle" style="fill:var(--ok);font-size:11.5px;font-weight:700">Spam/Phishing → Quarantäne (Self-Release)</text>
+            <text x="506" y="27" text-anchor="middle" style="fill:var(--ok);font-size:10px;font-weight:700">Spam/Phishing → Quarantäne (Self-Release)</text>
 
             <g style="fill:var(--warn-wash);stroke:var(--warn)" stroke-width="1.5"><rect x="396" y="98" width="220" height="34" rx="8"></rect></g>
-            <text x="506" y="120" text-anchor="middle" style="fill:var(--warn);font-size:11.5px;font-weight:700">High-Conf. Phishing → Quarantäne (Request)</text>
+            <text x="506" y="119" text-anchor="middle" style="fill:var(--warn);font-size:10px;font-weight:700">High-Conf. Phishing → Quarantäne (Request)</text>
 
             <g style="fill:var(--crit-wash);stroke:var(--crit)" stroke-width="1.5"><rect x="396" y="190" width="220" height="34" rx="8"></rect></g>
-            <text x="506" y="212" text-anchor="middle" style="fill:var(--crit);font-size:11.5px;font-weight:700">Malware → Reject (NDR)</text>
+            <text x="506" y="211" text-anchor="middle" style="fill:var(--crit);font-size:10px;font-weight:700">Malware → Reject (NDR)</text>
 
             <path d="M616 23 H676" style="stroke:var(--ok)" stroke-width="2" marker-end="url(#arrowOk)"></path>
             <path d="M616 115 H676" style="stroke:var(--warn)" stroke-width="2" marker-end="url(#arrowWarn)"></path>
