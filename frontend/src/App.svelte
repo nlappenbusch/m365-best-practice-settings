@@ -20,18 +20,21 @@
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
 
+  // Gruppiert nach Themenbereich (nur visuell — Klickverhalten bleibt ein
+  // flacher Tab-Wechsel wie zuvor, keine zweite Navigationsebene). Ein
+  // Gruppenwechsel bekommt einen dezenten Trenner in der Leiste.
   const tabs = [
-    { id: 'config',      label: '⚙️ Vorlage' },
-    { id: 'tenants',     label: '🏢 Tenants' },
-    { id: 'mailsec',      label: '🛡 Mail-Security' },
-    { id: 'audit',       label: '🔎 Audit' },
-    { id: 'intune',      label: '💻 Intune' },
-    { id: 'autopilot',   label: '🚀 Autopilot' },
-    { id: 'ca',          label: '🔐 Conditional Access' },
-    { id: 'lizenzen',    label: '💰 Lizenzen' },
-    { id: 'mappings',    label: '🗺️ Mappings', isNew: true },
-    { id: 'downloads',   label: '📦 Agents' },
-    { id: 'wissen',      label: '📖 Wissen' }
+    { id: 'config',      label: '⚙️ Vorlage',    group: 'Einrichtung' },
+    { id: 'tenants',     label: '🏢 Tenants',    group: 'Einrichtung' },
+    { id: 'mailsec',     label: '🛡 Mail-Security', group: 'Mail-Security' },
+    { id: 'audit',       label: '🔎 Audit',      group: 'Mail-Security' },
+    { id: 'intune',      label: '💻 Intune',     group: 'Geräte' },
+    { id: 'autopilot',   label: '🚀 Autopilot',  group: 'Geräte' },
+    { id: 'mappings',    label: '🗺️ Mappings', group: 'Geräte', isNew: true },
+    { id: 'downloads',   label: '📦 Agents',     group: 'Geräte' },
+    { id: 'ca',          label: '🔐 Conditional Access', group: 'Identität' },
+    { id: 'lizenzen',    label: '💰 Lizenzen',   group: 'Lizenzen' },
+    { id: 'wissen',      label: '📖 Wissen',     group: 'Referenz' }
   ]
   const THEME_META = {
     auto:  { icon: '🌓', label: 'Auto' },
@@ -82,7 +85,8 @@
 
   <main class="main-content">
     <nav class="tabs">
-      {#each tabs as t}
+      {#each tabs as t, i}
+        {#if i > 0 && tabs[i - 1].group !== t.group}<span class="tab-group-sep" aria-hidden="true"></span>{/if}
         <button class="tab-btn" class:active={$activeTab === t.id} onclick={() => ($activeTab = t.id)}>
           {t.label}
           {#if t.isNew}<span class="tab-pill-new">Neu</span>{/if}
