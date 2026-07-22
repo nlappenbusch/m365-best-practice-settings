@@ -436,6 +436,10 @@ a { color: var(--accent); }
 .ld-step-section-title { font-weight: 700; font-size: 0.8rem; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-dim); margin: 1rem 0 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--rule); }
 .ld-step-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .ld-step-section-title.manual { color: var(--accent); }
+
+/* SPF/DKIM/DMARC-Checker (Audit-Tab) */
+.da-record { display: block; font-family: var(--font-mono); color: var(--text-dim); word-break: break-all; margin-top: 0.15rem; }
+.da-issues { margin-top: 0.3rem; font-size: 0.78rem; color: var(--warn); line-height: 1.5; }
 .ld-phase.manual-phase { border-left-color: var(--accent); opacity: 1; background: var(--accent-wash); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin: 0.5rem 0; }
 .ld-phase.manual-phase.complete { border-left-color: var(--ok); background: var(--ok-wash); }
 

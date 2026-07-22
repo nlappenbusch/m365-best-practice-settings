@@ -41,6 +41,7 @@ const IBACKUP = require("./lib/intuneBackup");
 const DRIVEMAP = require("./lib/driveMapping");
 const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
+const DOMAINAUTH = require("./lib/domainAuth");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -1613,6 +1614,18 @@ function fakeAudit() {
   };
 }
 
+// Simulierter SPF/DKIM/DMARC-Check (nur fuer lokale UI-Entwicklung, FAKE_DEPLOY=1)
+function fakeDomainAuth() {
+  return [
+    { domain: "demo.ch", spf: { status: "ok", record: "v=spf1 include:spf.protection.outlook.com -all", issues: [] },
+      dmarc: { status: "warn", record: "v=DMARC1; p=none", policy: "none", pct: 100, issues: ['Policy "p=none" ist reines Monitoring — Spoofing wird noch NICHT blockiert.'] },
+      dkim: { status: "ok", enabledInM365: true, cnamesPublished: true, selector1: "selector1-demo-ch._domainkey.demo.onmicrosoft.com", selector2: "selector2-demo-ch._domainkey.demo.onmicrosoft.com", issues: [] } },
+    { domain: "demo.onmicrosoft.com", spf: { status: "ok", record: "v=spf1 include:spf.protection.outlook.com -all", issues: [] },
+      dmarc: { status: "bad", record: null, policy: null, issues: ["Kein DMARC-Record unter _dmarc.demo.onmicrosoft.com gefunden."] },
+      dkim: { status: "bad", enabledInM365: true, cnamesPublished: false, selector1: null, selector2: null, issues: ["DKIM ist in Exchange Online aktiviert, aber die CNAME-Records (selector1/selector2._domainkey) sind im öffentlichen DNS nicht auffindbar — Mails werden trotzdem NICHT signiert."] } }
+  ];
+}
+
 // Live-Deploy starten: legt einen Job an und antwortet sofort mit der Job-Id.
 // Die UI pollt /api/jobs/:id fuer den Live-Fortschritt.
 // Platzhalter-Werte duerfen NIE in einen echten Tenant deployt werden — die
@@ -2082,6 +2095,25 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   }
 
   res.json({ ok: true, audit: r.data.audit || {}, alertPolicy, acceptedDeviations: t.acceptedDeviations || [] });
+}));
+
+// SPF/DKIM/DMARC-Checker: DKIM-Aktivierungsstatus per EXO (Get-DkimSigningConfig),
+// SPF/DMARC/DKIM-CNAME-Records direkt per DNS (oeffentliche Records, keine
+// zusaetzliche Berechtigung noetig). Deckt speziell den Fall ab, dass DKIM in
+// M365 "Enabled" ist, die CNAMEs beim Registrar aber nie gesetzt wurden.
+app.post("/api/tenants/:id/domainauth", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, results: fakeDomainAuth() });
+
+  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+  const r = await EXO.runExo(auth, DOMAINAUTH.buildDomainAuthExoBody(), 60000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "DKIM-Abfrage fehlgeschlagen" });
+
+  const domains = r.data.domains || [];
+  if (!domains.length) return res.json({ ok: true, results: [] });
+  const results = await DOMAINAUTH.checkDomains(domains, r.data.configs || []);
+  res.json({ ok: true, results });
 }));
 
 // Gewollte Abweichungen: einzelne Audit-Checks pro Tenant als bewusst abweichend

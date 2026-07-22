@@ -24,7 +24,8 @@ const COMMANDS = [
   "Get-HostedContentFilterPolicy", "New-HostedContentFilterPolicy", "Set-HostedContentFilterPolicy",
   "Get-HostedContentFilterRule", "New-HostedContentFilterRule", "Set-HostedContentFilterRule",
   "Get-MalwareFilterPolicy", "New-MalwareFilterPolicy", "Set-MalwareFilterPolicy",
-  "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule"
+  "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule",
+  "Get-DkimSigningConfig"
 ].join(",");
 
 

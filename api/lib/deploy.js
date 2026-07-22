@@ -332,4 +332,4 @@ function buildAuditBody() {
   ].join("\r\n");
 }
 
-module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN };
+module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN, NON_MAIL_DOMAIN_PS_FILTER };

@@ -204,6 +204,11 @@
   let auditTcmTimer = null
   let lastTenantId = null
 
+  // ---------- SPF/DKIM/DMARC-Checker ----------
+  let daBusy = $state(false)
+  let daError = $state(null)
+  let daResults = $state(null) // [{domain, spf, dmarc, dkim}]
+
   $effect(() => {
     const id = $activeTenant?.id ?? null
     if (id !== lastTenantId) {
@@ -212,6 +217,9 @@
       auditError = null
       auditData = null
       deviations = []
+      daBusy = false
+      daError = null
+      daResults = null
       if (auditTcmTimer) { clearTimeout(auditTcmTimer); auditTcmTimer = null }
     }
   })
@@ -236,6 +244,34 @@
     }
     auditBusy = false
   }
+
+  async function runDomainAuth() {
+    if (!$activeTenant) return
+    daBusy = true
+    daError = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/domainauth`)
+      daResults = Array.isArray(r.results) ? r.results : []
+    } catch (e) {
+      daError = e.message
+    }
+    daBusy = false
+  }
+
+  function daBadge(status) {
+    if (status === 'ok') return { icon: '✅', cls: 'ok', label: 'OK' }
+    if (status === 'warn') return { icon: '⚠️', cls: 'warn', label: 'Teilweise' }
+    return { icon: '❌', cls: 'bad', label: 'Fehlt/Fehlerhaft' }
+  }
+
+  const daKpi = $derived.by(() => {
+    if (!daResults || !daResults.length) return null
+    const total = daResults.length
+    const spfOk = daResults.filter(d => d.spf.status === 'ok').length
+    const dkimOk = daResults.filter(d => d.dkim.status === 'ok').length
+    const dmarcOk = daResults.filter(d => d.dmarc.status === 'ok').length
+    return { total, spfOk, dkimOk, dmarcOk }
+  })
 
   function pollTcm(tenantId, jobId, tries) {
     auditTcmTimer = setTimeout(async () => {
@@ -626,6 +662,109 @@
     w.document.open(); w.document.write(html); w.document.close()
     setTimeout(() => { try { w.focus(); w.print() } catch (e) {} }, 400)
   }
+
+  // ---------- SPF/DKIM/DMARC-Report als PDF ----------
+  function daStatusLabel(status) { return status === 'ok' ? 'OK' : status === 'warn' ? 'Teilweise' : 'Fehlt/Fehlerhaft' }
+
+  function buildDomainAuthReportHtml(data) {
+    const now = new Date()
+    const dateStr = now.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const timeStr = now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' })
+    const total = data.results.length
+    const okCells = data.results.reduce((n, d) => n + (d.spf.status === 'ok' ? 1 : 0) + (d.dmarc.status === 'ok' ? 1 : 0) + (d.dkim.status === 'ok' ? 1 : 0), 0)
+    const pct = total ? Math.round((okCells / (total * 3)) * 100) : 100
+    const summaryCls = pct === 100 ? 'ok' : (pct < 60 ? 'bad' : 'warn')
+
+    const row = (label, r, extra) => {
+      const cls = r.status === 'ok' ? 'ok' : (r.status === 'warn' ? 'warn' : 'bad')
+      const record = r.record ? '<div class="rec">' + ldEsc(r.record) + '</div>' : ''
+      const issues = (r.issues && r.issues.length) ? '<ul class="iss">' + r.issues.map(i => '<li>' + ldEsc(i) + '</li>').join('') + '</ul>' : ''
+      return '<tr><td class="dm-label">' + label + '</td><td class="dm-status"><span class="pill ' + cls + '">' + daStatusLabel(r.status) + '</span></td>' +
+        '<td class="dm-detail">' + (extra || record || '<span class="muted">—</span>') + issues + '</td></tr>'
+    }
+
+    const sections = data.results.map(d => {
+      const dkimExtra = '<div class="dkim-meta">M365: ' + (d.dkim.enabledInM365 ? 'aktiviert' : 'nicht aktiviert') +
+        ' · DNS-CNAMEs: ' + (d.dkim.cnamesPublished ? 'veröffentlicht' : 'fehlen') + '</div>'
+      return '<section class="dom">' +
+        '<div class="dom-head">' + ldEsc(d.domain) + '</div>' +
+        '<table class="dom-table">' +
+        row('SPF', d.spf) +
+        row('DMARC', d.dmarc) +
+        row('DKIM', d.dkim, dkimExtra) +
+        '</table></section>'
+    }).join('')
+
+    return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
+      '<title>Mail-Authentifizierung ' + ldEsc(data.name) + ' — SPF/DKIM/DMARC</title>' +
+      '<style>' + ldDomainAuthReportCss() + '</style></head><body>' +
+      '<button class="no-print print-btn" onclick="window.print()">📧 Als PDF speichern / Drucken</button>' +
+      '<div class="page">' +
+      '<header class="rpt-head">' +
+      '<div class="rpt-head-main">' +
+      '<div class="rpt-kicker">M365 Security Policy Manager</div>' +
+      '<h1>Mail-Authentifizierung</h1>' +
+      '<div class="rpt-sub">SPF · DKIM · DMARC je Domain — inkl. Abgleich Microsoft&nbsp;365 &harr; öffentliches DNS</div>' +
+      '</div>' +
+      '<div class="rpt-score ' + summaryCls + '"><div class="score-num">' + pct + '%</div><div class="score-lbl">bestanden</div></div>' +
+      '</header>' +
+      '<div class="meta-grid">' +
+      '<div class="meta-cell"><span class="meta-k">Tenant</span><span class="meta-v">' + ldEsc(data.name) + '</span></div>' +
+      '<div class="meta-cell"><span class="meta-k">Erstellt am</span><span class="meta-v">' + dateStr + ' · ' + timeStr + ' Uhr</span></div>' +
+      '<div class="meta-cell"><span class="meta-k">Geprüfte Domains</span><span class="meta-v">' + total + '</span></div>' +
+      '</div>' +
+      sections +
+      '<footer class="rpt-foot">Automatisch erzeugt vom M365 Security Policy Manager · ' + dateStr + ' ' + timeStr +
+      ' · SPF/DMARC per öffentlicher DNS-Abfrage, DKIM-Aktivierung per Exchange Online (Get-DkimSigningConfig) — beides zusammen deckt auch den Fall ab, dass DKIM in M365 aktiviert, aber im DNS nie veröffentlicht wurde.</footer>' +
+      '</div></body></html>'
+  }
+
+  function ldDomainAuthReportCss() {
+    return [
+      '*{box-sizing:border-box;margin:0;padding:0}',
+      'body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;color:#1d2939;background:#f2f4f7;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+      '.page{max-width:820px;margin:24px auto;background:#fff;padding:32px 36px 40px;box-shadow:0 2px 18px rgba(16,24,40,.12);border-radius:6px}',
+      '.rpt-head{display:flex;align-items:center;justify-content:space-between;gap:20px;background:linear-gradient(120deg,#0f5132,#0891b2);color:#fff;padding:22px 26px;border-radius:10px;margin:-8px 0 22px}',
+      '.rpt-kicker{font-size:9.5pt;text-transform:uppercase;letter-spacing:.06em;opacity:.85}',
+      '.rpt-head h1{font-size:21pt;margin:2px 0 4px}',
+      '.rpt-sub{font-size:9.8pt;opacity:.92}',
+      '.rpt-score{text-align:center;background:rgba(255,255,255,.16);border-radius:10px;padding:10px 20px;min-width:96px}',
+      '.rpt-score .score-num{font-size:22pt;font-weight:800;line-height:1}',
+      '.rpt-score .score-lbl{font-size:8.5pt;opacity:.9;text-transform:uppercase;letter-spacing:.04em}',
+      '.meta-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}',
+      '.meta-cell{background:#f4f7f6;border-radius:8px;padding:9px 12px}',
+      '.meta-k{display:block;font-size:8pt;text-transform:uppercase;letter-spacing:.04em;color:#667085}',
+      '.meta-v{display:block;font-size:10.3pt;font-weight:600;color:#101828;margin-top:1px}',
+      '.dom{break-inside:avoid;page-break-inside:avoid;margin-bottom:16px}',
+      '.dom-head{font-size:12.5pt;font-weight:700;color:#0f5132;font-family:Consolas,monospace;background:#eefaf3;border-radius:6px 6px 0 0;padding:8px 12px;border:1px solid #d6ead9;border-bottom:none}',
+      '.dom-table{width:100%;border-collapse:collapse;border:1px solid #d6ead9;border-radius:0 0 6px 6px;overflow:hidden}',
+      '.dom-table td{padding:8px 12px;border-top:1px solid #e6eeea;vertical-align:top;font-size:9.6pt}',
+      '.dm-label{font-weight:700;width:70px;color:#344054}',
+      '.dm-status{width:110px}',
+      '.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:8.6pt;font-weight:700}',
+      '.pill.ok{background:#ecfdf3;color:#067647}',
+      '.pill.warn{background:#fffaeb;color:#b54708}',
+      '.pill.bad{background:#fef3f2;color:#b42318}',
+      '.rec{font-family:Consolas,monospace;font-size:8.6pt;color:#344054;word-break:break-all;background:#f9fafb;border-radius:4px;padding:3px 6px;margin-bottom:3px}',
+      '.dkim-meta{font-size:8.8pt;color:#475467;margin-bottom:3px}',
+      '.iss{margin:2px 0 0 16px;padding:0;font-size:8.8pt;color:#b54708}',
+      '.iss li{margin:1px 0}',
+      '.muted{color:#98a2b3}',
+      'footer.rpt-foot{margin-top:20px;padding-top:10px;border-top:1px solid #e4e7ec;font-size:8.3pt;color:#667085;line-height:1.6}',
+      '.print-btn{position:fixed;top:16px;right:16px;z-index:9;background:#0f5132;color:#fff;border:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3)}',
+      '@media print{body{background:#fff}.no-print{display:none!important}.page{box-shadow:none;margin:0;max-width:none;border-radius:0;padding:0}.rpt-head{margin-top:0}}',
+      '@page{size:A4;margin:14mm}'
+    ].join('')
+  }
+
+  function openDomainAuthReport() {
+    if (!daResults || !daResults.length || !$activeTenant) return
+    const html = buildDomainAuthReportHtml({ name: $activeTenant.name, results: daResults })
+    const w = window.open('', '_blank')
+    if (!w) { alert('Der Browser hat das PDF-Fenster blockiert. Bitte Pop-ups für diese Seite erlauben und erneut „Domain-PDF" klicken.'); return }
+    w.document.open(); w.document.write(html); w.document.close()
+    setTimeout(() => { try { w.focus(); w.print() } catch (e) {} }, 400)
+  }
 </script>
 
 <TenantContext>
@@ -681,6 +820,62 @@
           {/each}
         </div>
       {/each}
+    </div>
+  {/if}
+
+  <div class="settings-group" style="margin-top:1.5rem;">
+    <h4>📧 Mail-Authentifizierung (SPF / DKIM / DMARC)</h4>
+    <p class="ld-section-hint">Prüft je Mail-Domain des Tenants das öffentliche SPF- und DMARC-TXT-Record sowie
+      — kombiniert aus Exchange Online (Get-DkimSigningConfig) und öffentlichem DNS — ob DKIM wirklich signiert
+      wird. Deckt speziell den Fall ab, dass DKIM in M365 als „aktiviert" gilt, die CNAME-Records beim Registrar
+      aber nie gesetzt wurden.</p>
+    <button class="btn btn-secondary" onclick={runDomainAuth} disabled={daBusy}>{daBusy ? '…' : 'Domains prüfen'}</button>
+  </div>
+
+  {#if daBusy}
+    <div class="ld-job">
+      <div class="ld-step running"><span class="ld-spinner"></span> Lese DKIM-Status aus Exchange Online und löse DNS-Records auf…</div>
+    </div>
+  {:else if daError}
+    <div class="ld-job"><div class="ld-banner fail">❌ {daError}</div></div>
+  {:else if daResults}
+    <div class="ld-job">
+      <div class="ld-job-head">
+        <strong>📧 Mail-Authentifizierung: {$activeTenant?.name}</strong>
+        <span class="ld-job-meta">{daResults.length} Domain(s)</span>
+        <button class="btn btn-secondary ld-pdf-btn" onclick={openDomainAuthReport} title="SPF/DKIM/DMARC-Report als PDF speichern" disabled={!daResults.length}>📧 Domain-PDF</button>
+      </div>
+
+      {#if !daResults.length}
+        <div class="ld-banner warn">⚠️ Keine Mail-Domains gefunden.</div>
+      {:else}
+        {#if daKpi}
+          <div class="kpi-grid">
+            <div class="kpi-tile"><b>{daKpi.total}</b><span>Domains geprüft</span></div>
+            <div class="kpi-tile" class:ok={daKpi.spfOk === daKpi.total} class:warn={daKpi.spfOk < daKpi.total}><b>{daKpi.spfOk}/{daKpi.total}</b><span>SPF gültig</span></div>
+            <div class="kpi-tile" class:ok={daKpi.dkimOk === daKpi.total} class:bad={daKpi.dkimOk < daKpi.total}><b>{daKpi.dkimOk}/{daKpi.total}</b><span>DKIM aktiv + im DNS</span></div>
+            <div class="kpi-tile" class:ok={daKpi.dmarcOk === daKpi.total} class:warn={daKpi.dmarcOk < daKpi.total}><b>{daKpi.dmarcOk}/{daKpi.total}</b><span>DMARC durchgesetzt</span></div>
+          </div>
+        {/if}
+
+        {#each daResults as d (d.domain)}
+          <div class="ld-phase" class:active={d.spf.status !== 'ok' || d.dmarc.status !== 'ok' || d.dkim.status !== 'ok'} class:complete={d.spf.status === 'ok' && d.dmarc.status === 'ok' && d.dkim.status === 'ok'}>
+            <div class="ld-phase-title">🌐 {d.domain}</div>
+            {#each [['SPF', d.spf], ['DMARC', d.dmarc], ['DKIM', d.dkim]] as [label, r] (label)}
+              {@const b = daBadge(r.status)}
+              <div class="ld-step {b.cls === 'ok' ? 'ok' : (b.cls === 'warn' ? 'retry' : 'fail')}">
+                <span class="ld-ico">{b.icon}</span>
+                <strong>{label}</strong>
+                {#if r.record}<small class="da-record">{r.record}</small>{/if}
+                {#if label === 'DKIM'}<small>M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</small>{/if}
+                {#if r.issues && r.issues.length}
+                  <div class="da-issues">{#each r.issues as iss}<div>⚠️ {iss}</div>{/each}</div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/each}
+      {/if}
     </div>
   {/if}
 </TenantContext>
