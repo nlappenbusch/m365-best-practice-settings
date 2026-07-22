@@ -591,3 +591,236 @@ Schema <code>AAD-APP-&lt;APP&gt;</code>.</p>
 </div>
 `
 }
+
+// ---------- Conditional Access: Ring-Konzept ----------
+export function conditionalAccessHtml() {
+  return `
+<h3>🎯 Zielsetzung</h3>
+<p>Conditional Access kann im schlimmsten Fall den <b>gesamten Tenant aussperren</b> — anders als jede andere
+Automatisierung in diesem Tool. Deshalb gilt hier eine striktere Sicherheitsleitplanke als überall sonst: nichts
+wird je direkt scharf angelegt, und der Rollout läuft immer in kontrollierten Wellen statt auf einen Schlag an
+„alle Benutzer".</p>
+
+<div class="alert alert-warning">
+  <strong>⚠️ Die wichtigste Regel:</strong> Jede Policy wird beim Anlegen <b>immer</b> mit
+  <code>enabledForReportingButNotEnforced</code> erzeugt — komplett unabhängig davon, was in der Vorlage steht.
+  Es gibt im Code keinen Pfad, der eine Policy direkt scharf anlegt. Aktivieren (<code>state → enabled</code>) ist
+  ein bewusst getrennter, expliziter Klick.
+</div>
+
+<div class="tool-tie-in">
+  <span>🛠️</span>
+  <div><b>So macht das unser Tool:</b> Vorschau mit Ring-/Ziel-Auswahl, Batch-Aktionen (aktivieren/deaktivieren)
+  und der Nutzer-/Break-Glass-Konto-Ersteller laufen im Tab <b>🔐 Conditional Access</b>.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="ca">🔐 Zu Conditional Access</button>
+  </div></div>
+</div>
+
+<h3>🎚️ Drei Ausbaustufen</h3>
+<p>Je nach Lizenzierung des Tenants steht eine passende Tier zur Verfügung — von reiner MFA-Erzwingung bis zu
+Risiko-basierten Policies:</p>
+<table class="comparison-table">
+  <thead><tr><th>Tier</th><th>Umfang</th><th>Lizenz</th></tr></thead>
+  <tbody>
+    <tr><td><b>Bare Minimum</b></td><td>Nur Authentication-Strength/MFA — keine Geräte-Compliance-Anforderung. Funktioniert unabhängig davon, ob Geräte Intune-verwaltet sind.</td><td>Keine Zusatzlizenz (Security-Defaults-Niveau, aber granularer)</td></tr>
+    <tr><td><b>AADP1</b></td><td>Zusätzlich Geräte-Compliance/Hybrid-Join als Optionen, App-Protection, mehr Attack-Surface-Reduction-Regeln.</td><td>Entra ID P1 (in Business Premium/E3 enthalten)</td></tr>
+    <tr><td><b>AADP1+P2</b></td><td>Zusätzlich Sign-in-/User-Risk-Policies (Identity Protection), Insider-Risk-Signale, Session-/Token-Schutz.</td><td>Entra ID P2 zusätzlich zu P1 (in E5 enthalten)</td></tr>
+  </tbody>
+</table>
+
+<h3>🔄 Das Ring-Konzept</h3>
+<p>Ursprünglich waren die Policies fest auf eine einzige Zielgruppe verdrahtet — im Alltag zu grob, wenn man ein
+neues Policy-Set erst an einer Pilotgruppe testen will, bevor es an alle geht. Das Ring-Konzept (Vorlage:
+AlexFilipin/ConditionalAccess) löst das: derselbe Policy-Satz kann mehrfach nebeneinander existieren, einmal pro
+Ring, und der <code>&lt;RING&gt;</code>-Platzhalter im Policy-Namen wird beim Deploy ersetzt.</p>
+
+<div class="flow-diagram" role="img" aria-label="Ring-Rollout: Pilot-Gruppe, dann UAT, dann breiter Rollout, jeweils im Report-Only-Modus zuerst">
+  <svg viewBox="0 0 860 150" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="4" y="10" width="260" height="130" rx="10"></rect></g>
+    <text x="134" y="36" text-anchor="middle" style="fill:var(--ok);font-size:12.5px;font-weight:700">PILOT</text>
+    <text x="134" y="58" text-anchor="middle" style="fill:var(--text);font-size:10px">AAD-CA-RING-PILOT</text>
+    <text x="134" y="76" text-anchor="middle" style="fill:var(--text-dim);font-size:9.5px">wenige Testnutzer</text>
+    <text x="134" y="112" text-anchor="middle" style="fill:var(--ok);font-size:10px;font-weight:700">Report-Only zuerst</text>
+
+    <path d="M264 75 H320" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#caArrow)"></path>
+
+    <g style="fill:var(--warn-wash);stroke:var(--warn)" stroke-width="1.5"><rect x="300" y="10" width="260" height="130" rx="10"></rect></g>
+    <text x="430" y="36" text-anchor="middle" style="fill:var(--warn);font-size:12.5px;font-weight:700">UAT</text>
+    <text x="430" y="58" text-anchor="middle" style="fill:var(--text);font-size:10px">AAD-CA-RING-UAT</text>
+    <text x="430" y="76" text-anchor="middle" style="fill:var(--text-dim);font-size:9.5px">breitere Testgruppe</text>
+    <text x="430" y="112" text-anchor="middle" style="fill:var(--warn);font-size:10px;font-weight:700">Report-Only zuerst</text>
+
+    <path d="M560 75 H616" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#caArrow)"></path>
+
+    <g style="fill:var(--crit-wash);stroke:var(--crit)" stroke-width="1.5"><rect x="596" y="10" width="260" height="130" rx="10"></rect></g>
+    <text x="726" y="36" text-anchor="middle" style="fill:var(--crit);font-size:12.5px;font-weight:700">BROAD</text>
+    <text x="726" y="58" text-anchor="middle" style="fill:var(--text);font-size:10px">AAD-CA-RING-BROAD</text>
+    <text x="726" y="76" text-anchor="middle" style="fill:var(--text-dim);font-size:9.5px">alle Benutzer</text>
+    <text x="726" y="112" text-anchor="middle" style="fill:var(--crit);font-size:10px;font-weight:700">erst nach sauberem UAT</text>
+
+    <defs><marker id="caArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker></defs>
+  </svg>
+</div>
+<p><b>Ring-getargetet</b> heisst: Policies, die eigentlich auf „All users" zielen würden, zielen stattdessen auf
+die Ring-Gruppe. So testet man das komplette Set an einer Pilotgruppe, bevor der breite Ring alle erfasst. Named
+Policies folgen dem Schema <code>&lt;Nr&gt; - BP - &lt;Name&gt;</code> — nur diese eigenen Policies werden vom
+Tool verwaltet, bestehende Fremd-Policies bleiben unangetastet.</p>
+
+<h3>🛡️ Vier Schutzgruppen (immer leer angelegt)</h3>
+<p>Vor jedem Deploy stellt das Tool vier Ausschluss-Gruppen sicher und trägt sie in jede Policy ein — sie werden
+aber bewusst <b>leer</b> angelegt, der Admin muss sie selbst befüllen:</p>
+<table class="comparison-table">
+  <thead><tr><th>Gruppe</th><th>Zweck</th></tr></thead>
+  <tbody>
+    <tr><td><code>AAD-CA-BreakGlass</code></td><td>Notfallzugriffskonten — <b>vor dem Aktivieren</b> mit mindestens einem Konto befüllen, sonst droht Aussperrung.</td></tr>
+    <tr><td><code>AAD-CA-SyncAccounts</code></td><td>Entra-Connect-/Sync-Dienstkonten — dürfen nie durch interaktive Auth-Anforderungen blockiert werden.</td></tr>
+    <tr><td><code>AAD-CA-ExclusionTemp</code></td><td>Temporäre Ausnahmen (z.B. Troubleshooting) — zeitnah wieder leeren.</td></tr>
+    <tr><td><code>AAD-CA-ExclusionPermanent</code></td><td>Dauerhafte, dokumentierte Ausnahmen (z.B. Legacy-Systemkonten).</td></tr>
+  </tbody>
+</table>
+
+<h3>🚨 Break-Glass-Konten</h3>
+<p>Microsoft empfiehlt mindestens zwei Notfallkonten, ausgeschlossen von jeder Conditional-Access-Policy. Sie
+folgen der Namenskonvention <code>breakglass-01</code>, <code>breakglass-02</code> (siehe Abschnitt
+„🏷️ Namenskonventionen") — der Schutz kommt aus starkem Passwort, Monitoring und dem CA-Ausschluss selbst, nicht
+aus einem unauffälligen Namen. Das Tool erzeugt auf Wunsch ein solches Konto direkt mit vorbelegtem, konventions-
+konformem Benutzernamen und einem generierten Einmal-Passwort.</p>
+`
+}
+
+// ---------- Intune-Backup & -Restore ----------
+export function intuneBackupHtml() {
+  return `
+<h3>🎯 Zielsetzung</h3>
+<p>Ein versehentlich gelöschtes oder überschriebenes Intune-Profil lässt sich ohne Sicherung nicht rückgängig
+machen — Microsoft bietet dafür keine eingebaute Undo-Funktion. Dieser Abschnitt begründet den Backup/Restore-
+Mechanismus (Idee: ugurkocde/TenuVault, hier als eigenständige app-only-Implementierung direkt im Tool statt als
+delegiertes PowerShell-Skript).</p>
+
+<div class="tool-tie-in">
+  <span>🛠️</span>
+  <div><b>So macht das unser Tool:</b> Backup erstellen, Snapshots einsehen und der Drift-Vergleich zwischen zwei
+  Ständen laufen im Tab <b>💻 Intune → Backup &amp; Restore</b>.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="intune">💻 Zu Intune</button>
+  </div></div>
+</div>
+
+<div class="flow-diagram" role="img" aria-label="Backup liest nur, Restore legt neue Objekte mit Restored-Praefix unzugewiesen an">
+  <svg viewBox="0 0 860 140" xmlns="http://www.w3.org/2000/svg">
+    <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="4" y="46" width="150" height="48" rx="9"></rect></g>
+    <text x="79" y="75" text-anchor="middle" style="fill:var(--text);font-size:12px;font-weight:700">Intune (Live)</text>
+    <path d="M154 70 H214" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#ibArrow)"></path>
+    <text x="184" y="60" text-anchor="middle" style="fill:var(--text-faint);font-size:9px">nur GET</text>
+
+    <g style="fill:var(--ok-wash);stroke:var(--ok)" stroke-width="1.5"><rect x="218" y="46" width="170" height="48" rx="9"></rect></g>
+    <text x="303" y="70" text-anchor="middle" style="fill:var(--ok);font-size:11.5px;font-weight:700">JSON-Snapshot</text>
+    <text x="303" y="86" text-anchor="middle" style="fill:var(--text-dim);font-size:8.8px" font-family="var(--font-mono)">backups/&lt;tenant&gt;/&lt;ts&gt;.json</text>
+
+    <path d="M388 70 H448" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#ibArrow)"></path>
+    <text x="418" y="60" text-anchor="middle" style="fill:var(--text-faint);font-size:9px">Restore</text>
+
+    <g style="fill:var(--warn-wash);stroke:var(--warn)" stroke-width="1.5"><rect x="452" y="16" width="200" height="108" rx="9"></rect></g>
+    <text x="552" y="42" text-anchor="middle" style="fill:var(--warn);font-size:11.5px;font-weight:700">Neue Objekte</text>
+    <text x="552" y="62" text-anchor="middle" style="fill:var(--text);font-size:9.5px" font-family="var(--font-mono)">"[Restored] &lt;Name&gt;"</text>
+    <text x="552" y="80" text-anchor="middle" style="fill:var(--text);font-size:9.5px">unzugewiesen</text>
+    <text x="552" y="98" text-anchor="middle" style="fill:var(--warn);font-size:9px;font-weight:700">nichts Bestehendes</text>
+    <text x="552" y="112" text-anchor="middle" style="fill:var(--warn);font-size:9px;font-weight:700">wird geändert/gelöscht</text>
+
+    <path d="M656 70 H716" style="stroke:var(--text-faint)" stroke-width="2" marker-end="url(#ibArrow)"></path>
+    <text x="686" y="60" text-anchor="middle" style="fill:var(--text-faint);font-size:9px">manuell</text>
+
+    <g style="fill:var(--bg-raised);stroke:var(--rule)" stroke-width="1.5"><rect x="720" y="46" width="136" height="48" rx="9"></rect></g>
+    <text x="788" y="68" text-anchor="middle" style="fill:var(--text);font-size:10.5px;font-weight:700">Prüfen &amp;</text>
+    <text x="788" y="83" text-anchor="middle" style="fill:var(--text);font-size:10.5px;font-weight:700">zuweisen</text>
+
+    <defs><marker id="ibArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" style="fill:var(--text-faint)"></path></marker></defs>
+  </svg>
+</div>
+
+<h3>📦 Was gesichert wird</h3>
+<table class="comparison-table">
+  <thead><tr><th>Kategorie</th><th>Umfang</th></tr></thead>
+  <tbody>
+    <tr><td>Settings Catalog</td><td>inkl. aller Settings (<code>$expand=settings</code>)</td></tr>
+    <tr><td>Compliance Policies</td><td>inkl. Scheduled Actions for Rule</td></tr>
+    <tr><td>Device Configurations</td><td>klassische Konfigurationsprofile</td></tr>
+    <tr><td>Plattform-Skripte</td><td>inkl. Skript-Inhalt (pro Skript einzeln abgerufen)</td></tr>
+    <tr><td>Feature-/Quality-/Driver-Updates</td><td>alle drei Update-Ring-Profiltypen</td></tr>
+  </tbody>
+</table>
+<div class="alert alert-info">
+  <strong>ℹ️ Bewusst nicht dabei: Admin Templates (ADMX).</strong> Deren <code>definitionValues</code>-Modell
+  bräuchte eine eigene, deutlich komplexere Restore-Logik — ohne die wäre ein „Backup" davon nur Schein-Sicherheit.
+  Betroffen ist insbesondere das Drucker-Mapping-Profil (siehe Abschnitt „🗺️ Mappings").
+</div>
+
+<h3>🔒 Warum Restore nie etwas überschreibt</h3>
+<ul>
+  <li><b>Nur neue Objekte:</b> jedes wiederhergestellte Profil bekommt das Präfix <code>[Restored] </code> im Namen — nie derselbe Name wie das Original, also nie ein Konflikt.</li>
+  <li><b>Unzugewiesen:</b> Restore weist die wiederhergestellten Profile bewusst keiner Gruppe zu — ein Admin muss sie erst prüfen und aktiv zuweisen, bevor sie irgendein Gerät erreichen.</li>
+  <li><b>Keine Löschungen:</b> Restore löscht oder verändert nie ein bestehendes Objekt im Tenant.</li>
+</ul>
+
+<h3>🔍 Drift-Vergleich</h3>
+<p>Zwei Snapshots lassen sich gegeneinander vergleichen (pro Kategorie: hinzugekommen / entfernt / unverändert,
+nach Name) — nützlich, um nachzuvollziehen, was sich zwischen zwei Zeitpunkten in der Intune-Konfiguration
+tatsächlich geändert hat, unabhängig davon, ob das über dieses Tool oder direkt im Portal geschah.</p>
+`
+}
+
+// ---------- Mappings: Drive- & Printer-Mapping ----------
+export function mappingsHtml() {
+  return `
+<h3>🎯 Zielsetzung</h3>
+<p>Beide Mapping-Tools lösen dasselbe Grundproblem: Cloud-only-Geräte (Entra-ID-joined, kein lokales AD) haben
+von Haus aus keinen Zugriff auf klassische On-Prem-Netzwerkressourcen — Laufwerke und Drucker, die früher per
+Login-Skript/GPO kamen. Für Laufwerke und Drucker wurden bewusst <b>unterschiedliche</b> Ansätze gewählt, weil
+die jeweils beste verfügbare Community-Lösung unterschiedlich funktioniert.</p>
+
+<div class="tool-tie-in">
+  <span>🛠️</span>
+  <div><b>So macht das unser Tool:</b> Beide Konfiguratoren (Profile anlegen, Skript generieren/parsen, App-
+  Deployment, GroupTag-Zuweisung) laufen im Tab <b>🗺️ Mappings</b>.
+  <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="mappings">🗺️ Zu Mappings</button>
+  </div></div>
+</div>
+
+<h3>🖴 Drive-Mapping (Port von nicolonsky/IntuneDriveMapping)</h3>
+<p>Der Generator erzeugt ein reines PowerShell-Plattformskript: SYSTEM legt einen Scheduled Task an, der bei
+jedem Benutzer-Logon die Laufwerke mappt (optional mit On-Prem-AD-Gruppenfilter) — <b>ohne App-Abhängigkeit</b>.
+Das Original-Template wird eingebettet und an genau den drei Stellen gepatcht, die auch der Web-Generator patcht
+(<code>!INTUNEDRIVEMAPPINGJSON!</code>, <code>$searchRoot</code>, <code>$removeStaleDrives</code>).</p>
+<p><b>Profile sind zustandslos:</b> Die Konfiguration lebt im deployten Skript selbst (als eingebettetes JSON)
+und wird beim Bearbeiten wieder herausgeparst — es gibt keine separate Datenbank dafür. Laufwerksbuchstaben sind
+auf <code>D–Z</code> beschränkt (nie <code>C</code>), Pfade müssen UNC sein (kein lokaler Pfad).</p>
+
+<h3>🖨️ Printer-Mapping (Weatherlights/Intune-Printer-Mapping-Tool)</h3>
+<p>Drucker funktionieren anders als Laufwerke: das Tool nutzt eine Store-App plus ADMX-Ingestion statt eines
+reinen Skripts. Drei Teile, komplett app-only automatisiert:</p>
+<ol>
+  <li><b>Store-App</b> „Intune Printer Mapping" (Produkt-ID <code>9N3TH84TXRF4</code>), auf Wunsch automatisch als Required-App deployt.</li>
+  <li><b>ADMX/ADML-Import</b> des Tools (<code>groupPolicyUploadedDefinitionFiles</code>), Dateien liegen versioniert im Tool (Release 1.0.5).</li>
+  <li><b>Policy</b> („Imported Administrative Templates") mit Pflicht-Schalter „Enable Intune Printer Mapping" (Machine) und je Drucker einem „Printer operation &lt;N&gt;"-Slot (max. 15, User- oder Machine-Kontext) mit Pfad/Aktion (Add/Delete)/Standarddrucker.</li>
+</ol>
+<div class="alert alert-warning">
+  <strong>⚠️ Manuell bleibt (bewusst, wird in der UI angezeigt):</strong> der Autostart-Freigabe-Eintrag der App
+  (PFN <code>HaukeGtze.IntunePrinterMapping_6bk20wvc8rfx2</code>) in einer Geräterestriktions-Richtlinie, sowie
+  Treiber und Druckberechtigungen auf den Zieldruckern selbst.
+</div>
+
+<h3>⚖️ Warum nicht dieselbe Lösung für beides</h3>
+<table class="comparison-table">
+  <thead><tr><th>Kriterium</th><th>Drive-Mapping (nicolonsky)</th><th>Printer-Mapping (Weatherlights)</th></tr></thead>
+  <tbody>
+    <tr><td>Mechanismus</td><td>PowerShell-Plattformskript + Scheduled Task</td><td>Store-App + ADMX-Ingestion</td></tr>
+    <tr><td>App-Abhängigkeit</td><td>Keine</td><td>Ja (Store-App als Trägerprozess)</td></tr>
+    <tr><td>Warum nicht die Weatherlights-Alternative für Laufwerke?</td><td colspan="2">Weatherlights’ Netzlaufwerk-Tool hängt am Microsoft Store for Business — der Dienst ist von Microsoft eingestellt, damit fiel diese Option weg.</td></tr>
+  </tbody>
+</table>
+<p class="note">Beide Konfiguratoren weisen ihre Profile über dieselben dynamischen GroupTag-Gerätegruppen zu
+wie Autopilot/OIB — siehe Abschnitt „🏷️ Namenskonventionen".</p>
+`
+}

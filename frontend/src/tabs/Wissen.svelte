@@ -1,7 +1,7 @@
 <script>
   import { config } from '../lib/config.js'
   import { docsHtml, recoHtml } from '../lib/wissenTemplates.js'
-  import { autopilotHtml, oibHtml, namingHtml, patchMyPcHtml } from '../lib/wissenIntune.js'
+  import { autopilotHtml, oibHtml, namingHtml, patchMyPcHtml, conditionalAccessHtml, intuneBackupHtml, mappingsHtml } from '../lib/wissenIntune.js'
   import { openConfigDoc } from '../lib/configDoc.js'
   import { openKnowledgeDoc } from '../lib/knowledgeDoc.js'
   import { goToTab } from '../lib/tabStore.js'
@@ -12,6 +12,9 @@
   const oib = oibHtml()
   const naming = namingHtml()
   const patchMyPc = patchMyPcHtml()
+  const condAccess = conditionalAccessHtml()
+  const intuneBackup = intuneBackupHtml()
+  const mappings = mappingsHtml()
 
   let sub = $state('mailsec')
 
@@ -27,6 +30,9 @@
     { id: 'mailsec',   icon: '🛡',  title: 'Mail-Security', teaser: 'Quarantäne-Policies, ASF, DMARC — und warum Microsofts Default nicht reicht.' },
     { id: 'autopilot', icon: '🚀', title: 'Autopilot',     teaser: 'Vom GroupTag zum fertig eingerichteten Gerät, ohne Login am Gerät.' },
     { id: 'oib',       icon: '💻', title: 'OpenIntuneBaseline', teaser: 'Das CIS-Delta, ISO-27001-Mapping und die vier Break-Risk-Policies.' },
+    { id: 'ca',        icon: '🔐', title: 'Conditional Access', teaser: 'Ring-Konzept, Schutzgruppen und warum nie direkt scharf angelegt wird.' },
+    { id: 'backup',    icon: '💾', title: 'Intune-Backup',  teaser: 'Nicht-destruktives Restore und Drift-Vergleich zwischen Ständen.' },
+    { id: 'mappings',  icon: '🗺️', title: 'Mappings',      teaser: 'Laufwerke und Drucker auf Cloud-only-Geräten — zwei unterschiedliche Ansätze.' },
     { id: 'pmp',       icon: '🧩', title: 'Patch My PC',   teaser: 'Automatisches Third-Party-Patch- und App-Management.' },
     { id: 'naming',    icon: '🏷️', title: 'Namenskonventionen', teaser: 'Gruppenkonzept — inkl. Live-Generator für korrekte Namen.' }
   ]
@@ -108,6 +114,30 @@
       lead: 'Zentrale Referenz für Entra-ID-Gruppen in Managed-Setups',
       bodyHtml: naming,
       footerNote: 'Gilt für Autopilot-, OIB- und App-Zuweisungen gleichermassen.'
+    })
+  }
+  function pdfConditionalAccess() {
+    openKnowledgeDoc({
+      title: 'Conditional Access — Ring-Konzept & Sicherheitsleitplanken',
+      lead: 'Gestufter Rollout (Pilot → UAT → Broad), Schutzgruppen und warum nie direkt scharf angelegt wird',
+      bodyHtml: condAccess,
+      footerNote: 'Abgeglichen mit dem Tab 🔐 Conditional Access dieses Tools.'
+    })
+  }
+  function pdfIntuneBackup() {
+    openKnowledgeDoc({
+      title: 'Intune-Backup & -Restore',
+      lead: 'Nicht-destruktives Restore-Konzept und Drift-Vergleich',
+      bodyHtml: intuneBackup,
+      footerNote: 'Abgeglichen mit dem Tab 💻 Intune → Backup & Restore dieses Tools.'
+    })
+  }
+  function pdfMappings() {
+    openKnowledgeDoc({
+      title: 'Mappings — Laufwerke & Drucker auf Cloud-only-Geräten',
+      lead: 'Zwei unterschiedliche Ansätze und warum jeweils der eine gewählt wurde',
+      bodyHtml: mappings,
+      footerNote: 'Abgeglichen mit dem Tab 🗺️ Mappings dieses Tools.'
     })
   }
 </script>
@@ -202,6 +232,36 @@
   <section class="docs-section">
     <h2>OpenIntuneBaseline (OIB) — Management Summary</h2>
     <div class="docs-content">{@html oib}</div>
+  </section>
+</div>
+
+<div class="dl-panel" class:active={sub === 'ca'}>
+  <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
+    <button class="btn btn-secondary" onclick={pdfConditionalAccess}>📄 Als PDF speichern</button>
+  </div>
+  <section class="docs-section">
+    <h2>Conditional Access — Ring-Konzept &amp; Sicherheitsleitplanken</h2>
+    <div class="docs-content">{@html condAccess}</div>
+  </section>
+</div>
+
+<div class="dl-panel" class:active={sub === 'backup'}>
+  <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
+    <button class="btn btn-secondary" onclick={pdfIntuneBackup}>📄 Als PDF speichern</button>
+  </div>
+  <section class="docs-section">
+    <h2>Intune-Backup &amp; -Restore</h2>
+    <div class="docs-content">{@html intuneBackup}</div>
+  </section>
+</div>
+
+<div class="dl-panel" class:active={sub === 'mappings'}>
+  <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
+    <button class="btn btn-secondary" onclick={pdfMappings}>📄 Als PDF speichern</button>
+  </div>
+  <section class="docs-section">
+    <h2>Mappings — Laufwerke &amp; Drucker auf Cloud-only-Geräten</h2>
+    <div class="docs-content">{@html mappings}</div>
   </section>
 </div>
 
