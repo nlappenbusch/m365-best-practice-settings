@@ -390,6 +390,23 @@ a { color: var(--accent); }
 .tbadge.warn { background: var(--warn-wash); color: var(--warn); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
+/* Mehrfach-Lizenzierung (Lizenzen-Tab) */
+.license-row { border: 1px solid var(--rule); border-left: 3px solid var(--rule); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; margin-bottom: 0.5rem; }
+.license-row.bad { border-left-color: var(--crit); background: var(--crit-wash); }
+.license-row.warn { border-left-color: var(--warn); background: var(--warn-wash); }
+.license-row.ok { border-left-color: var(--ok); background: var(--bg-inset); }
+.license-row-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.88rem; }
+.license-row-upn { font-size: 0.78rem; color: var(--text-dim); }
+.license-row-skus { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0; }
+.license-pill { font-size: 0.72rem; background: var(--bg-raised); border: 1px solid var(--rule); border-radius: 999px; padding: 0.1rem 0.55rem; color: var(--text-dim); }
+.license-row-reason { font-size: 0.8rem; color: var(--text-dim); }
+.license-addon-toggle {
+    display: block; width: 100%; text-align: left; background: none; border: 1px dashed var(--rule);
+    border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; margin: 0.4rem 0; font: inherit; font-size: 0.84rem;
+    font-weight: 600; color: var(--text-dim); cursor: pointer;
+}
+.license-addon-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
 /* Kontext-Leiste: zeigt oben in jedem tenant-bezogenen Tab, WELCHER Tenant aktiv ist */
 .tctx { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; padding: 0.4rem 0.8rem; background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-md); margin-bottom: 0.7rem; font-size: 0.83rem; }
 .tctx b { font-weight: 700; }

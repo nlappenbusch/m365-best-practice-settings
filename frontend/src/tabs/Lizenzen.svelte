@@ -32,6 +32,14 @@
   const paidSkus = $derived((data?.skus || []).filter(s => !s.free))
   const freeSkus = $derived((data?.skus || []).filter(s => s.free))
 
+  // Mehrfach-Lizenzierung: 🔴/🟠 sind handlungsrelevant und stehen immer offen,
+  // die 🟢-Add-on-Kombis sind laut eigenem Label "kein Handlungsbedarf" — die
+  // muessen nicht jedes Mal vollstaendig ausgebreitet werden (siehe Feedback:
+  // "das irgendwie schöner/übersichtlicher machen").
+  const multiActionable = $derived((data?.findings?.multiSuite || []).filter(u => u.verdict !== 'addon'))
+  const multiAddons = $derived((data?.findings?.multiSuite || []).filter(u => u.verdict === 'addon'))
+  let showAddons = $state(false)
+
   function esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   }
@@ -206,20 +214,39 @@
 
     <div class="ld-job">
       <div class="ld-job-head"><strong>📚 Mehrfach-Lizenzierung</strong>
-        <span class="ld-job-meta">{data.totals.multiSuite ?? data.findings.multiSuite.length} prüfenswert · {data.findings.multiSuite.length} gesamt</span></div>
+        <span class="ld-job-meta">{multiActionable.length} prüfenswert · {data.findings.multiSuite.length} gesamt</span></div>
       {#if data.findings.multiSuite.length}
-        {#each data.findings.multiSuite as u (u.upn)}
-          {#if u.verdict === 'redundant'}
-            <div class="ld-step fail"><span class="ld-ico">🔴</span> {u.displayName}
-              <small>({u.upn}) — {u.licenses.join(' + ')} · <b>doppelt bezahlt:</b> {u.reason}</small></div>
-          {:else if u.verdict === 'check'}
-            <div class="ld-step retry"><span class="ld-ico">🟠</span> {u.displayName}
-              <small>({u.upn}) — {u.licenses.join(' + ')} · {u.reason}</small></div>
-          {:else}
-            <div class="ld-step ok"><span class="ld-ico">🟢</span> {u.displayName}
-              <small>({u.upn}) — {u.licenses.join(' + ')} · notwendiges Add-on (nicht in der Suite enthalten), kein Handlungsbedarf</small></div>
-          {/if}
+        {#if !multiActionable.length}
+          <div class="ld-banner ok">✅ Keine prüfenswerten Überlappungen — nur unauffällige Suite+Add-on-Kombis (siehe unten).</div>
+        {/if}
+        {#each multiActionable as u (u.upn)}
+          <div class="license-row {u.verdict === 'redundant' ? 'bad' : 'warn'}">
+            <div class="license-row-head">
+              <span class="tbadge {u.verdict === 'redundant' ? 'bad' : 'warn'}">{u.verdict === 'redundant' ? '🔴 doppelt bezahlt' : '🟠 prüfen'}</span>
+              <b>{u.displayName}</b> <span class="license-row-upn">({u.upn})</span>
+            </div>
+            <div class="license-row-skus">{#each u.licenses as lic}<span class="license-pill">{lic}</span>{/each}</div>
+            <div class="license-row-reason">{u.reason}</div>
+          </div>
         {/each}
+
+        {#if multiAddons.length}
+          <button type="button" class="license-addon-toggle" onclick={() => (showAddons = !showAddons)}>
+            {showAddons ? '▾' : '▸'} {multiAddons.length} übliche Suite+Add-on-Kombi(s) — kein Handlungsbedarf
+          </button>
+          {#if showAddons}
+            {#each multiAddons as u (u.upn)}
+              <div class="license-row ok">
+                <div class="license-row-head">
+                  <span class="tbadge ok">🟢 Add-on</span>
+                  <b>{u.displayName}</b> <span class="license-row-upn">({u.upn})</span>
+                </div>
+                <div class="license-row-skus">{#each u.licenses as lic}<span class="license-pill">{lic}</span>{/each}</div>
+                <div class="license-row-reason">Notwendiges Add-on (nicht in der Suite enthalten), kein Handlungsbedarf.</div>
+              </div>
+            {/each}
+          {/if}
+        {/if}
         <div class="ld-step"><small>💡 🔴 = die Suite enthält die Zusatzlizenz bereits (kündbar) · 🟠 = mehrere Suiten, Überlappung prüfen · 🟢 = übliche Suite+Add-on-Kombi (z.B. E3 + Teams Phone — Teams Phone ist erst in E5 enthalten).</small></div>
       {:else}
         <div class="ld-banner ok">✅ Keine Konten mit mehreren bezahlten Produkten.</div>
