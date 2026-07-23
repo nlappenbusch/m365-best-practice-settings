@@ -376,6 +376,7 @@ a { color: var(--accent); }
 .tbadge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; }
 .tbadge.ok { background: var(--ok-wash); color: var(--ok); }
 .tbadge.warn { background: var(--warn-wash); color: var(--warn); }
+.tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
 /* Kontext-Leiste: zeigt oben in jedem tenant-bezogenen Tab, WELCHER Tenant aktiv ist */
 .tctx { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; padding: 0.7rem 0.9rem; background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-md); margin-bottom: 1.1rem; font-size: 0.85rem; }
@@ -441,6 +442,15 @@ a { color: var(--accent); }
 /* SPF/DKIM/DMARC-Checker (Audit-Tab) */
 .da-record { display: block; font-family: var(--font-mono); color: var(--text-dim); word-break: break-all; margin-top: 0.15rem; }
 .da-issues { margin-top: 0.3rem; font-size: 0.78rem; color: var(--warn); line-height: 1.5; }
+.da-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.86rem; }
+.da-table th { text-align: left; padding: 0.5rem 0.7rem; font-size: 0.76rem; color: var(--text-dim); border-bottom: 1px solid var(--rule); }
+.da-row { cursor: pointer; transition: background var(--transition); }
+.da-row:hover { background: var(--bg-inset); }
+.da-row.open { background: var(--accent-wash); }
+.da-row td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--rule); }
+.da-col-domain { font-weight: 600; font-family: var(--font-mono); font-size: 0.84rem; }
+.da-col-toggle { width: 1.5rem; text-align: center; color: var(--text-dim); }
+.da-detail-row td { padding: 0.2rem 0.7rem 0.9rem; border-bottom: 1px solid var(--rule); background: var(--bg-inset); }
 .ld-phase.manual-phase { border-left-color: var(--accent); opacity: 1; background: var(--accent-wash); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin: 0.5rem 0; }
 .ld-phase.manual-phase.complete { border-left-color: var(--ok); background: var(--ok-wash); }
 

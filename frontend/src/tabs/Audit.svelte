@@ -208,6 +208,7 @@
   let daBusy = $state(false)
   let daError = $state(null)
   let daResults = $state(null) // [{domain, spf, dmarc, dkim}]
+  let daExpanded = $state({})  // domain -> bool, welche Detail-Zeilen aufgeklappt sind
 
   $effect(() => {
     const id = $activeTenant?.id ?? null
@@ -220,6 +221,7 @@
       daBusy = false
       daError = null
       daResults = null
+      daExpanded = {}
       if (auditTcmTimer) { clearTimeout(auditTcmTimer); auditTcmTimer = null }
     }
   })
@@ -264,6 +266,10 @@
     return { icon: '❌', cls: 'bad', label: 'Fehlt/Fehlerhaft' }
   }
 
+  // Schlechtester der drei Checks bestimmt die Zeilenfarbe/Sortierung — bad vor warn vor ok.
+  const DA_RANK = { bad: 0, warn: 1, ok: 2 }
+  function daWorst(d) { return Math.min(DA_RANK[d.spf.status] ?? 2, DA_RANK[d.dmarc.status] ?? 2, DA_RANK[d.dkim.status] ?? 2) }
+
   const daKpi = $derived.by(() => {
     if (!daResults || !daResults.length) return null
     const total = daResults.length
@@ -272,6 +278,18 @@
     const dmarcOk = daResults.filter(d => d.dmarc.status === 'ok').length
     return { total, spfOk, dkimOk, dmarcOk }
   })
+
+  // Domains mit Problemen zuerst (bad vor warn vor ok), danach alphabetisch —
+  // damit man bei vielen Domains sofort sieht, wo es brennt (siehe PKRueck: 6
+  // Domains, Uebersicht war vorher nur eine lange Liste voll aufgeklappter Details).
+  const daSorted = $derived.by(() => {
+    if (!daResults) return []
+    return [...daResults].sort((a, b) => daWorst(a) - daWorst(b) || a.domain.localeCompare(b.domain))
+  })
+
+  function toggleDaExpand(domain) {
+    daExpanded = { ...daExpanded, [domain]: !daExpanded[domain] }
+  }
 
   function pollTcm(tenantId, jobId, tries) {
     auditTcmTimer = setTimeout(async () => {
@@ -858,23 +876,46 @@
           </div>
         {/if}
 
-        {#each daResults as d (d.domain)}
-          <div class="ld-phase" class:active={d.spf.status !== 'ok' || d.dmarc.status !== 'ok' || d.dkim.status !== 'ok'} class:complete={d.spf.status === 'ok' && d.dmarc.status === 'ok' && d.dkim.status === 'ok'}>
-            <div class="ld-phase-title">🌐 {d.domain}</div>
-            {#each [['SPF', d.spf], ['DMARC', d.dmarc], ['DKIM', d.dkim]] as [label, r] (label)}
-              {@const b = daBadge(r.status)}
-              <div class="ld-step {b.cls === 'ok' ? 'ok' : (b.cls === 'warn' ? 'retry' : 'fail')}">
-                <span class="ld-ico">{b.icon}</span>
-                <strong>{label}</strong>
-                {#if r.record}<small class="da-record">{r.record}</small>{/if}
-                {#if label === 'DKIM'}<small>M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</small>{/if}
-                {#if r.issues && r.issues.length}
-                  <div class="da-issues">{#each r.issues as iss}<div>⚠️ {iss}</div>{/each}</div>
-                {/if}
-              </div>
+        <table class="da-table">
+          <thead>
+            <tr><th class="da-col-domain">Domain</th><th>SPF</th><th>DMARC</th><th>DKIM</th><th class="da-col-toggle"></th></tr>
+          </thead>
+          <tbody>
+            {#each daSorted as d (d.domain)}
+              {@const spfB = daBadge(d.spf.status)}
+              {@const dmarcB = daBadge(d.dmarc.status)}
+              {@const dkimB = daBadge(d.dkim.status)}
+              {@const isOpen = !!daExpanded[d.domain]}
+              <tr class="da-row" class:open={isOpen} role="button" tabindex="0"
+                  onclick={() => toggleDaExpand(d.domain)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDaExpand(d.domain) } }}>
+                <td class="da-col-domain">🌐 {d.domain}</td>
+                <td><span class="tbadge {spfB.cls}">{spfB.icon} SPF</span></td>
+                <td><span class="tbadge {dmarcB.cls}">{dmarcB.icon} DMARC</span></td>
+                <td><span class="tbadge {dkimB.cls}">{dkimB.icon} DKIM</span></td>
+                <td class="da-col-toggle">{isOpen ? '▾' : '▸'}</td>
+              </tr>
+              {#if isOpen}
+                <tr class="da-detail-row">
+                  <td colspan="5">
+                    {#each [['SPF', d.spf], ['DMARC', d.dmarc], ['DKIM', d.dkim]] as [label, r] (label)}
+                      {@const b = daBadge(r.status)}
+                      <div class="ld-step {b.cls === 'ok' ? 'ok' : (b.cls === 'warn' ? 'retry' : 'fail')}">
+                        <span class="ld-ico">{b.icon}</span>
+                        <strong>{label}</strong>
+                        {#if r.record}<small class="da-record">{r.record}</small>{/if}
+                        {#if label === 'DKIM'}<small>M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</small>{/if}
+                        {#if r.issues && r.issues.length}
+                          <div class="da-issues">{#each r.issues as iss}<div>⚠️ {iss}</div>{/each}</div>
+                        {/if}
+                      </div>
+                    {/each}
+                  </td>
+                </tr>
+              {/if}
             {/each}
-          </div>
-        {/each}
+          </tbody>
+        </table>
       {/if}
     </div>
   {/if}
