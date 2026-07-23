@@ -1,5 +1,5 @@
 // Datenschicht fuer den Tickets-Tab (SDP-Ticket-Copilot). Kapselt die /api/sdp/*-Calls.
-import { apiGet, apiPost, fileDownload } from './api.js'
+import { apiGet, apiPost, apiDelete, fileDownload } from './api.js'
 
 export const sdpApi = {
   getTicket: (id) => apiGet(`/api/sdp/tickets/${encodeURIComponent(id)}`),
@@ -9,5 +9,7 @@ export const sdpApi = {
   downloadAttachment: (ticketId, attachmentId) =>
     fileDownload(sdpApi.attachmentUrl(ticketId, attachmentId)),
   aiSuggest: (ticketId, tenantId) =>
-    apiPost(`/api/sdp/tickets/${encodeURIComponent(ticketId)}/ai-suggest`, { tenantId: tenantId || null })
+    apiPost(`/api/sdp/tickets/${encodeURIComponent(ticketId)}/ai-suggest`, { tenantId: tenantId || null }),
+  listRunbooks: () => apiGet('/api/runbooks'),
+  deleteRunbook: (id) => apiDelete(`/api/runbooks/${encodeURIComponent(id)}`)
 }

@@ -574,28 +574,48 @@ function loadTenantById(id) {
   return t;
 }
 
+// KI-Runbooks: jeder AI-Vorschlag, der gegen einen konkreten Tenant geprueft
+// wurde, wird automatisch als wiederfindbarer Eintrag gespeichert -- Grundlage
+// fuer spaetere Wiedererkennung ("das hatten wir schon") und fuer den
+// Tenant-MCP-Server (Phase 6), der "automatable"-markierte Runbooks als
+// Kandidaten fuer echte Automatisierungen aufgreifen kann. Ohne Tenant-Auswahl
+// (rein textbasierte Analyse) wird bewusst NICHT gespeichert -- ohne
+// Live-Abgleich ist die Aussage zu unsicher, um als Runbook zu taugen.
+function saveRunbookEntry({ ticketId, ticketSubject, tenantId, tenantName, suggestion }) {
+  const s = loadState();
+  const entry = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    ticketId, ticketSubject, tenantId, tenantName, suggestion
+  };
+  s.runbooks = s.runbooks || [];
+  s.runbooks.unshift(entry);
+  saveState(s);
+  return entry;
+}
+
 app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
   const tenantId = String((req.body || {}).tenantId || "").trim();
 
   if (process.env.FAKE_DEPLOY === "1") {
     const t = tenantId ? (loadState().tenants || []).find(x => x.id === tenantId) : null;
-    return res.json({
-      ok: true,
-      suggestion: {
-        rootCause: "FAKE_DEPLOY-Beispiel: vermutlich fehlende Lizenz fuer die benoetigte App.",
-        assumptions: [{ claim: "Nutzer hat eine aktive Lizenz", verdict: t ? "bestaetigt" : "unklar",
-          reasoning: t ? `Gegen Tenant „${t.name}" geprueft (Fixture-Daten).` : "Kein Tenant ausgewaehlt." }],
-        steps: ["Lizenzzuweisung im Tenant pruefen", "Rueckmeldung an Requester senden"],
-        automatable: false, automatableReason: "Nur Beispiel-Daten (FAKE_DEPLOY)."
-      }
-    });
+    const suggestion = {
+      rootCause: "FAKE_DEPLOY-Beispiel: vermutlich fehlende Lizenz fuer die benoetigte App.",
+      assumptions: [{ claim: "Nutzer hat eine aktive Lizenz", verdict: t ? "bestaetigt" : "unklar",
+        reasoning: t ? `Gegen Tenant „${t.name}" geprueft (Fixture-Daten).` : "Kein Tenant ausgewaehlt." }],
+      steps: ["Lizenzzuweisung im Tenant pruefen", "Rueckmeldung an Requester senden"],
+      automatable: false, automatableReason: "Nur Beispiel-Daten (FAKE_DEPLOY)."
+    };
+    const runbook = t ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: `Beispiel-Ticket ${req.params.id} (FAKE_DEPLOY)`, tenantId, tenantName: t.name, suggestion }) : null;
+    return res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null });
   }
 
   const ticket = await SDP.getTicketFull(req.params.id);
 
-  let tenantContext = null;
+  let tenantContext = null, tenantName = null;
   if (tenantId) {
     const t = loadTenantById(tenantId);
+    tenantName = t.name;
     const cert = certPemPath(t.tenantId);
     const [licenses, caPoliciesRaw] = await Promise.all([
       LICENSES.runLicenseReport(t, cert).catch(() => null),
@@ -609,8 +629,27 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
   }
 
   const suggestion = await AISUGGEST.suggestResolution({ ticket, tenantContext });
-  res.json({ ok: true, suggestion });
+  const runbook = tenantId
+    ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: ticket.subject, tenantId, tenantName, suggestion })
+    : null;
+  res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null });
 }));
+
+app.get("/api/runbooks", (req, res) => {
+  const s = loadState();
+  const tenantId = String(req.query.tenantId || "").trim();
+  let list = s.runbooks || [];
+  if (tenantId) list = list.filter(r => r.tenantId === tenantId);
+  res.json({ ok: true, runbooks: list });
+});
+
+app.delete("/api/runbooks/:id", (req, res) => {
+  const s = loadState();
+  const list = (s.runbooks || []).filter(r => r.id !== req.params.id);
+  s.runbooks = list;
+  saveState(s);
+  res.json({ ok: true });
+});
 
 // ---------- Tenants ----------
 app.get("/api/tenants", (req, res) => {

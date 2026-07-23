@@ -3,21 +3,24 @@
   import { sdpApi } from '../lib/sdpTickets.js'
   import { tenants } from '../lib/tenantStore.js'
 
-  let sub = $state('single') // 'single' | 'batch'
+  let sub = $state('single') // 'single' | 'batch' | 'runbooks'
 
   // ---------- KI-Vorschlag (pro Ticket-ID, da im Batch mehrere gleichzeitig offen sein koennen) ----------
   let aiTenantChoice = $state({})  // ticketId -> tenantId
   let aiLoading = $state({})       // ticketId -> bool
   let aiError = $state({})         // ticketId -> string
   let aiResult = $state({})        // ticketId -> suggestion
+  let aiSavedRunbookId = $state({}) // ticketId -> runbookId | null
 
   async function requestAiSuggestion(ticketId) {
     aiLoading = { ...aiLoading, [ticketId]: true }
     aiError = { ...aiError, [ticketId]: null }
     aiResult = { ...aiResult, [ticketId]: null }
+    aiSavedRunbookId = { ...aiSavedRunbookId, [ticketId]: null }
     try {
       const r = await sdpApi.aiSuggest(ticketId, aiTenantChoice[ticketId])
       aiResult = { ...aiResult, [ticketId]: r.suggestion }
+      aiSavedRunbookId = { ...aiSavedRunbookId, [ticketId]: r.runbookId || null }
     } catch (e) {
       aiError = { ...aiError, [ticketId]: e.message }
     }
@@ -26,6 +29,43 @@
 
   const VERDICT_CLASS = { bestaetigt: 'ok', widerlegt: 'fail', unklar: 'warn' }
   const VERDICT_ICON = { bestaetigt: '✅', widerlegt: '❌', unklar: '❔' }
+
+  // ---------- KI-Runbooks (gespeicherte Vorschlaege, tenant-gepueft) ----------
+  let runbooks = $state([])
+  let runbooksLoading = $state(false)
+  let runbooksError = $state(null)
+  let runbookExpanded = $state({})  // runbookId -> bool
+
+  async function loadRunbooks() {
+    runbooksLoading = true
+    runbooksError = null
+    try {
+      const r = await sdpApi.listRunbooks()
+      runbooks = r.runbooks || []
+    } catch (e) {
+      runbooksError = e.message
+    }
+    runbooksLoading = false
+  }
+
+  async function removeRunbook(id) {
+    if (!confirm('Diesen Runbook-Eintrag loeschen?')) return
+    try {
+      await sdpApi.deleteRunbook(id)
+      runbooks = runbooks.filter(r => r.id !== id)
+    } catch (e) {
+      alert('Fehler: ' + e.message)
+    }
+  }
+
+  function toggleRunbookExpand(id) {
+    runbookExpanded = { ...runbookExpanded, [id]: !runbookExpanded[id] }
+  }
+
+  function switchSub(s) {
+    sub = s
+    if (s === 'runbooks' && !runbooks.length && !runbooksLoading && !runbooksError) loadRunbooks()
+  }
 
   // ---------- Einzelticket ----------
   let singleId = $state('')
@@ -172,6 +212,9 @@
         </div>
       {/if}
       <div class="ld-step"><small>{s.automatable ? '🤖' : 'ℹ️'} {s.automatableReason}</small></div>
+      {#if aiSavedRunbookId[t.id]}
+        <div class="ld-banner ok" style="margin-top:0.5rem;">💾 Als KI-Runbook gespeichert (siehe Tab „📚 Runbooks").</div>
+      {/if}
     {/if}
   </div>
 {/snippet}
@@ -191,8 +234,9 @@
     </div>
   {:else}
     <div class="dl-subtabs">
-      <button type="button" class="dl-subtab" class:active={sub === 'single'} onclick={() => (sub = 'single')}>🎫 Einzelticket</button>
-      <button type="button" class="dl-subtab" class:active={sub === 'batch'} onclick={() => (sub = 'batch')}>📋 Batch</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'single'} onclick={() => switchSub('single')}>🎫 Einzelticket</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'batch'} onclick={() => switchSub('batch')}>📋 Batch</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'runbooks'} onclick={() => switchSub('runbooks')}>📚 Runbooks</button>
     </div>
 
     <div class="dl-panel" class:active={sub === 'single'}>
@@ -260,6 +304,75 @@
                 <tr class="da-row">
                   <td class="da-col-domain">🎫 #{r.id}</td>
                   <td colspan="3"><span class="tbadge warn">❌ {r.error}</span></td>
+                </tr>
+              {/if}
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    </div>
+
+    <div class="dl-panel" class:active={sub === 'runbooks'}>
+      <div class="alert alert-info">
+        <strong>ℹ️ Was ist das?</strong> Jeder KI-Vorschlag, der gegen einen konkreten Tenant geprueft wurde
+        (Tenant-Auswahl bei „KI-Vorschlag anfordern"), wird hier automatisch gesammelt — inkl. Kennzeichnung,
+        ob die KI die Aktion als potenziell automatisierbar einschaetzt.
+      </div>
+      <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadRunbooks}>🔄 Neu laden</button>
+
+      {#if runbooksLoading}
+        <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Runbooks…</div></div>
+      {:else if runbooksError}
+        <div class="ld-job"><div class="ld-banner fail">❌ {runbooksError}</div></div>
+      {:else if !runbooks.length}
+        <div class="ld-job"><div class="ld-banner warn">⚠️ Noch keine Runbooks gespeichert.</div></div>
+      {:else}
+        <table class="da-table">
+          <thead>
+            <tr><th>Ticket</th><th>Tenant</th><th>Erstellt</th><th></th><th class="da-col-toggle"></th></tr>
+          </thead>
+          <tbody>
+            {#each runbooks as rb (rb.id)}
+              {@const isOpen = !!runbookExpanded[rb.id]}
+              <tr class="da-row" class:open={isOpen} role="button" tabindex="0"
+                  onclick={() => toggleRunbookExpand(rb.id)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleRunbookExpand(rb.id) } }}>
+                <td class="da-col-domain">🎫 #{rb.ticketId} — {rb.ticketSubject}</td>
+                <td>{rb.tenantName}</td>
+                <td><small>{new Date(rb.createdAt).toLocaleString('de-CH')}</small></td>
+                <td>{#if rb.suggestion?.automatable}<span class="tbadge ok">🤖 automatisierbar</span>{:else}<span class="tbadge">manuell</span>{/if}</td>
+                <td class="da-col-toggle">{isOpen ? '▾' : '▸'}</td>
+              </tr>
+              {#if isOpen}
+                <tr class="da-detail-row">
+                  <td colspan="5">
+                    <div class="ld-phase complete">
+                      <div class="ld-phase-title">🎯 Vermutete Ursache</div>
+                      <div class="ld-step">{rb.suggestion.rootCause}</div>
+                    </div>
+                    {#if rb.suggestion.assumptions?.length}
+                      <div class="settings-group">
+                        <h4>Annahmen-Abgleich</h4>
+                        {#each rb.suggestion.assumptions as a}
+                          <div class="ld-step {VERDICT_CLASS[a.verdict] || 'warn'}">
+                            <span class="ld-ico">{VERDICT_ICON[a.verdict] || '❔'}</span>
+                            <strong>{a.claim}</strong> <small>— {a.reasoning}</small>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if rb.suggestion.steps?.length}
+                      <div class="settings-group">
+                        <h4>Vorgeschlagene Schritte</h4>
+                        <ol style="margin:0 0 0 1.2rem; line-height:1.7; font-size:0.9rem;">
+                          {#each rb.suggestion.steps as step}<li>{step}</li>{/each}
+                        </ol>
+                      </div>
+                    {/if}
+                    <div class="ld-step"><small>{rb.suggestion.automatable ? '🤖' : 'ℹ️'} {rb.suggestion.automatableReason}</small></div>
+                    <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem; margin-top:0.5rem;"
+                            onclick={(e) => { e.stopPropagation(); removeRunbook(rb.id) }}>🗑️ Loeschen</button>
+                  </td>
                 </tr>
               {/if}
             {/each}
