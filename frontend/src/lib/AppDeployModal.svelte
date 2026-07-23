@@ -16,6 +16,12 @@
       uninstall: '',
       detectionType: 'file',
       hint: 'N-sight-RMM-Agent: /quiet /norestart ist der von uns verifizierte Standard-Switch. Uninstall-Kommando und Erkennungsregel bitte nach einer Testinstallation ergaenzen.'
+    },
+    forticlient: {
+      install: 'msiexec /i "{file}" TRANSFORMS="forticlient.mst" /qn REBOOT=ReallySuppress DONT_PROMPT_REBOOT=1',
+      uninstall: 'msiexec /x "{file}" /qn REBOOT=ReallySuppress',
+      detectionType: 'registry',
+      hint: 'FortiClient (MSI+MST von EMS, site-spezifisch): offizielle Fortinet-Silent-Syntax msiexec /qn + REBOOT=ReallySuppress + DONT_PROMPT_REBOOT=1. Die .mst-Transform-Datei wird automatisch mit hochgeladen. Erkennungsregel und Uninstall-Kommando (ProductCode kann je Version abweichen) bitte nach einer Testinstallation verifizieren.'
     }
   }
 

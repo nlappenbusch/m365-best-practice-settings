@@ -86,6 +86,10 @@
     } catch (e) { sitesStatus = 'Fehler: ' + e.message }
   }
 
+  // FortiClient (EMS bietet keine API — Admin gibt die site-spezifische
+  // Installer-Ordner-URL manuell an, wir laden MSI+MST von dort direkt).
+  let fcUrl = $state('')
+
   function bdBtns(p) {
     const b = []
     if (p.installLinkWindows) b.push({ u: p.installLinkWindows, t: '⬇ Installer', primary: true })
@@ -97,7 +101,7 @@
 </script>
 
 <section class="settings-section">
-  <h2>📦 Agent-Downloads — Bitdefender & N-sight RMM</h2>
+  <h2>📦 Agent-Downloads — Bitdefender, N-sight RMM &amp; FortiClient</h2>
   <div class="alert alert-info">
     <strong>ℹ️ So funktioniert es:</strong> Kunde bzw. Paket suchen → Windows-Agent herunterladen.
     Die API-Keys liegen im Backend (<code>BD_API_KEY</code> / <code>RMM_API_KEY</code>) und werden
@@ -116,6 +120,7 @@
     <div class="dl-subtabs">
       <button type="button" class="dl-subtab" class:active={sub === 'bd'} onclick={() => switchSub('bd')}>🛡️ Bitdefender</button>
       <button type="button" class="dl-subtab" class:active={sub === 'rmm'} onclick={() => switchSub('rmm')}>🖥️ N-sight RMM</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'fc'} onclick={() => switchSub('fc')}>🔴 FortiClient</button>
     </div>
 
     <!-- Bitdefender -->
@@ -209,6 +214,28 @@
         </div>
         <small class="dl-hint">Client anklicken → Sites. Der erste Agent-Build kann einige Sekunden dauern — Seite offen lassen.</small>
       {/if}
+    </div>
+
+    <!-- FortiClient -->
+    <div class="dl-panel" class:active={sub === 'fc'}>
+      <div class="alert alert-info">
+        <strong>ℹ️ Keine API bei FortiClient EMS</strong> (bestätigt — es gibt dort weder eine Möglichkeit, Sites
+        aufzulisten, noch Installer-Links zu erzeugen). Pro Kunde/Site liegt stattdessen bereits ein von EMS
+        vorkonfiguriertes MSI+MST-Paar unter <code>forticlient.igeekscloud.ch</code> — die .mst-Transform-Datei
+        enthält die Registrierung auf den passenden EMS-Server/die Site. Ordner-URL des jeweiligen Kunden
+        unten einfügen (Pfad endet auf <code>msi/x64/</code>, im Browser bei EMS/dem Installer-Host abrufbar).
+      </div>
+      <div class="input-group" style="max-width:640px; margin-bottom:0.75rem;">
+        <label for="fcUrl">Installer-Ordner-URL (site-spezifisch)</label>
+        <input id="fcUrl" type="text" bind:value={fcUrl}
+               placeholder="https://forticlient.igeekscloud.ch:10443/installers/<site>/<site> 7.4.3/msi/x64/" />
+        <small>Muss auf <code>forticlient.igeekscloud.ch</code> zeigen — das Tool lädt von dort <code>forticlient.msi</code> und <code>forticlient.mst</code>.</small>
+      </div>
+      <button class="btn btn-secondary" disabled={!fcUrl.trim()}
+              title="Direkt als Win32-App in Intune bereitstellen"
+              onclick={() => (deployModal = { vendor: 'forticlient', appNameDefault: 'FortiClient', source: { baseUrl: fcUrl.trim() } })}>
+        🟦 In Intune bereitstellen
+      </button>
     </div>
   {/if}
 </section>

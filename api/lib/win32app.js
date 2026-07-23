@@ -24,9 +24,15 @@ const CHUNK_SIZE = 6 * 1024 * 1024; // 6 MiB, wie Microsofts eigenes Upload-Tool
 // liest seine Konfiguration aus dem eigenen Dateinamen, umbenennen verboten).
 const INTUNE_PACKAGE_NAME = "IntunePackage.intunewin";
 
-/** Installer-Buffer fuer den Intune-Content-Upload vorbereiten. */
-function encryptForIntune(installerBuffer, setupFileName) {
-  const zipBuf = buildZip([{ name: setupFileName, data: installerBuffer }]);
+/**
+ * Installer-Buffer fuer den Intune-Content-Upload vorbereiten. extraFiles
+ * (optional) landen als weitere Eintraege im selben Zip neben dem Setup-File
+ * -- noetig z.B. fuer FortiClient, dessen MSI-Silent-Install eine .mst-
+ * Transform-Datei im selben Ordner erwartet (TRANSFORMS=forticlient.mst).
+ */
+function encryptForIntune(installerBuffer, setupFileName, extraFiles) {
+  const entries = [{ name: setupFileName, data: installerBuffer }, ...(extraFiles || [])];
+  const zipBuf = buildZip(entries);
 
   const key = crypto.randomBytes(32);
   const iv = crypto.randomBytes(16);
@@ -167,7 +173,7 @@ async function createWin32AppWithContent(tenant, certPemPath, opts) {
     const contentVersionId = cv.id;
 
     onProgress("Installer verschluesseln");
-    const { encryptedBuffer, unencryptedContentSize, fileEncryptionInfo } = encryptForIntune(opts.installerBuffer, opts.setupFileName);
+    const { encryptedBuffer, unencryptedContentSize, fileEncryptionInfo } = encryptForIntune(opts.installerBuffer, opts.setupFileName, opts.extraFiles);
 
     onProgress("Content-Datei registrieren");
     // Body exakt wie das IntuneWin32App-Modul: name ist IMMER der Paketname,

@@ -30,6 +30,7 @@ const AUTOPILOT = require("./lib/autopilot");
 const GRAPHLIB = require("./lib/graph");
 const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
+const FORTICLIENT = require("./lib/forticlient");
 const WIN32APP = require("./lib/win32app");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
@@ -1747,6 +1748,8 @@ app.get("/api/appjobs/:id", (req, res) => {
   res.json(job);
 });
 
+const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet" };
+
 function buildWin32AppPayload(b, fileName) {
   const rules = [b.detection && b.detection.type === "registry"
     ? {
@@ -1765,7 +1768,7 @@ function buildWin32AppPayload(b, fileName) {
     "@odata.type": "#microsoft.graph.win32LobApp",
     displayName: b.appName,
     description: b.description || "",
-    publisher: b.vendor === "bitdefender" ? "Bitdefender" : "N-able (N-sight RMM)",
+    publisher: APP_PUBLISHER_BY_VENDOR[b.vendor] || "N-able (N-sight RMM)",
     // fileName (mobileLobApp) und setupFilePath (win32LobApp) sind ZWEI verschiedene
     // Felder. fileName ist der PAKET-Name — das IntuneWin32App-Modul sendet hier
     // immer "IntunePackage.intunewin", nie den Setup-Dateinamen (der kann bei
@@ -1804,13 +1807,21 @@ async function runAppDeployJob(job, t, b) {
   const cert = certPemPath(t.tenantId);
   try {
     onProgress("Installer holen");
-    let buffer, fileName;
+    let buffer, fileName, extraFiles;
     if (process.env.FAKE_DEPLOY === "1") {
       await new Promise(r => setTimeout(r, 800));
       buffer = Buffer.from("Fake-Installer-Bytes fuer UI-Test — kein echtes Graph-Upload.");
-      fileName = b.vendor === "bitdefender" ? "BitdefenderSetup.exe" : "RMM-Agent-Setup.exe";
+      fileName = b.vendor === "bitdefender" ? "BitdefenderSetup.exe" : b.vendor === "forticlient" ? "forticlient.msi" : "RMM-Agent-Setup.exe";
+      if (b.vendor === "forticlient") extraFiles = [{ name: "forticlient.mst", data: Buffer.from("Fake-MST") }];
     } else if (b.vendor === "bitdefender") {
       ({ buffer, fileName } = await BD.fetchInstallerBuffer(b.source.downloadUrl));
+    } else if (b.vendor === "forticlient") {
+      // Kein API bei FortiClient EMS -- Admin gibt die site-spezifische
+      // Ordner-URL an, dort liegt bereits ein von EMS vorkonfiguriertes
+      // MSI+MST-Paar (die .mst-Datei enthaelt die EMS-Server-/Site-Registrierung).
+      const { msiBuffer, mstBuffer, msiName, mstName } = await FORTICLIENT.fetchInstallerFiles((b.source || {}).baseUrl);
+      buffer = msiBuffer; fileName = msiName;
+      extraFiles = [{ name: mstName, data: mstBuffer }];
     } else {
       ({ buffer, fileName } = await NSIGHT.downloadAgentBuffer(b.source || {}));
     }
@@ -1840,9 +1851,16 @@ async function runAppDeployJob(job, t, b) {
       // ersetzen — Admin muss den (erst beim Download bekannten) Namen nicht raten.
       let installCmd = String(b.installCommandLine || "").replace(/\{file\}/g, fileName);
       // Silent-Switches je Vendor IMMER erzwingen (fehlende ergaenzen) — ein
-      // interaktiver Installer haengt sonst unsichtbar im SYSTEM-Kontext:
-      //   Bitdefender: "<datei>" /bdparams /silent   ·   N-sight: "<datei>" /quiet /norestart
-      const requiredSwitches = b.vendor === "bitdefender" ? ["/bdparams", "/silent"] : ["/quiet", "/norestart"];
+      // interaktiver Installer haengt sonst unsichtbar im SYSTEM-Kontext. FortiClient
+      // ist MSI-basiert (msiexec-Syntax) und braucht andere Tokens als die
+      // EXE-Installer von Bitdefender/N-sight — NICHT in denselben Zweig werfen,
+      // sonst wuerde z.B. "/norestart" (EXE-Konvention) an msiexec haengen, das
+      // dort ohne Wirkung waere (msiexec braucht REBOOT=ReallySuppress).
+      const REQUIRED_SWITCHES_BY_VENDOR = {
+        bitdefender: ["/bdparams", "/silent"],
+        forticlient: ["/qn", "REBOOT=ReallySuppress", "DONT_PROMPT_REBOOT=1"]
+      };
+      const requiredSwitches = REQUIRED_SWITCHES_BY_VENDOR[b.vendor] || ["/quiet", "/norestart"];
       if (!installCmd.trim()) installCmd = `"${fileName}"`;
       for (const sw of requiredSwitches) {
         if (!new RegExp(sw.replace("/", "\\/") + "\\b", "i").test(installCmd)) installCmd += " " + sw;
@@ -1851,7 +1869,7 @@ async function runAppDeployJob(job, t, b) {
         uninstallCommandLine: String(b.uninstallCommandLine || "").replace(/\{file\}/g, fileName) };
       const payload = buildWin32AppPayload(subst, fileName);
       const r = await WIN32APP.createWin32AppWithContent(t, cert, {
-        appPayload: payload, setupFileName: fileName, installerBuffer: buffer, onProgress
+        appPayload: payload, setupFileName: fileName, installerBuffer: buffer, extraFiles, onProgress
       });
       appId = r.appId;
     }
