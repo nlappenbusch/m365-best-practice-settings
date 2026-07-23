@@ -200,6 +200,16 @@
   }
 
   async function activate(p) {
+    // Groesstes Risiko im ganzen Tool: eine scharfgeschaltete Policy kann ohne
+    // gefuelltes Notfallzugriffskonto den einzigen Weg zurueck in den Tenant
+    // blockieren. Deshalb HIER nochmal explizit warnen (nicht nur die passive
+    // Banner oben, die man beim schnellen Klicken uebersehen kann).
+    if (breakGlassEmpty && !confirm(
+      `🚨 AAD-CA-BreakGlass ist LEER!\n\n` +
+      `Wenn diese Policy dich (oder einen Kollegen) versehentlich aussperrt, gibt es aktuell KEIN ` +
+      `Notfallzugriffskonto, um wieder reinzukommen — die Aussperrung waere u.U. nur ueber Microsoft-Support behebbar.\n\n` +
+      `Trotzdem OHNE Notfallzugriffskonto fortfahren?`
+    )) return
     if (!confirm(
       `⚠️ Policy „${p.displayName}" SCHARF SCHALTEN?\n\n` +
       `Ab jetzt wird die Regel tatsächlich durchgesetzt (nicht mehr nur protokolliert). ` +
@@ -268,6 +278,11 @@
   }
 
   async function batchActivate() {
+    if (breakGlassEmpty && !confirm(
+      `🚨 AAD-CA-BreakGlass ist LEER!\n\n` +
+      `Wenn eine dieser Policies dich (oder einen Kollegen) versehentlich aussperrt, gibt es aktuell KEIN ` +
+      `Notfallzugriffskonto, um wieder reinzukommen.\n\nTrotzdem OHNE Notfallzugriffskonto fortfahren?`
+    )) return
     if (!confirm(`⚠️ ${selectedIds.length} ausgewählte Policies SCHARF SCHALTEN?\n\nAb jetzt werden diese Regeln tatsächlich durchgesetzt (nicht mehr nur protokolliert). Wirklich aktivieren?`)) return
     await batchRun('activate', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/state`, { state: 'enabled' }))
   }
@@ -543,7 +558,10 @@
           </select>
           <button class="btn btn-secondary" onclick={batchSetScope} disabled={batchBusy}>Scope für Auswahl setzen</button>
           <button class="btn btn-secondary" onclick={batchDeactivate} disabled={batchBusy}>⏸ Auswahl auf Report-only</button>
-          <button class="btn btn-primary" onclick={batchActivate} disabled={batchBusy}>🔓 Auswahl aktivieren</button>
+          <button class="btn btn-primary" onclick={batchActivate} disabled={batchBusy}
+                  title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
+            {breakGlassEmpty ? '🚨' : '🔓'} Auswahl aktivieren
+          </button>
           <button class="btn btn-secondary" onclick={clearSelection} disabled={batchBusy}>Auswahl aufheben</button>
         </div>
         {#if batchProgress}
@@ -568,7 +586,10 @@
             {#if p.state === 'enabled'}
               <button class="btn btn-secondary" onclick={() => deactivate(p)} disabled={actionBusy[p.id]}>⏸ Auf Report-only zurück</button>
             {:else}
-              <button class="btn btn-primary" onclick={() => activate(p)} disabled={actionBusy[p.id]}>🔓 Aktivieren</button>
+              <button class="btn btn-primary" onclick={() => activate(p)} disabled={actionBusy[p.id]}
+                      title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
+                {breakGlassEmpty ? '🚨' : '🔓'} Aktivieren
+              </button>
             {/if}
           </div>
         </div>
