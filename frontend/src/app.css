@@ -91,28 +91,30 @@ body {
 a { color: var(--accent); }
 
 /* ---------------- Shell ---------------- */
-.app-container { max-width: 1360px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+.app-container { max-width: 1360px; margin: 0 auto; padding: 0.7rem 1.5rem 2rem; }
 
 .app-header {
     background: var(--bg-raised);
     border: 1px solid var(--rule);
     border-top: 3px solid var(--accent);
     border-radius: var(--radius-lg);
-    padding: 1rem 1.4rem;
-    margin-bottom: 1rem;
+    padding: 0.5rem 1.1rem;
+    margin-bottom: 0.6rem;
     box-shadow: var(--shadow-sm);
 }
 .header-content { display: flex; justify-content: space-between; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
-.logo-section { display: flex; align-items: center; gap: 0.9rem; }
+.logo-section { display: flex; align-items: center; gap: 0.65rem; }
 .logo-mark {
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    width: 42px; height: 42px; border-radius: var(--radius-md);
+    width: 30px; height: 30px; border-radius: var(--radius-sm);
     background: linear-gradient(155deg, var(--accent), var(--accent-strong));
-    color: #fff; font-size: 1.3rem; box-shadow: var(--shadow-sm);
+    color: #fff; font-size: 1rem; box-shadow: var(--shadow-sm);
 }
-.app-header h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; }
-.subtitle { font-size: 0.82rem; color: var(--text-dim); }
-.header-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.app-header h1 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+/* Untertitel bewusst entfernt (statischer Text, kostete auf jeder Seite eine
+   ganze Zeile Höhe ohne Mehrwert) - siehe Feedback: zu viel feste Kopf-/Nav-
+   Höhe zwingt auf jedem Tab zum Scrollen, bevor echter Inhalt sichtbar ist. */
+.header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 
 .main-content {
     background: var(--bg-raised);
@@ -125,19 +127,19 @@ a { color: var(--accent); }
 .tabs {
     display: flex;
     align-items: center;
-    gap: 0.2rem;
-    padding: 0.55rem 1rem;
+    gap: 0.15rem;
+    padding: 0.3rem 0.75rem;
     background: var(--bg-inset);
     border-bottom: 1px solid var(--rule);
     overflow-x: auto;
 }
 .tab-btn {
-    padding: 0.55rem 0.9rem;
+    padding: 0.4rem 0.7rem;
     background: transparent;
     border: none;
     border-radius: 999px;
     font: inherit;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
     color: var(--text-dim);
     cursor: pointer;
@@ -145,7 +147,7 @@ a { color: var(--accent); }
     transition: color var(--transition), background var(--transition);
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.3rem;
 }
 .tab-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
 .tab-btn.active { color: #fff; background: var(--accent); box-shadow: var(--shadow-sm); }
@@ -158,7 +160,7 @@ a { color: var(--accent); }
 .tab-btn.active .tab-pill-new { background: rgba(255,255,255,0.9); color: var(--accent-strong); }
 .tab-group-sep { width: 1px; align-self: center; height: 1.3rem; background: var(--rule); margin: 0 0.35rem; flex-shrink: 0; }
 
-.tab-content { padding: 1.4rem 1.5rem; }
+.tab-content { padding: 1rem 1.5rem; }
 .tab-hidden { display: none; }
 
 /* ---------------- Buttons ---------------- */
@@ -199,10 +201,10 @@ a { color: var(--accent); }
 
 .action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 
-.settings-group { margin-bottom: 1.5rem; }
+.settings-group { margin-bottom: 1.1rem; }
 .settings-group:last-child { margin-bottom: 0; }
-.settings-group h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 0.7rem; }
-.ld-section-hint { font-size: 0.84rem; color: var(--text-dim); margin: 0.2rem 0 0.7rem; line-height: 1.55; }
+.settings-group h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 0.4rem; }
+.ld-section-hint { font-size: 0.83rem; color: var(--text-dim); margin: 0.1rem 0 0.5rem; line-height: 1.45; }
 
 .settings-section, .policies-section { margin-bottom: 2rem; }
 .settings-section h2, .policies-section h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; }
@@ -389,7 +391,7 @@ a { color: var(--accent); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
 /* Kontext-Leiste: zeigt oben in jedem tenant-bezogenen Tab, WELCHER Tenant aktiv ist */
-.tctx { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; padding: 0.7rem 0.9rem; background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-md); margin-bottom: 1.1rem; font-size: 0.85rem; }
+.tctx { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap; padding: 0.4rem 0.8rem; background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-md); margin-bottom: 0.7rem; font-size: 0.83rem; }
 .tctx b { font-weight: 700; }
 .tctx-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-dim); }
 .tctx-empty .btn { margin-top: 0.8rem; }

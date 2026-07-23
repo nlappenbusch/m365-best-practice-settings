@@ -60,10 +60,7 @@
     <div class="header-content">
       <div class="logo-section">
         <div class="logo-mark" aria-hidden="true">🛡️</div>
-        <div>
-          <h1>M365 Security Policy Manager</h1>
-          <p class="subtitle">Best Practice Configuration &amp; Autopilot Staging</p>
-        </div>
+        <h1 title="Best Practice Configuration &amp; Autopilot Staging">M365 Security Policy Manager</h1>
       </div>
       <div class="header-actions">
         {#if $activeTab === 'config'}
