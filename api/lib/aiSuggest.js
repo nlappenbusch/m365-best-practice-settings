@@ -50,7 +50,17 @@ function buildPrompt(ticket, tenantContext) {
     `Notizen (neueste zuerst):\n${notesText}\n\n` +
     `Tenant-Kontext (live, zum Abgleich der Annahmen aus dem Ticket):\n${tenantSection}\n\n` +
     `Bewerte in "assumptions" konkret die Behauptungen/Annahmen aus dem Ticket-Text gegen den Tenant-Kontext ` +
-    `oben -- wenn kein Tenant-Kontext vorliegt, alle Annahmen als "unklar" markieren statt zu raten.`;
+    `oben -- wenn kein Tenant-Kontext vorliegt, alle Annahmen als "unklar" markieren statt zu raten.\n\n` +
+    `WICHTIG fuer "steps": Wenn die Loesung eine Tenant-Konfigurationsaenderung ist (Intune-Policy, GPO, ` +
+    `Conditional-Access-Regel o.ae.), gib dich NICHT mit allgemeiner Beratung ("Stakeholder einbeziehen", ` +
+    `"Rueckmeldung abwarten") zufrieden, auch wenn das Ticket nur eine Beratungsanfrage ist. Nenne IMMER ZUSAETZLICH ` +
+    `konkret: (a) die genaue Policy/den genauen Einstellungsnamen, (b) dass sie zunaechst NUR auf eine Pilot-/` +
+    `Test-Gruppe angewendet werden sollte, nicht auf alle Nutzer (entspricht unserem etablierten Ring-Konzept ` +
+    `Pilot -> UAT -> Broad), (c) erst nach erfolgreicher Pilotphase der volle Rollout. Diese konkreten Schritte ` +
+    `ergaenzen die Beratungshinweise (Freigabe/Rueckmeldung einholen etc.), ersetzen sie aber nicht -- beides gehoert rein.\n` +
+    `"automatable"/"automatableReason": true nur wenn es sich um eine Konfiguration handelt, die als Intune-` +
+    `Konfigurationsprofil oder Conditional-Access-Policy abbildbar waere -- automatableReason muss dann konkret ` +
+    `benennen, WELCHE Policy/Einstellung und dass sie pilotiert ausgerollt werden sollte (nicht nur "ja, automatisierbar").`;
 }
 
 /** Robust gegen Markdown-Codefences, die das Modell trotz Anweisung manchmal noch anfuegt. */
