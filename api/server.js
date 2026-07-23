@@ -44,6 +44,7 @@ const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
+const AISUGGEST = require("./lib/aiSuggest");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -559,6 +560,56 @@ app.get("/api/sdp/tickets/:id/attachments/:attachmentId", wrap(async (req, res) 
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Disposition", `attachment; filename="anhang-${encodeURIComponent(req.params.attachmentId)}"`);
   res.send(buffer);
+}));
+
+// Tenant per ID nachschlagen, ohne ueber /api/tenants/:id zu gehen (der Aufrufer
+// hier ist ein Ticket, kein Tenant-Tab) -- bewusst schlank gehalten statt einer
+// eigenen Lib, wird beim Bau des Tenant-MCP-Servers (Phase 3) ohnehin dorthin
+// extrahiert.
+function loadTenantById(id) {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === id);
+  if (!t) throw Object.assign(new Error("Tenant nicht gefunden."), { status: 404 });
+  if (!fs.existsSync(certPemPath(t.tenantId))) throw Object.assign(new Error("Kein Zertifikat fuer diesen Tenant hinterlegt."), { status: 412 });
+  return t;
+}
+
+app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
+  const tenantId = String((req.body || {}).tenantId || "").trim();
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    const t = tenantId ? (loadState().tenants || []).find(x => x.id === tenantId) : null;
+    return res.json({
+      ok: true,
+      suggestion: {
+        rootCause: "FAKE_DEPLOY-Beispiel: vermutlich fehlende Lizenz fuer die benoetigte App.",
+        assumptions: [{ claim: "Nutzer hat eine aktive Lizenz", verdict: t ? "bestaetigt" : "unklar",
+          reasoning: t ? `Gegen Tenant „${t.name}" geprueft (Fixture-Daten).` : "Kein Tenant ausgewaehlt." }],
+        steps: ["Lizenzzuweisung im Tenant pruefen", "Rueckmeldung an Requester senden"],
+        automatable: false, automatableReason: "Nur Beispiel-Daten (FAKE_DEPLOY)."
+      }
+    });
+  }
+
+  const ticket = await SDP.getTicketFull(req.params.id);
+
+  let tenantContext = null;
+  if (tenantId) {
+    const t = loadTenantById(tenantId);
+    const cert = certPemPath(t.tenantId);
+    const [licenses, caPoliciesRaw] = await Promise.all([
+      LICENSES.runLicenseReport(t, cert).catch(() => null),
+      CONDACCESS.listManagedPolicies(t, cert).catch(() => [])
+    ]);
+    tenantContext = {
+      tenantName: t.name,
+      licenses,
+      caPolicies: (caPoliciesRaw || []).map(p => ({ displayName: p.displayName, state: p.state }))
+    };
+  }
+
+  const suggestion = await AISUGGEST.suggestResolution({ ticket, tenantContext });
+  res.json({ ok: true, suggestion });
 }));
 
 // ---------- Tenants ----------

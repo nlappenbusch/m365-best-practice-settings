@@ -35,6 +35,9 @@ services:
       - SDP_API_KEY=${SDP_API_KEY:-}
       - SDP_BASE_URL=${SDP_BASE_URL:-}
       - SDP_OWNER_ID=${SDP_OWNER_ID:-}
+      # KI-Vorschlag im Ticket-Copilot (Anthropic Messages API).
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
     volumes:
       - api-state:/app/state
     networks:

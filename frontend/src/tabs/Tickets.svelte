@@ -1,8 +1,31 @@
 <script>
   import { session } from '../lib/session.js'
   import { sdpApi } from '../lib/sdpTickets.js'
+  import { tenants } from '../lib/tenantStore.js'
 
   let sub = $state('single') // 'single' | 'batch'
+
+  // ---------- KI-Vorschlag (pro Ticket-ID, da im Batch mehrere gleichzeitig offen sein koennen) ----------
+  let aiTenantChoice = $state({})  // ticketId -> tenantId
+  let aiLoading = $state({})       // ticketId -> bool
+  let aiError = $state({})         // ticketId -> string
+  let aiResult = $state({})        // ticketId -> suggestion
+
+  async function requestAiSuggestion(ticketId) {
+    aiLoading = { ...aiLoading, [ticketId]: true }
+    aiError = { ...aiError, [ticketId]: null }
+    aiResult = { ...aiResult, [ticketId]: null }
+    try {
+      const r = await sdpApi.aiSuggest(ticketId, aiTenantChoice[ticketId])
+      aiResult = { ...aiResult, [ticketId]: r.suggestion }
+    } catch (e) {
+      aiError = { ...aiError, [ticketId]: e.message }
+    }
+    aiLoading = { ...aiLoading, [ticketId]: false }
+  }
+
+  const VERDICT_CLASS = { bestaetigt: 'ok', widerlegt: 'fail', unklar: 'warn' }
+  const VERDICT_ICON = { bestaetigt: '✅', widerlegt: '❌', unklar: '❔' }
 
   // ---------- Einzelticket ----------
   let singleId = $state('')
@@ -107,6 +130,50 @@
       {/each}
     </div>
   {/if}
+
+  <div class="settings-group">
+    <h4>🤖 KI-Vorschlag</h4>
+    <div class="ld-oib-target">
+      <select bind:value={aiTenantChoice[t.id]}>
+        <option value="">— kein Tenant-Abgleich —</option>
+        {#each $tenants as tn (tn.id)}<option value={tn.id}>{tn.name}</option>{/each}
+      </select>
+      <button class="btn btn-secondary" onclick={() => requestAiSuggestion(t.id)} disabled={aiLoading[t.id]}>
+        {aiLoading[t.id] ? 'Analysiere…' : '🤖 KI-Vorschlag anfordern'}
+      </button>
+    </div>
+    <div class="ld-step"><small>Ohne Tenant-Auswahl wird nur der Ticket-Text analysiert (keine Annahmen gegen Live-Daten geprueft).</small></div>
+
+    {#if aiError[t.id]}
+      <div class="ld-banner fail">❌ {aiError[t.id]}</div>
+    {:else if aiResult[t.id]}
+      {@const s = aiResult[t.id]}
+      <div class="ld-phase complete" style="margin-top:0.5rem;">
+        <div class="ld-phase-title">🎯 Vermutete Ursache</div>
+        <div class="ld-step">{s.rootCause}</div>
+      </div>
+      {#if s.assumptions && s.assumptions.length}
+        <div class="settings-group">
+          <h4>Annahmen-Abgleich</h4>
+          {#each s.assumptions as a}
+            <div class="ld-step {VERDICT_CLASS[a.verdict] || 'warn'}">
+              <span class="ld-ico">{VERDICT_ICON[a.verdict] || '❔'}</span>
+              <strong>{a.claim}</strong> <small>— {a.reasoning}</small>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if s.steps && s.steps.length}
+        <div class="settings-group">
+          <h4>Vorgeschlagene Schritte</h4>
+          <ol style="margin:0 0 0 1.2rem; line-height:1.7; font-size:0.9rem;">
+            {#each s.steps as step}<li>{step}</li>{/each}
+          </ol>
+        </div>
+      {/if}
+      <div class="ld-step"><small>{s.automatable ? '🤖' : 'ℹ️'} {s.automatableReason}</small></div>
+    {/if}
+  </div>
 {/snippet}
 
 <section class="settings-section">

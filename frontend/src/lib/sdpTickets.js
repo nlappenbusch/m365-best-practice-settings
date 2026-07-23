@@ -7,5 +7,7 @@ export const sdpApi = {
   attachmentUrl: (ticketId, attachmentId) =>
     `/api/sdp/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(attachmentId)}`,
   downloadAttachment: (ticketId, attachmentId) =>
-    fileDownload(sdpApi.attachmentUrl(ticketId, attachmentId))
+    fileDownload(sdpApi.attachmentUrl(ticketId, attachmentId)),
+  aiSuggest: (ticketId, tenantId) =>
+    apiPost(`/api/sdp/tickets/${encodeURIComponent(ticketId)}/ai-suggest`, { tenantId: tenantId || null })
 }
