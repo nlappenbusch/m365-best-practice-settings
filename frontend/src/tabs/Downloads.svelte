@@ -90,6 +90,31 @@
   // Installer-Ordner-URL manuell an, wir laden MSI+MST von dort direkt).
   let fcUrl = $state('')
 
+  // Bekannte EMS-Site-Namen (Stand: manueller Export aus der EMS-Konsole,
+  // "Site and License Configuration" — 24 von insgesamt 47 Sites erfasst;
+  // "Global" ist kein Kunde, sondern der Lizenz-Pool, daher hier ausgelassen).
+  // Dient nur als Gedächtnisstütze beim Zusammenbauen der Installer-URL, da
+  // EMS keine API zum Auflisten der Sites bietet.
+  const FC_KNOWN_SITES = [
+    'ACT', 'AUGENARZTZENTRUM', 'BarmettlerEntertainmentLaw', 'BelleriveMonte', 'Bienvenue',
+    'BonAssistus', 'Brandsoul', 'BruehlmannBeratungenSH', 'CloudIB', 'Compark',
+    'CorraTransporteSH', 'DDM', 'DrItenDudli', 'EcoLysis', 'FINserv',
+    'Frauenhotel', 'GoetteOptik', 'igeeks', 'IM43', 'IndependentCapital',
+    'JudundPartner', 'JUVENAL', 'KurtSchlatterAG', 'LimmatCapital'
+  ]
+  let fcSiteQuery = $state('')
+  let fcSiteOpen = $state(false)
+  let fcSiteFiltered = $derived(
+    fcSiteQuery.trim()
+      ? FC_KNOWN_SITES.filter(s => s.toLowerCase().includes(fcSiteQuery.trim().toLowerCase()))
+      : FC_KNOWN_SITES
+  )
+  function pickFcSite(site) {
+    fcUrl = `https://forticlient.igeekscloud.ch:10443/installers/${site}/${site} 7.4.3/msi/x64/`
+    fcSiteQuery = site
+    fcSiteOpen = false
+  }
+
   function bdBtns(p) {
     const b = []
     if (p.installLinkWindows) b.push({ u: p.installLinkWindows, t: '⬇ Installer', primary: true })
@@ -226,10 +251,33 @@
         unten einfügen (Pfad endet auf <code>msi/x64/</code>, im Browser bei EMS/dem Installer-Host abrufbar).
       </div>
       <div class="input-group" style="max-width:640px; margin-bottom:0.75rem;">
+        <label for="fcSiteSearch">Bekannte Site suchen (24 von 47 EMS-Sites erfasst)</label>
+        <div style="position:relative;">
+          <input id="fcSiteSearch" type="text" bind:value={fcSiteQuery}
+                 onfocus={() => (fcSiteOpen = true)}
+                 onblur={() => setTimeout(() => (fcSiteOpen = false), 150)}
+                 placeholder="🔍 Kunde/Site tippen …" autocomplete="off" />
+          {#if fcSiteOpen && fcSiteFiltered.length}
+            <div class="dl-scroll" style="position:absolute; z-index:5; top:100%; left:0; right:0;
+                        background:var(--bg-elevated,#fff); border:1px solid var(--border,#ccc);
+                        border-radius:6px; max-height:220px; overflow-y:auto;">
+              {#each fcSiteFiltered as site}
+                <div class="dl-card dl-click" role="button" tabindex="0"
+                     onmousedown={() => pickFcSite(site)}
+                     onkeydown={(e) => e.key === 'Enter' && pickFcSite(site)}>
+                  <div class="dl-name">{site}</div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <small>Liste ist unvollständig (24/47) — EMS bietet keine API dafür. Fehlt ein Kunde, unten die URL manuell eintragen.</small>
+      </div>
+      <div class="input-group" style="max-width:640px; margin-bottom:0.75rem;">
         <label for="fcUrl">Installer-Ordner-URL (site-spezifisch)</label>
         <input id="fcUrl" type="text" bind:value={fcUrl}
                placeholder="https://forticlient.igeekscloud.ch:10443/installers/<site>/<site> 7.4.3/msi/x64/" />
-        <small>Muss auf <code>forticlient.igeekscloud.ch</code> zeigen — das Tool lädt von dort <code>forticlient.msi</code> und <code>forticlient.mst</code>.</small>
+        <small>Muss auf <code>forticlient.igeekscloud.ch</code> zeigen — das Tool lädt von dort <code>forticlient.msi</code> und <code>forticlient.mst</code>. Version (<code>7.4.3</code>) ggf. anpassen, falls der Kunde eine andere FortiClient-Version bekommt.</small>
       </div>
       <button class="btn btn-secondary" disabled={!fcUrl.trim()}
               title="Direkt als Win32-App in Intune bereitstellen"
