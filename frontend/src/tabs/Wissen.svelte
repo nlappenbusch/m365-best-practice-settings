@@ -37,16 +37,6 @@
     { id: 'naming',    icon: '🏷️', title: 'Namenskonventionen', teaser: 'Gruppenkonzept — inkl. Live-Generator für korrekte Namen.' }
   ]
 
-  const quickTools = [
-    { id: 'mailsec',   icon: '🛡',  label: 'Mail-Security' },
-    { id: 'autopilot', icon: '🚀', label: 'Autopilot' },
-    { id: 'intune',    icon: '💻', label: 'Intune' },
-    { id: 'ca',        icon: '🔐', label: 'Conditional Access' },
-    { id: 'mappings',  icon: '🗺️', label: 'Mappings' },
-    { id: 'lizenzen',  icon: '💰', label: 'Lizenzen' },
-    { id: 'downloads', icon: '📦', label: 'Agents' }
-  ]
-
   // ---------- Interaktiver Gruppennamen-Generator (Namenskonvention) ----------
   const NAME_CATS = {
     dev:  { prefix: 'AAD-DEV-',  placeholder: 'STD / PROD / KIOSK / EXEC', hint: 'Geräterolle — kurz & sprechend, nicht nach Formfaktor.' },
@@ -155,12 +145,6 @@
     <div class="kpi-tile warn"><b>9</b><span>ASF-Schalter bewusst "Off"</span></div>
     <div class="kpi-tile bad"><b>4</b><span>Break-Risk-Policies markiert</span></div>
     <div class="kpi-tile ok"><b>7</b><span>Werkzeuge direkt verlinkt</span></div>
-  </div>
-
-  <div class="quick-tools-row">
-    {#each quickTools as t (t.id)}
-      <button type="button" class="quick-tool-chip" onclick={() => goToTab(t.id)}>{t.icon} {t.label}</button>
-    {/each}
   </div>
 </div>
 
