@@ -171,7 +171,17 @@
     <button class="btn btn-secondary" style="padding:0.3rem 0.8rem; font-size:0.82rem;" onclick={copyAlertSnippet}>
       {snippetCopied ? '✓ Kopiert' : '📋 Snippet kopieren'}
     </button>
-    <div class="ld-step" style="margin-top:0.4rem;"><small>💡 Empfänger ({[$config.global.adminEmail, $config.global.igeeksEmail].filter(Boolean).join(', ')}) kommen live aus dem Tab „⚙️ Vorlage" — Snippet passt sich automatisch an.</small></div>
+    <div class="ld-step" style="margin-top:0.5rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+      <div class="input-group" style="max-width:220px; margin-bottom:0;">
+        <label for="alertAdminMail"><small>Admin Notification Email</small></label>
+        <input id="alertAdminMail" type="email" bind:value={$config.global.adminEmail} placeholder="admin@example.com" />
+      </div>
+      <div class="input-group" style="max-width:220px; margin-bottom:0;">
+        <label for="alertMspMail"><small>MSP Alert Email</small></label>
+        <input id="alertMspMail" type="email" bind:value={$config.global.igeeksEmail} />
+      </div>
+      <small style="flex-basis:100%;">💡 Direkt hier änderbar — Snippet oben passt sich sofort an (dieselben Werte wie im Tab „⚙️ Vorlage").</small>
+    </div>
   </div>
 
   {#if testBusy}
