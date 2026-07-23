@@ -538,12 +538,6 @@ dynamischen Gruppen), die dynamischen Gruppenregeln in Intune und die zugehörig
 // ---------- Patch My PC ----------
 export function patchMyPcHtml() {
   return `
-<div class="alert alert-info">
-  <strong>ℹ️ Hinweis:</strong> Der ausführliche interne Runbook-Text zu Patch My PC lag beim letzten Update noch
-  nicht vor — dieser Abschnitt ist bewusst als kurzer Platzhalter gehalten. Sobald die Detail-Doku (Onboarding,
-  App-Auswahl, Update-Kadenzen, Freigabeprozess) vorliegt, wird sie hier vollständig nachgezogen.
-</div>
-
 <h3>Was Patch My PC macht</h3>
 <p>Patch My PC ist ein Drittanbieter-Dienst für <b>automatisiertes Third-Party-Patch- und App-Management</b> in
 Microsoft Intune: er verpackt aktuelle Versionen gängiger Drittanbieter-Software (Browser, Runtimes, PDF-Reader
@@ -572,6 +566,33 @@ laufend aktuell — ohne dass man jede App-Version manuell neu paketieren muss.<
   </svg>
 </div>
 
+<h3>🧾 Individuelle App-Konfiguration (Custom Apps)</h3>
+<p>Neben dem großen Katalog vorgefertigter Drittanbieter-Apps erlaubt Patch My PC auch eigene <b>Custom-App</b>-
+Einträge — z.&nbsp;B. für den eigenen RMM-Agent, der pro Kunde anders benannt bzw. paketiert werden muss. Das
+„App Info"-Formular dafür fragt genau die Metadaten ab, die später 1:1 in der Intune-App landen:</p>
+<table class="comparison-table">
+  <thead><tr><th>Feld (Patch My PC)</th><th>Landet in Intune als</th><th>Bemerkung</th></tr></thead>
+  <tbody>
+    <tr><td><code>Vendor</code> *</td><td><code>publisher</code></td><td>Pflichtfeld</td></tr>
+    <tr><td><code>Description</code> *</td><td><code>description</code></td><td>Pflichtfeld — bei Kunden-individuellen Agents z.B. „igeeks RMM Client - &lt;Kundenname&gt;"</td></tr>
+    <tr><td><code>Owner</code></td><td><code>owner</code></td><td>optional, rein informativ</td></tr>
+    <tr><td><code>Intune Notes</code></td><td><code>notes</code></td><td>interner Kommentar</td></tr>
+    <tr><td><code>Information URL</code> / <code>Privacy URL</code></td><td><code>informationUrl</code> / <code>privacyInformationUrl</code></td><td>optional</td></tr>
+    <tr><td><code>Developer</code></td><td><code>developer</code></td><td>optional</td></tr>
+    <tr><td><code>Set App as Featured</code></td><td><code>isFeatured</code></td><td>App erscheint im Company Portal hervorgehoben</td></tr>
+    <tr><td><code>Allow Available Uninstall</code></td><td>—</td><td>siehe Hinweis unten</td></tr>
+    <tr><td><code>Requirements → Minimum operating system</code></td><td><code>minimumSupportedWindowsRelease</code></td><td>dasselbe Feld, das auch unser eigener App-Deploy im Tab „📦 Agents" setzt</td></tr>
+  </tbody>
+</table>
+<div class="alert alert-info">
+  <strong>ℹ️ „Allow Available Uninstall" hat kein 1:1-Gegenstück im Win32-App-Schema.</strong> Im rohen Intune-/
+  Graph-Datenmodell für Win32-Apps (<code>win32LobApp</code>) gibt es kein Feld dieses Namens — es greift nur bei
+  Apps, die (zusätzlich) mit Zuweisungs-Intent <code>Available</code> im Company Portal bereitgestellt werden und
+  steuert dort, ob Nutzer die App selbst deinstallieren dürfen. Unser Tool weist Agents ausschließlich mit Intent
+  <code>Required</code> zu (siehe „🛠️ Bezug zum Tool" unten) — dort gibt es ohnehin kein Self-Service-Uninstall
+  im Company Portal, das Feld wäre also nicht anwendbar.
+</div>
+
 <h3>🔗 Einordnung ins Gruppenkonzept</h3>
 <p>Jede über Patch My PC verwaltete App bekommt <b>genau eine</b> Zielgruppe nach dem Schema
 <code>AAD-PMP-&lt;APP&gt;</code> (z.&nbsp;B. <code>AAD-PMP-GoogleChrome</code>) — 1:1, keine Sammelgruppen. Diese
@@ -584,7 +605,9 @@ Schema <code>AAD-APP-&lt;APP&gt;</code>.</p>
   <span>🛠️</span>
   <div><b>Bezug zum Tool:</b> Die im Tab <b>📦 Agents</b> gelisteten Bitdefender-/N-sight-Installer sind
   klassische selbst verteilte Agents (nicht Patch-My-PC-verwaltet) und folgen daher der
-  <code>AAD-APP-&lt;Name&gt;</code>-Konvention, sobald sie direkt nach Intune bereitgestellt werden.
+  <code>AAD-APP-&lt;Name&gt;</code>-Konvention, sobald sie direkt nach Intune bereitgestellt werden. Die
+  Zuweisung läuft dabei immer mit Intent <code>Required</code> (stiller Zwangs-Install, kein Company-Portal-
+  Self-Service) — die Silent-Switches und Rückgabecodes dafür sind je Hersteller fest hinterlegt.
   <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">
     <button type="button" class="btn btn-secondary tool-jump-btn" data-goto="downloads">📦 Zu Agents</button>
   </div></div>
