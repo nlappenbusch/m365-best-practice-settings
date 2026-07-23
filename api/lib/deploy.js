@@ -291,6 +291,11 @@ function buildAlertPolicySnippet(cfg) {
   return [
     "# Alert Policy fuer Quarantine-Release-Anfragen — einmalig pro Tenant",
     "# auf einem WINDOWS-Rechner ausfuehren (S&C PowerShell gibt es nicht auf Linux).",
+    "if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {",
+    "    Write-Host 'ExchangeOnlineManagement-Modul fehlt — installiere es einmalig …' -ForegroundColor Yellow",
+    "    Install-Module ExchangeOnlineManagement -Scope CurrentUser -Force -AllowClobber",
+    "}",
+    "Import-Module ExchangeOnlineManagement",
     "Connect-IPPSSession",
     "$alert = Get-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -ErrorAction SilentlyContinue",
     "if ($null -eq $alert) {",
