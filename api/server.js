@@ -43,6 +43,7 @@ const DRIVEMAP = require("./lib/driveMapping");
 const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 const DOMAINAUTH = require("./lib/domainAuth");
+const SDP = require("./lib/sdp");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -508,6 +509,56 @@ app.get("/api/downloads/rmm/download", wrap(async (req, res) => {
     type: String(req.query.type || "").trim(),
     os: String(req.query.os || "").trim()
   }, res);
+}));
+
+// ---------- SDP-Ticket-Copilot (ServiceDesk Plus lesen) ----------
+// Tickets sind kein M365-Tenant-Konzept -- eigener Namespace, kein requireTenant.
+
+function fakeSdpTicket(id) {
+  return {
+    id: String(id), subject: `Beispiel-Ticket ${id} (FAKE_DEPLOY)`, status: "Offen", priority: "Mittel",
+    requester: "Max Muster", technician: "Nils Lappenbusch", category: "Netzwerk",
+    createdTime: "23.07.2026 08:00", dueTime: "24.07.2026 17:00",
+    description: "Beispieltext -- FAKE_DEPLOY-Fixture, keine echten SDP-Daten.",
+    hasAttachments: true, attachments: [{ id: "9001", name: "screenshot.png", size: 12345, contentType: "image/png" }],
+    notes: [{ id: "2", createdBy: "Nils Lappenbusch", createdTime: "23.07.2026 09:00", description: "Rueckruf vereinbart.", showToRequester: true }],
+    notesError: null,
+    tasks: [{ id: "1", bookingTarget: `T:${id}-1`, title: "Vor-Ort-Termin", status: "Offen" }],
+    tasksError: null
+  };
+}
+
+app.get("/api/sdp/tickets/:id", wrap(async (req, res) => {
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ticket: fakeSdpTicket(req.params.id) });
+  res.json({ ok: true, ticket: await SDP.getTicketFull(req.params.id) });
+}));
+
+app.post("/api/sdp/tickets/batch", wrap(async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(x => String(x || "").trim()).filter(Boolean) : [];
+  if (!ids.length) throw Object.assign(new Error("Keine Ticket-IDs angegeben."), { status: 400 });
+  if (ids.length > 25) throw Object.assign(new Error("Maximal 25 Tickets pro Batch."), { status: 400 });
+
+  const results = await Promise.allSettled(ids.map(id =>
+    process.env.FAKE_DEPLOY === "1" ? Promise.resolve(fakeSdpTicket(id)) : SDP.getTicketFull(id)
+  ));
+  res.json({
+    ok: true,
+    tickets: results.map((r, i) => r.status === "fulfilled"
+      ? { id: ids[i], ok: true, ticket: r.value }
+      : { id: ids[i], ok: false, error: r.reason.message })
+  });
+}));
+
+app.get("/api/sdp/tickets/:id/attachments/:attachmentId", wrap(async (req, res) => {
+  if (process.env.FAKE_DEPLOY === "1") {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Content-Disposition", 'attachment; filename="screenshot.png"');
+    return res.send(Buffer.from("Fake-Anhang-Bytes -- kein echter SDP-Download."));
+  }
+  const { buffer, contentType } = await SDP.downloadAttachment(req.params.id, req.params.attachmentId);
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="anhang-${encodeURIComponent(req.params.attachmentId)}"`);
+  res.send(buffer);
 }));
 
 // ---------- Tenants ----------

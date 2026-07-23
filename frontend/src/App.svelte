@@ -19,6 +19,7 @@
   import Mappings from './tabs/Mappings.svelte'
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
+  import Tickets from './tabs/Tickets.svelte'
 
   // Gruppiert nach Themenbereich (nur visuell — Klickverhalten bleibt ein
   // flacher Tab-Wechsel wie zuvor, keine zweite Navigationsebene). Ein
@@ -34,6 +35,7 @@
     { id: 'downloads',   label: '📦 Agents',     group: 'Geräte' },
     { id: 'ca',          label: '🔐 Conditional Access', group: 'Identität' },
     { id: 'lizenzen',    label: '💰 Lizenzen',   group: 'Lizenzen' },
+    { id: 'tickets',     label: '🎫 Tickets',    group: 'Ticketing', isNew: true },
     { id: 'wissen',      label: '📖 Wissen',     group: 'Referenz' }
   ]
   const THEME_META = {
@@ -105,6 +107,7 @@
       <div class:tab-hidden={$activeTab !== 'lizenzen'}><Lizenzen /></div>
       <div class:tab-hidden={$activeTab !== 'mappings'}><Mappings /></div>
       <div class:tab-hidden={$activeTab !== 'downloads'}><Downloads /></div>
+      <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
       <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
     </div>
   </main>
