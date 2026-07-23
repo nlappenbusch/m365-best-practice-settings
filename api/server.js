@@ -45,6 +45,7 @@ const CONDACCESS = require("./lib/conditionalAccess");
 const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const AISUGGEST = require("./lib/aiSuggest");
+const CUSTOMPOLICY = require("./lib/customPolicy");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -658,9 +659,52 @@ app.get("/api/tenants", (req, res) => {
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
-    onboardingSteps: t.onboardingSteps || {}
+    onboardingSteps: t.onboardingSteps || {},
+    aiWritePermissions: t.aiWritePermissions || {}
   })));
 });
+
+// KI-Schreibrechte pro Tenant: definiert, welche automatisierten Schreib-
+// Aktionen (aktuell: eigene Settings-Catalog-Policy importieren+zuweisen)
+// fuer diesen Tenant ueberhaupt ausgefuehrt werden duerfen. Defaultet IMMER
+// auf AUS (Feld fehlt/false) -- muss pro Tenant explizit im Tenants-Tab
+// freigeschaltet werden, exakt wie die ASF-Legacy-Filter und das
+// CA-Break-Glass-Gate in diesem Tool.
+app.post("/api/tenants/:id/ai-write-permissions", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const key = String((req.body || {}).key || "").trim();
+  if (!key) return res.status(400).json({ error: "key fehlt" });
+  const enabled = !!(req.body && req.body.enabled);
+  t.aiWritePermissions = { ...(t.aiWritePermissions || {}), [key]: enabled };
+  saveState(s);
+  res.json({ ok: true, aiWritePermissions: t.aiWritePermissions });
+});
+
+// Eigene Settings-Catalog-Policy (z.B. eine aus einem KI-Runbook abgeleitete,
+// von Nils einmalig manuell im Intune-Portal angelegte + wieder exportierte
+// Policy) importieren + einer Pilot-/Test-Gruppe zuweisen. Schreibt echt in
+// den Tenant -- deshalb hart am Permission-Schalter oben vorbei: ohne
+// explizite Freigabe fuer DIESEN Tenant immer 403, nie stillschweigend erlaubt.
+app.post("/api/tenants/:id/deploy/custom-policy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (!t.aiWritePermissions || !t.aiWritePermissions.customPolicyImport) {
+    throw Object.assign(new Error("Fuer diesen Tenant nicht freigeschaltet — erst im Tenants-Tab unter „🤖 KI-Schreibrechte\" aktivieren."), { status: 403 });
+  }
+  const groupId = String((req.body || {}).groupId || "").trim();
+  const policyJson = (req.body || {}).policyJson;
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    CUSTOMPOLICY.validatePolicyJson(policyJson);
+    if (!groupId) throw Object.assign(new Error("Keine Ziel-Gruppe angegeben."), { status: 400 });
+    return res.json({ ok: true, result: { policyId: "fake-policy-id", policyName: policyJson.name || "Fake Policy", assignStatus: "assigned" } });
+  }
+
+  const cert = certPemPath(t.tenantId);
+  const result = await CUSTOMPOLICY.importCustomPolicy(t, cert, policyJson, groupId);
+  res.json({ ok: true, result });
+}));
 
 // Einrichtungs-Assistent: haekt einen Schritt der gefuehrten Onboarding-Checkliste
 // pro Tenant ab/aus. Rein manuelle Markierung (kein automatischer Status-Check je

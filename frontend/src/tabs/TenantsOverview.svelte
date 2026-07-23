@@ -28,6 +28,30 @@
 
   function toggleWizard(t) { wizardTargetId = wizardTargetId === t.id ? null : t.id }
 
+  // ---------- KI-Schreibrechte (pro Tenant, defaultet auf AUS) ----------
+  // Bewusst als kleine, klar benannte Liste einzelner Faehigkeiten statt einer
+  // generischen "KI darf alles"-Option -- jede neue automatisierte Schreib-
+  // Aktion bekommt ihren eigenen Schluessel, review-pflichtig vor Aktivierung.
+  const AI_WRITE_CAPS = [
+    { key: 'customPolicyImport', label: 'Eigene Settings-Catalog-Policy importieren + zuweisen',
+      desc: 'Erlaubt das Einspielen einer selbst exportierten Intune-Konfigurationsprofil-JSON (z.B. aus einem KI-Runbook abgeleitet) inkl. Zuweisung an eine gewaehlte Gruppe. Siehe Tab „🎫 Tickets" → „📚 Runbooks".' }
+  ]
+  let aiPermTargetId = $state(null)
+  let aiPermBusy = $state({})
+
+  function toggleAiPermPanel(t) { aiPermTargetId = aiPermTargetId === t.id ? null : t.id }
+
+  async function toggleAiWritePermission(t, key, current) {
+    aiPermBusy = { ...aiPermBusy, [key]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/ai-write-permissions`, { key, enabled: !current })
+      await loadTenants()
+    } catch (e) {
+      alert('Konnte die Berechtigung nicht speichern: ' + e.message)
+    }
+    aiPermBusy = { ...aiPermBusy, [key]: false }
+  }
+
   async function toggleOnboardingStep(t, stepId, current) {
     wizardBusy = { ...wizardBusy, [stepId]: true }
     try {
@@ -230,6 +254,8 @@
             <div class="trow-actions">
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleWizard(t) }}
                       title="Schritt-für-Schritt-Checkliste für das komplette Tenant-Setup">🧭 Assistent</button>
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleAiPermPanel(t) }}
+                      title="Steuert, welche automatisierten Schreib-Aktionen (z.B. aus dem Ticket-Copilot) für diesen Tenant erlaubt sind">🤖 KI-Schreibrechte</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startFix(t) }}
                       title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); doRemove(t) }}
@@ -279,6 +305,32 @@
               <div class="wizard-step-desc">{step.desc}</div>
             </div>
             <button class="btn btn-secondary wizard-step-jump" onclick={() => goToTab(step.tab)}>Öffnen →</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/if}
+
+  {#if aiPermTargetId}
+    {@const apt = $tenants.find(x => x.id === aiPermTargetId)}
+    {#if apt}
+      <div class="ld-job" style="margin-bottom:1.5rem">
+        <div class="ld-job-head">
+          <strong>🤖 KI-Schreibrechte: {apt.name}</strong>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (aiPermTargetId = null)}>✕ schließen</button>
+        </div>
+        <p class="ld-section-hint">Steuert PRO TENANT, welche automatisierten Schreib-Aktionen aus dem Ticket-Copilot
+          ausgeführt werden dürfen. Standardmäßig alles AUS — nur gezielt für Tenants aktivieren, bei denen das
+          gewünscht ist. Jede Aktion schreibt echt in den Tenant.</p>
+        {#each AI_WRITE_CAPS as cap (cap.key)}
+          {@const enabled = !!apt.aiWritePermissions?.[cap.key]}
+          <div class="wizard-step">
+            <input type="checkbox" class="wizard-step-check" checked={enabled} disabled={aiPermBusy[cap.key]}
+                   onchange={() => toggleAiWritePermission(apt, cap.key, enabled)} />
+            <div class="wizard-step-body">
+              <div class="wizard-step-title" class:done={enabled}>{cap.label}</div>
+              <div class="wizard-step-desc">{cap.desc}</div>
+            </div>
           </div>
         {/each}
       </div>

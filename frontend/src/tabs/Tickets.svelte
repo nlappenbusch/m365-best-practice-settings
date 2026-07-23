@@ -2,6 +2,8 @@
   import { session } from '../lib/session.js'
   import { sdpApi } from '../lib/sdpTickets.js'
   import { tenants } from '../lib/tenantStore.js'
+  import { apiGet, apiPost } from '../lib/api.js'
+  import { goToTab } from '../lib/tabStore.js'
 
   let sub = $state('single') // 'single' | 'batch' | 'runbooks'
 
@@ -60,6 +62,46 @@
 
   function toggleRunbookExpand(id) {
     runbookExpanded = { ...runbookExpanded, [id]: !runbookExpanded[id] }
+  }
+
+  // ---------- Policy ausrollen (aus einem Runbook heraus, permission-gated) ----------
+  let deployJsonText = $state({})   // runbookId -> string
+  let deployGroups = $state({})     // tenantId -> [{id, displayName}]
+  let deployGroupChoice = $state({}) // runbookId -> groupId
+  let deployBusy = $state({})
+  let deployError = $state({})
+  let deployResult = $state({})
+
+  async function ensureDeployGroups(tenantId) {
+    if (deployGroups[tenantId]) return
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/groups`)
+      deployGroups = { ...deployGroups, [tenantId]: r.groups || [] }
+    } catch (e) {
+      deployGroups = { ...deployGroups, [tenantId]: [] }
+    }
+  }
+
+  async function deployCustomPolicy(rb) {
+    deployError = { ...deployError, [rb.id]: null }
+    deployResult = { ...deployResult, [rb.id]: null }
+    let parsed
+    try {
+      parsed = JSON.parse(deployJsonText[rb.id] || '')
+    } catch (e) {
+      deployError = { ...deployError, [rb.id]: 'Ungültiges JSON: ' + e.message }
+      return
+    }
+    const groupId = deployGroupChoice[rb.id]
+    if (!groupId) { deployError = { ...deployError, [rb.id]: 'Bitte Ziel-Gruppe wählen.' }; return }
+    deployBusy = { ...deployBusy, [rb.id]: true }
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/deploy/custom-policy`, { policyJson: parsed, groupId })
+      deployResult = { ...deployResult, [rb.id]: r.result }
+    } catch (e) {
+      deployError = { ...deployError, [rb.id]: e.message }
+    }
+    deployBusy = { ...deployBusy, [rb.id]: false }
   }
 
   function switchSub(s) {
@@ -344,6 +386,8 @@
                 <td class="da-col-toggle">{isOpen ? '▾' : '▸'}</td>
               </tr>
               {#if isOpen}
+                {@const rbTenant = $tenants.find(x => x.id === rb.tenantId)}
+                {@const permOk = !!rbTenant?.aiWritePermissions?.customPolicyImport}
                 <tr class="da-detail-row">
                   <td colspan="5">
                     <div class="ld-phase complete">
@@ -370,6 +414,46 @@
                       </div>
                     {/if}
                     <div class="ld-step"><small>{rb.suggestion.automatable ? '🤖' : 'ℹ️'} {rb.suggestion.automatableReason}</small></div>
+
+                    <div class="settings-group">
+                      <h4>🚀 Policy ausrollen</h4>
+                      {#if !rbTenant}
+                        <div class="ld-banner warn">⚠️ Tenant nicht mehr im Tool vorhanden.</div>
+                      {:else if !permOk}
+                        <div class="ld-banner warn">
+                          ⚠️ Für „{rbTenant.name}" nicht freigeschaltet.
+                          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;"
+                                  onclick={() => goToTab('tenants')}>Im Tenants-Tab freischalten →</button>
+                        </div>
+                      {:else}
+                        <p class="ld-section-hint">
+                          Policy einmal manuell im Intune-Portal des Tenants anlegen, per Graph exportieren
+                          (<code>GET /deviceManagement/configurationPolicies/&#123;id&#125;?$expand=settings</code>)
+                          und die JSON hier einfügen — kein automatisches Erraten der Settings-Catalog-Struktur,
+                          damit nichts Falsches ausgerollt wird.
+                        </p>
+                        <div class="input-group" style="margin-bottom:0.6rem;">
+                          <label for="deployJson-{rb.id}">Exportierte Policy-JSON</label>
+                          <textarea id="deployJson-{rb.id}" rows="4" style="font-family:monospace; font-size:0.8rem;"
+                                    bind:value={deployJsonText[rb.id]} placeholder={'{ "@odata.type": "#microsoft.graph.deviceManagementConfigurationPolicy", ... }'}></textarea>
+                        </div>
+                        <div class="ld-oib-target">
+                          <select bind:value={deployGroupChoice[rb.id]} onfocus={() => ensureDeployGroups(rb.tenantId)}>
+                            <option value="">— Ziel-Gruppe wählen —</option>
+                            {#each (deployGroups[rb.tenantId] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+                          </select>
+                          <button class="btn btn-primary" disabled={deployBusy[rb.id]} onclick={() => deployCustomPolicy(rb)}>
+                            {deployBusy[rb.id] ? 'Rolle aus…' : '🚀 Ausrollen'}
+                          </button>
+                        </div>
+                        {#if deployError[rb.id]}
+                          <div class="ld-banner fail">❌ {deployError[rb.id]}</div>
+                        {:else if deployResult[rb.id]}
+                          <div class="ld-banner ok">✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).</div>
+                        {/if}
+                      {/if}
+                    </div>
+
                     <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem; margin-top:0.5rem;"
                             onclick={(e) => { e.stopPropagation(); removeRunbook(rb.id) }}>🗑️ Loeschen</button>
                   </td>
