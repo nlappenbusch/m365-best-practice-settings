@@ -515,8 +515,25 @@ app.get("/api/tenants", (req, res) => {
   res.json((s.tenants || []).map(t => ({
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
-    certPresent: fs.existsSync(certPemPath(t.tenantId))
+    certPresent: fs.existsSync(certPemPath(t.tenantId)),
+    onboardingSteps: t.onboardingSteps || {}
   })));
+});
+
+// Einrichtungs-Assistent: haekt einen Schritt der gefuehrten Onboarding-Checkliste
+// pro Tenant ab/aus. Rein manuelle Markierung (kein automatischer Status-Check je
+// Schritt) -- soll neuen/wenig erfahrenen Mitarbeitern eine feste Reihenfolge und
+// einen Fortschrittsstand geben, der auch sitzungsuebergreifend erhalten bleibt.
+app.post("/api/tenants/:id/onboarding/:stepId", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const stepId = String(req.params.stepId || "").trim();
+  if (!stepId) return res.status(400).json({ error: "stepId fehlt" });
+  const done = !!(req.body && req.body.done);
+  t.onboardingSteps = { ...(t.onboardingSteps || {}), [stepId]: done };
+  saveState(s);
+  res.json({ ok: true, onboardingSteps: t.onboardingSteps });
 });
 
 app.delete("/api/tenants/:id", (req, res) => {

@@ -3,6 +3,41 @@
   import { session } from '../lib/session.js'
   import { apiGet, apiPost, apiDelete } from '../lib/api.js'
   import { tenants, tenantsLoaded, activeTenantId, loadTenants, selectTenant, removeTenant, tenantReady, tenantMissing } from '../lib/tenantStore.js'
+  import { goToTab } from '../lib/tabStore.js'
+
+  // ---------- Einrichtungs-Assistent (gefuehrte Checkliste fuer neue Tenants) ----------
+  // Reihenfolge nach tatsaechlichen Abhaengigkeiten: Tenant-Basis zuerst, dann Vorlage
+  // (alle folgenden Schritte lesen dagegen), Mail-Security vor Audit (sonst nichts zu
+  // pruefen), Conditional Access vor Autopilot (Geraete sollen sich unter den neuen
+  // CA-Regeln registrieren), Mappings direkt nach Autopilot (gleiche Geraetegruppen),
+  // Agents als letzter Geraete-Schritt, Lizenzen als loses Ende ohne Abhaengigkeit.
+  const ONBOARDING_STEPS = [
+    { id: 'config', icon: '⚙️', title: 'Vorlage/Baseline festlegen', desc: 'Domains, Admin-/MSP-E-Mail und Anti-Malware-Dateitypen prüfen — alle weiteren Schritte lesen gegen diese Vorlage.', tab: 'config' },
+    { id: 'mailsec', icon: '🛡', title: 'Mail-Security ausrollen', desc: 'BP_-Policies (Quarantäne, Anti-Phishing, Anti-Spam, Anti-Malware) live deployen.', tab: 'mailsec' },
+    { id: 'audit', icon: '🔎', title: 'Ist-Zustand + SPF/DKIM/DMARC prüfen', desc: 'Nach dem Deploy verifizieren, dass Soll = Ist, und die Mail-Authentifizierung der Domains checken.', tab: 'audit' },
+    { id: 'ca', icon: '🔐', title: 'Conditional Access ausrollen', desc: 'Passende Tier wählen, im Pilot-Ring per Report-Only starten, Break-Glass-Konto anlegen.', tab: 'ca' },
+    { id: 'autopilot', icon: '🚀', title: 'Autopilot-Staging vorbereiten', desc: 'Staging-Paket erzeugen, dynamische GroupTag-Gruppen anlegen, Deployment-Profile zuweisen.', tab: 'autopilot' },
+    { id: 'mappings', icon: '🗺️', title: 'Laufwerke/Drucker konfigurieren', desc: 'Profile für Netzlaufwerke und Drucker anlegen, den GroupTag-Gruppen zuweisen.', tab: 'mappings' },
+    { id: 'intune', icon: '💻', title: 'OIB-Policies zuweisen', desc: 'OpenIntuneBaseline-Policies an die dynamischen Gerätegruppen zuweisen (Break-Risk-Policies beachten).', tab: 'intune' },
+    { id: 'agents', icon: '📦', title: 'Agents deployen (AV/RMM)', desc: 'Bitdefender und N-sight als Intune-Win32-App bereitstellen.', tab: 'downloads' },
+    { id: 'lizenzen', icon: '💰', title: 'Lizenzen prüfen', desc: 'Ungenutzte/doppelte Lizenzen im Report identifizieren.', tab: 'lizenzen' }
+  ]
+
+  let wizardTargetId = $state(null)
+  let wizardBusy = $state({}) // stepId -> bool, waehrend der Toggle-Request laeuft
+
+  function toggleWizard(t) { wizardTargetId = wizardTargetId === t.id ? null : t.id }
+
+  async function toggleOnboardingStep(t, stepId, current) {
+    wizardBusy = { ...wizardBusy, [stepId]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/onboarding/${encodeURIComponent(stepId)}`, { done: !current })
+      await loadTenants()
+    } catch (e) {
+      alert('Konnte den Schritt nicht speichern: ' + e.message)
+    }
+    wizardBusy = { ...wizardBusy, [stepId]: false }
+  }
 
   // ---------- Onboarding (Device-Code) ----------
   let onboardTenant = $state('')
@@ -193,6 +228,8 @@
               <div class="trow-meta">{t.organization || t.tenantId} · App {(t.appId || '').slice(0, 8)}…</div>
             </div>
             <div class="trow-actions">
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleWizard(t) }}
+                      title="Schritt-für-Schritt-Checkliste für das komplette Tenant-Setup">🧭 Assistent</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startFix(t) }}
                       title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); doRemove(t) }}
@@ -203,6 +240,50 @@
       </div>
     {/if}
   </div>
+
+  {#if wizardTargetId}
+    {@const wt = $tenants.find(x => x.id === wizardTargetId)}
+    {#if wt}
+      {@const ready = tenantReady(wt)}
+      {@const doneCount = ONBOARDING_STEPS.filter(s => wt.onboardingSteps?.[s.id]).length}
+      <div class="ld-job" style="margin-bottom:1.5rem">
+        <div class="ld-job-head">
+          <strong>🧭 Einrichtungs-Assistent: {wt.name}</strong>
+          <span class="ld-job-meta">{doneCount}/{ONBOARDING_STEPS.length} erledigt</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (wizardTargetId = null)}>✕ schließen</button>
+        </div>
+        <p class="ld-section-hint">Feste Reihenfolge für neue/wenig erfahrene Kolleg:innen beim Tenant-Setup — jeder
+          Haken wird pro Tenant gespeichert, „Öffnen" springt direkt in den passenden Tab.</p>
+        <div class="ld-progress" style="margin-bottom:0.9rem;">
+          <div class="ld-progress-fill" style="width:{Math.round(doneCount / ONBOARDING_STEPS.length * 100)}%"></div>
+        </div>
+
+        <div class="wizard-step">
+          <span class="wizard-step-check">{ready ? '✅' : '⚠️'}</span>
+          <div class="wizard-step-body">
+            <div class="wizard-step-title" class:done={ready}>🏢 Tenant-Setup (Basis)</div>
+            <div class="wizard-step-desc">
+              {#if ready}Automatisch erkannt — Berechtigungen, Zertifikat und TCM sind vorhanden.
+              {:else}Noch nicht vollständig — oben „🔧 Reparieren" ausführen, bevor die folgenden Schritte Sinn ergeben.{/if}
+            </div>
+          </div>
+        </div>
+
+        {#each ONBOARDING_STEPS as step (step.id)}
+          {@const done = !!wt.onboardingSteps?.[step.id]}
+          <div class="wizard-step">
+            <input type="checkbox" class="wizard-step-check" checked={done} disabled={wizardBusy[step.id]}
+                   onchange={() => toggleOnboardingStep(wt, step.id, done)} />
+            <div class="wizard-step-body">
+              <div class="wizard-step-title" class:done={done}>{step.icon} {step.title}</div>
+              <div class="wizard-step-desc">{step.desc}</div>
+            </div>
+            <button class="btn btn-secondary wizard-step-jump" onclick={() => goToTab(step.tab)}>Öffnen →</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  {/if}
 
   {#if fixTargetId}
     <div class="ld-job" style="margin-bottom:1.5rem">

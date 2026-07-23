@@ -425,6 +425,16 @@ a { color: var(--accent); }
 @keyframes ld-stripes { from { background-position: 24px 0; } to { background-position: 0 0; } }
 .ld-progress-label { font-size: 0.78rem; color: var(--text-dim); margin: 0.25rem 0 0.75rem; }
 
+/* Einrichtungs-Assistent (Tenants-Tab) */
+.wizard-step { display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.6rem 0; border-bottom: 1px solid var(--rule); }
+.wizard-step:last-child { border-bottom: none; }
+.wizard-step-check { flex-shrink: 0; width: 18px; height: 18px; margin-top: 0.15rem; accent-color: var(--accent); cursor: pointer; text-align: center; font-size: 1rem; line-height: 1; }
+.wizard-step-body { flex: 1; min-width: 0; }
+.wizard-step-title { font-weight: 600; font-size: 0.9rem; }
+.wizard-step-title.done { color: var(--ok); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.wizard-step-desc { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem; line-height: 1.4; }
+.wizard-step-jump { flex-shrink: 0; white-space: nowrap; padding: 0.3rem 0.7rem; font-size: 0.78rem; align-self: center; }
+
 .ld-phase { border-left: 3px solid var(--rule); padding-left: 0.75rem; margin: 0.6rem 0; opacity: 0.75; }
 .ld-phase.active { border-left-color: var(--accent); opacity: 1; }
 .ld-phase.complete { border-left-color: var(--ok); opacity: 1; }
