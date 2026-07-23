@@ -62,6 +62,27 @@ function buildUrl(server, service, extra = {}) {
   return u;
 }
 
+/**
+ * N-sight liefert Kunden-/Site-Namen mit Umlauten oft als Windows-1252-Bytes,
+ * ohne das im <?xml ... encoding="..."?> oder im Content-Type zu deklarieren.
+ * fetch().text() decodiert dann als UTF-8 -> ungueltige Byte-Sequenzen werden
+ * zu Replacement-Zeichen (U+FFFD). Das ist das verlaessliche Signal, um auf
+ * Windows-1252/ISO-8859-1 zurueckzufallen (fuer deutsche Umlaute/ß identisch,
+ * da sie ausserhalb des Bereichs liegen, in dem sich die beiden Codierungen
+ * unterscheiden).
+ */
+function decodeXmlBuffer(buf) {
+  const head = buf.slice(0, 200).toString("latin1");
+  const m = /encoding=["']([^"']+)["']/i.exec(head);
+  const declared = m ? m[1].toLowerCase() : null;
+  if (declared && /^(iso-8859-1|windows-1252|latin1|cp1252)$/.test(declared)) {
+    return buf.toString("latin1");
+  }
+  const utf8 = buf.toString("utf8");
+  if (utf8.includes("�")) return buf.toString("latin1");
+  return utf8;
+}
+
 /** HTML-Fehlerseiten (Apache & Co.) auf einen lesbaren Satz eindampfen. */
 function snippetFromHtml(text) {
   if (!text) return "";
@@ -83,7 +104,7 @@ async function xmlGet(server, service, extra = {}) {
   let r, text;
   try {
     r = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(60000) });
-    text = await r.text();
+    text = decodeXmlBuffer(Buffer.from(await r.arrayBuffer()));
   } catch (e) {
     throw new Error(`Verbindungsfehler bei '${service}'. ${e.message}`);
   }
