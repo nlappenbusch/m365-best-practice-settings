@@ -59,6 +59,7 @@
   <header class="app-header">
     <div class="header-content">
       <div class="logo-section">
+        <div class="logo-mark" aria-hidden="true">🛡️</div>
         <div>
           <h1>M365 Security Policy Manager</h1>
           <p class="subtitle">Best Practice Configuration &amp; Autopilot Staging</p>
