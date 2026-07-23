@@ -117,7 +117,7 @@
       profiles = pdata.profiles || []
       profileGroups = gdata.groups || []
       const nextSel = {}
-      for (const p of profiles) nextSel[p.id] = profileGroups[0]?.id || ''
+      for (const p of profiles) nextSel[p.id] = ''
       selectedGroupByProfile = nextSel
       profileResult = {}
     } catch (e) {
@@ -175,6 +175,13 @@
   async function saveGroupTag(dev) {
     const tag = (groupTagDraft[dev.id] || '').trim()
     if (!tag) { alert('GroupTag darf nicht leer sein.'); return }
+    const unknown = groupTags.length && !groupTags.some(g => g.groupTag === tag)
+    if (!confirm(
+      `GroupTag von „${dev.groupTag || '(keiner)'}" auf „${tag}" ändern?\n\n` +
+      `Das Gerät wechselt dadurch bei der naechsten Autopilot-Sync automatisch in die zum neuen ` +
+      `GroupTag passende Gruppe — und damit ggf. auf ein anderes Deployment-Profil/andere Policies.` +
+      (unknown ? `\n\n⚠️ „${tag}" ist KEIN bekannter GroupTag aus dem Staging-Paket-Tab — bitte Tippfehler ausschliessen.` : '')
+    )) return
     savingDevice = { ...savingDevice, [dev.id]: true }
     deviceResult = { ...deviceResult, [dev.id]: null }
     try {
@@ -227,6 +234,7 @@
   <div class="settings-group">
     <h4>🚀 Autopilot</h4>
     <p class="ld-section-hint">Staging-Paket erzeugen (App-Registrierung mit Secret + Zertifikat, GroupTags aus den dynamischen Gruppen, fertiges ZIP) sowie Deployment-Profile einsehen und zuweisen.</p>
+    <p class="ld-section-hint"><small>💡 Empfohlene Reihenfolge: 1️⃣ Staging-Paket erstellen → 2️⃣ Deployment-Profile der passenden Gruppe zuweisen → 3️⃣ Geräte-GroupTags nur bei Bedarf nachträglich korrigieren.</small></p>
   </div>
 
   <div class="dl-subtabs">
@@ -312,8 +320,8 @@
             <div class="ld-banner ok">✅ App <code>{buildResult.appId}</code> angelegt, Paket gebaut.
               {#if warn.length}{#each warn as w}<br />⚠️ {w}{/each}{/if}</div>
             <div class="ld-step"><small>GroupTags im Wrapper-Menü: {buildResult.groupTags.join(', ')}{wlanLine}<br />{pfxLine}</small></div>
+            <div class="ld-step"><small>💡 Der Download-Link unten ist einmalig und läuft nach 10 Minuten ab — danach einfach „📦 Paket erstellen" erneut ausführen. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>
             <div class="ld-confirm-actions"><a class="btn btn-primary" href="/api/autopilot/download/{encodeURIComponent(buildResult.downloadToken)}">⬇️ ZIP herunterladen</a></div>
-            <div class="ld-step"><small>💡 Der Download-Link ist einmalig und läuft nach 10 Minuten ab. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>
           </div>
         {/if}
       </div>
@@ -349,9 +357,10 @@
             <div class="ld-step ok"><span class="ld-ico">👥</span> Zugewiesen: <small>{assignedLabel}</small></div>
             <div class="ld-oib-target">
               <select bind:value={selectedGroupByProfile[p.id]}>
+                <option value="">— Gruppe wählen —</option>
                 {#each profileGroups as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
               </select>
-              <button class="btn btn-secondary" onclick={() => assignProfile(p)} disabled={assigningProfile[p.id]}>
+              <button class="btn btn-secondary" onclick={() => assignProfile(p)} disabled={assigningProfile[p.id] || !selectedGroupByProfile[p.id]}>
                 {assigningProfile[p.id] ? 'Weise zu…' : 'Dieser Gruppe zuweisen'}
               </button>
             </div>
@@ -398,7 +407,8 @@
           <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadDevices}>🔄 Neu laden</button>
         </div>
         <div class="ld-step"><small>GroupTag hier setzen/ändern wirkt wie ein nachträgliches „Etikett wechseln" — das Gerät rutscht dadurch
-          über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Tab „📖 Wissen → 🏷️ Namenskonventionen").</small></div>
+          über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Tab „📖 Wissen → 🏷️ Namenskonventionen").
+          Gleiche GroupTags wie im Tab „📦 Staging-Paket" — Freitextfeld unten schlägt bekannte Tags vor, prüft sie aber nicht.</small></div>
 
         {#each devices as dev (dev.id)}
           {@const res = deviceResult[dev.id]}
