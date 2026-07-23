@@ -6,16 +6,16 @@
 
   const DEFAULTS = {
     bitdefender: {
-      install: '{file} /silent',
+      install: '{file} /bdparams /silent',
       uninstall: '',
       detectionType: 'registry',
-      hint: 'Bitdefender-Installer unterstuetzen laut Hersteller-Doku /silent. Uninstall-Kommando und Erkennungsregel bitte nach einer Testinstallation aus dem Uninstall-Registry-Schluessel ergaenzen.'
+      hint: 'Bitdefender GravityZone: /bdparams /silent ist der von uns verifizierte Standard-Switch fuer den setupdownloader-Installer. Uninstall-Kommando und Erkennungsregel bitte nach einer Testinstallation aus dem Uninstall-Registry-Schluessel ergaenzen.'
     },
     nsight: {
-      install: '{file} /S',
+      install: '{file} /quiet /norestart',
       uninstall: '',
       detectionType: 'file',
-      hint: 'N-sight-Agents sind typischerweise NSIS-Installer (/S = silent) — bitte anhand einer Testinstallation verifizieren. Uninstall-Kommando und Erkennungsregel danach ergaenzen.'
+      hint: 'N-sight-RMM-Agent: /quiet /norestart ist der von uns verifizierte Standard-Switch. Uninstall-Kommando und Erkennungsregel bitte nach einer Testinstallation ergaenzen.'
     }
   }
 

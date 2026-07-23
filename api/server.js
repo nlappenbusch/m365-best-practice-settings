@@ -1756,9 +1756,20 @@ function buildWin32AppPayload(b, fileName) {
     fileName: WIN32APP.INTUNE_PACKAGE_NAME,
     installCommandLine: b.installCommandLine,
     uninstallCommandLine: b.uninstallCommandLine,
-    applicableArchitectures: "x64",
+    // windowsArchitecture ist ein Flags-Enum (none/x86/x64/arm/neutral) -- RMM-/AV-Agents
+    // wie Bitdefender und N-sight liefern real nur x64- und ARM64-Builds aus, nie x86.
+    applicableArchitectures: "x64, arm",
     installExperience: { "@odata.type": "microsoft.graph.win32LobAppInstallExperience", runAsAccount: "system", deviceRestartBehavior: "suppress" },
-    returnCodes: [{ "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 0, type: "success" }],
+    // Standard-MSI-/Installer-Rueckgabecodes (Quelle: Microsoft Learn win32LobAppReturnCode
+    // + gaengige RMM-/AV-Installer-Doku) -- ohne diese wertet Intune z.B. 3010 (Soft Reboot
+    // noetig) faelschlich als Fehlschlag statt als Erfolg mit ausstehendem Neustart.
+    returnCodes: [
+      { "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 0, type: "success" },
+      { "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 1707, type: "success" },
+      { "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 3010, type: "softReboot" },
+      { "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 1641, type: "hardReboot" },
+      { "@odata.type": "microsoft.graph.win32LobAppReturnCode", returnCode: 1618, type: "retry" }
+    ],
     rules,
     setupFilePath: fileName,
     // "Windows10_1607" (vorheriger Wert) ist kein gueltiger Wert -- Graph lehnt es mit
