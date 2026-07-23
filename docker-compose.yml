@@ -30,6 +30,11 @@ services:
       # RMM_SERVER leer lassen = automatische Server-Erkennung (empfohlen)
       - RMM_SERVER=${RMM_SERVER:-}
       - RMM_API_KEY=${RMM_API_KEY:-}
+      # SDP-Ticket-Copilot (ServiceDesk Plus). SDP_BASE_URL nur setzen, wenn nicht
+      # die Standard-Instanz (sdp.igeeks.ch) gemeint ist.
+      - SDP_API_KEY=${SDP_API_KEY:-}
+      - SDP_BASE_URL=${SDP_BASE_URL:-}
+      - SDP_OWNER_ID=${SDP_OWNER_ID:-}
     volumes:
       - api-state:/app/state
     networks:

@@ -25,10 +25,14 @@ jobs:
           # Leer/nicht gesetzt = der jeweilige Bereich im Tab bleibt inaktiv.
           BD_API_KEY: ${{ secrets.BD_API_KEY }}
           RMM_API_KEY: ${{ secrets.RMM_API_KEY }}
+          SDP_API_KEY: ${{ secrets.SDP_API_KEY }}
 
           # --- Optional (Variables, nicht sensibel) ---
           # Leer lassen ist der Normalfall: BD_HOST faellt auf den GravityZone-
-          # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung.
+          # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung,
+          # SDP_BASE_URL/SDP_OWNER_ID fallen auf die iGeeks-Standardwerte zurueck.
           BD_HOST: ${{ vars.BD_HOST }}
           RMM_SERVER: ${{ vars.RMM_SERVER }}
+          SDP_BASE_URL: ${{ vars.SDP_BASE_URL }}
+          SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
         run: bash /opt/m365-security/deploy.sh
