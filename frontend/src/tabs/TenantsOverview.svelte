@@ -60,6 +60,49 @@
     aiPermBusy = { ...aiPermBusy, [key]: false }
   }
 
+  // ---------- Automatisch vorgeschlagen (KI loest auf, Mensch bestaetigt) ----------
+  // Bewusst getrennt von customPolicyImport: das eine erlaubt den manuellen
+  // Suchen-dann-Ausrollen-Weg im Runbook, das hier laesst die KI die Einstellung
+  // beim Erzeugen des Vorschlags GLEICH selbst auflösen (Suchbegriff -> gefundene
+  // Einstellung + Wert) und zeigt einen fertig vorausgefuellten Bestaetigen-
+  // Knopf -- geschrieben wird aber IMMER erst nach diesem einen Klick, nie
+  // automatisch. Braucht zwingend eine vorher von Nils festgelegte Pilot-Gruppe
+  // -- die KI sucht sich NIE selbst eine Gruppe aus.
+  let autoDeployGroups = $state({})   // tenantId -> [{id, displayName}]
+  let autoDeployBusy = $state({})
+
+  async function ensureAutoDeployGroups(tenantId) {
+    if (autoDeployGroups[tenantId]) return
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/groups`)
+      autoDeployGroups = { ...autoDeployGroups, [tenantId]: r.groups || [] }
+    } catch (e) {
+      autoDeployGroups = { ...autoDeployGroups, [tenantId]: [] }
+    }
+  }
+
+  async function toggleAutoApply(t, current) {
+    if (!current && !t.aiAutoDeployGroupId) {
+      alert('Bitte zuerst eine Pilot-Gruppe wählen, bevor autonome Rollouts aktiviert werden.')
+      return
+    }
+    if (!current && !confirm(
+      `Die KI sucht/löst die Einstellung dann automatisch auf und zeigt im Runbook einen fertig vorausgefüllten „Bestätigen"-Knopf für die Pilot-Gruppe „${(autoDeployGroups[t.id] || []).find(g => g.id === t.aiAutoDeployGroupId)?.displayName || t.aiAutoDeployGroupId}" — geschrieben wird trotzdem erst nach diesem einen Klick.\n\nWirklich aktivieren?`
+    )) return
+    await toggleAiWritePermission(t, 'autoApplyPolicies', current)
+  }
+
+  async function setAutoDeployGroup(t, groupId) {
+    autoDeployBusy = { ...autoDeployBusy, [t.id]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/ai-auto-deploy-group`, { groupId })
+      await loadTenants()
+    } catch (e) {
+      alert('Konnte die Pilot-Gruppe nicht speichern: ' + e.message)
+    }
+    autoDeployBusy = { ...autoDeployBusy, [t.id]: false }
+  }
+
   async function toggleOnboardingStep(t, stepId, current) {
     wizardBusy = { ...wizardBusy, [stepId]: true }
     try {
@@ -341,6 +384,34 @@
             </div>
           </div>
         {/each}
+
+        <div class="settings-group" style="margin-top:0.75rem; border-top:1px solid var(--border, #333); padding-top:0.75rem;">
+          <h4>⚡ Automatisch vorgeschlagen</h4>
+          <p class="ld-section-hint">
+            Erweiterung von „Eigene Settings-Catalog-Policy": die KI sucht/löst die Einstellung beim Erzeugen eines
+            Ticket-Vorschlags gleich selbst auf (Suchbegriff → gefundene Einstellung + Wert) und zeigt im Runbook
+            direkt einen fertig vorausgefüllten „Bestätigen"-Knopf — geschrieben wird trotzdem immer erst nach diesem
+            einen Klick, nie automatisch. Braucht zwingend eine vorher festgelegte Pilot-Gruppe; die KI wählt nie
+            selbst eine Gruppe.
+          </p>
+          <div class="input-group" style="max-width:420px; margin-bottom:0.6rem;">
+            <label for="autoGroup-{apt.id}">Pilot-Gruppe für autonome Rollouts</label>
+            <select id="autoGroup-{apt.id}" value={apt.aiAutoDeployGroupId || ''} disabled={autoDeployBusy[apt.id]}
+                    onfocus={() => ensureAutoDeployGroups(apt.id)}
+                    onchange={(e) => setAutoDeployGroup(apt, e.target.value)}>
+              <option value="">— keine gewählt —</option>
+              {#each (autoDeployGroups[apt.id] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+            </select>
+          </div>
+          <div class="wizard-step">
+            <input type="checkbox" class="wizard-step-check" checked={!!apt.aiWritePermissions?.autoApplyPolicies} disabled={aiPermBusy['autoApplyPolicies']}
+                   onchange={() => toggleAutoApply(apt, !!apt.aiWritePermissions?.autoApplyPolicies)} />
+            <div class="wizard-step-body">
+              <div class="wizard-step-title" class:done={!!apt.aiWritePermissions?.autoApplyPolicies}>KI darf Einstellungen automatisch auflösen + zur Bestätigung vorschlagen</div>
+              <div class="wizard-step-desc">Nur wirksam, wenn oben eine Pilot-Gruppe gewählt ist. Jeder Versuch (Erfolg wie Fehlschlag) wird im zugehörigen Runbook protokolliert. Der eigentliche Rollout passiert erst nach manueller Bestätigung im Runbook.</div>
+            </div>
+          </div>
+        </div>
       </div>
     {/if}
   {/if}

@@ -588,17 +588,38 @@ function loadTenantById(id) {
 // Kandidaten fuer echte Automatisierungen aufgreifen kann. Ohne Tenant-Auswahl
 // (rein textbasierte Analyse) wird bewusst NICHT gespeichert -- ohne
 // Live-Abgleich ist die Aussage zu unsicher, um als Runbook zu taugen.
-function saveRunbookEntry({ ticketId, ticketSubject, tenantId, tenantName, suggestion }) {
+function saveRunbookEntry({ ticketId, ticketSubject, tenantId, tenantName, suggestion, autoPreview }) {
   const s = loadState();
   const entry = {
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
-    ticketId, ticketSubject, tenantId, tenantName, suggestion
+    ticketId, ticketSubject, tenantId, tenantName, suggestion,
+    autoPreview: autoPreview || null
   };
   s.runbooks = s.runbooks || [];
   s.runbooks.unshift(entry);
   saveState(s);
   return entry;
+}
+
+// Automatisch AUFLOESEN (Suchbegriff -> gefundene Einstellung + Wert), aber
+// NIE automatisch SCHREIBEN -- der eigentliche Deploy (POST .../deploy/
+// auto-setting) bleibt immer ein separater, expliziter Klick. Das hier ist
+// reiner Lesezugriff (previewSetting), macht also nichts im Tenant kaputt,
+// selbst wenn die KI sich irrt. Ergebnis wird im Runbook gespeichert, damit
+// die UI direkt einen "Bestaetigen"-Knopf mit vorausgefuellten Werten zeigen
+// kann, statt dass der Mensch Suchbegriff/Wert/Gruppe nochmal eintippen muss.
+async function attemptAutoPreview(t, cert, suggestion) {
+  if (!t.aiWritePermissions || !t.aiWritePermissions.autoApplyPolicies) return null;
+  if (!t.aiAutoDeployGroupId) return { ok: false, error: "Keine Pilot-Gruppe fuer autonome Vorschlaege hinterlegt (Tenants-Tab)." };
+  if (!suggestion.automatable || !suggestion.automationSearchTerm || !suggestion.automationDesiredValue) return null;
+
+  try {
+    const preview = await SETTINGSCATALOG.previewSetting(t, cert, suggestion.automationSearchTerm, suggestion.automationDesiredValue);
+    return { ok: true, preview, groupId: t.aiAutoDeployGroupId };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
@@ -620,17 +641,30 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
       automationSearchTerm: "Password manager",
       automationDesiredValue: "Disabled"
     };
-    const runbook = t ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: `Beispiel-Ticket ${req.params.id} (FAKE_DEPLOY)`, tenantId, tenantName: t.name, suggestion }) : null;
-    return res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null });
+    let autoPreview = null;
+    if (t && t.aiWritePermissions && t.aiWritePermissions.autoApplyPolicies) {
+      autoPreview = t.aiAutoDeployGroupId
+        ? { ok: true, groupId: t.aiAutoDeployGroupId, preview: {
+            settingId: "fake-setting-id",
+            settingDisplayName: `Enable saving passwords to the password manager (${suggestion.automationSearchTerm})`,
+            settingDescription: "Fake-Beschreibung (FAKE_DEPLOY).",
+            resolvedOptionId: "fake-option-id", resolvedOptionLabel: suggestion.automationDesiredValue
+          } }
+        : { ok: false, error: "Keine Pilot-Gruppe fuer autonome Vorschlaege hinterlegt (Tenants-Tab)." };
+    }
+    const runbook = t ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: `Beispiel-Ticket ${req.params.id} (FAKE_DEPLOY)`, tenantId, tenantName: t.name, suggestion, autoPreview }) : null;
+    return res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null, autoPreview });
   }
 
   const ticket = await SDP.getTicketFull(req.params.id);
 
-  let tenantContext = null, tenantName = null;
+  let tenantContext = null, tenantName = null, tenantForDeploy = null, certForDeploy = null;
   if (tenantId) {
     const t = loadTenantById(tenantId);
+    tenantForDeploy = t;
     tenantName = t.name;
     const cert = certPemPath(t.tenantId);
+    certForDeploy = cert;
     const [licenses, caPoliciesRaw] = await Promise.all([
       LICENSES.runLicenseReport(t, cert).catch(() => null),
       CONDACCESS.listManagedPolicies(t, cert).catch(() => [])
@@ -643,10 +677,11 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
   }
 
   const suggestion = await AISUGGEST.suggestResolution({ ticket, tenantContext });
+  const autoPreview = tenantForDeploy ? await attemptAutoPreview(tenantForDeploy, certForDeploy, suggestion) : null;
   const runbook = tenantId
-    ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: ticket.subject, tenantId, tenantName, suggestion })
+    ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: ticket.subject, tenantId, tenantName, suggestion, autoPreview })
     : null;
-  res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null });
+  res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null, autoPreview });
 }));
 
 app.get("/api/runbooks", (req, res) => {
@@ -673,8 +708,24 @@ app.get("/api/tenants", (req, res) => {
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
-    aiWritePermissions: t.aiWritePermissions || {}
+    aiWritePermissions: t.aiWritePermissions || {},
+    aiAutoDeployGroupId: t.aiAutoDeployGroupId || null
   })));
+});
+
+// Pilot-Gruppe fuer autonome KI-Rollouts festlegen. Bewusst ein separates,
+// von Nils manuell gewaehltes Ziel statt dass die KI sich selbst eine Gruppe
+// aussucht (Namens-Matching waere zu riskant -- eine falsch getroffene Gruppe
+// koennte sehr viel breiter treffen als beabsichtigt). Ohne gesetzte Gruppe
+// kann autoApplyPolicies nichts bewirken, siehe ai-suggest-Handler unten.
+app.post("/api/tenants/:id/ai-auto-deploy-group", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const groupId = String((req.body || {}).groupId || "").trim();
+  t.aiAutoDeployGroupId = groupId || null;
+  saveState(s);
+  res.json({ ok: true, aiAutoDeployGroupId: t.aiAutoDeployGroupId });
 });
 
 // KI-Schreibrechte pro Tenant: definiert, welche automatisierten Schreib-

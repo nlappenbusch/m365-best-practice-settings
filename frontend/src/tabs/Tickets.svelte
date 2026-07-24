@@ -13,20 +13,50 @@
   let aiError = $state({})         // ticketId -> string
   let aiResult = $state({})        // ticketId -> suggestion
   let aiSavedRunbookId = $state({}) // ticketId -> runbookId | null
+  let aiAutoPreview = $state({})   // ticketId -> {ok, preview, groupId} | {ok:false, error} | null
+  let aiConfirmBusy = $state({})
+  let aiConfirmResult = $state({})
+  let aiConfirmError = $state({})
 
   async function requestAiSuggestion(ticketId) {
     aiLoading = { ...aiLoading, [ticketId]: true }
     aiError = { ...aiError, [ticketId]: null }
     aiResult = { ...aiResult, [ticketId]: null }
     aiSavedRunbookId = { ...aiSavedRunbookId, [ticketId]: null }
+    aiAutoPreview = { ...aiAutoPreview, [ticketId]: null }
+    aiConfirmResult = { ...aiConfirmResult, [ticketId]: null }
+    aiConfirmError = { ...aiConfirmError, [ticketId]: null }
     try {
       const r = await sdpApi.aiSuggest(ticketId, aiTenantChoice[ticketId])
       aiResult = { ...aiResult, [ticketId]: r.suggestion }
       aiSavedRunbookId = { ...aiSavedRunbookId, [ticketId]: r.runbookId || null }
+      aiAutoPreview = { ...aiAutoPreview, [ticketId]: r.autoPreview || null }
     } catch (e) {
       aiError = { ...aiError, [ticketId]: e.message }
     }
     aiLoading = { ...aiLoading, [ticketId]: false }
+  }
+
+  // Ein Klick bestaetigt + rollt den bereits automatisch aufgeloesten Vorschlag
+  // aus -- schreibt erst JETZT, nie vorher. tenantId kommt vom Ticket-Kontext
+  // (aiTenantChoice), nicht aus dem Preview-Objekt (das enthaelt bewusst nur
+  // die aufgeloeste Einstellung, keine Tenant-Referenz).
+  async function confirmAutoPreview(ticketId, suggestion) {
+    const ap = aiAutoPreview[ticketId]
+    if (!ap || !ap.ok) return
+    if (!confirm(`Policy „${ap.preview.settingDisplayName}" = ${ap.preview.resolvedOptionLabel} wirklich anlegen und der Pilot-Gruppe zuweisen?`)) return
+    aiConfirmError = { ...aiConfirmError, [ticketId]: null }
+    aiConfirmBusy = { ...aiConfirmBusy, [ticketId]: true }
+    try {
+      const tenantId = aiTenantChoice[ticketId]
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(tenantId)}/deploy/auto-setting`, {
+        name: '', searchTerm: suggestion.automationSearchTerm, desiredLabel: suggestion.automationDesiredValue, groupId: ap.groupId
+      })
+      aiConfirmResult = { ...aiConfirmResult, [ticketId]: r.result }
+    } catch (e) {
+      aiConfirmError = { ...aiConfirmError, [ticketId]: e.message }
+    }
+    aiConfirmBusy = { ...aiConfirmBusy, [ticketId]: false }
   }
 
   const VERDICT_CLASS = { bestaetigt: 'ok', widerlegt: 'fail', unklar: 'warn' }
@@ -137,6 +167,26 @@
       const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/deploy/auto-setting`, {
         name: autoName[rb.id] || '', searchTerm: (autoSearchTerm[rb.id] || '').trim(),
         desiredLabel: (autoDesiredValue[rb.id] || '').trim(), groupId
+      })
+      deployResult = { ...deployResult, [rb.id]: r.result }
+    } catch (e) {
+      deployError = { ...deployError, [rb.id]: e.message }
+    }
+    deployBusy = { ...deployBusy, [rb.id]: false }
+  }
+
+  // Bestaetigt einen bereits vom Backend automatisch aufgeloesten Vorschlag
+  // (rb.autoPreview) -- ein Klick, schreibt aber erst JETZT, nie vorher.
+  async function confirmRunbookAutoPreview(rb) {
+    if (!rb.autoPreview || !rb.autoPreview.ok) return
+    if (!confirm(`Policy „${rb.autoPreview.preview.settingDisplayName}" = ${rb.autoPreview.preview.resolvedOptionLabel} wirklich anlegen und der Pilot-Gruppe zuweisen?`)) return
+    deployError = { ...deployError, [rb.id]: null }
+    deployResult = { ...deployResult, [rb.id]: null }
+    deployBusy = { ...deployBusy, [rb.id]: true }
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/deploy/auto-setting`, {
+        name: '', searchTerm: rb.suggestion.automationSearchTerm, desiredLabel: rb.suggestion.automationDesiredValue,
+        groupId: rb.autoPreview.groupId
       })
       deployResult = { ...deployResult, [rb.id]: r.result }
     } catch (e) {
@@ -389,6 +439,27 @@
       {#if aiSavedRunbookId[t.id]}
         <div class="ld-banner ok" style="margin-top:0.5rem;">💾 Als KI-Runbook gespeichert (siehe Tab „📚 Runbooks").</div>
       {/if}
+      {#if aiConfirmResult[t.id]}
+        {@const cr = aiConfirmResult[t.id]}
+        <div class="ld-banner ok" style="margin-top:0.5rem;">✅ „{cr.policyName}" angelegt und zugewiesen ({cr.assignStatus}).</div>
+      {:else if aiAutoPreview[t.id]?.ok}
+        {@const ap = aiAutoPreview[t.id]}
+        <div class="ld-banner ok" style="margin-top:0.5rem;">
+          🤖⚡ Automatisch gefunden: „{ap.preview.settingDisplayName}" → wird gesetzt auf <strong>{ap.preview.resolvedOptionLabel}</strong>
+          <br>
+          <button class="btn btn-primary" style="margin-top:0.4rem;" disabled={aiConfirmBusy[t.id]}
+                  onclick={() => confirmAutoPreview(t.id, s)}>
+            {aiConfirmBusy[t.id] ? 'Rolle aus…' : '✅ Bestätigen & Ausrollen (Pilot-Gruppe)'}
+          </button>
+        </div>
+        {#if aiConfirmError[t.id]}
+          <div class="ld-banner fail" style="margin-top:0.4rem;">❌ {aiConfirmError[t.id]}</div>
+        {/if}
+      {:else if aiAutoPreview[t.id] && !aiAutoPreview[t.id].ok}
+        <div class="ld-banner warn" style="margin-top:0.5rem;">
+          🤖⚡ Automatische Auflösung nicht möglich: {aiAutoPreview[t.id].error} — bitte im Runbook manuell ausrollen.
+        </div>
+      {/if}
     {/if}
   </div>
 {/snippet}
@@ -514,7 +585,12 @@
                 <td class="da-col-domain">🎫 #{rb.ticketId} — {rb.ticketSubject}</td>
                 <td>{rb.tenantName}</td>
                 <td><small>{new Date(rb.createdAt).toLocaleString('de-CH')}</small></td>
-                <td>{#if rb.suggestion?.automatable}<span class="tbadge ok">🤖 automatisierbar</span>{:else}<span class="tbadge">manuell</span>{/if}</td>
+                <td>
+                  {#if rb.autoPreview?.ok}<span class="tbadge ok">🤖⚡ bereit zur Bestätigung</span>
+                  {:else if rb.autoPreview && !rb.autoPreview.ok}<span class="tbadge warn">🤖⚡ Auflösung fehlgeschlagen</span>
+                  {:else if rb.suggestion?.automatable}<span class="tbadge ok">🤖 automatisierbar</span>
+                  {:else}<span class="tbadge">manuell</span>{/if}
+                </td>
                 <td class="da-col-toggle">{isOpen ? '▾' : '▸'}</td>
               </tr>
               {#if isOpen}
@@ -526,6 +602,26 @@
                       <div class="ld-phase-title">🎯 Vermutete Ursache</div>
                       <div class="ld-step">{rb.suggestion.rootCause}</div>
                     </div>
+                    {#if deployResult[rb.id]}
+                      <div class="ld-banner ok">
+                        ✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).
+                      </div>
+                    {:else if rb.autoPreview?.ok}
+                      <div class="ld-banner ok">
+                        🤖⚡ Automatisch gefunden: „{rb.autoPreview.preview.settingDisplayName}" → wird gesetzt auf
+                        <strong>{rb.autoPreview.preview.resolvedOptionLabel}</strong>
+                        <br>
+                        <button class="btn btn-primary" style="margin-top:0.4rem;" disabled={deployBusy[rb.id]}
+                                onclick={(e) => { e.stopPropagation(); confirmRunbookAutoPreview(rb) }}>
+                          {deployBusy[rb.id] ? 'Rolle aus…' : '✅ Bestätigen & Ausrollen (Pilot-Gruppe)'}
+                        </button>
+                      </div>
+                      {#if deployError[rb.id]}
+                        <div class="ld-banner fail">❌ {deployError[rb.id]}</div>
+                      {/if}
+                    {:else if rb.autoPreview && !rb.autoPreview.ok}
+                      <div class="ld-banner warn">🤖⚡ Automatische Auflösung fehlgeschlagen: {rb.autoPreview.error} — unten manuell ausrollen.</div>
+                    {/if}
                     {#if rb.suggestion.assumptions?.length}
                       <div class="settings-group">
                         <h4>Annahmen-Abgleich</h4>
