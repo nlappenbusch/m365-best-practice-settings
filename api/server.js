@@ -46,6 +46,7 @@ const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const AISUGGEST = require("./lib/aiSuggest");
 const CUSTOMPOLICY = require("./lib/customPolicy");
+const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
 
 const PORT = Number(process.env.PORT || 3000);
@@ -606,11 +607,18 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
   if (process.env.FAKE_DEPLOY === "1") {
     const t = tenantId ? (loadState().tenants || []).find(x => x.id === tenantId) : null;
     const suggestion = {
-      rootCause: "FAKE_DEPLOY-Beispiel: vermutlich fehlende Lizenz fuer die benoetigte App.",
-      assumptions: [{ claim: "Nutzer hat eine aktive Lizenz", verdict: t ? "bestaetigt" : "unklar",
+      rootCause: "FAKE_DEPLOY-Beispiel: Edge-Passwort-Manager soll unternehmensweit deaktiviert werden.",
+      assumptions: [{ claim: "Bitwarden-Extension ist bereits ausgerollt", verdict: t ? "bestaetigt" : "unklar",
         reasoning: t ? `Gegen Tenant „${t.name}" geprueft (Fixture-Daten).` : "Kein Tenant ausgewaehlt." }],
-      steps: ["Lizenzzuweisung im Tenant pruefen", "Rueckmeldung an Requester senden"],
-      automatable: false, automatableReason: "Nur Beispiel-Daten (FAKE_DEPLOY)."
+      steps: [
+        "Policy 'Password manager' (Microsoft Edge) auf 'Disabled' setzen",
+        "Zunaechst nur auf Pilot-Gruppe anwenden, dann UAT, dann volle Nutzerbasis (Ring-Konzept)",
+        "Rueckmeldung an Requester nach erfolgreicher Pilotphase"
+      ],
+      automatable: true,
+      automatableReason: "Einzelne ADMX-basierte Edge-Einstellung mit Enabled/Disabled-Wert -- unser Tool kann das live per Suchbegriff finden und pilotiert ausrollen.",
+      automationSearchTerm: "Password manager",
+      automationDesiredValue: "Disabled"
     };
     const runbook = t ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: `Beispiel-Ticket ${req.params.id} (FAKE_DEPLOY)`, tenantId, tenantName: t.name, suggestion }) : null;
     return res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null });
@@ -708,6 +716,51 @@ app.post("/api/tenants/:id/deploy/custom-policy", wrap(async (req, res) => {
 
   const cert = certPemPath(t.tenantId);
   const result = await CUSTOMPOLICY.importCustomPolicy(t, cert, policyJson, groupId);
+  res.json({ ok: true, result });
+}));
+
+// Settings-Catalog-Einstellung per Suchbegriff aufloesen + anzeigen -- KEIN
+// Schreibzugriff, nur Vorschau vor dem eigentlichen Ausrollen. Trotzdem hinter
+// demselben Permission-Schalter, damit nicht ungefragt in der Tenant-Struktur
+// gestoebert werden kann.
+app.post("/api/tenants/:id/deploy/auto-setting/preview", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (!t.aiWritePermissions || !t.aiWritePermissions.customPolicyImport) {
+    throw Object.assign(new Error("Fuer diesen Tenant nicht freigeschaltet — erst im Tenants-Tab unter „🤖 KI-Schreibrechte\" aktivieren."), { status: 403 });
+  }
+  const searchTerm = String((req.body || {}).searchTerm || "").trim();
+  const desiredLabel = String((req.body || {}).desiredLabel || "").trim();
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    if (!searchTerm || !desiredLabel) throw Object.assign(new Error("Suchbegriff und gewuenschter Wert erforderlich."), { status: 400 });
+    return res.json({ ok: true, preview: {
+      settingId: "fake-setting-id", settingDisplayName: `Enable saving passwords to the password manager (${searchTerm})`,
+      settingDescription: "Fake-Beschreibung (FAKE_DEPLOY).", resolvedOptionId: "fake-option-id", resolvedOptionLabel: desiredLabel
+    } });
+  }
+
+  const cert = certPemPath(t.tenantId);
+  const preview = await SETTINGSCATALOG.previewSetting(t, cert, searchTerm, desiredLabel);
+  res.json({ ok: true, preview });
+}));
+
+app.post("/api/tenants/:id/deploy/auto-setting", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (!t.aiWritePermissions || !t.aiWritePermissions.customPolicyImport) {
+    throw Object.assign(new Error("Fuer diesen Tenant nicht freigeschaltet — erst im Tenants-Tab unter „🤖 KI-Schreibrechte\" aktivieren."), { status: 403 });
+  }
+  const { name, searchTerm, desiredLabel, groupId } = req.body || {};
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    if (!groupId) throw Object.assign(new Error("Keine Ziel-Gruppe angegeben."), { status: 400 });
+    return res.json({ ok: true, result: {
+      policyId: "fake-policy-id", policyName: name || `Auto: ${searchTerm}`, assignStatus: "assigned",
+      resolvedSetting: `Enable saving passwords to the password manager (${searchTerm})`, resolvedOption: desiredLabel
+    } });
+  }
+
+  const cert = certPemPath(t.tenantId);
+  const result = await SETTINGSCATALOG.deployAutoSetting(t, cert, { name, searchTerm, desiredLabel }, String(groupId || "").trim());
   res.json({ ok: true, result });
 }));
 

@@ -42,7 +42,8 @@ function buildPrompt(ticket, tenantContext) {
     `Analysiere das folgende ServiceDesk-Plus-Ticket und antworte AUSSCHLIESSLICH mit einem JSON-Objekt ` +
     `(kein Fliesstext davor/danach), das exakt folgendem Schema entspricht:\n` +
     `{"rootCause": string, "assumptions": [{"claim": string, "verdict": "bestaetigt"|"widerlegt"|"unklar", "reasoning": string}], ` +
-    `"steps": [string], "automatable": boolean, "automatableReason": string}\n\n` +
+    `"steps": [string], "automatable": boolean, "automatableReason": string, ` +
+    `"automationSearchTerm": string|null, "automationDesiredValue": string|null}\n\n` +
     `Ticket #${ticket.id}: ${ticket.subject}\n` +
     `Status: ${ticket.status} · Prioritaet: ${ticket.priority} · Kategorie: ${ticket.category}\n` +
     `Requester: ${ticket.requester}\n` +
@@ -57,10 +58,17 @@ function buildPrompt(ticket, tenantContext) {
     `konkret: (a) die genaue Policy/den genauen Einstellungsnamen, (b) dass sie zunaechst NUR auf eine Pilot-/` +
     `Test-Gruppe angewendet werden sollte, nicht auf alle Nutzer (entspricht unserem etablierten Ring-Konzept ` +
     `Pilot -> UAT -> Broad), (c) erst nach erfolgreicher Pilotphase der volle Rollout. Diese konkreten Schritte ` +
-    `ergaenzen die Beratungshinweise (Freigabe/Rueckmeldung einholen etc.), ersetzen sie aber nicht -- beides gehoert rein.\n` +
-    `"automatable"/"automatableReason": true nur wenn es sich um eine Konfiguration handelt, die als Intune-` +
-    `Konfigurationsprofil oder Conditional-Access-Policy abbildbar waere -- automatableReason muss dann konkret ` +
-    `benennen, WELCHE Policy/Einstellung und dass sie pilotiert ausgerollt werden sollte (nicht nur "ja, automatisierbar").`;
+    `ergaenzen die Beratungshinweise (Freigabe/Rueckmeldung einholen etc.), ersetzen sie aber nicht -- beides gehoert rein.\n\n` +
+    `"automatable"/"automatableReason": true NUR wenn es sich um eine einzelne ADMX-basierte Windows/Browser-` +
+    `Einstellung mit einem simplen Enabled/Disabled-artigen Wert handelt (z.B. Edge-/Windows-Policies) -- unser Tool ` +
+    `kann solche Einstellungen LIVE per Suchbegriff in Intune Settings Catalog finden und als Policy ausrollen, ` +
+    `OHNE dass jemand manuell etwas exportieren/einfuegen muss. Bei Conditional-Access-Aenderungen, komplexen ` +
+    `Multi-Setting-Profilen oder allem ausserhalb von Windows/Intune (z.B. Exchange-Regeln) automatable auf false ` +
+    `setzen, auch wenn es technisch grundsaetzlich automatisierbar waere -- dafuer gibt es (noch) keinen Suchmodus. ` +
+    `Wenn automatable=true: "automationSearchTerm" = ein praeziser Suchbegriff (2-4 Woerter, moeglichst der offizielle ` +
+    `Einstellungsname auf Englisch, z.B. "Password manager"), "automationDesiredValue" = der gewuenschte Optionswert ` +
+    `(z.B. "Disabled"). automatableReason muss dann erklaeren, dass unser Tool das automatisch findet + pilotiert ` +
+    `ausrollen kann. Wenn automatable=false: beide auf null setzen.`;
 }
 
 /** Robust gegen Markdown-Codefences, die das Modell trotz Anweisung manchmal noch anfuegt. */

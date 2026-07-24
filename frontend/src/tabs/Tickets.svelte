@@ -61,16 +61,39 @@
   }
 
   function toggleRunbookExpand(id) {
+    const opening = !runbookExpanded[id]
     runbookExpanded = { ...runbookExpanded, [id]: !runbookExpanded[id] }
+    if (opening) {
+      const rb = runbooks.find(r => r.id === id)
+      if (rb && autoSearchTerm[id] === undefined) {
+        autoSearchTerm = { ...autoSearchTerm, [id]: rb.suggestion?.automationSearchTerm || '' }
+        autoDesiredValue = { ...autoDesiredValue, [id]: rb.suggestion?.automationDesiredValue || '' }
+      }
+    }
   }
 
   // ---------- Policy ausrollen (aus einem Runbook heraus, permission-gated) ----------
-  let deployJsonText = $state({})   // runbookId -> string
+  // Zwei Modi: "auto" (Standard) sucht die Einstellung live per Suchbegriff in
+  // Intune Settings Catalog und rollt sie direkt aus -- echte Automatisierung,
+  // kein manuelles Exportieren/Einfuegen noetig. "manual" bleibt als Fallback
+  // fuer Exoten, die sich nicht per Suchbegriff eindeutig finden lassen.
+  let deployMode = $state({})       // runbookId -> 'auto' | 'manual'
   let deployGroups = $state({})     // tenantId -> [{id, displayName}]
   let deployGroupChoice = $state({}) // runbookId -> groupId
   let deployBusy = $state({})
   let deployError = $state({})
   let deployResult = $state({})
+
+  let autoSearchTerm = $state({})   // runbookId -> string
+  let autoDesiredValue = $state({}) // runbookId -> string
+  let autoName = $state({})         // runbookId -> string (optional Policy-Name)
+  let autoPreview = $state({})      // runbookId -> preview result | null
+  let autoPreviewBusy = $state({})
+  let autoPreviewError = $state({})
+
+  let deployJsonText = $state({})   // runbookId -> string (manueller Modus)
+
+  function modeOf(rbId) { return deployMode[rbId] || 'auto' }
 
   async function ensureDeployGroups(tenantId) {
     if (deployGroups[tenantId]) return
@@ -80,6 +103,46 @@
     } catch (e) {
       deployGroups = { ...deployGroups, [tenantId]: [] }
     }
+  }
+
+  async function previewAutoSetting(rb) {
+    autoPreviewError = { ...autoPreviewError, [rb.id]: null }
+    autoPreview = { ...autoPreview, [rb.id]: null }
+    const searchTerm = (autoSearchTerm[rb.id] || '').trim()
+    const desiredLabel = (autoDesiredValue[rb.id] || '').trim()
+    if (!searchTerm || !desiredLabel) {
+      autoPreviewError = { ...autoPreviewError, [rb.id]: 'Suchbegriff und gewünschter Wert erforderlich.' }
+      return
+    }
+    autoPreviewBusy = { ...autoPreviewBusy, [rb.id]: true }
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/deploy/auto-setting/preview`, { searchTerm, desiredLabel })
+      autoPreview = { ...autoPreview, [rb.id]: r.preview }
+    } catch (e) {
+      autoPreviewError = { ...autoPreviewError, [rb.id]: e.message }
+    }
+    autoPreviewBusy = { ...autoPreviewBusy, [rb.id]: false }
+  }
+
+  async function deployAutoSettingAction(rb) {
+    const groupId = deployGroupChoice[rb.id]
+    if (!groupId) { deployError = { ...deployError, [rb.id]: 'Bitte Ziel-Gruppe wählen.' }; return }
+    if (!autoPreview[rb.id]) { deployError = { ...deployError, [rb.id]: 'Bitte zuerst „Vorschau" prüfen.' }; return }
+    if (!confirm(`Policy „${autoPreview[rb.id].settingDisplayName}" = ${autoPreview[rb.id].resolvedOptionLabel} wirklich anlegen und der gewählten Gruppe zuweisen?`)) return
+
+    deployError = { ...deployError, [rb.id]: null }
+    deployResult = { ...deployResult, [rb.id]: null }
+    deployBusy = { ...deployBusy, [rb.id]: true }
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/deploy/auto-setting`, {
+        name: autoName[rb.id] || '', searchTerm: (autoSearchTerm[rb.id] || '').trim(),
+        desiredLabel: (autoDesiredValue[rb.id] || '').trim(), groupId
+      })
+      deployResult = { ...deployResult, [rb.id]: r.result }
+    } catch (e) {
+      deployError = { ...deployError, [rb.id]: e.message }
+    }
+    deployBusy = { ...deployBusy, [rb.id]: false }
   }
 
   async function deployCustomPolicy(rb) {
@@ -495,30 +558,83 @@
                                   onclick={() => goToTab('tenants')}>Im Tenants-Tab freischalten →</button>
                         </div>
                       {:else}
-                        <p class="ld-section-hint">
-                          Policy einmal manuell im Intune-Portal des Tenants anlegen, per Graph exportieren
-                          (<code>GET /deviceManagement/configurationPolicies/&#123;id&#125;?$expand=settings</code>)
-                          und die JSON hier einfügen — kein automatisches Erraten der Settings-Catalog-Struktur,
-                          damit nichts Falsches ausgerollt wird.
-                        </p>
-                        <div class="input-group" style="margin-bottom:0.6rem;">
-                          <label for="deployJson-{rb.id}">Exportierte Policy-JSON</label>
-                          <textarea id="deployJson-{rb.id}" rows="4" style="font-family:monospace; font-size:0.8rem;"
-                                    bind:value={deployJsonText[rb.id]} placeholder={'{ "@odata.type": "#microsoft.graph.deviceManagementConfigurationPolicy", ... }'}></textarea>
+                        <div class="dl-subtabs" style="margin-bottom:0.75rem;">
+                          <button type="button" class="dl-subtab" class:active={modeOf(rb.id) === 'auto'}
+                                  onclick={() => (deployMode = { ...deployMode, [rb.id]: 'auto' })}>🔍 Automatisch suchen</button>
+                          <button type="button" class="dl-subtab" class:active={modeOf(rb.id) === 'manual'}
+                                  onclick={() => (deployMode = { ...deployMode, [rb.id]: 'manual' })}>📋 Eigene JSON</button>
                         </div>
-                        <div class="ld-oib-target">
-                          <select bind:value={deployGroupChoice[rb.id]} onfocus={() => ensureDeployGroups(rb.tenantId)}>
-                            <option value="">— Ziel-Gruppe wählen —</option>
-                            {#each (deployGroups[rb.tenantId] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
-                          </select>
-                          <button class="btn btn-primary" disabled={deployBusy[rb.id]} onclick={() => deployCustomPolicy(rb)}>
-                            {deployBusy[rb.id] ? 'Rolle aus…' : '🚀 Ausrollen'}
+
+                        {#if modeOf(rb.id) === 'auto'}
+                          <p class="ld-section-hint">
+                            Sucht die Einstellung live in Intune Settings Catalog per Suchbegriff und legt die Policy
+                            direkt an — kein manuelles Exportieren nötig. Funktioniert fuer einzelne ADMX-basierte
+                            Windows/Browser-Einstellungen mit Enabled/Disabled-artigem Wert.
+                          </p>
+                          <div class="input-group" style="max-width:420px; margin-bottom:0.5rem;">
+                            <label for="autoSearch-{rb.id}">Einstellung suchen</label>
+                            <input id="autoSearch-{rb.id}" type="text" bind:value={autoSearchTerm[rb.id]}
+                                   placeholder="z.B. Password manager" />
+                          </div>
+                          <div class="input-group" style="max-width:420px; margin-bottom:0.5rem;">
+                            <label for="autoValue-{rb.id}">Gewünschter Wert</label>
+                            <input id="autoValue-{rb.id}" type="text" bind:value={autoDesiredValue[rb.id]}
+                                   placeholder="z.B. Disabled" />
+                          </div>
+                          <div class="input-group" style="max-width:420px; margin-bottom:0.5rem;">
+                            <label for="autoName-{rb.id}">Policy-Name <small>(optional)</small></label>
+                            <input id="autoName-{rb.id}" type="text" bind:value={autoName[rb.id]}
+                                   placeholder="Standard: Auto: gefundene Einstellung" />
+                          </div>
+                          <button class="btn btn-secondary" disabled={autoPreviewBusy[rb.id]} onclick={() => previewAutoSetting(rb)}>
+                            {autoPreviewBusy[rb.id] ? 'Suche…' : '🔍 Vorschau'}
                           </button>
-                        </div>
+
+                          {#if autoPreviewError[rb.id]}
+                            <div class="ld-banner fail" style="margin-top:0.5rem;">❌ {autoPreviewError[rb.id]}</div>
+                          {:else if autoPreview[rb.id]}
+                            {@const pv = autoPreview[rb.id]}
+                            <div class="ld-banner ok" style="margin-top:0.5rem;">
+                              ✓ Gefunden: <strong>{pv.settingDisplayName}</strong> → wird gesetzt auf <strong>{pv.resolvedOptionLabel}</strong>
+                              {#if pv.settingDescription}<br><small>{pv.settingDescription}</small>{/if}
+                            </div>
+                            <div class="ld-oib-target" style="margin-top:0.5rem;">
+                              <select bind:value={deployGroupChoice[rb.id]} onfocus={() => ensureDeployGroups(rb.tenantId)}>
+                                <option value="">— Ziel-Gruppe wählen (Pilot!) —</option>
+                                {#each (deployGroups[rb.tenantId] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+                              </select>
+                              <button class="btn btn-primary" disabled={deployBusy[rb.id]} onclick={() => deployAutoSettingAction(rb)}>
+                                {deployBusy[rb.id] ? 'Rolle aus…' : '🚀 Ausrollen'}
+                              </button>
+                            </div>
+                          {/if}
+                        {:else}
+                          <p class="ld-section-hint">
+                            Fallback fuer Einstellungen, die sich nicht per Suchbegriff eindeutig finden lassen: Policy
+                            einmal manuell im Intune-Portal anlegen, per Graph exportieren
+                            (<code>GET /deviceManagement/configurationPolicies/&#123;id&#125;?$expand=settings</code>)
+                            und die JSON hier einfügen.
+                          </p>
+                          <div class="input-group" style="margin-bottom:0.6rem;">
+                            <label for="deployJson-{rb.id}">Exportierte Policy-JSON</label>
+                            <textarea id="deployJson-{rb.id}" rows="4" style="font-family:monospace; font-size:0.8rem;"
+                                      bind:value={deployJsonText[rb.id]} placeholder={'{ "@odata.type": "#microsoft.graph.deviceManagementConfigurationPolicy", ... }'}></textarea>
+                          </div>
+                          <div class="ld-oib-target">
+                            <select bind:value={deployGroupChoice[rb.id]} onfocus={() => ensureDeployGroups(rb.tenantId)}>
+                              <option value="">— Ziel-Gruppe wählen —</option>
+                              {#each (deployGroups[rb.tenantId] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+                            </select>
+                            <button class="btn btn-primary" disabled={deployBusy[rb.id]} onclick={() => deployCustomPolicy(rb)}>
+                              {deployBusy[rb.id] ? 'Rolle aus…' : '🚀 Ausrollen'}
+                            </button>
+                          </div>
+                        {/if}
+
                         {#if deployError[rb.id]}
-                          <div class="ld-banner fail">❌ {deployError[rb.id]}</div>
+                          <div class="ld-banner fail" style="margin-top:0.5rem;">❌ {deployError[rb.id]}</div>
                         {:else if deployResult[rb.id]}
-                          <div class="ld-banner ok">✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).</div>
+                          <div class="ld-banner ok" style="margin-top:0.5rem;">✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).</div>
                         {/if}
                       {/if}
                     </div>
