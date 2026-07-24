@@ -34,7 +34,15 @@
   // Aktion bekommt ihren eigenen Schluessel, review-pflichtig vor Aktivierung.
   const AI_WRITE_CAPS = [
     { key: 'customPolicyImport', label: 'Eigene Settings-Catalog-Policy importieren + zuweisen',
-      desc: 'Erlaubt das Einspielen einer selbst exportierten Intune-Konfigurationsprofil-JSON (z.B. aus einem KI-Runbook abgeleitet) inkl. Zuweisung an eine gewaehlte Gruppe. Siehe Tab „🎫 Tickets" → „📚 Runbooks".' }
+      desc: 'Erlaubt das Einspielen einer selbst exportierten Intune-Konfigurationsprofil-JSON (z.B. aus einem KI-Runbook abgeleitet) inkl. Zuweisung an eine gewaehlte Gruppe. Siehe Tab „🎫 Tickets" → „📚 Runbooks".' },
+    { key: 'resetMfa', label: 'Konto entsperren / MFA-Methoden entfernen',
+      desc: 'Entfernt alle registrierten MFA-Methoden (Authenticator, Telefon, FIDO2, ...) eines Nutzers -- Passwort bleibt unberuehrt. Nutzer muss MFA danach neu einrichten. Braucht zusaetzliche Graph-Berechtigung (UserAuthenticationMethod.ReadWrite.All) -- bestehende Tenants ggf. erst „🔧 Reparieren".' },
+    { key: 'resetPassword', label: 'Passwort zuruecksetzen',
+      desc: 'Setzt ein zufaelliges temporaeres Passwort (mit Zwang zur Aenderung beim naechsten Login). Das Passwort wird nur einmalig im Tool angezeigt.' },
+    { key: 'revokeSessions', label: 'Sitzungen widerrufen (ueberall abmelden)',
+      desc: 'Erzwingt eine Neuanmeldung auf allen Geraeten/Sitzungen des Nutzers -- z.B. bei Verdacht auf ein kompromittiertes Konto.' },
+    { key: 'groupMembership', label: 'Gruppenmitgliedschaft aendern',
+      desc: 'Nutzer zu einer gewaehlten Gruppe hinzufuegen oder daraus entfernen. Wirkung haengt davon ab, was an die Gruppe geknuepft ist (Lizenz, Berechtigung, Policy-Scope, ...).' }
   ]
   let aiPermTargetId = $state(null)
   let aiPermBusy = $state({})

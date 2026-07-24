@@ -104,6 +104,75 @@
     deployBusy = { ...deployBusy, [rb.id]: false }
   }
 
+  // ---------- Nutzer-Aktionen (aus einem Runbook heraus, permission-gated pro Aktion) ----------
+  const USER_ACTION_LABELS = {
+    resetMfa: { key: 'reset-mfa', icon: '🔓', label: 'MFA-Methoden entfernen' },
+    resetPassword: { key: 'reset-password', icon: '🔑', label: 'Passwort zurücksetzen' },
+    revokeSessions: { key: 'revoke-sessions', icon: '🚪', label: 'Sitzungen widerrufen' }
+  }
+
+  let actionUserQuery = $state({})    // runbookId -> string
+  let actionUserResults = $state({})  // runbookId -> [{id, displayName, userPrincipalName}]
+  let actionUserSearching = $state({})
+  let actionSelectedUser = $state({}) // runbookId -> user object
+  let actionGroupChoice = $state({})  // runbookId -> groupId
+  let actionGroupMode = $state({})    // runbookId -> 'add' | 'remove'
+  let actionBusy = $state({})         // runbookId -> actionKey while running
+  let actionError = $state({})
+  let actionResult = $state({})       // runbookId -> { actionKey, result }
+  let actionSearchTimer = null
+
+  function onActionUserInput(rbId, tenantId, value) {
+    actionUserQuery = { ...actionUserQuery, [rbId]: value }
+    actionSelectedUser = { ...actionSelectedUser, [rbId]: null }
+    if (actionSearchTimer) clearTimeout(actionSearchTimer)
+    actionSearchTimer = setTimeout(() => searchActionUser(rbId, tenantId), 350)
+  }
+
+  async function searchActionUser(rbId, tenantId) {
+    const q = (actionUserQuery[rbId] || '').trim()
+    if (q.length < 2) { actionUserResults = { ...actionUserResults, [rbId]: [] }; return }
+    actionUserSearching = { ...actionUserSearching, [rbId]: true }
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/conditionalaccess/users?q=${encodeURIComponent(q)}`)
+      actionUserResults = { ...actionUserResults, [rbId]: r.users || r || [] }
+    } catch (e) {
+      actionUserResults = { ...actionUserResults, [rbId]: [] }
+    }
+    actionUserSearching = { ...actionUserSearching, [rbId]: false }
+  }
+
+  function pickActionUser(rbId, user) {
+    actionSelectedUser = { ...actionSelectedUser, [rbId]: user }
+    actionUserResults = { ...actionUserResults, [rbId]: [] }
+    actionUserQuery = { ...actionUserQuery, [rbId]: user.displayName + ' (' + user.userPrincipalName + ')' }
+  }
+
+  async function runUserAction(rb, capKey) {
+    const user = actionSelectedUser[rb.id]
+    if (!user) { actionError = { ...actionError, [rb.id]: 'Bitte zuerst einen Nutzer auswählen.' }; return }
+    const def = USER_ACTION_LABELS[capKey]
+    if (capKey === 'groupMembership' && !actionGroupChoice[rb.id]) {
+      actionError = { ...actionError, [rb.id]: 'Bitte Ziel-Gruppe wählen.' }
+      return
+    }
+    if (!confirm(`„${def ? def.label : 'Gruppenmitgliedschaft ändern'}" für ${user.displayName} (${user.userPrincipalName}) wirklich ausführen?`)) return
+
+    actionError = { ...actionError, [rb.id]: null }
+    actionResult = { ...actionResult, [rb.id]: null }
+    actionBusy = { ...actionBusy, [rb.id]: capKey }
+    try {
+      const routeKey = def ? def.key : 'group-membership'
+      const body = { userId: user.id }
+      if (capKey === 'groupMembership') { body.groupId = actionGroupChoice[rb.id]; body.action = actionGroupMode[rb.id] || 'add' }
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(rb.tenantId)}/user-actions/${routeKey}`, body)
+      actionResult = { ...actionResult, [rb.id]: { capKey, result: r.result } }
+    } catch (e) {
+      actionError = { ...actionError, [rb.id]: e.message }
+    }
+    actionBusy = { ...actionBusy, [rb.id]: null }
+  }
+
   function switchSub(s) {
     sub = s
     if (s === 'runbooks' && !runbooks.length && !runbooksLoading && !runbooksError) loadRunbooks()
@@ -453,6 +522,83 @@
                         {/if}
                       {/if}
                     </div>
+
+                    {#if rbTenant && (rbTenant.aiWritePermissions?.resetMfa || rbTenant.aiWritePermissions?.resetPassword || rbTenant.aiWritePermissions?.revokeSessions || rbTenant.aiWritePermissions?.groupMembership)}
+                      <div class="settings-group">
+                        <h4>🔧 Nutzer-Aktionen</h4>
+                        <div class="input-group" style="max-width:420px; position:relative; margin-bottom:0.6rem;">
+                          <label for="actionUser-{rb.id}">Ziel-Nutzer suchen</label>
+                          <input id="actionUser-{rb.id}" type="text" autocomplete="off"
+                                 value={actionUserQuery[rb.id] || ''}
+                                 oninput={(e) => onActionUserInput(rb.id, rb.tenantId, e.target.value)}
+                                 placeholder="Name, UPN oder E-Mail …" />
+                          {#if actionUserResults[rb.id]?.length}
+                            <div class="dl-scroll" style="position:absolute; z-index:5; top:100%; left:0; right:0;
+                                        background:var(--bg-elevated,#fff); border:1px solid var(--border,#ccc);
+                                        border-radius:6px; max-height:200px; overflow-y:auto;">
+                              {#each actionUserResults[rb.id] as u (u.id)}
+                                <div class="dl-card dl-click" role="button" tabindex="0"
+                                     onmousedown={() => pickActionUser(rb.id, u)}
+                                     onkeydown={(e) => e.key === 'Enter' && pickActionUser(rb.id, u)}>
+                                  <div class="dl-name">{u.displayName} <small>({u.userPrincipalName})</small></div>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+
+                        {#if actionSelectedUser[rb.id]}
+                          <div class="ld-step ok"><small>✓ Ausgewählt: {actionSelectedUser[rb.id].displayName} ({actionSelectedUser[rb.id].userPrincipalName})</small></div>
+
+                          <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin:0.5rem 0;">
+                            {#if rbTenant.aiWritePermissions?.resetMfa}
+                              <button class="btn btn-secondary" disabled={!!actionBusy[rb.id]} onclick={() => runUserAction(rb, 'resetMfa')}>
+                                {actionBusy[rb.id] === 'resetMfa' ? '…' : '🔓 MFA entfernen'}
+                              </button>
+                            {/if}
+                            {#if rbTenant.aiWritePermissions?.resetPassword}
+                              <button class="btn btn-secondary" disabled={!!actionBusy[rb.id]} onclick={() => runUserAction(rb, 'resetPassword')}>
+                                {actionBusy[rb.id] === 'resetPassword' ? '…' : '🔑 Passwort zurücksetzen'}
+                              </button>
+                            {/if}
+                            {#if rbTenant.aiWritePermissions?.revokeSessions}
+                              <button class="btn btn-secondary" disabled={!!actionBusy[rb.id]} onclick={() => runUserAction(rb, 'revokeSessions')}>
+                                {actionBusy[rb.id] === 'revokeSessions' ? '…' : '🚪 Sitzungen widerrufen'}
+                              </button>
+                            {/if}
+                          </div>
+
+                          {#if rbTenant.aiWritePermissions?.groupMembership}
+                            <div class="ld-oib-target">
+                              <select bind:value={actionGroupChoice[rb.id]} onfocus={() => ensureDeployGroups(rb.tenantId)}>
+                                <option value="">— Gruppe wählen —</option>
+                                {#each (deployGroups[rb.tenantId] || []) as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+                              </select>
+                              <select bind:value={actionGroupMode[rb.id]}>
+                                <option value="add">hinzufügen</option>
+                                <option value="remove">entfernen</option>
+                              </select>
+                              <button class="btn btn-secondary" disabled={!!actionBusy[rb.id]} onclick={() => runUserAction(rb, 'groupMembership')}>
+                                {actionBusy[rb.id] === 'groupMembership' ? '…' : '👥 Ausführen'}
+                              </button>
+                            </div>
+                          {/if}
+                        {/if}
+
+                        {#if actionError[rb.id]}
+                          <div class="ld-banner fail">❌ {actionError[rb.id]}</div>
+                        {:else if actionResult[rb.id]}
+                          {@const ar = actionResult[rb.id]}
+                          {#if ar.capKey === 'resetPassword'}
+                            <div class="ld-banner ok">✅ Neues temporäres Passwort: <code>{ar.result.tempPassword}</code> (wird nur hier einmalig angezeigt).</div>
+                          {:else if ar.capKey === 'resetMfa'}
+                            <div class="ld-banner ok">✅ {ar.result.removed.length} MFA-Methode(n) entfernt{ar.result.skipped.length ? `, ${ar.result.skipped.length} übersprungen` : ''}.</div>
+                          {:else}
+                            <div class="ld-banner ok">✅ Aktion ausgeführt.</div>
+                          {/if}
+                        {/if}
+                      </div>
+                    {/if}
 
                     <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem; margin-top:0.5rem;"
                             onclick={(e) => { e.stopPropagation(); removeRunbook(rb.id) }}>🗑️ Loeschen</button>

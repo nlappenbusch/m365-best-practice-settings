@@ -56,4 +56,4 @@ async function createBreakGlassUser(tenant, certPemPath, domain, username) {
   return { id: created.id, userPrincipalName: upn, password };
 }
 
-module.exports = { searchUsers, createBreakGlassUser };
+module.exports = { searchUsers, createBreakGlassUser, generateStrongPassword };

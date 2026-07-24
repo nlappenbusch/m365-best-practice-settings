@@ -46,6 +46,7 @@ const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const AISUGGEST = require("./lib/aiSuggest");
 const CUSTOMPOLICY = require("./lib/customPolicy");
+const USERACTIONS = require("./lib/userActions");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -63,10 +64,14 @@ const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; /
 const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen), TCM-Snapshots
 // (Alert-Policy-Pruefung im Audit), App-Deployment (AAD-APP-*-Gruppe anlegen/
-// verschachteln + Win32-App-Upload) und Conditional-Access-Deployment.
+// verschachteln + Win32-App-Upload), Conditional-Access-Deployment und
+// KI-Schreibrechte-Aktionen (MFA-Reset braucht die eigene, engere
+// UserAuthenticationMethod.ReadWrite.All-Berechtigung -- die anderen Aktionen
+// dort (Passwort/Sitzungen/Gruppen) deckt User.ReadWrite.All/Group.ReadWrite.All
+// bereits ab).
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -703,6 +708,48 @@ app.post("/api/tenants/:id/deploy/custom-policy", wrap(async (req, res) => {
 
   const cert = certPemPath(t.tenantId);
   const result = await CUSTOMPOLICY.importCustomPolicy(t, cert, policyJson, groupId);
+  res.json({ ok: true, result });
+}));
+
+// Direkte Nutzerkonto-Aktionen (aus einem KI-Runbook heraus) -- jede einzeln
+// ueber aiWritePermissions gegatet, jede fuer sich allein aktivierbar. Nutzt
+// ausschliesslich stabile, offiziell dokumentierte Graph-v1.0-Endpunkte
+// (userActions.js) statt geratener Payload-Strukturen.
+const USER_ACTION_DEFS = {
+  "reset-mfa": { permKey: "resetMfa", label: "MFA-Methoden entfernen" },
+  "reset-password": { permKey: "resetPassword", label: "Passwort zuruecksetzen" },
+  "revoke-sessions": { permKey: "revokeSessions", label: "Sitzungen widerrufen" },
+  "group-membership": { permKey: "groupMembership", label: "Gruppenmitgliedschaft aendern" }
+};
+
+app.post("/api/tenants/:id/user-actions/:action", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const def = USER_ACTION_DEFS[req.params.action];
+  if (!def) throw Object.assign(new Error("Unbekannte Aktion: " + req.params.action), { status: 404 });
+  if (!t.aiWritePermissions || !t.aiWritePermissions[def.permKey]) {
+    throw Object.assign(new Error(`"${def.label}" ist fuer diesen Tenant nicht freigeschaltet — erst im Tenants-Tab unter „🤖 KI-Schreibrechte\" aktivieren.`), { status: 403 });
+  }
+  const userId = String((req.body || {}).userId || "").trim();
+  if (!userId) throw Object.assign(new Error("Keine Ziel-userId angegeben."), { status: 400 });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    if (req.params.action === "reset-mfa") return res.json({ ok: true, result: { removed: [{ type: "#microsoft.graph.phoneAuthenticationMethod", displayName: "Fake-Telefon" }], skipped: [] } });
+    if (req.params.action === "reset-password") return res.json({ ok: true, result: { tempPassword: "Fake-Temp-Pw!23" } });
+    if (req.params.action === "revoke-sessions") return res.json({ ok: true, result: { revoked: true } });
+    if (req.params.action === "group-membership") return res.json({ ok: true, result: { action: (req.body || {}).action || "add" } });
+  }
+
+  const cert = certPemPath(t.tenantId);
+  let result;
+  if (req.params.action === "reset-mfa") result = await USERACTIONS.resetUserMfa(t, cert, userId);
+  else if (req.params.action === "reset-password") result = await USERACTIONS.resetUserPassword(t, cert, userId);
+  else if (req.params.action === "revoke-sessions") result = await USERACTIONS.revokeUserSessions(t, cert, userId);
+  else if (req.params.action === "group-membership") {
+    const groupId = String((req.body || {}).groupId || "").trim();
+    const action = String((req.body || {}).action || "").trim();
+    if (!groupId) throw Object.assign(new Error("Keine Ziel-Gruppe angegeben."), { status: 400 });
+    result = await USERACTIONS.changeGroupMembership(t, cert, userId, groupId, action);
+  }
   res.json({ ok: true, result });
 }));
 
