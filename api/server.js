@@ -389,7 +389,7 @@ if (process.env.TRUST_PROXY !== "0") app.set("trust proxy", 1);
 app.use(session({
   secret: state.sessionSecret,
   resave: false, saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: "lax", secure: false, maxAge: 8 * 3600 * 1000 }
+  cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 8 * 3600 * 1000 }
 }));
 
 function wrap(fn) {
@@ -424,14 +424,48 @@ function isTicketsAllowed(req) {
 
 app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user), ticketsAllowed: isTicketsAllowed(req) }));
 
+// Brute-Force-Schutz fuer den lokalen Admin-Login (kein SSO/MFA-Schutz wie beim
+// iGeeks-SSO-Pfad) -- pro IP max. 5 Fehlversuche innerhalb von 15 Minuten, danach
+// 429 bis das Fenster abgelaufen ist. Bewusst kein neues Package (express-rate-limit)
+// fuer diesen einen Endpunkt, analog zum Rest des Projekts (minimale Abhaengigkeiten).
+const LOGIN_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000 };
+const loginAttempts = new Map(); // ip -> { count, resetAt }
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) return { blocked: false };
+  return { blocked: entry.count >= LOGIN_RATE_LIMIT.max, retryAfterMs: entry.resetAt - now };
+}
+function registerLoginFailure(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_RATE_LIMIT.windowMs });
+  } else {
+    entry.count++;
+  }
+}
+function clearLoginFailures(ip) { loginAttempts.delete(ip); }
+
 app.post("/api/login", (req, res) => {
+  const ip = req.ip;
+  const limit = checkLoginRateLimit(ip);
+  if (limit.blocked) {
+    return res.status(429).json({ error: `Zu viele Fehlversuche -- bitte in ${Math.ceil(limit.retryAfterMs / 60000)} Minute(n) erneut versuchen.` });
+  }
+
   const s = loadState();
   const { username, password } = req.body || {};
   if (s.auth && (username || "admin") === s.auth.username) {
     const a = Buffer.from(hashPw(password || "", s.auth.salt), "hex");
     const b = Buffer.from(s.auth.passwordHash, "hex");
-    if (a.length === b.length && crypto.timingSafeEqual(a, b)) { req.session.user = s.auth.username; return res.json({ ok: true }); }
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      clearLoginFailures(ip);
+      req.session.user = s.auth.username;
+      return res.json({ ok: true });
+    }
   }
+  registerLoginFailure(ip);
   res.status(401).json({ error: "Login fehlgeschlagen" });
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
