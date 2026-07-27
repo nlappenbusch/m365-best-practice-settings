@@ -3,14 +3,14 @@
 import { writable } from 'svelte/store'
 import { apiGet, apiPost } from './api.js'
 
-export const session = writable({ online: false, loggedIn: false, pwsh: null, ready: false })
+export const session = writable({ online: false, loggedIn: false, pwsh: null, ticketsAllowed: false, ready: false })
 
 export async function refreshSession() {
   try {
     const h = await apiGet('/api/health')
-    session.set({ online: !!h.ok, loggedIn: !!h.loggedIn, pwsh: h.pwsh || null, ready: true })
+    session.set({ online: !!h.ok, loggedIn: !!h.loggedIn, pwsh: h.pwsh || null, ticketsAllowed: !!h.ticketsAllowed, ready: true })
   } catch {
-    session.set({ online: false, loggedIn: false, pwsh: null, ready: true })
+    session.set({ online: false, loggedIn: false, pwsh: null, ticketsAllowed: false, ready: true })
   }
 }
 

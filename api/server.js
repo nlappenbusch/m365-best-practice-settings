@@ -411,7 +411,18 @@ let pwshInfo = { checked: false, ok: false, version: null };
   } catch (e) { pwshInfo = { checked: true, ok: false, version: null }; }
 })();
 
-app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user) }));
+// Tickets-Tab (SDP-Ticket-Copilot) bleibt auf einen einzelnen SSO-Nutzer
+// beschraenkt -- der lokale Admin-Login zaehlt ebenfalls, da er kein
+// personenbezogenes Konto ist, sondern das gemeinsame Live-Deploy-Login.
+const TICKETS_ALLOWED_UPN = "nils.lappenbusch@igeeks.ch";
+function isTicketsAllowed(req) {
+  const u = req.session && req.session.user;
+  if (!u) return false;
+  if (u.startsWith("sso:")) return u.slice(4).toLowerCase() === TICKETS_ALLOWED_UPN;
+  return true;
+}
+
+app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user), ticketsAllowed: isTicketsAllowed(req) }));
 
 app.post("/api/login", (req, res) => {
   const s = loadState();
@@ -455,6 +466,13 @@ app.get("/api/auth/sso/callback", wrap(async (req, res) => {
 app.use("/api", (req, res, next) => {
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
+});
+
+// Tickets-Bereich (SDP-Ticket-Copilot + Runbooks) zusaetzlich auf
+// TICKETS_ALLOWED_UPN + lokalen Login beschraenkt.
+app.use(["/api/sdp", "/api/runbooks"], (req, res, next) => {
+  if (isTicketsAllowed(req)) return next();
+  res.status(403).json({ error: "Kein Zugriff auf den Tickets-Bereich." });
 });
 
 // SSO-Konfiguration schreiben/loeschen — nur fuer bereits angemeldete Admins.

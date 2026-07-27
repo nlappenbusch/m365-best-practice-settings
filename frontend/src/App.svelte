@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { refreshSession } from './lib/session.js'
+  import { session, refreshSession } from './lib/session.js'
   import { theme, cycleTheme } from './lib/theme.js'
   import { activeTab } from './lib/tabStore.js'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
@@ -38,6 +38,17 @@
     { id: 'tickets',     label: '🎫 Tickets',    group: 'Ticketing', isNew: true },
     { id: 'wissen',      label: '📖 Wissen',     group: 'Referenz' }
   ]
+  // Tickets-Tab nur fuer den freigeschalteten SSO-Nutzer + lokalen Login
+  // sichtbar -- die eigentliche Durchsetzung passiert serverseitig (403 auf
+  // /api/sdp, /api/runbooks), das hier ist nur die Nav-Sichtbarkeit.
+  let visibleTabs = $derived(tabs.filter(t => t.id !== 'tickets' || $session.ticketsAllowed))
+
+  $effect(() => {
+    if ($activeTab === 'tickets' && $session.ready && !$session.ticketsAllowed) {
+      activeTab.set('config')
+    }
+  })
+
   const THEME_META = {
     auto:  { icon: '🌓', label: 'Auto' },
     light: { icon: '☀️', label: 'Hell' },
@@ -85,8 +96,8 @@
 
   <main class="main-content">
     <nav class="tabs">
-      {#each tabs as t, i}
-        {#if i > 0 && tabs[i - 1].group !== t.group}<span class="tab-group-sep" aria-hidden="true"></span>{/if}
+      {#each visibleTabs as t, i}
+        {#if i > 0 && visibleTabs[i - 1].group !== t.group}<span class="tab-group-sep" aria-hidden="true"></span>{/if}
         <button class="tab-btn" class:active={$activeTab === t.id} onclick={() => ($activeTab = t.id)}>
           {t.label}
           {#if t.isNew}<span class="tab-pill-new">Neu</span>{/if}
@@ -107,7 +118,9 @@
       <div class:tab-hidden={$activeTab !== 'lizenzen'}><Lizenzen /></div>
       <div class:tab-hidden={$activeTab !== 'mappings'}><Mappings /></div>
       <div class:tab-hidden={$activeTab !== 'downloads'}><Downloads /></div>
-      <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
+      {#if $session.ticketsAllowed}
+        <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
+      {/if}
       <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
     </div>
   </main>
