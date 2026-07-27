@@ -103,6 +103,90 @@
     autoDeployBusy = { ...autoDeployBusy, [t.id]: false }
   }
 
+  // ---------- MCP-Zugriff (API-Key-authentifizierte externe Claude-Sessions) ----------
+  // Komplett getrennte Vertrauensgrenze von den KI-Schreibrechten oben: dort
+  // bestaetigt immer ein Mensch per Klick im Web-Tool, hier fuehrt ein externer
+  // MCP-Client (z.B. Claude in einem anderen Projektordner) die Aktion sofort
+  // beim Tool-Aufruf aus -- kein Bestaetigungsschritt. Das Sicherheitsnetz ist
+  // die granulare Pro-Tenant-Freischaltung (defaultet AUS) + das Audit-Log.
+  const MCP_PERMISSION_CAPS = [
+    { key: 'readLicenses', label: 'Lizenz-Report lesen', desc: 'Lizenz-Uebersicht (genutzte/ungenutzte SKUs, Mehrfach-Lizenzierungen).' },
+    { key: 'readCaPolicies', label: 'Conditional-Access-Policies lesen', desc: 'Namen + Status der verwalteten CA-Policies.' },
+    { key: 'readUsers', label: 'Nutzer suchen', desc: 'Nutzer per Namen/UPN nachschlagen (Name, UPN, Mail, ObjectId).' },
+    { key: 'resetMfa', label: 'MFA-Methoden entfernen', desc: 'Wie im Ticket-Copilot -- entfernt alle Nicht-Passwort-Auth-Methoden eines Nutzers.' },
+    { key: 'resetPassword', label: 'Passwort zuruecksetzen', desc: 'Setzt ein zufaelliges temporaeres Passwort.' },
+    { key: 'revokeSessions', label: 'Sitzungen widerrufen', desc: 'Erzwingt Neuanmeldung auf allen Geraeten.' },
+    { key: 'groupMembership', label: 'Gruppenmitgliedschaft aendern', desc: 'Nutzer zu einer Gruppe hinzufuegen/entfernen.' },
+    { key: 'customPolicyImport', label: 'Settings-Catalog-Policy suchen + ausrollen', desc: 'Wie „Automatisch suchen" im Ticket-Copilot -- Einstellung per Suchbegriff finden, Wert setzen, Pilot-Gruppe zuweisen.' }
+  ]
+  let mcpPermTargetId = $state(null)
+  let mcpPermBusy = $state({})
+  function toggleMcpPermPanel(t) { mcpPermTargetId = mcpPermTargetId === t.id ? null : t.id }
+  async function toggleMcpPermission(t, key, current) {
+    mcpPermBusy = { ...mcpPermBusy, [key]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/mcp-permissions`, { key, enabled: !current })
+      await loadTenants()
+    } catch (e) {
+      alert('Konnte die Berechtigung nicht speichern: ' + e.message)
+    }
+    mcpPermBusy = { ...mcpPermBusy, [key]: false }
+  }
+
+  // ---------- Globale API-Keys fuer den MCP-Zugriff ----------
+  let mcpKeys = $state([])
+  let mcpKeysLoaded = $state(false)
+  let mcpKeysOpen = $state(false)
+  let mcpKeyBusy = $state(false)
+  let mcpNewLabel = $state('')
+  let mcpFreshKey = $state(null) // { id, label, key } -- nur einmalig nach dem Erzeugen sichtbar
+  let mcpAuditLog = $state([])
+  let mcpAuditOpen = $state(false)
+
+  async function loadMcpKeys() {
+    try {
+      const r = await apiGet('/api/mcp/keys')
+      mcpKeys = r.keys || []
+    } catch (e) { /* egal, Panel zeigt dann leer */ }
+    mcpKeysLoaded = true
+  }
+  async function createMcpKey() {
+    const label = mcpNewLabel.trim() || 'Unbenannt'
+    mcpKeyBusy = true
+    try {
+      const r = await apiPost('/api/mcp/keys', { label })
+      mcpFreshKey = { id: r.id, label: r.label, key: r.key }
+      mcpNewLabel = ''
+      await loadMcpKeys()
+    } catch (e) {
+      alert('Konnte den Key nicht erzeugen: ' + e.message)
+    }
+    mcpKeyBusy = false
+  }
+  async function revokeMcpKey(id) {
+    if (!confirm('Diesen API-Key wirklich widerrufen? Jeder MCP-Client, der ihn verwendet, verliert sofort den Zugriff.')) return
+    try {
+      await apiDelete(`/api/mcp/keys/${encodeURIComponent(id)}`)
+      await loadMcpKeys()
+    } catch (e) {
+      alert('Konnte den Key nicht widerrufen: ' + e.message)
+    }
+  }
+  async function loadMcpAuditLog() {
+    try {
+      const r = await apiGet('/api/mcp/audit-log?limit=50')
+      mcpAuditLog = r.log || []
+    } catch (e) { /* egal */ }
+  }
+  function toggleMcpKeysPanel() {
+    mcpKeysOpen = !mcpKeysOpen
+    if (mcpKeysOpen && !mcpKeysLoaded) loadMcpKeys()
+  }
+  function toggleMcpAuditPanel() {
+    mcpAuditOpen = !mcpAuditOpen
+    if (mcpAuditOpen) loadMcpAuditLog()
+  }
+
   async function toggleOnboardingStep(t, stepId, current) {
     wizardBusy = { ...wizardBusy, [stepId]: true }
     try {
@@ -278,6 +362,66 @@
   <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.</div>
 {:else}
   <div class="settings-group">
+    <h4>🔌 MCP-Zugriff (externe Claude-Sessions)</h4>
+    <p class="ld-section-hint">API-Keys fuer lokale MCP-Server (z.B. aus einem anderen Projektordner heraus), die
+      lesend + schreibend auf freigeschaltete Tenants zugreifen -- ohne Bestaetigungsklick im Web-Tool. Freischaltung
+      passiert pro Tenant einzeln weiter unten unter „🔌 MCP-Zugriff" pro Tenant-Zeile.</p>
+    <button class="btn btn-secondary" onclick={toggleMcpKeysPanel}>{mcpKeysOpen ? '▾' : '▸'} API-Keys verwalten</button>
+    <button class="btn btn-secondary" onclick={toggleMcpAuditPanel} style="margin-left:0.5rem;">{mcpAuditOpen ? '▾' : '▸'} Audit-Log</button>
+
+    {#if mcpKeysOpen}
+      <div class="ld-job" style="margin-top:0.75rem;">
+        {#if mcpFreshKey}
+          <div class="alert alert-warning" style="margin-bottom:0.75rem;">
+            <strong>Key „{mcpFreshKey.label}" erzeugt -- jetzt notieren, wird nie wieder angezeigt:</strong>
+            <div style="font-family:monospace; word-break:break-all; margin-top:0.4rem; user-select:all;">{mcpFreshKey.key}</div>
+            <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={() => (mcpFreshKey = null)}>Verstanden, ausblenden</button>
+          </div>
+        {/if}
+        <div class="input-group" style="max-width:420px; margin-bottom:0.6rem;">
+          <label for="mcpNewLabel">Neuer Key -- Bezeichnung (z.B. „ADHS-Manager")</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input id="mcpNewLabel" type="text" bind:value={mcpNewLabel} placeholder="Bezeichnung" />
+            <button class="btn btn-primary" disabled={mcpKeyBusy} onclick={createMcpKey}>+ Erzeugen</button>
+          </div>
+        </div>
+        {#if !mcpKeysLoaded}
+          <p class="ld-section-hint">Lade…</p>
+        {:else if mcpKeys.length === 0}
+          <p class="ld-section-hint">Noch keine Keys erzeugt.</p>
+        {:else}
+          {#each mcpKeys as k (k.id)}
+            <div class="wizard-step">
+              <div class="wizard-step-body">
+                <div class="wizard-step-title">{k.label}</div>
+                <div class="wizard-step-desc">Erzeugt: {new Date(k.createdAt).toLocaleString('de-CH')} · Zuletzt verwendet: {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString('de-CH') : 'nie'}</div>
+              </div>
+              <button class="btn btn-secondary" onclick={() => revokeMcpKey(k.id)}>✕ Widerrufen</button>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+
+    {#if mcpAuditOpen}
+      <div class="ld-job" style="margin-top:0.75rem;">
+        {#if mcpAuditLog.length === 0}
+          <p class="ld-section-hint">Noch keine Eintraege.</p>
+        {:else}
+          {#each mcpAuditLog as entry (entry.id)}
+            <div class="wizard-step">
+              <div class="wizard-step-body">
+                <div class="wizard-step-title">{entry.action} · {entry.tenantId} {entry.userId ? '· ' + entry.userId : ''}</div>
+                <div class="wizard-step-desc">{new Date(entry.at).toLocaleString('de-CH')} · Key „{entry.keyLabel}" · {entry.result}</div>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <div class="settings-group">
     <h4>🏢 Onboardete Tenants</h4>
     {#if !$tenantsLoaded}
       <p class="ld-section-hint">Lade…</p>
@@ -307,6 +451,8 @@
                       title="Schritt-für-Schritt-Checkliste für das komplette Tenant-Setup">🧭 Assistent</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleAiPermPanel(t) }}
                       title="Steuert, welche automatisierten Schreib-Aktionen (z.B. aus dem Ticket-Copilot) für diesen Tenant erlaubt sind">🤖 KI-Schreibrechte</button>
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleMcpPermPanel(t) }}
+                      title="Steuert, was externe MCP-Clients (API-Key) für diesen Tenant lesen/schreiben dürfen">🔌 MCP-Zugriff</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startFix(t) }}
                       title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); doRemove(t) }}
@@ -412,6 +558,32 @@
             </div>
           </div>
         </div>
+      </div>
+    {/if}
+  {/if}
+
+  {#if mcpPermTargetId}
+    {@const mpt = $tenants.find(x => x.id === mcpPermTargetId)}
+    {#if mpt}
+      <div class="ld-job" style="margin-bottom:1.5rem">
+        <div class="ld-job-head">
+          <strong>🔌 MCP-Zugriff: {mpt.name}</strong>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (mcpPermTargetId = null)}>✕ schließen</button>
+        </div>
+        <p class="ld-section-hint">Steuert, was externe MCP-Clients mit einem gueltigen API-Key (siehe oben) fuer
+          DIESEN Tenant duerfen. Komplett getrennt von den KI-Schreibrechten oben -- hier gibt es KEINEN
+          Bestaetigungsklick, die Aktion laeuft sofort beim Tool-Aufruf. Standardmaessig alles AUS.</p>
+        {#each MCP_PERMISSION_CAPS as cap (cap.key)}
+          {@const enabled = !!mpt.mcpPermissions?.[cap.key]}
+          <div class="wizard-step">
+            <input type="checkbox" class="wizard-step-check" checked={enabled} disabled={mcpPermBusy[cap.key]}
+                   onchange={() => toggleMcpPermission(mpt, cap.key, enabled)} />
+            <div class="wizard-step-body">
+              <div class="wizard-step-title" class:done={enabled}>{cap.label}</div>
+              <div class="wizard-step-desc">{cap.desc}</div>
+            </div>
+          </div>
+        {/each}
       </div>
     {/if}
   {/if}

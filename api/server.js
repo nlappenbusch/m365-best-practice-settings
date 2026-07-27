@@ -496,8 +496,11 @@ app.get("/api/auth/sso/callback", wrap(async (req, res) => {
   }
 }));
 
-// Auth-Guard fuer alles Weitere
+// Auth-Guard fuer alles Weitere -- /api/mcp/v1 ausgenommen: das ist der
+// API-Key-authentifizierte Endpunkt fuer externe MCP-Clients (kein Session-
+// Cookie), eigene Pruefung via requireMcpApiKey weiter unten.
 app.use("/api", (req, res, next) => {
+  if (req.path.startsWith("/mcp/v1/")) return next();
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
 });
@@ -761,7 +764,8 @@ app.get("/api/tenants", (req, res) => {
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
     aiWritePermissions: t.aiWritePermissions || {},
-    aiAutoDeployGroupId: t.aiAutoDeployGroupId || null
+    aiAutoDeployGroupId: t.aiAutoDeployGroupId || null,
+    mcpPermissions: t.mcpPermissions || {}
   })));
 });
 
@@ -907,6 +911,183 @@ app.post("/api/tenants/:id/user-actions/:action", wrap(async (req, res) => {
     result = await USERACTIONS.changeGroupMembership(t, cert, userId, groupId, action);
   }
   res.json({ ok: true, result });
+}));
+
+// ---------- Tenant-MCP-Zugriff (externe Claude-Sessions, API-Key statt Session-Cookie) ----------
+// Erlaubt lokalen MCP-Servern (z.B. aus anderen Projektordnern heraus) denselben
+// Lese-/Schreibzugriff wie die Tickets-KI im Browser -- aber OHNE den
+// Vorschau-+Bestaetigungsbutton-Schritt, weil es dafuer bei einem programmatischen
+// Tool-Aufruf keine sinnvolle Entsprechung gibt. Das Sicherheitsnetz hier ist
+// stattdessen: (a) pro Tenant UND pro Aktion einzeln freizuschalten (mcpPermissions,
+// defaultet auf AUS, komplett getrennt von aiWritePermissions -- andere
+// Vertrauensgrenze), (b) jede Aktion landet im Audit-Log.
+function generateApiKey() { return "mcp_" + crypto.randomBytes(32).toString("base64url"); }
+function hashApiKey(key) { return crypto.createHash("sha256").update(key).digest("hex"); }
+
+function logMcpAction(entry) {
+  const s = loadState();
+  s.mcpAuditLog = s.mcpAuditLog || [];
+  s.mcpAuditLog.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), ...entry });
+  if (s.mcpAuditLog.length > 500) s.mcpAuditLog.length = 500;
+  saveState(s);
+}
+
+// Session-gated: Admin-Panel verwaltet Keys + sieht das Audit-Log -- das ist
+// bewusst NICHT ueber einen API-Key erreichbar (sonst koennte ein kompromittierter
+// Key sich selbst neue, weitere Keys ausstellen).
+app.post("/api/mcp/keys", (req, res) => {
+  const s = loadState();
+  const label = String((req.body || {}).label || "").trim() || "Unbenannt";
+  const key = generateApiKey();
+  const entry = { id: crypto.randomUUID(), label, keyHash: hashApiKey(key), createdAt: new Date().toISOString(), lastUsedAt: null };
+  s.mcpApiKeys = [...(s.mcpApiKeys || []), entry];
+  saveState(s);
+  res.json({ ok: true, id: entry.id, label: entry.label, key }); // key nur hier, einmalig, im Klartext
+});
+
+app.get("/api/mcp/keys", (req, res) => {
+  const s = loadState();
+  res.json({ ok: true, keys: (s.mcpApiKeys || []).map(k => ({ id: k.id, label: k.label, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt })) });
+});
+
+app.delete("/api/mcp/keys/:id", (req, res) => {
+  const s = loadState();
+  s.mcpApiKeys = (s.mcpApiKeys || []).filter(k => k.id !== req.params.id);
+  saveState(s);
+  res.json({ ok: true });
+});
+
+app.get("/api/mcp/audit-log", (req, res) => {
+  const s = loadState();
+  res.json({ ok: true, log: (s.mcpAuditLog || []).slice(0, Number(req.query.limit) || 100) });
+});
+
+// Permission-Matrix pro Tenant, komplett getrennt von aiWritePermissions -- siehe
+// Kommentar oben. Gleiches Muster wie /api/tenants/:id/ai-write-permissions.
+app.post("/api/tenants/:id/mcp-permissions", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const key = String((req.body || {}).key || "").trim();
+  if (!key) return res.status(400).json({ error: "key fehlt" });
+  const enabled = !!(req.body && req.body.enabled);
+  t.mcpPermissions = { ...(t.mcpPermissions || {}), [key]: enabled };
+  saveState(s);
+  res.json({ ok: true, mcpPermissions: t.mcpPermissions });
+});
+
+// API-Key-Auth-Guard fuer den eigentlichen, maschinell aufrufbaren MCP-Endpunkt.
+// Bewusst EIGENE Middleware statt der session-basierten von oben -- greift nur
+// unter /api/mcp/v1, alles andere unter /api/mcp bleibt session-gated (siehe oben).
+function requireMcpApiKey(req, res, next) {
+  const auth = String(req.headers.authorization || "");
+  const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!key) return res.status(401).json({ error: "Kein API-Key (Authorization: Bearer <key>)." });
+  const s = loadState();
+  const hash = hashApiKey(key);
+  const match = (s.mcpApiKeys || []).find(k => k.keyHash === hash);
+  if (!match) return res.status(401).json({ error: "Ungueltiger API-Key." });
+  match.lastUsedAt = new Date().toISOString();
+  saveState(s);
+  req.mcpKeyId = match.id;
+  req.mcpKeyLabel = match.label;
+  next();
+}
+app.use("/api/mcp/v1", requireMcpApiKey);
+
+function requireMcpPermission(t, permKey) {
+  if (!t.mcpPermissions || !t.mcpPermissions[permKey]) {
+    throw Object.assign(new Error(`MCP-Zugriff "${permKey}" ist fuer diesen Tenant nicht freigeschaltet.`), { status: 403 });
+  }
+}
+
+app.get("/api/mcp/v1/tenants", (req, res) => {
+  const s = loadState();
+  const visible = (s.tenants || []).filter(t => t.mcpPermissions && Object.values(t.mcpPermissions).some(Boolean));
+  res.json({ ok: true, tenants: visible.map(t => ({ id: t.id, name: t.name })) });
+});
+
+app.get("/api/mcp/v1/tenants/:id/licenses", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "readLicenses");
+  const report = await LICENSES.runLicenseReport(t, certPemPath(t.tenantId));
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "licenses", result: "ok" });
+  res.json({ ok: true, report });
+}));
+
+app.get("/api/mcp/v1/tenants/:id/ca-policies", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "readCaPolicies");
+  const policies = await CONDACCESS.listManagedPolicies(t, certPemPath(t.tenantId));
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "ca-policies", result: "ok" });
+  res.json({ ok: true, policies });
+}));
+
+app.get("/api/mcp/v1/tenants/:id/users", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "readUsers");
+  const users = await ENTRAUSERS.searchUsers(t, certPemPath(t.tenantId), String(req.query.q || ""));
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "users-search", result: "ok" });
+  res.json({ ok: true, users });
+}));
+
+app.post("/api/mcp/v1/tenants/:id/user-actions/:action", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const def = USER_ACTION_DEFS[req.params.action];
+  if (!def) throw Object.assign(new Error("Unbekannte Aktion: " + req.params.action), { status: 404 });
+  requireMcpPermission(t, def.permKey);
+  const userId = String((req.body || {}).userId || "").trim();
+  if (!userId) throw Object.assign(new Error("Keine Ziel-userId angegeben."), { status: 400 });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: req.params.action, userId, result: "ok (fake)" });
+    if (req.params.action === "reset-mfa") return res.json({ ok: true, result: { removed: [{ type: "#microsoft.graph.phoneAuthenticationMethod", displayName: "Fake-Telefon" }], skipped: [] } });
+    if (req.params.action === "reset-password") return res.json({ ok: true, result: { tempPassword: "Fake-Temp-Pw!23" } });
+    if (req.params.action === "revoke-sessions") return res.json({ ok: true, result: { revoked: true } });
+    if (req.params.action === "group-membership") return res.json({ ok: true, result: { action: (req.body || {}).action || "add" } });
+  }
+
+  const cert = certPemPath(t.tenantId);
+  let result;
+  try {
+    if (req.params.action === "reset-mfa") result = await USERACTIONS.resetUserMfa(t, cert, userId);
+    else if (req.params.action === "reset-password") result = await USERACTIONS.resetUserPassword(t, cert, userId);
+    else if (req.params.action === "revoke-sessions") result = await USERACTIONS.revokeUserSessions(t, cert, userId);
+    else if (req.params.action === "group-membership") {
+      const groupId = String((req.body || {}).groupId || "").trim();
+      const gAction = String((req.body || {}).action || "").trim();
+      if (!groupId) throw Object.assign(new Error("Keine Ziel-Gruppe angegeben."), { status: 400 });
+      result = await USERACTIONS.changeGroupMembership(t, cert, userId, groupId, gAction);
+    }
+  } catch (e) {
+    logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: req.params.action, userId, result: "error: " + e.message });
+    throw e;
+  }
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: req.params.action, userId, result: "ok" });
+  res.json({ ok: true, result });
+}));
+
+app.post("/api/mcp/v1/tenants/:id/deploy/auto-setting/preview", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "customPolicyImport");
+  const searchTerm = String((req.body || {}).searchTerm || "").trim();
+  const desiredLabel = String((req.body || {}).desiredLabel || "").trim();
+  const preview = await SETTINGSCATALOG.previewSetting(t, certPemPath(t.tenantId), searchTerm, desiredLabel);
+  res.json({ ok: true, preview });
+}));
+
+app.post("/api/mcp/v1/tenants/:id/deploy/auto-setting", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "customPolicyImport");
+  const { name, searchTerm, desiredLabel, groupId } = req.body || {};
+  try {
+    const result = await SETTINGSCATALOG.deployAutoSetting(t, certPemPath(t.tenantId), { name, searchTerm, desiredLabel }, String(groupId || "").trim());
+    logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "deploy-auto-setting", result: "ok", detail: result.resolvedSetting });
+    res.json({ ok: true, result });
+  } catch (e) {
+    logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "deploy-auto-setting", result: "error: " + e.message });
+    throw e;
+  }
 }));
 
 // Einrichtungs-Assistent: haekt einen Schritt der gefuehrten Onboarding-Checkliste
