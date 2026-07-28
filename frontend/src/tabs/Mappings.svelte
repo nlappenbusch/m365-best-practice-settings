@@ -219,6 +219,7 @@
   let spProfiles = $state(null)
   let spSites = $state([])
   let spSitesLoading = $state(false)
+  let spSitesError = $state(null)
   let spEditorOpen = $state(false)
   let spProfileName = $state('Standard')
   let spMappings = $state([])   // [{libraryName, tenantId, siteId, webId, listId, webUrl}]
@@ -243,8 +244,9 @@
   async function spLoadSites() {
     if (spSites.length || spSitesLoading) return
     spSitesLoading = true
+    spSitesError = null
     try { spSites = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites`)).sites || [] }
-    catch (e) { /* Auswahl bleibt leer, Fehler zeigt sich beim Aufloesen */ }
+    catch (e) { spSitesError = e.message }
     spSitesLoading = false
   }
   function spNew() {
@@ -589,6 +591,7 @@
             {spResolving ? 'Löse auf…' : '+ Bibliothek hinzufügen'}
           </button>
         </div>
+        {#if spSitesError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ Sites konnten nicht geladen werden: {spSitesError}<br /><small>Falls „Reparieren" seit dem letzten Update dieser Funktion nicht ausgeführt wurde: im Tab „Tenants" einmal „🔧 Reparieren" ausführen (neue Berechtigung Sites.Read.All).</small></div>{/if}
         {#if spResolveError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ {spResolveError}</div>{/if}
 
         {#if spMappings.length}
