@@ -223,7 +223,8 @@
   let spEditorOpen = $state(false)
   let spProfileName = $state('Standard')
   let spMappings = $state([])   // [{libraryName, tenantId, siteId, webId, listId, webUrl}]
-  let spSelSiteId = $state('')
+  let spSiteFilter = $state('')
+  let spSelSites = $state({})   // siteId -> bool, Mehrfachauswahl
   let spResolving = $state(false)
   let spResolveError = $state(null)
   let spSelGroups = $state({})
@@ -253,7 +254,8 @@
     spEditorOpen = true
     spProfileName = 'Standard'
     spMappings = []
-    spSelSiteId = ''
+    spSelSites = {}
+    spSiteFilter = ''
     spSelGroups = {}
     spSaveMsg = null
     spLoadSites()
@@ -262,25 +264,45 @@
     spEditorOpen = true
     spProfileName = p.profileName
     spMappings = (p.config?.mappings || []).map(m => ({ ...m }))
-    spSelSiteId = ''
+    spSelSites = {}
+    spSiteFilter = ''
     const sel = {}
     for (const gid of (p.groupIds || [])) sel[gid] = true
     spSelGroups = sel
     spSaveMsg = null
     spLoadSites()
   }
-  async function spResolveAndAdd() {
-    if (!spSelSiteId) return
+  const spAlreadyAddedIds = $derived(new Set(spMappings.map(m => m.siteId)))
+  const spFilteredSites = $derived(
+    spSites.filter(s => !spSiteFilter.trim() || s.displayName.toLowerCase().includes(spSiteFilter.trim().toLowerCase()))
+  )
+  const spSelSiteCount = $derived(Object.values(spSelSites).filter(Boolean).length)
+  function spToggleAllFiltered(val) {
+    const next = { ...spSelSites }
+    for (const s of spFilteredSites) next[s.id] = val
+    spSelSites = next
+  }
+
+  // Loest alle ausgewaehlten Sites parallel auf -- eine einzelne Site ohne
+  // Standard-Dokumentbibliothek (z.B. Communication-Sites) darf die anderen
+  // nicht blockieren, daher Promise.allSettled statt eines einzelnen Requests.
+  async function spResolveAndAddSelected() {
+    const ids = Object.keys(spSelSites).filter(id => spSelSites[id])
+    if (!ids.length) return
     spResolving = true
     spResolveError = null
-    try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites/resolve`, { siteId: spSelSiteId })
-      const site = spSites.find(s => s.id === spSelSiteId)
-      spMappings = [...spMappings, { ...r.library, libraryName: (site?.displayName || r.library.libraryName) }]
-      spSelSiteId = ''
-    } catch (e) {
-      spResolveError = e.message
-    }
+    const results = await Promise.allSettled(ids.map(async id => {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites/resolve`, { siteId: id })
+      const site = spSites.find(s => s.id === id)
+      return { ...r.library, libraryName: (site?.displayName || r.library.libraryName) }
+    }))
+    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value)
+    const failed = results.filter(r => r.status === 'rejected')
+    if (ok.length) spMappings = [...spMappings, ...ok]
+    spResolveError = failed.length
+      ? `${failed.length} von ${ids.length} Site(s) konnten nicht hinzugefügt werden: ${failed.map(f => f.reason.message).join('; ')}`
+      : null
+    spSelSites = {}
     spResolving = false
   }
   function spRemoveRow(i) { spMappings = spMappings.filter((_, j) => j !== i) }
@@ -579,19 +601,37 @@
           <input id="spName" type="text" bind:value={spProfileName} placeholder="Standard" />
         </div>
 
-        <div class="ld-oib-target">
-          <div class="input-group" style="max-width:420px;">
-            <label for="spSite">SharePoint-Site hinzufügen</label>
-            <select id="spSite" bind:value={spSelSiteId} disabled={spSitesLoading}>
-              <option value="">{spSitesLoading ? 'Lade Sites…' : '— Site wählen —'}</option>
-              {#each spSites as s (s.id)}<option value={s.id} title={s.webUrl}>{s.displayName}</option>{/each}
-            </select>
-          </div>
-          <button class="btn btn-secondary" onclick={spResolveAndAdd} disabled={!spSelSiteId || spResolving}>
-            {spResolving ? 'Löse auf…' : '+ Bibliothek hinzufügen'}
-          </button>
+        <div class="input-group" style="max-width:420px;">
+          <label for="spSiteFilter">SharePoint-Sites hinzufügen (Mehrfachauswahl möglich)</label>
+          <input id="spSiteFilter" type="text" bind:value={spSiteFilter} placeholder={spSitesLoading ? 'Lade Sites…' : 'Filtern nach Name…'} disabled={spSitesLoading} />
         </div>
-        {#if spSitesError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ Sites konnten nicht geladen werden: {spSitesError}<br /><small>Falls „Reparieren" seit dem letzten Update dieser Funktion nicht ausgeführt wurde: im Tab „Tenants" einmal „🔧 Reparieren" ausführen (neue Berechtigung Sites.Read.All).</small></div>{/if}
+
+        {#if spSitesError}
+          <div class="ld-banner fail" style="margin-top:0.5rem;">❌ Sites konnten nicht geladen werden: {spSitesError}<br /><small>Falls „Reparieren" seit dem letzten Update dieser Funktion nicht ausgeführt wurde: im Tab „Tenants" einmal „🔧 Reparieren" ausführen (neue Berechtigung Sites.Read.All).</small></div>
+        {:else if !spSitesLoading}
+          <div class="ld-oib-toolbar" style="margin-top:0.5rem;">
+            <span>{spSelSiteCount} ausgewählt · {spFilteredSites.length} sichtbar</span>
+            <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => spToggleAllFiltered(true)}>Alle (sichtbar)</button>
+            <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => spToggleAllFiltered(false)}>Keine</button>
+          </div>
+          <div class="ld-phase complete" style="max-height:260px; overflow-y:auto;">
+            {#each spFilteredSites as s (s.id)}
+              {@const already = spAlreadyAddedIds.has(s.id)}
+              <label class="ld-oib-row" class:already>
+                <input type="checkbox" checked={!!spSelSites[s.id]} disabled={already}
+                       onchange={(e) => (spSelSites = { ...spSelSites, [s.id]: e.target.checked })} />
+                <span class="ld-oib-name">{s.displayName}</span>
+                <small class="ld-oib-assigned">{already ? '✓ bereits hinzugefügt' : s.webUrl}</small>
+              </label>
+            {/each}
+            {#if !spFilteredSites.length}<p class="ld-section-hint">Keine Sites gefunden.</p>{/if}
+          </div>
+          <div class="ld-oib-target" style="margin-top:0.5rem;">
+            <button class="btn btn-secondary" onclick={spResolveAndAddSelected} disabled={!spSelSiteCount || spResolving}>
+              {spResolving ? 'Löse auf…' : `+ ${spSelSiteCount} ausgewählte hinzufügen`}
+            </button>
+          </div>
+        {/if}
         {#if spResolveError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ {spResolveError}</div>{/if}
 
         {#if spMappings.length}
