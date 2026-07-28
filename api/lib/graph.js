@@ -85,6 +85,24 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
       return graphReq(tenant, certPemPath, method, path, body, { ...(opts || {}), _retried: true });
     }
     const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
+    // 429 (Too Many Requests) heisst Graph sagt explizit "warte und versuch's
+    // nochmal" -- das gilt IMMER, unabhaengig von opts.retryTransient (anders
+    // als bei den generischen transienten Faellen unten gibt es hier keinen
+    // Fall, in dem sofortiges Aufgeben richtig waere). Retry-After-Header
+    // (Sekunden) hat Vorrang vor festem Backoff, falls Graph ihn mitschickt.
+    // Betrifft v.a. Conditional-Access-Policy-Schreibvorgaenge (Delete/State/
+    // Scope), deren Rate-Limit deutlich strenger ist als bei den meisten
+    // anderen Graph-Ressourcen.
+    if (r.status === 429) {
+      const maxTries = 6;
+      const tries = ((opts && opts._rateLimitTries) || 0) + 1;
+      if (tries <= maxTries) {
+        const retryAfterSec = Number(r.headers.get("retry-after"));
+        const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : 1000 * tries;
+        await new Promise(res => setTimeout(res, waitMs));
+        return graphReq(tenant, certPemPath, method, path, body, { ...(opts || {}), _rateLimitTries: tries });
+      }
+    }
     if (opts && opts.retryTransient && isTransientGraphError(r.status, msg)) {
       // retryTransient: true = 5 Versuche; alternativ eine Zahl fuer Endpoints,
       // die laenger stoerrisch sind (z.B. windowsAutopilotDeviceIdentities).

@@ -262,6 +262,12 @@
   }
   function clearSelection() { selectedPolicies = {} }
 
+  // Kleine Pause zwischen den sequentiellen Requests -- Graphs Rate-Limit fuer
+  // Conditional-Access-Policy-Schreibvorgaenge (State/Scope/Delete) ist deutlich
+  // strenger als bei den meisten anderen Ressourcen; ohne Pause laeuft man bei
+  // "Alle Policies loeschen"/Batch-Aktionen leicht in ein 429 ("Too many
+  // requests"). Server-seitig faengt graph.js ein einzelnes 429 zwar mit
+  // Retry-After ab, aber das hier vermeidet den Retry im Regelfall gleich ganz.
   async function batchRun(label, fn) {
     const ids = selectedIds
     if (!ids.length) return
@@ -270,6 +276,7 @@
     for (const id of ids) {
       try { await fn(id) } catch (e) { /* einzelne Fehler nicht abbrechen -- am Ende neu laden zeigt den Ist-Stand */ }
       batchProgress = { done: batchProgress.done + 1, total: ids.length }
+      if (batchProgress.done < ids.length) await new Promise(res => setTimeout(res, 400))
     }
     batchBusy = false
     batchProgress = null
