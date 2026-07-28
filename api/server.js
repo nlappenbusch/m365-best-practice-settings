@@ -50,6 +50,7 @@ const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
 const BULKDELETE = require("./lib/intuneBulkDelete");
 const SPMAP = require("./lib/sharepointMapping");
+const REGPOLICY = require("./lib/registryPolicy");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -1559,6 +1560,40 @@ app.post("/api/tenants/:id/sharepointmappings", wrap(async (req, res) => {
   }
   const r = await SPMAP.deployProfile(t, certPemPath(t.tenantId), {
     profileName: b.profileName, mappings: b.mappings,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- Registry-Richtlinien-Konfigurator (HKLM, generisch + Presets) ----------
+app.get("/api/registrypolicy/presets", (req, res) => {
+  res.json({ ok: true, presets: REGPOLICY.PRESETS });
+});
+
+app.get("/api/tenants/:id/registrypolicy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      profiles: [{
+        id: "rp-1", profileName: "EU DMA SSO", displayName: "WIN - RegistryPolicy - EU DMA SSO",
+        config: { entries: [{ path: "SOFTWARE\\Policies\\Microsoft\\Windows\\AAD", name: "AutoAcceptSsoPermission", type: "DWORD", value: "1" }] },
+        groupIds: ["g1"]
+      }]
+    });
+  }
+  res.json({ ok: true, profiles: await REGPOLICY.listProfiles(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/registrypolicy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    REGPOLICY.buildScript({ entries: b.entries }); // Validierung auch im Fake-Modus echt laufen lassen
+    return res.json({ ok: true, scriptId: "rp-1", displayName: "WIN - RegistryPolicy - " + String(b.profileName || ""), updated: false });
+  }
+  const r = await REGPOLICY.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName, entries: b.entries,
     groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
   });
   res.json({ ok: true, ...r });

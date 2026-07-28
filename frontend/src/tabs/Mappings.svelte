@@ -337,6 +337,81 @@
     }
     spSaving = false
   }
+
+  // ---------- Registry-Richtlinien (HKLM) -- generisch, inkl. Vorlage EU-DMA-SSO-Prompt ----------
+  let rpLoading = $state(false)
+  let rpError = $state(null)
+  let rpProfiles = $state(null)
+  let rpPresets = $state([])
+  let rpEditorOpen = $state(false)
+  let rpProfileName = $state('Standard')
+  let rpEntries = $state([])   // [{path, name, type, value}]
+  let rpSelGroups = $state({})
+  let rpSaving = $state(false)
+  let rpSaveMsg = $state(null)
+
+  async function rpLoad() {
+    if (!$activeTenant) return
+    rpLoading = true
+    rpError = null
+    try { rpProfiles = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/registrypolicy`)).profiles }
+    catch (e) { rpError = e.message }
+    rpLoading = false
+  }
+  $effect(() => {
+    if (profiles !== null && rpProfiles === null && !rpLoading && $activeTenant) rpLoad()
+  })
+  $effect(() => {
+    if (!rpPresets.length) {
+      apiGet('/api/registrypolicy/presets').then(r => { rpPresets = r.presets || [] }).catch(() => {})
+    }
+  })
+  function rpNew() {
+    rpEditorOpen = true
+    rpProfileName = 'Standard'
+    rpEntries = []
+    rpSelGroups = {}
+    rpSaveMsg = null
+  }
+  function rpEdit(p) {
+    rpEditorOpen = true
+    rpProfileName = p.profileName
+    rpEntries = (p.config?.entries || []).map(e => ({ ...e }))
+    const sel = {}
+    for (const gid of (p.groupIds || [])) sel[gid] = true
+    rpSelGroups = sel
+    rpSaveMsg = null
+  }
+  function rpApplyPreset(preset) {
+    rpProfileName = preset.label
+    rpEntries = [...rpEntries, ...preset.entries.map(e => ({ ...e }))]
+  }
+  function rpAddRow() { rpEntries = [...rpEntries, { path: '', name: '', type: 'DWORD', value: '' }] }
+  function rpRemoveRow(i) { rpEntries = rpEntries.filter((_, j) => j !== i) }
+  const rpSelGroupCount = $derived(Object.values(rpSelGroups).filter(Boolean).length)
+
+  async function rpSave() {
+    const groupIds = Object.keys(rpSelGroups).filter(g => rpSelGroups[g])
+    if (!confirm(
+      `Profil „${rpProfileName}" deployen?\n\n` +
+      `Es wird ein PowerShell-Plattformskript „WIN - RegistryPolicy - ${rpProfileName}" in Intune angelegt/aktualisiert ` +
+      `und ${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}. ` +
+      `Das Skript läuft im Systemkontext (SYSTEM) und schreibt die Werte direkt unter HKLM auf dem Gerät.`
+    )) return
+    rpSaving = true
+    rpSaveMsg = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/registrypolicy`, {
+        profileName: rpProfileName, entries: rpEntries, groupIds
+      })
+      rpSaveMsg = { ok: true, text: `✅ „${r.displayName}" ${r.updated ? 'aktualisiert' : 'angelegt'}${groupIds.length ? ` und ${groupIds.length} Gruppe(n) zugewiesen` : ''}.` }
+      rpEditorOpen = false
+      await rpLoad()
+    } catch (e) {
+      rpSaveMsg = { ok: false, text: '❌ ' + e.message }
+    }
+    rpSaving = false
+  }
 </script>
 
 <TenantContext>
@@ -701,6 +776,114 @@
             <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
             <div class="ld-oib-target" style="margin-top:0;">
               <button class="btn btn-secondary" onclick={() => spEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <div class="settings-group">
+    <h4>🖥️ Registry-Richtlinien <small>(HKLM, generisch + Vorlagen)</small></h4>
+    <p class="ld-section-hint">Für einzelne, einfache Registry-Schalter, die (noch) nicht als Settings-Catalog-Einstellung durchsuchbar sind (z.&nbsp;B. ganz neue Richtlinien) oder schlicht ein simpler Ein-Wert-Schalter sind. Erzeugt ein PowerShell-Plattformskript, das im Systemkontext (SYSTEM) direkt unter <code>HKLM</code> schreibt.</p>
+
+    <div class="alert alert-info">
+      <strong>ℹ️ Neu: EU-DMA-SSO-Prompt automatisch akzeptieren.</strong> Mit dem Sicherheitsupdate vom Juli 2026 (<a href="https://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875" target="_blank" rel="noopener">KB5101650</a>, Windows&nbsp;11 24H2/25H2) zeigt Windows in der EU/EWR nach der Windows-Anmeldung erstmalig pro App eine SSO-Rückfrage („Weiter anmelden?"), bevor die Windows-Anmeldedaten auch für andere Microsoft-Apps/-Dienste verwendet werden dürfen — eine Folge des EU Digital Markets Act. Für verwaltete Geräte mit Entra-ID-Konto lässt sich diese Abfrage per Registry-Richtlinie automatisch bestätigen: <code>HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AAD</code> → <code>AutoAcceptSsoPermission</code> (DWORD) = <code>1</code>. Gilt <b>nicht</b> für private Microsoft-Konten (MSA) oder unverwaltete Geräte — dort bleibt der Prompt bestehen. Vorlage unten per Klick übernehmbar.
+    </div>
+
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+      <button class="btn btn-primary" onclick={rpNew}>➕ Neues Profil</button>
+      <button class="btn btn-secondary" onclick={rpLoad} disabled={rpLoading}>{rpLoading ? '…' : '🔄 Neu laden'}</button>
+    </div>
+
+    {#if rpEditorOpen}
+      <div class="ld-job" style="margin-top:1rem; margin-bottom:1.5rem;">
+        <div class="ld-job-head"><strong>🛠 Registry-Profil-Konfigurator</strong>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (rpEditorOpen = false)}>✕ schließen</button></div>
+
+        <div class="input-group" style="max-width:320px; margin-bottom:0.75rem;">
+          <label for="rpName">Profilname</label>
+          <input id="rpName" type="text" bind:value={rpProfileName} placeholder="Standard" />
+          <small>Skriptname in Intune: <code>WIN - RegistryPolicy - {rpProfileName || '…'}</code></small>
+        </div>
+
+        {#if rpPresets.length}
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+            {#each rpPresets as preset (preset.key)}
+              <button class="btn btn-secondary" title={preset.description} onclick={() => rpApplyPreset(preset)}>📋 Vorlage: {preset.label}</button>
+            {/each}
+          </div>
+        {/if}
+
+        {#if rpEntries.length}
+          <div style="overflow-x:auto;">
+            <table class="map-table">
+              <thead><tr><th>Pfad (unter HKLM:\)</th><th>Name</th><th style="width:100px;">Typ</th><th>Wert</th><th style="width:44px;"></th></tr></thead>
+              <tbody>
+                {#each rpEntries as e, i}
+                  <tr>
+                    <td><input type="text" bind:value={e.path} placeholder="SOFTWARE\Policies\Microsoft\Windows\AAD" /></td>
+                    <td><input type="text" bind:value={e.name} placeholder="AutoAcceptSsoPermission" /></td>
+                    <td>
+                      <select bind:value={e.type}>
+                        <option value="DWORD">DWORD</option>
+                        <option value="QWORD">QWORD</option>
+                        <option value="String">String</option>
+                      </select>
+                    </td>
+                    <td><input type="text" bind:value={e.value} placeholder="1" /></td>
+                    <td><button class="btn btn-secondary map-remove" onclick={() => rpRemoveRow(i)} title="Zeile entfernen">✕</button></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <p class="ld-section-hint">Noch kein Registry-Wert hinzugefügt — Vorlage übernehmen oder manuell anlegen.</p>
+        {/if}
+        <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={rpAddRow}>➕ Zeile hinzufügen</button>
+
+        <div class="ld-phase complete" style="margin-top:0.75rem;">
+          <div class="ld-phase-title">👥 Zuweisung ({rpSelGroupCount} Gruppe{rpSelGroupCount === 1 ? '' : 'n'})</div>
+          {#each groups as g (g.id)}
+            <label class="ld-oib-row">
+              <input type="checkbox" checked={!!rpSelGroups[g.id]}
+                     onchange={(e) => (rpSelGroups = { ...rpSelGroups, [g.id]: e.target.checked })} />
+              <span class="ld-oib-name">{g.displayName}</span>
+            </label>
+          {/each}
+        </div>
+
+        <div class="ld-confirm-actions">
+          <button class="btn btn-primary" onclick={rpSave} disabled={rpSaving || !rpProfileName.trim() || !rpEntries.length}>
+            {rpSaving ? 'Rolle aus…' : '🚀 Registry-Profil ausrollen'}
+          </button>
+        </div>
+        {#if rpSaveMsg}<div class="ld-banner {rpSaveMsg.ok ? 'ok' : 'fail'}" style="margin-top:0.5rem;">{rpSaveMsg.text}</div>{/if}
+      </div>
+    {/if}
+
+    {#if rpLoading && !rpProfiles}
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-step running"><span class="ld-spinner"></span> Lade Registry-Profile…</div></div>
+    {:else if rpError}
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">❌ {rpError}</div></div>
+    {:else if rpProfiles}
+      <div class="ld-job" style="margin-top:1rem;">
+        <div class="ld-job-head"><strong>🖥️ Deployte Registry-Profile</strong>
+          <span class="ld-job-meta">{rpProfiles.length}</span></div>
+        {#if !rpProfiles.length}
+          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Registry-Profile — oben eines anlegen.</div>
+        {/if}
+        {#each rpProfiles as p (p.id)}
+          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">🖥️ {p.profileName}</div>
+            {#each (p.config?.entries || []) as e}
+              <div class="ld-step ok"><span class="ld-ico">🔑</span> {e.name} <small>(HKLM:\{e.path} = {e.value}, {e.type})</small></div>
+            {/each}
+            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
+            <div class="ld-oib-target" style="margin-top:0;">
+              <button class="btn btn-secondary" onclick={() => rpEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
             </div>
           </div>
         {/each}
