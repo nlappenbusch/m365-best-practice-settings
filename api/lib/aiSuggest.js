@@ -96,7 +96,7 @@ async function suggestResolution({ ticket, tenantContext }) {
         max_tokens: 4096,
         messages: [{ role: "user", content: prompt }]
       }),
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(120000)
     });
   } catch (e) {
     throw Object.assign(new Error("Anthropic-API nicht erreichbar: " + e.message), { status: 502 });

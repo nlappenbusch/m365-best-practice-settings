@@ -1522,13 +1522,13 @@ app.post("/api/tenants/:id/sharepointsites/resolve", wrap(async (req, res) => {
   const siteId = String((req.body || {}).siteId || "").trim();
   if (!siteId) throw Object.assign(new Error("Keine Site angegeben."), { status: 400 });
   if (process.env.FAKE_DEPLOY === "1") {
-    return res.json({ ok: true, library: {
+    return res.json({ ok: true, libraries: [{
       libraryName: "Dokumente", tenantId: "00000000-0000-0000-0000-000000000001",
       siteId: "11111111-1111-1111-1111-111111111111", webId: "22222222-2222-2222-2222-222222222222",
       listId: "33333333-3333-3333-3333-333333333333", webUrl: "https://demokunde.sharepoint.com/sites/Marketing"
-    } });
+    }] });
   }
-  res.json({ ok: true, library: await SPMAP.resolveLibrary(t, certPemPath(t.tenantId), siteId) });
+  res.json({ ok: true, libraries: await SPMAP.resolveLibraries(t, certPemPath(t.tenantId), siteId) });
 }));
 
 app.get("/api/tenants/:id/sharepointmappings", wrap(async (req, res) => {

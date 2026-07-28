@@ -33,7 +33,7 @@ function sanitizeProfileName(name) {
 
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Mappings validieren -- alle Felder kommen aus resolveLibrary(), nicht von Hand eingetippt. */
+/** Mappings validieren -- alle Felder kommen aus resolveLibraries(), nicht von Hand eingetippt. */
 function sanitizeMappings(raw) {
   const list = Array.isArray(raw) ? raw : [];
   if (!list.length) throw new Error("Mindestens eine Bibliothek angeben.");
@@ -102,21 +102,35 @@ async function listSites(tenant, cert) {
     .map(s => ({ id: s.id, displayName: s.displayName || s.webUrl, webUrl: s.webUrl }));
 }
 
-/** Fuer eine gewaehlte Site die IDs der Standard-Dokumentbibliothek aufloesen (SharePointIds-Ressource). */
-async function resolveLibrary(tenant, cert, siteId) {
-  const drive = await graphReq(tenant, cert, "GET", `/sites/${encodeURIComponent(siteId)}/drive`, null, {});
-  const ids = drive.sharepointIds || drive.sharePointIds;
-  if (!ids || !ids.siteId || !ids.webId || !ids.listId) {
-    throw Object.assign(new Error("Konnte Bibliotheks-IDs nicht auflösen (keine Standard-Dokumentbibliothek?)."), { status: 502 });
+/**
+ * Fuer eine gewaehlte Site ALLE Dokumentbibliotheken aufloesen (SharePointIds-
+ * Ressource je drive) -- nicht nur die eine "Standard"-Bibliothek ueber
+ * /sites/{id}/drive. Manche Sites (v.a. Communication Sites) haben keine
+ * Standardbibliothek unter diesem Namen, aber trotzdem eine oder mehrere
+ * andere Bibliotheken ("General", "Dokumente", ...) -- /sites/{id}/drives
+ * listet alle, die dann alle als eigene Zeile vorgeschlagen werden (statt
+ * eine zu erraten -- ueberzaehlige einfach per Zeile entfernen).
+ */
+async function resolveLibraries(tenant, cert, siteId) {
+  const drives = await graphAllPages(tenant, cert, `/sites/${encodeURIComponent(siteId)}/drives`, {});
+  const libraries = drives
+    .map(drive => {
+      const ids = drive.sharepointIds || drive.sharePointIds;
+      if (!ids || !ids.siteId || !ids.webId || !ids.listId) return null;
+      return {
+        libraryName: drive.name || "Dokumente",
+        tenantId: ids.tenantId,
+        siteId: ids.siteId,
+        webId: ids.webId,
+        listId: ids.listId,
+        webUrl: ids.siteUrl || drive.webUrl
+      };
+    })
+    .filter(Boolean);
+  if (!libraries.length) {
+    throw Object.assign(new Error("Konnte Bibliotheks-IDs nicht auflösen (keine Dokumentbibliothek gefunden)."), { status: 502 });
   }
-  return {
-    libraryName: drive.name || "Dokumente",
-    tenantId: ids.tenantId,
-    siteId: ids.siteId,
-    webId: ids.webId,
-    listId: ids.listId,
-    webUrl: ids.siteUrl || drive.webUrl
-  };
+  return libraries;
 }
 
 /** Vorhandene Profile (Skripte mit unserem Praefix) inkl. Zuweisungen + Konfiguration. */
@@ -176,4 +190,4 @@ async function deployProfile(tenant, cert, { profileName, mappings, groupIds }) 
   return { scriptId, displayName: name, updated: !!match };
 }
 
-module.exports = { buildScript, parseScript, sanitizeMappings, listSites, resolveLibrary, listProfiles, deployProfile, SCRIPT_PREFIX };
+module.exports = { buildScript, parseScript, sanitizeMappings, listSites, resolveLibraries, listProfiles, deployProfile, SCRIPT_PREFIX };

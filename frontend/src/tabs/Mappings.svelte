@@ -284,8 +284,11 @@
   }
 
   // Loest alle ausgewaehlten Sites parallel auf -- eine einzelne Site ohne
-  // Standard-Dokumentbibliothek (z.B. Communication-Sites) darf die anderen
-  // nicht blockieren, daher Promise.allSettled statt eines einzelnen Requests.
+  // Dokumentbibliothek (z.B. Communication-Sites) darf die anderen nicht
+  // blockieren, daher Promise.allSettled statt eines einzelnen Requests.
+  // Eine Site kann MEHRERE Bibliotheken haben ("Documents", "General", ...) --
+  // alle werden als eigene Zeile vorgeschlagen statt eine zu erraten,
+  // ueberzaehlige einfach per Zeile entfernen.
   async function spResolveAndAddSelected() {
     const ids = Object.keys(spSelSites).filter(id => spSelSites[id])
     if (!ids.length) return
@@ -294,9 +297,13 @@
     const results = await Promise.allSettled(ids.map(async id => {
       const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites/resolve`, { siteId: id })
       const site = spSites.find(s => s.id === id)
-      return { ...r.library, libraryName: (site?.displayName || r.library.libraryName) }
+      const libs = r.libraries || []
+      return libs.map(lib => ({
+        ...lib,
+        libraryName: libs.length > 1 ? `${site?.displayName || 'Site'} - ${lib.libraryName}` : (site?.displayName || lib.libraryName)
+      }))
     }))
-    const ok = results.filter(r => r.status === 'fulfilled').map(r => r.value)
+    const ok = results.filter(r => r.status === 'fulfilled').flatMap(r => r.value)
     const failed = results.filter(r => r.status === 'rejected')
     if (ok.length) spMappings = [...spMappings, ...ok]
     spResolveError = failed.length
