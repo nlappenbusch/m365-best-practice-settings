@@ -73,7 +73,7 @@ $regPath = "HKCU:\\SOFTWARE\\Policies\\Microsoft\\OneDrive\\TenantAutoMount"
 if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
 
 foreach ($m in $mappings) {
-    $value = "tenantId=$($m.TenantId)&siteId={$($m.SiteId)}&webId={$($m.WebId)}&listId={$($m.ListId)}&webUrl=$($m.WebUrl)&version=1"
+    $value = "tenantId=$($m.TenantId)&siteId={$($m.SiteId)}&webId={$($m.WebId)}&listId=$($m.ListId)&webUrl=$($m.WebUrl)&version=1"
     Set-ItemProperty -Path $regPath -Name $m.LibraryName -Value $value -Type String -Force
     Write-Output "Gemappt: $($m.LibraryName)"
 }
@@ -111,9 +111,18 @@ async function listSites(tenant, cert) {
  * listet alle, die dann alle als eigene Zeile vorgeschlagen werden (statt
  * eine zu erraten -- ueberzaehlige einfach per Zeile entfernen).
  */
+// SharePoint-Systembibliotheken, die zwar als "drive" auftauchen, aber niemand
+// per OneDrive syncen will (eDiscovery-Aufbewahrung, Formularvorlagen, ...).
+const SYSTEM_LIBRARY_NAMES = new Set(["preservation hold library", "style library", "form templates", "site assets"]);
+
 async function resolveLibraries(tenant, cert, siteId) {
-  const drives = await graphAllPages(tenant, cert, `/sites/${encodeURIComponent(siteId)}/drives`, {});
+  // sharepointIds wird von Graph NICHT automatisch mitgeliefert -- ohne
+  // explizites $select fehlt es im drive-Objekt komplett (kein Fehler,
+  // einfach nicht da), und jede Bibliothek wuerde faelschlich als "nicht
+  // aufloesbar" durchfallen.
+  const drives = await graphAllPages(tenant, cert, `/sites/${encodeURIComponent(siteId)}/drives?$select=id,name,webUrl,sharepointIds`, {});
   const libraries = drives
+    .filter(drive => !SYSTEM_LIBRARY_NAMES.has(String(drive.name || "").trim().toLowerCase()))
     .map(drive => {
       const ids = drive.sharepointIds || drive.sharePointIds;
       if (!ids || !ids.siteId || !ids.webId || !ids.listId) return null;
