@@ -2670,9 +2670,10 @@ function fakeCaPolicies() {
       { key: "ring:PILOT", name: "AAD-CA-RING-PILOT", id: "ca-g5", memberCount: 0 }
     ],
     policies: [
-      { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins" },
-      { id: "ca-p2", displayName: "200 - PILOT - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "AAD-CA-RING-PILOT" },
-      { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients", state: "enabled", scope: "Alle" }
+      { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins", managed: true },
+      { id: "ca-p2", displayName: "200 - PILOT - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "AAD-CA-RING-PILOT", managed: true },
+      { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients", state: "enabled", scope: "Alle", managed: true },
+      { id: "ca-p4", displayName: "Legacy - Block Legacy Auth (manuell im Portal angelegt)", state: "enabled", scope: "Alle", managed: false }
     ]
   };
 }
@@ -2682,7 +2683,7 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeCaPolicies() });
   const cert = certPemPath(t.tenantId);
   const [policies, groups] = await Promise.all([
-    CONDACCESS.listManagedPolicies(t, cert),
+    CONDACCESS.listAllPolicies(t, cert),
     GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true })
   ]);
   const groupName = new Map(groups.map(g => [g.id, g.displayName]));
@@ -2710,7 +2711,7 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
       const scope = (u.includeGroups || []).length ? (u.includeGroups.map(id => groupName.get(id) || id).join(", "))
         : (u.includeRoles || []).length ? "Rollen (" + u.includeRoles.length + ")"
         : "Alle";
-      return { id: p.id, displayName: p.displayName, state: p.state, scope };
+      return { id: p.id, displayName: p.displayName, state: p.state, scope, managed: !!p.managed };
     })
   });
 }));
@@ -2774,6 +2775,17 @@ app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(asy
   const pilotGroupId = (req.body || {}).pilotGroupId || null;
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
   await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, pilotGroupId);
+  res.json({ ok: true });
+}));
+
+// Loeschen ist unumkehrbar (anders als Deaktivieren/Report-only) -- bewusst
+// als eigener Endpunkt, nicht Teil von /state. Wirkt auf JEDE Policy im
+// Tenant (auch Fremd-Policies), nicht nur auf tool-verwaltete -- das Frontend
+// erzwingt dafuer eine verschaerfte Bestaetigung (siehe "riskier"-Flag).
+app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/delete", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
+  await CONDACCESS.deletePolicy(t, certPemPath(t.tenantId), req.params.policyId);
   res.json({ ok: true });
 }));
 

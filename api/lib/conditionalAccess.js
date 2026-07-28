@@ -150,12 +150,29 @@ function substitutePolicy(template, groupIds, ring, ringGroupId) {
   return json;
 }
 
+const MANAGED_NAME_RE = /^\d+ - [A-Za-z0-9]{1,12} - /;
+
 /** Bereits vorhandene, von diesem Tool verwaltete CA-Policies auflisten.
  *  Namensschema "<Nr> - <RING> - ..." — matcht jeden Ring (PILOT, BROAD, BP, ...),
  *  Fremd-Policies ohne dieses Schema werden nie angefasst. */
 async function listManagedPolicies(tenant, certPemPath) {
   const all = await graphAllPages(tenant, certPemPath, "/identity/conditionalAccess/policies", { retryTransient: true });
-  return all.filter(p => /^\d+ - [A-Za-z0-9]{1,12} - /.test(String(p.displayName || "")));
+  return all.filter(p => MANAGED_NAME_RE.test(String(p.displayName || "")));
+}
+
+/** ALLE Conditional-Access-Policies im Tenant (auch Fremd-Policies, z.B. manuell
+ *  im Portal angelegt) -- fuer die Uebersicht/Aufraeum-Funktion, die anders als
+ *  Deploy/Aktivieren nicht auf "unsere" Policies beschraenkt ist. Jede Policy
+ *  traegt ein "managed"-Flag (Namensschema-Match), damit die UI Fremd-Policies
+ *  sichtbar von Tool-Policies unterscheiden kann. */
+async function listAllPolicies(tenant, certPemPath) {
+  const all = await graphAllPages(tenant, certPemPath, "/identity/conditionalAccess/policies", { retryTransient: true });
+  return all.map(p => ({ ...p, managed: MANAGED_NAME_RE.test(String(p.displayName || "")) }));
+}
+
+/** Einzelne Policy unwiderruflich loeschen. */
+async function deletePolicy(tenant, certPemPath, policyId) {
+  await graphReq(tenant, certPemPath, "DELETE", `/identity/conditionalAccess/policies/${encodeURIComponent(policyId)}`, null, { retryTransient: true });
 }
 
 /** Policy anlegen oder aktualisieren (idempotent nach displayName), immer im Report-only-Zustand. */
@@ -252,5 +269,6 @@ async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
 module.exports = {
   TIER_META, SUPPORT_GROUPS,
   ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName,
-  substitutePolicy, listManagedPolicies, deployTier, setPolicyState, setPolicyScope
+  substitutePolicy, listManagedPolicies, listAllPolicies, deletePolicy,
+  deployTier, setPolicyState, setPolicyScope
 };

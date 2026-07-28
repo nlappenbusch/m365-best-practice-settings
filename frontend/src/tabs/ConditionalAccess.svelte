@@ -297,6 +297,53 @@
     await batchRun('scope', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/scope`, { pilotGroupId: groupId }))
   }
 
+  // Loeschen ist unumkehrbar -- anders als Aktivieren/Deaktivieren/Scope kann
+  // hier auch eine AKTIVE oder eine Fremd-Policy (nicht vom Tool verwaltet)
+  // getroffen werden. Das entfernt eine tatsaechlich wirksame Zugriffsregel,
+  // nicht nur eine Report-only-Testpolicy -- deshalb dieselbe verschaerfte
+  // Tipp-Bestaetigung wie beim Intune-Bulk-Delete fuer AAD-Gruppen.
+  function policyDeleteConfirm(list) {
+    const names = list.map(p => `  • ${p.displayName}`).join('\n')
+    if (!confirm(`⚠️ ${list.length} Policy(s) UNWIDERRUFLICH löschen?\n\n${names}\n\nDas kann NICHT rückgängig gemacht werden.`)) return false
+    const risky = list.filter(p => !p.managed || p.state === 'enabled')
+    if (risky.length) {
+      const typed = prompt(
+        `Darunter sind ${risky.length} Policy(s), die entweder AKTIV geschaltet oder NICHT vom Tool verwaltet ` +
+        `sind (Fremd-Policy) — das Löschen entfernt eine tatsächlich wirksame Zugriffsregel.\n\n` +
+        `Zum Bestätigen "LÖSCHEN" eintippen:`
+      )
+      if (typed !== 'LÖSCHEN') return false
+    }
+    return true
+  }
+
+  async function deleteOne(p) {
+    if (!policyDeleteConfirm([p])) return
+    actionBusy = { ...actionBusy, [p.id]: true }
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(p.id)}/delete`, {})
+      await loadPolicies()
+    } catch (e) {
+      alert('Fehler: ' + e.message)
+    }
+    actionBusy = { ...actionBusy, [p.id]: false }
+  }
+
+  async function batchDelete() {
+    const sel = policies.filter(p => selectedPolicies[p.id])
+    if (!sel.length) return
+    if (!policyDeleteConfirm(sel)) return
+    await batchRun('delete', id => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(id)}/delete`, {}))
+  }
+
+  function deleteAllPolicies() {
+    if (!policies.length) return
+    const upd = {}
+    for (const p of policies) upd[p.id] = true
+    selectedPolicies = upd
+    batchDelete()
+  }
+
   function toggleMemberSearch(key) {
     memberSearchOpen = { ...memberSearchOpen, [key]: !memberSearchOpen[key] }
     if (!memberSearchOpen[key]) { memberQuery = { ...memberQuery, [key]: '' }; memberResults = { ...memberResults, [key]: [] } }
@@ -371,6 +418,9 @@
   onDestroy(() => { if (jobTimer) clearTimeout(jobTimer); if (memberSearchTimer) clearTimeout(memberSearchTimer) })
 
   const breakGlassEmpty = $derived(supportGroups.find(g => g.key === 'breakGlass' && g.memberCount === 0))
+  const managedCount = $derived(policies.filter(p => p.managed).length)
+  const foreignCount = $derived(policies.length - managedCount)
+  const activeCount = $derived(policies.filter(p => p.state === 'enabled').length)
 </script>
 
 <TenantContext>
@@ -382,6 +432,7 @@
       wird automatisch scharf geschaltet. Aktivieren ist immer ein separater, bestätigter Schritt weiter unten.
       Ein falsch aktiviertes Conditional-Access-Regelwerk kann im schlimmsten Fall den gesamten Tenant aussperren.
     </div>
+    <p class="ld-section-hint" style="margin-top:0.6rem;"><b>Ablauf:</b> 1️⃣ Vorlage auswählen &amp; ausrollen (immer Report-only) → 2️⃣ Schutzgruppen befüllen (v.&nbsp;a. Break-Glass!) → 3️⃣ einzelne Policies gezielt scharf schalten, deren Scope einschränken oder aufräumen.</p>
   </div>
 
   {#if tiersError}
@@ -389,6 +440,7 @@
   {:else if !tiers}
     <div class="ld-step running"><span class="ld-spinner"></span> Lade Tiers…</div>
   {:else}
+    <h4 style="margin-bottom:0.5rem;">1️⃣ Vorlage auswählen &amp; ausrollen</h4>
     <div class="settings-grid" style="margin-bottom:1.5rem;">
       {#each TIER_ORDER as key}
         {@const t = tiers[key]}
@@ -485,6 +537,7 @@
   {:else if policiesError}
     <div class="ld-banner fail">❌ {policiesError}</div>
   {:else if supportGroups.length}
+    <h4 style="margin-bottom:0.5rem;">2️⃣ Schutzgruppen befüllen</h4>
     <div class="ld-job" style="margin-bottom:1.25rem;">
       <div class="ld-job-head"><strong>🛡 Schutzgruppen</strong></div>
       {#if breakGlassEmpty}
@@ -543,11 +596,16 @@
   {/if}
 
   {#if policies.length}
+    <h4 style="margin-bottom:0.5rem;">3️⃣ Policies verwalten</h4>
     <div class="ld-job">
-      <div class="ld-job-head"><strong>📋 Ausgerollte Policies</strong>
-        <span class="ld-job-meta">{policies.length} Policies</span></div>
-      <div class="ld-step">
+      <div class="ld-job-head"><strong>📋 Alle Conditional-Access-Policies dieses Tenants</strong>
+        <span class="ld-job-meta">{policies.length} gesamt · {managedCount} vom Tool · {foreignCount} fremd · {activeCount} aktiv</span></div>
+      {#if foreignCount}
+        <p class="ld-section-hint">🌐 <b>Fremd</b> = nicht vom Tool angelegt (z.&nbsp;B. manuell im Portal oder von einem anderen Werkzeug) — wird beim Deploy/Aktivieren nie automatisch angefasst, kann hier aber wie jede andere Policy verwaltet oder gelöscht werden.</p>
+      {/if}
+      <div class="ld-step" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
         <label><input type="checkbox" checked={allSelected} onchange={toggleAll} /> Alle auswählen</label>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={deleteAllPolicies} disabled={batchBusy}>🗑️ Alle {policies.length} Policies löschen</button>
       </div>
       {#if selectedIds.length}
         <div class="ld-oib-target">
@@ -562,6 +620,7 @@
                   title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
             {breakGlassEmpty ? '🚨' : '🔓'} Auswahl aktivieren
           </button>
+          <button class="btn btn-secondary" onclick={batchDelete} disabled={batchBusy}>🗑️ Auswahl löschen</button>
           <button class="btn btn-secondary" onclick={clearSelection} disabled={batchBusy}>Auswahl aufheben</button>
         </div>
         {#if batchProgress}
@@ -575,6 +634,7 @@
             <input type="checkbox" checked={!!selectedPolicies[p.id]}
                    onchange={(e) => (selectedPolicies = { ...selectedPolicies, [p.id]: e.target.checked })} />
             {p.displayName}
+            <span class="tbadge {p.managed ? '' : 'warn'}" style="margin-left:0.4rem;">{p.managed ? '🔧 Tool' : '🌐 Fremd'}</span>
           </div>
           <div class="ld-step"><small>Scope: {p.scope} · <span class="tbadge {st.cls}">{st.label}</span></small></div>
           <div class="ld-oib-target">
@@ -591,6 +651,7 @@
                 {breakGlassEmpty ? '🚨' : '🔓'} Aktivieren
               </button>
             {/if}
+            <button class="btn btn-secondary" onclick={() => deleteOne(p)} disabled={actionBusy[p.id]} title="Unwiderruflich löschen">🗑️ Löschen</button>
           </div>
         </div>
       {/each}
