@@ -20,7 +20,10 @@ const { graphReq, graphAllPages } = require("./graph");
 const RESOURCE_TYPES = [
   { type: "Config Policy", listPath: "/deviceManagement/deviceConfigurations", beta: true, nameField: "displayName" },
   { type: "Admin Template", listPath: "/deviceManagement/groupPolicyConfigurations", beta: true, nameField: "displayName" },
-  { type: "Settings Catalog", listPath: "/deviceManagement/configurationPolicies", beta: true, nameField: "name" },
+  // configurationPolicies liefert bei groesseren Bestaenden auf Folgeseiten
+  // (skiptoken) gelegentlich generische 500er -- gleiches Muster wie in
+  // oib.js's loadOibOverview: retryTransient + kleinere Seiten.
+  { type: "Settings Catalog", listPath: "/deviceManagement/configurationPolicies?$select=id,name,description&$top=50", beta: true, nameField: "name", opts: { retryTransient: 8 } },
   { type: "Compliance Policy", listPath: "/deviceManagement/deviceCompliancePolicies", beta: true, nameField: "displayName" },
   { type: "Proactive Remediation", listPath: "/deviceManagement/deviceHealthScripts", beta: true, nameField: "displayName" },
   { type: "PowerShell Script", listPath: "/deviceManagement/deviceManagementScripts", beta: true, nameField: "displayName" },
@@ -31,7 +34,10 @@ const RESOURCE_TYPES = [
   { type: "Android App Protection", listPath: "/deviceAppManagement/androidManagedAppProtections", beta: true, nameField: "displayName" },
   { type: "iOS App Protection", listPath: "/deviceAppManagement/iOSManagedAppProtections", beta: true, nameField: "displayName" },
   { type: "Conditional Access Policy", listPath: "/identity/conditionalAccess/policies", beta: false, nameField: "displayName" },
-  { type: "AAD Group", listPath: "/groups?$filter=onPremisesSyncEnabled ne true", beta: false, nameField: "displayName", riskier: true }
+  // onPremisesSyncEnabled ist eine "non-indexed"-Eigenschaft -- der Filter
+  // braucht zwingend ConsistencyLevel:eventual + $count=true (Graph Advanced
+  // Query), sonst 400. Gleiches Muster wie entraUsers.js's searchUsers.
+  { type: "AAD Group", listPath: "/groups?$filter=onPremisesSyncEnabled ne true&$count=true", beta: false, nameField: "displayName", riskier: true, opts: { headers: { ConsistencyLevel: "eventual" }, retryTransient: true } }
 ];
 
 function basePathFor(type) {
@@ -45,7 +51,7 @@ function basePathFor(type) {
 async function listDeletableObjects(tenant, cert) {
   const results = await Promise.allSettled(
     RESOURCE_TYPES.map(async def => {
-      const items = await graphAllPages(tenant, cert, def.listPath, { beta: def.beta });
+      const items = await graphAllPages(tenant, cert, def.listPath, { beta: def.beta, ...(def.opts || {}) });
       return items.map(it => ({
         id: it.id,
         name: it[def.nameField] || it.displayName || it.name || "(ohne Namen)",
