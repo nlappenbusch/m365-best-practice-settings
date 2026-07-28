@@ -352,6 +352,91 @@
   }
   const checkVisible = $derived((checkData?.results || []).filter(r => !checkOnlyIssues || r.issues.length))
 
+  // ---------- Bulk-Loeschung (Andrew-Taylor-Cleanup-Skript-Portierung) ----------
+  let bdOpen = $state(false)
+  let bdLoading = $state(false)
+  let bdError = $state(null)
+  let bdObjects = $state([])   // [{id, name, description, type, riskier}]
+  let bdFetchErrors = $state([]) // [{type, error}] -- einzelne Typen, die nicht geladen werden konnten
+  let bdChecked = $state({})   // id -> bool
+  let bdBusy = $state(false)
+  let bdResults = $state(null) // [{id, type, name, ok, error}] nach dem Loeschen
+  let bdLogOpen = $state(false)
+  let bdLog = $state([])
+
+  async function toggleBulkDelete() {
+    bdOpen = !bdOpen
+    if (bdOpen && !bdObjects.length) await loadBulkDeleteObjects()
+  }
+  async function loadBulkDeleteObjects() {
+    bdLoading = true
+    bdError = null
+    bdResults = null
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intune-bulk-delete/objects`)
+      bdObjects = r.objects || []
+      bdFetchErrors = r.errors || []
+      bdChecked = {}
+    } catch (e) {
+      bdError = e.message
+    }
+    bdLoading = false
+  }
+  const bdByType = $derived(
+    Object.values(
+      bdObjects.reduce((acc, o) => {
+        (acc[o.type] = acc[o.type] || { type: o.type, riskier: o.riskier, items: [] }).items.push(o)
+        return acc
+      }, {})
+    )
+  )
+  const bdSelectedIds = $derived(Object.keys(bdChecked).filter(id => bdChecked[id]))
+  const bdSelectedObjects = $derived(bdObjects.filter(o => bdChecked[o.id]))
+  function bdToggleTypeAll(type, val) {
+    const next = { ...bdChecked }
+    bdObjects.filter(o => o.type === type).forEach(o => (next[o.id] = val))
+    bdChecked = next
+  }
+  function bdClearSelection() { bdChecked = {} }
+
+  async function runBulkDelete() {
+    const sel = bdSelectedObjects
+    if (!sel.length) return
+    const breakdown = bdByType
+      .map(g => ({ type: g.type, count: g.items.filter(o => bdChecked[o.id]).length }))
+      .filter(g => g.count > 0)
+      .map(g => `  • ${g.count}x ${g.type}`)
+      .join('\n')
+    if (!confirm(`⚠️ ${sel.length} Objekt(e) UNWIDERRUFLICH löschen?\n\n${breakdown}\n\nZuweisungen werden mit gelöscht (Graph entfernt sie automatisch beim Löschen des Objekts). Das kann NICHT rückgängig gemacht werden.`)) return
+    if (sel.some(o => o.riskier)) {
+      const typed = prompt(`Darunter sind ${sel.filter(o => o.riskier).length} AAD-Gruppe(n) — das kann Lizenzen/Berechtigungen/Policy-Scopes für viele Nutzer gleichzeitig kappen.\n\nZum Bestätigen "LÖSCHEN" eintippen:`)
+      if (typed !== 'LÖSCHEN') return
+    }
+    bdBusy = true
+    bdResults = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intune-bulk-delete`, {
+        items: sel.map(o => ({ id: o.id, type: o.type, name: o.name }))
+      })
+      bdResults = r.results || []
+      bdClearSelection()
+      await loadBulkDeleteObjects()
+    } catch (e) {
+      bdError = e.message
+    }
+    bdBusy = false
+  }
+
+  async function toggleBulkDeleteLog() {
+    bdLogOpen = !bdLogOpen
+    if (bdLogOpen) {
+      try {
+        const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intune-bulk-delete/log?limit=100`)
+        bdLog = r.log || []
+      } catch (e) { /* egal */ }
+    }
+  }
+
   onDestroy(() => { if (importTimer) clearTimeout(importTimer); if (bkTimer) clearTimeout(bkTimer) })
 </script>
 
@@ -366,6 +451,9 @@
       </button>
       <button class="btn btn-secondary" onclick={toggleCheck} disabled={checkLoading}>
         {checkOpen ? '✕ Check schließen' : '🔍 Assignment-Check'}
+      </button>
+      <button class="btn btn-secondary" onclick={toggleBulkDelete} disabled={bdLoading}>
+        {bdOpen ? '✕ Aufräumen schließen' : '🗑️ Aufräumen (Bulk-Löschung)'}
       </button>
       <button class="btn btn-secondary" onclick={toggleBackup} disabled={bkBusy}>
         {bkOpen ? '✕ Backup schließen' : '💾 Backup & Restore'}
@@ -662,5 +750,84 @@
         {/if}
       </div>
     {/if}
+  {/if}
+
+  {#if bdOpen}
+    <div class="ld-job" style="margin-top:1.5rem">
+      <div class="ld-job-head">
+        <strong>🗑️ Aufräumen: {$activeTenant.name}</strong>
+        <span class="ld-job-meta">{bdObjects.length} Objekte gefunden</span>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={loadBulkDeleteObjects} disabled={bdLoading}>🔄 Neu laden</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={toggleBulkDeleteLog}>{bdLogOpen ? '✕ Log schließen' : '📜 Log'}</button>
+      </div>
+      <p class="ld-section-hint">⚠️ Löscht Objekte UNWIDERRUFLICH aus dem Tenant (inkl. Zuweisungen). Erst prüfen, dann auswählen, dann löschen — es gibt kein Undo.</p>
+
+      {#if bdFetchErrors.length}
+        <div class="ld-banner warn">⚠️ Diese Typen konnten nicht geladen werden (Rest ist trotzdem nutzbar): {bdFetchErrors.map(e => e.type).join(', ')}</div>
+      {/if}
+
+      {#if bdLogOpen}
+        <div class="ld-phase complete" style="margin-bottom:0.75rem;">
+          {#if bdLog.length === 0}
+            <p class="ld-section-hint">Noch keine Einträge.</p>
+          {:else}
+            {#each bdLog as entry (entry.id)}
+              <div class="ld-step {entry.result?.startsWith('ok') ? 'ok' : 'fail'}">
+                <span class="ld-ico">{entry.result?.startsWith('ok') ? '✅' : '❌'}</span> {entry.type} „{entry.name}" <small>({new Date(entry.at).toLocaleString('de-CH')}{entry.result?.startsWith('ok') ? '' : ' — ' + entry.result})</small>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+
+      {#if bdLoading}
+        <div class="ld-step running"><span class="ld-spinner"></span> Lade Objekte…</div>
+      {:else if bdError}
+        <div class="ld-banner fail">❌ {bdError}</div>
+      {:else if bdObjects.length === 0}
+        <p class="ld-section-hint">Keine löschbaren Objekte gefunden.</p>
+      {:else}
+        <div class="ld-oib-toolbar">
+          <span>{bdSelectedIds.length} ausgewählt</span>
+          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={bdClearSelection}>Auswahl leeren</button>
+        </div>
+
+        {#each bdByType as grp (grp.type)}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">{grp.riskier ? '⚠️ ' : ''}{grp.type} ({grp.items.length})
+              <button class="btn btn-secondary" style="padding:0.1rem 0.5rem; font-size:0.75rem;" onclick={() => bdToggleTypeAll(grp.type, true)}>alle</button>
+              <button class="btn btn-secondary" style="padding:0.1rem 0.5rem; font-size:0.75rem;" onclick={() => bdToggleTypeAll(grp.type, false)}>keine</button>
+            </div>
+            {#each grp.items as o (o.id)}
+              <label class="ld-oib-row" class:breakrisk={o.riskier}>
+                <input type="checkbox" checked={!!bdChecked[o.id]}
+                       onchange={(e) => (bdChecked = { ...bdChecked, [o.id]: e.target.checked })} />
+                <span class="ld-oib-name">{o.name}</span>
+                {#if o.description}<small class="ld-oib-assigned">{o.description}</small>{/if}
+              </label>
+            {/each}
+          </div>
+        {/each}
+
+        <div class="ld-confirm-actions">
+          <button class="btn btn-primary" onclick={runBulkDelete} disabled={bdBusy || bdSelectedIds.length === 0}>
+            {bdBusy ? 'Lösche…' : `🗑️ ${bdSelectedIds.length} ausgewählte Objekt(e) löschen`}
+          </button>
+        </div>
+
+        {#if bdResults}
+          {@const okCount = bdResults.filter(x => x.ok).length}
+          {@const failCount = bdResults.filter(x => !x.ok).length}
+          <div class="ld-banner {failCount ? 'warn' : 'ok'}">
+            {failCount ? `⚠️ ${failCount} Fehler — Details unten. ` : '✅ '}{okCount} Objekt(e) gelöscht.
+          </div>
+          {#each bdResults as x}
+            <div class="ld-step {x.ok ? 'ok' : 'fail'}">
+              <span class="ld-ico">{x.ok ? '✅' : '❌'}</span> {x.type} „{x.name}"{x.error ? ` — ${x.error}` : ''}
+            </div>
+          {/each}
+        {/if}
+      {/if}
+    </div>
   {/if}
 </TenantContext>

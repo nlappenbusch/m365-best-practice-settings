@@ -48,6 +48,7 @@ const AISUGGEST = require("./lib/aiSuggest");
 const CUSTOMPOLICY = require("./lib/customPolicy");
 const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
+const BULKDELETE = require("./lib/intuneBulkDelete");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -1501,6 +1502,70 @@ app.post("/api/tenants/:id/printermappings", wrap(async (req, res) => {
   })();
   res.json({ ok: true, jobId: job.id });
 }));
+
+// ---------- Intune-Bulk-Loeschung (Checkbox-Auswahl -> Loeschen + Log) ----------
+// Portierung von Andrew Taylors bekanntem Cleanup-Skript. Loeschen ist
+// unumkehrbar -- Frontend zeigt zwingend eine Bestaetigung mit Anzahl+Typen-
+// Aufschluesselung, bevor dieser Endpunkt ueberhaupt aufgerufen wird. Jeder
+// Versuch (Erfolg wie Fehlschlag) landet im persistierten Log.
+function logBulkDelete(tenantId, entry) {
+  const s = loadState();
+  s.intuneDeleteLog = s.intuneDeleteLog || [];
+  s.intuneDeleteLog.unshift({ id: crypto.randomUUID(), at: new Date().toISOString(), tenantId, ...entry });
+  if (s.intuneDeleteLog.length > 1000) s.intuneDeleteLog.length = 1000;
+  saveState(s);
+}
+
+app.get("/api/tenants/:id/intune-bulk-delete/objects", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      objects: [
+        { id: "fake-cfg-1", name: "BP_AntiMalware Baseline", description: "Fake-Beschreibung", type: "Config Policy", riskier: false },
+        { id: "fake-sc-1", name: "Edge Password Manager Disabled", description: null, type: "Settings Catalog", riskier: false },
+        { id: "fake-ca-1", name: "CA_Ring0_MFA", description: null, type: "Conditional Access Policy", riskier: false },
+        { id: "fake-grp-1", name: "AAD-CA-RING-BP", description: null, type: "AAD Group", riskier: true }
+      ],
+      errors: []
+    });
+  }
+  const { objects, errors } = await BULKDELETE.listDeletableObjects(t, certPemPath(t.tenantId));
+  res.json({ ok: true, objects, errors });
+}));
+
+app.post("/api/tenants/:id/intune-bulk-delete", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const items = Array.isArray((req.body || {}).items) ? req.body.items : [];
+  if (!items.length) throw Object.assign(new Error("Keine Objekte ausgewaehlt."), { status: 400 });
+
+  const cert = certPemPath(t.tenantId);
+  const results = [];
+  for (const item of items) {
+    const id = String(item.id || "");
+    const type = String(item.type || "");
+    const name = String(item.name || "");
+    try {
+      if (process.env.FAKE_DEPLOY === "1") {
+        // no-op
+      } else {
+        await BULKDELETE.deleteObject(t, cert, id, type);
+      }
+      results.push({ id, type, name, ok: true });
+      logBulkDelete(t.id, { objectId: id, type, name, result: "ok" });
+    } catch (e) {
+      results.push({ id, type, name, ok: false, error: e.message });
+      logBulkDelete(t.id, { objectId: id, type, name, result: "error: " + e.message });
+    }
+  }
+  res.json({ ok: true, results });
+}));
+
+app.get("/api/tenants/:id/intune-bulk-delete/log", (req, res) => {
+  const s = loadState();
+  const log = (s.intuneDeleteLog || []).filter(l => l.tenantId === req.params.id).slice(0, Number(req.query.limit) || 100);
+  res.json({ ok: true, log });
+});
 
 // ---------- Intune-Backup & -Restore (TenuVault-Idee, app-only) ----------
 const FAKE_BACKUP = {
