@@ -93,7 +93,7 @@ async function suggestResolution({ ticket, tenantContext }) {
       },
       body: JSON.stringify({
         model: cfg.model,
-        max_tokens: 1500,
+        max_tokens: 4096,
         messages: [{ role: "user", content: prompt }]
       }),
       signal: AbortSignal.timeout(60000)
@@ -112,6 +112,12 @@ async function suggestResolution({ ticket, tenantContext }) {
   try {
     return parseJsonResponse(text);
   } catch (e) {
+    // stop_reason "max_tokens" heisst die Antwort wurde mitten im JSON abgeschnitten --
+    // eigene, klarere Fehlermeldung statt des generischen Parse-Fehlers, damit sofort
+    // klar ist "zu wenig Tokens" statt raetseln zu muessen.
+    if (data && data.stop_reason === "max_tokens") {
+      throw Object.assign(new Error("KI-Antwort wurde mitten im JSON abgeschnitten (max_tokens erreicht) -- Ticket/Kontext ist fuer das aktuelle Token-Limit zu umfangreich."), { status: 502 });
+    }
     throw Object.assign(new Error("KI-Antwort war kein gueltiges JSON -- Rohtext: " + text.slice(0, 300)), { status: 502 });
   }
 }
