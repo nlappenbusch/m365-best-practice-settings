@@ -49,6 +49,7 @@ const CUSTOMPOLICY = require("./lib/customPolicy");
 const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
 const BULKDELETE = require("./lib/intuneBulkDelete");
+const SPMAP = require("./lib/sharepointMapping");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -1501,6 +1502,66 @@ app.post("/api/tenants/:id/printermappings", wrap(async (req, res) => {
     }
   })();
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- SharePoint-Sync-Mapping (OneDrive "Configure team site libraries
+// to sync automatically", https://learn.microsoft.com/sharepoint/use-group-policy) ----------
+app.get("/api/tenants/:id/sharepointsites", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, sites: [
+      { id: "fake-site-1", displayName: "Marketing", webUrl: "https://demokunde.sharepoint.com/sites/Marketing" },
+      { id: "fake-site-2", displayName: "Finance", webUrl: "https://demokunde.sharepoint.com/sites/Finance" }
+    ] });
+  }
+  res.json({ ok: true, sites: await SPMAP.listSites(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/sharepointsites/resolve", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const siteId = String((req.body || {}).siteId || "").trim();
+  if (!siteId) throw Object.assign(new Error("Keine Site angegeben."), { status: 400 });
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, library: {
+      libraryName: "Dokumente", tenantId: "00000000-0000-0000-0000-000000000001",
+      siteId: "11111111-1111-1111-1111-111111111111", webId: "22222222-2222-2222-2222-222222222222",
+      listId: "33333333-3333-3333-3333-333333333333", webUrl: "https://demokunde.sharepoint.com/sites/Marketing"
+    } });
+  }
+  res.json({ ok: true, library: await SPMAP.resolveLibrary(t, certPemPath(t.tenantId), siteId) });
+}));
+
+app.get("/api/tenants/:id/sharepointmappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true,
+      profiles: [{
+        id: "spm-1", profileName: "Standard", displayName: "WIN - SharePointSync - Standard",
+        config: { mappings: [{
+          libraryName: "Marketing-Dokumente", tenantId: "00000000-0000-0000-0000-000000000001",
+          siteId: "11111111-1111-1111-1111-111111111111", webId: "22222222-2222-2222-2222-222222222222",
+          listId: "33333333-3333-3333-3333-333333333333", webUrl: "https://demokunde.sharepoint.com/sites/Marketing"
+        }] },
+        groupIds: ["g1"]
+      }]
+    });
+  }
+  res.json({ ok: true, profiles: await SPMAP.listProfiles(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/sharepointmappings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    SPMAP.buildScript({ mappings: b.mappings }); // Validierung auch im Fake-Modus echt laufen lassen
+    return res.json({ ok: true, scriptId: "spm-1", displayName: "WIN - SharePointSync - " + String(b.profileName || ""), updated: false });
+  }
+  const r = await SPMAP.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName, mappings: b.mappings,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  res.json({ ok: true, ...r });
 }));
 
 // ---------- Intune-Bulk-Loeschung (Checkbox-Auswahl -> Loeschen + Log) ----------

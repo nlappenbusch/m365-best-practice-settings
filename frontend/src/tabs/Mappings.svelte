@@ -212,6 +212,100 @@
     }
     saving = false
   }
+
+  // ---------- SharePoint-Sync-Mappings (OneDrive "Configure team site libraries to sync automatically") ----------
+  let spLoading = $state(false)
+  let spError = $state(null)
+  let spProfiles = $state(null)
+  let spSites = $state([])
+  let spSitesLoading = $state(false)
+  let spEditorOpen = $state(false)
+  let spProfileName = $state('Standard')
+  let spMappings = $state([])   // [{libraryName, tenantId, siteId, webId, listId, webUrl}]
+  let spSelSiteId = $state('')
+  let spResolving = $state(false)
+  let spResolveError = $state(null)
+  let spSelGroups = $state({})
+  let spSaving = $state(false)
+  let spSaveMsg = $state(null)
+
+  async function spLoad() {
+    if (!$activeTenant) return
+    spLoading = true
+    spError = null
+    try { spProfiles = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointmappings`)).profiles }
+    catch (e) { spError = e.message }
+    spLoading = false
+  }
+  $effect(() => {
+    if (profiles !== null && spProfiles === null && !spLoading && $activeTenant) spLoad()
+  })
+  async function spLoadSites() {
+    if (spSites.length || spSitesLoading) return
+    spSitesLoading = true
+    try { spSites = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites`)).sites || [] }
+    catch (e) { /* Auswahl bleibt leer, Fehler zeigt sich beim Aufloesen */ }
+    spSitesLoading = false
+  }
+  function spNew() {
+    spEditorOpen = true
+    spProfileName = 'Standard'
+    spMappings = []
+    spSelSiteId = ''
+    spSelGroups = {}
+    spSaveMsg = null
+    spLoadSites()
+  }
+  function spEdit(p) {
+    spEditorOpen = true
+    spProfileName = p.profileName
+    spMappings = (p.config?.mappings || []).map(m => ({ ...m }))
+    spSelSiteId = ''
+    const sel = {}
+    for (const gid of (p.groupIds || [])) sel[gid] = true
+    spSelGroups = sel
+    spSaveMsg = null
+    spLoadSites()
+  }
+  async function spResolveAndAdd() {
+    if (!spSelSiteId) return
+    spResolving = true
+    spResolveError = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointsites/resolve`, { siteId: spSelSiteId })
+      const site = spSites.find(s => s.id === spSelSiteId)
+      spMappings = [...spMappings, { ...r.library, libraryName: (site?.displayName || r.library.libraryName) }]
+      spSelSiteId = ''
+    } catch (e) {
+      spResolveError = e.message
+    }
+    spResolving = false
+  }
+  function spRemoveRow(i) { spMappings = spMappings.filter((_, j) => j !== i) }
+  const spSelGroupCount = $derived(Object.values(spSelGroups).filter(Boolean).length)
+
+  async function spSave() {
+    const groupIds = Object.keys(spSelGroups).filter(g => spSelGroups[g])
+    if (!confirm(
+      `Profil „${spProfileName}" deployen?\n\n` +
+      `Es wird ein PowerShell-Plattformskript „WIN - SharePointSync - ${spProfileName}" in Intune angelegt/aktualisiert ` +
+      `und ${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}. ` +
+      `Das Skript läuft im Benutzerkontext und schreibt die Bibliotheken direkt in HKCU — OneDrive übernimmt sie beim nächsten Anmelden (Fenster bis zu 8h, siehe Microsoft-Doku). Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.`
+    )) return
+    spSaving = true
+    spSaveMsg = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/sharepointmappings`, {
+        profileName: spProfileName, mappings: spMappings, groupIds
+      })
+      spSaveMsg = { ok: true, text: `✅ „${r.displayName}" ${r.updated ? 'aktualisiert' : 'angelegt'}${groupIds.length ? ` und ${groupIds.length} Gruppe(n) zugewiesen` : ''}.` }
+      spEditorOpen = false
+      await spLoad()
+    } catch (e) {
+      spSaveMsg = { ok: false, text: '❌ ' + e.message }
+    }
+    spSaving = false
+  }
 </script>
 
 <TenantContext>
@@ -464,4 +558,103 @@
       {/each}
     </div>
   {/if}
+
+  <div class="settings-group">
+    <h4>☁️ SharePoint-Sync-Mappings <small>(OneDrive „Configure team site libraries to sync automatically")</small></h4>
+    <p class="ld-section-hint">SharePoint-Bibliotheken auswählen — OneDrive synct sie beim nächsten Anmelden automatisch (Fenster bis zu 8h), ohne dass Nutzer die Site manuell besuchen/synchronisieren müssen. Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.</p>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick={spNew}>➕ Neues Sync-Profil</button>
+      <button class="btn btn-secondary" onclick={spLoad} disabled={spLoading}>{spLoading ? '…' : '🔄 Neu laden'}</button>
+    </div>
+
+    {#if spEditorOpen}
+      <div class="ld-job" style="margin-top:1rem; margin-bottom:1.5rem;">
+        <div class="ld-job-head"><strong>🛠 Sync-Profil-Konfigurator</strong>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (spEditorOpen = false)}>✕ schließen</button></div>
+
+        <div class="input-group" style="max-width:280px; margin-bottom:0.75rem;">
+          <label for="spName">Profilname</label>
+          <input id="spName" type="text" bind:value={spProfileName} placeholder="Standard" />
+        </div>
+
+        <div class="ld-oib-target">
+          <div class="input-group" style="max-width:420px;">
+            <label for="spSite">SharePoint-Site hinzufügen</label>
+            <select id="spSite" bind:value={spSelSiteId} disabled={spSitesLoading}>
+              <option value="">{spSitesLoading ? 'Lade Sites…' : '— Site wählen —'}</option>
+              {#each spSites as s (s.id)}<option value={s.id} title={s.webUrl}>{s.displayName}</option>{/each}
+            </select>
+          </div>
+          <button class="btn btn-secondary" onclick={spResolveAndAdd} disabled={!spSelSiteId || spResolving}>
+            {spResolving ? 'Löse auf…' : '+ Bibliothek hinzufügen'}
+          </button>
+        </div>
+        {#if spResolveError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ {spResolveError}</div>{/if}
+
+        {#if spMappings.length}
+          <div style="overflow-x:auto; margin-top:0.75rem;">
+            <table class="map-table">
+              <thead><tr><th>Bezeichnung</th><th>Site</th><th style="width:44px;"></th></tr></thead>
+              <tbody>
+                {#each spMappings as m, i}
+                  <tr>
+                    <td><input type="text" bind:value={m.libraryName} placeholder="Marketing-Dokumente" /></td>
+                    <td><small>{m.webUrl}</small></td>
+                    <td><button class="btn btn-secondary map-remove" onclick={() => spRemoveRow(i)} title="Zeile entfernen">✕</button></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <p class="ld-section-hint" style="margin-top:0.75rem;">Noch keine Bibliothek hinzugefügt — oben eine Site wählen.</p>
+        {/if}
+
+        <div class="ld-phase complete" style="margin-top:0.75rem;">
+          <div class="ld-phase-title">👥 Zuweisung ({spSelGroupCount} Gruppe{spSelGroupCount === 1 ? '' : 'n'})</div>
+          {#each groups as g (g.id)}
+            <label class="ld-oib-row">
+              <input type="checkbox" checked={!!spSelGroups[g.id]}
+                     onchange={(e) => (spSelGroups = { ...spSelGroups, [g.id]: e.target.checked })} />
+              <span class="ld-oib-name">{g.displayName}</span>
+            </label>
+          {/each}
+        </div>
+
+        <div class="ld-confirm-actions">
+          <button class="btn btn-primary" onclick={spSave} disabled={spSaving || !spProfileName.trim() || !spMappings.length}>
+            {spSaving ? 'Rolle aus…' : '🚀 Sync-Profil ausrollen'}
+          </button>
+        </div>
+        {#if spSaveMsg}<div class="ld-banner {spSaveMsg.ok ? 'ok' : 'fail'}" style="margin-top:0.5rem;">{spSaveMsg.text}</div>{/if}
+      </div>
+    {/if}
+
+    {#if spLoading && !spProfiles}
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-step running"><span class="ld-spinner"></span> Lade Sync-Profile…</div></div>
+    {:else if spError}
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">❌ {spError}</div></div>
+    {:else if spProfiles}
+      <div class="ld-job" style="margin-top:1rem;">
+        <div class="ld-job-head"><strong>☁️ Deployte Sync-Profile</strong>
+          <span class="ld-job-meta">{spProfiles.length}</span></div>
+        {#if !spProfiles.length}
+          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Sync-Profile — oben eines anlegen.</div>
+        {/if}
+        {#each spProfiles as p (p.id)}
+          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">☁️ {p.profileName}</div>
+            {#each (p.config?.mappings || []) as m}
+              <div class="ld-step ok"><span class="ld-ico">📁</span> {m.libraryName} <small>({m.webUrl})</small></div>
+            {/each}
+            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
+            <div class="ld-oib-target" style="margin-top:0;">
+              <button class="btn btn-secondary" onclick={() => spEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </TenantContext>
