@@ -25,6 +25,17 @@ git reset --hard origin/main
 echo "🐳 Building images (website + api)..."
 docker compose build
 
+# nginx-Konfiguration MIT der aktuellen ALLOWED_IPS/TRUSTED_PROXY-Env validieren,
+# BEVOR der laufende Stack angefasst wird. Der Entrypoint generiert dabei die
+# Allowlist-Includes und "nginx -t" prueft die fertige Config. Bei Fehler wird
+# abgebrochen und der laufende Stack bleibt unberuehrt (keine Downtime durch
+# z.B. eine kaputte ALLOWED_IPS-Angabe).
+echo "🔎 Validating nginx config (allowlist)..."
+if ! docker compose run --rm --no-deps -T website nginx -t; then
+  echo "ERROR: nginx-Konfiguration ungueltig — Deploy abgebrochen, laufender Stack unveraendert."
+  exit 1
+fi
+
 echo "♻️  Restarting stack..."
 docker compose down --remove-orphans
 sleep 3

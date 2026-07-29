@@ -1,0 +1,5 @@
+# Shell-Skripte laufen in Linux-Containern / auf dem Deploy-Runner und muessen
+# LF-Zeilenenden haben — sonst bricht z.B. die Shebang (#!/bin/sh\r).
+*.sh text eol=lf
+deploy.sh text eol=lf
+docker/40-allowlist.sh text eol=lf

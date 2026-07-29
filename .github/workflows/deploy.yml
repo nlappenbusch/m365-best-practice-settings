@@ -21,6 +21,13 @@ jobs:
           # Werden ueber deploy.sh an docker compose durchgereicht — nie im Repo-Code.
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
 
+          # --- Zugriffsschutz: IP-Allowlist (Secret) ---
+          # Leer/nicht gesetzt = keine Sperre. Kommagetrennt, IPs UND CIDR-Ranges,
+          # z.B. "83.150.41.64, 10.20.0.0/24". Neue IP freischalten = Secret ergaenzen.
+          ALLOWED_IPS: ${{ secrets.ALLOWED_IPS }}
+          # Optional (Variable): reale NPM-Quell-IP fuer korrekte Client-IP-Erkennung.
+          TRUSTED_PROXY: ${{ vars.TRUSTED_PROXY }}
+
           # --- Agent-Downloads: API-Keys (Secrets) ---
           # Leer/nicht gesetzt = der jeweilige Bereich im Tab bleibt inaktiv.
           BD_API_KEY: ${{ secrets.BD_API_KEY }}
