@@ -23,6 +23,7 @@
   import Wissen from './tabs/Wissen.svelte'
   import Downloads from './tabs/Downloads.svelte'
   import Tickets from './tabs/Tickets.svelte'
+  import Diagnose from './tabs/Diagnose.svelte'
 
   // Tickets nur fuer den freigeschalteten Nutzer -- die Durchsetzung passiert
   // serverseitig (403 auf /api/sdp, /api/runbooks), das hier ist nur die Sicht.
@@ -109,6 +110,7 @@
         {#if $session.ticketsAllowed}
           <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
         {/if}
+        <div class:tab-hidden={$activeTab !== 'diagnose'}><Diagnose /></div>
         <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
       </div>
     </main>

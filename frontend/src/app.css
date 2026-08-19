@@ -244,6 +244,26 @@ a { color: var(--accent); }
 }
 .tab-hidden { display: none; }
 
+/* ---- Diagnose: Server-Log ---- */
+.diag-log {
+    margin-top: 0.75rem;
+    max-height: 60vh;
+    overflow: auto;
+    background: var(--bg-inset);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.65rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+.diag-line { display: flex; gap: 0.65rem; padding: 0.1rem 0; border-bottom: 1px solid transparent; }
+.diag-line + .diag-line { border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent); }
+.diag-ts { color: var(--text-faint); flex-shrink: 0; }
+.diag-msg { white-space: pre-wrap; word-break: break-word; }
+.diag-line.warn .diag-msg { color: var(--warn); }
+.diag-line.err .diag-msg { color: var(--crit); }
+
 /* ---- Schmale Schirme: Leiste wird zur Schublade ---- */
 @media (max-width: 1024px) {
     .app-shell { grid-template-columns: minmax(0, 1fr); }

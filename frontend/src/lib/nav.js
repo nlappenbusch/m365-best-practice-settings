@@ -59,7 +59,9 @@ export const NAV_GROUPS = [
       { id: 'lizenzen', icon: '💰', label: 'Lizenzen',
         desc: 'Lizenzbestand, ungenutzte Seats und Lizenzen an inaktiven Konten' },
       { id: 'tickets', icon: '🎫', label: 'Tickets', isNew: true, gated: 'ticketsAllowed',
-        desc: 'SDP-Ticket-Copilot: offene Tickets, Runbooks, Worklogs' }
+        desc: 'SDP-Ticket-Copilot: offene Tickets, Runbooks, Worklogs' },
+      { id: 'diagnose', icon: '🩺', label: 'Diagnose', isNew: true,
+        desc: 'Server-Log der laufenden Instanz und Erreichbarkeitstest der Microsoft-Endpunkte' }
     ]
   },
   {

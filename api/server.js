@@ -22,6 +22,11 @@ const express = require("express");
 const session = require("express-session");
 const { spawn } = require("child_process");
 
+const SERVERLOG = require("./lib/serverlog");
+// Ab hier landen alle console-Ausgaben zusaetzlich im Ring-Puffer
+// (abrufbar ueber /api/serverlog) — stdout bleibt unveraendert.
+SERVERLOG.install();
+
 const EXO = require("./lib/exorunner");
 const DEPLOY = require("./lib/deploy");
 const OIB = require("./lib/oib");
@@ -395,10 +400,21 @@ app.use(session({
   cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 8 * 3600 * 1000 }
 }));
 
+function causeOf(e) {
+  const c = e && e.cause;
+  if (!c) return null;
+  const parts = [c.code, c.message].filter(Boolean);
+  return parts.length ? parts.join(" ") : null;
+}
+
 function wrap(fn) {
   return (req, res) => fn(req, res).catch(e => {
-    console.error(e.message);
-    res.status(e.status || 500).json({ error: e.message });
+    // "fetch failed" allein ist wertlos — bei Netzfehlern steckt der Grund
+    // (ENOTFOUND, ECONNREFUSED, ETIMEDOUT, Zertifikat) in e.cause.
+    const cause = causeOf(e);
+    const msg = cause ? `${e.message} (${cause})` : e.message;
+    console.error(`${req.method} ${req.originalUrl} -> ${e.status || 500}: ${msg}`);
+    res.status(e.status || 500).json({ error: msg });
   });
 }
 
@@ -514,6 +530,43 @@ app.use(["/api/sdp", "/api/runbooks"], (req, res, next) => {
   if (isTicketsAllowed(req)) return next();
   res.status(403).json({ error: "Kein Zugriff auf den Tickets-Bereich." });
 });
+
+// Server-Log der laufenden Instanz (letzte Zeilen, Geheimnisse maskiert).
+// Ersetzt "docker logs" bzw. "kubectl logs" fuer die schnelle Fehlersuche.
+app.get("/api/serverlog", (req, res) => {
+  res.json({ ok: true, max: SERVERLOG.MAX_ENTRIES, entries: SERVERLOG.list(req.query.limit) });
+});
+
+// Erreichbarkeitstest der Gegenstellen, die das Tool zwingend braucht.
+// Beantwortet die Frage "kommt der Container ueberhaupt raus?" ohne Shell im
+// Pod — im Cluster ist fehlender Egress die haeufigste Ursache fuer 500er
+// beim Onboarding (Device-Code-Start laeuft gegen login.microsoftonline.com).
+const EGRESS_TARGETS = [
+  { name: "Microsoft Login (Device-Code)", url: "https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize" },
+  { name: "Microsoft Graph", url: "https://graph.microsoft.com/v1.0/$metadata" },
+  { name: "Exchange Online", url: "https://outlook.office365.com/powershell-liveid" }
+];
+
+app.get("/api/diag/egress", wrap(async (req, res) => {
+  const results = [];
+  for (const t of EGRESS_TARGETS) {
+    const started = Date.now();
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(t.url, { method: "GET", signal: ctl.signal });
+      clearTimeout(timer);
+      results.push({ name: t.name, ok: true, status: r.status, ms: Date.now() - started });
+    } catch (e) {
+      results.push({
+        name: t.name, ok: false, ms: Date.now() - started,
+        error: e.name === "AbortError" ? "Zeitueberschreitung nach 8s" : e.message,
+        code: causeOf(e)
+      });
+    }
+  }
+  res.json({ ok: true, results });
+}));
 
 // SSO-Konfiguration schreiben/loeschen — nur fuer bereits angemeldete Admins.
 app.post("/api/sso/config", (req, res) => {
