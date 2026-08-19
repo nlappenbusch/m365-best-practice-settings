@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  website:
+    build: .
+    container_name: m365-security-website
+    restart: unless-stopped
+    environment:
+      # IP-Allowlist fuer den Tool-Zugriff (GitHub-Secret ALLOWED_IPS).
+      # Leer/nicht gesetzt = KEINE Sperre. Kommagetrennt, IPs UND CIDR-Ranges:
+      #   "83.150.41.64, 10.20.0.0/24"
+      - ALLOWED_IPS=${ALLOWED_IPS:-}
+      # Vertrauenswuerdiger Upstream (NPM) fuer X-Forwarded-For. Leer = private
+      # Default-Ranges. Fuer korrekte/spoof-sichere Client-IP hinter dem NPM
+      # hier die reale NPM-Quell-IP setzen (GitHub-Variable TRUSTED_PROXY).
+      - TRUSTED_PROXY=${TRUSTED_PROXY:-}
+    ports:
+      - "8082:80"
+    depends_on:
+      - api
+    networks:
+      - web
+
+  # Live-Deploy-Backend: wendet die Policies app-only per Exchange Online PowerShell an.
+  # Kein eigener Port nach aussen — nur ueber den nginx-Proxy (/api/) erreichbar.
+  api:
+    build: ./api
+    container_name: m365-security-api
+    restart: unless-stopped
+    environment:
+      # Optional vorbelegen; ohne ADMIN_PASSWORD wird beim ersten Start eins
+      # generiert und einmalig ins Container-Log geschrieben (docker logs m365-security-api).
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Agent-Downloads: API-Keys bleiben im Backend, nie im Browser.
+      # Ohne Key ist der jeweilige Bereich im Tab einfach inaktiv.
+      - BD_HOST=${BD_HOST:-cloudgz.gravityzone.bitdefender.com}
+      - BD_API_KEY=${BD_API_KEY:-}
+      # RMM_SERVER leer lassen = automatische Server-Erkennung (empfohlen)
+      - RMM_SERVER=${RMM_SERVER:-}
+      - RMM_API_KEY=${RMM_API_KEY:-}
+      # SDP-Ticket-Copilot (ServiceDesk Plus). SDP_BASE_URL nur setzen, wenn nicht
+      # die Standard-Instanz (sdp.igeeks.ch) gemeint ist.
+      - SDP_API_KEY=${SDP_API_KEY:-}
+      - SDP_BASE_URL=${SDP_BASE_URL:-}
+      - SDP_OWNER_ID=${SDP_OWNER_ID:-}
+      # KI-Vorschlag im Ticket-Copilot (Anthropic Messages API).
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+    volumes:
+      - api-state:/app/state
+    networks:
+      - web
+
+volumes:
+  api-state:
+
+networks:
+  web:
+    external: false

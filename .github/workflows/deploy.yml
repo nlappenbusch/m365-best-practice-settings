@@ -1,0 +1,48 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-m365-security
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+
+    steps:
+      - name: Deploy M365 Security Tool
+        env:
+          # Repo-Secrets/-Variables (Settings -> Secrets and variables -> Actions).
+          # Werden ueber deploy.sh an docker compose durchgereicht — nie im Repo-Code.
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+
+          # --- Zugriffsschutz: IP-Allowlist (Secret) ---
+          # Leer/nicht gesetzt = keine Sperre. Kommagetrennt, IPs UND CIDR-Ranges,
+          # z.B. "83.150.41.64, 10.20.0.0/24". Neue IP freischalten = Secret ergaenzen.
+          ALLOWED_IPS: ${{ secrets.ALLOWED_IPS }}
+          # Optional (Variable): reale NPM-Quell-IP fuer korrekte Client-IP-Erkennung.
+          TRUSTED_PROXY: ${{ vars.TRUSTED_PROXY }}
+
+          # --- Agent-Downloads: API-Keys (Secrets) ---
+          # Leer/nicht gesetzt = der jeweilige Bereich im Tab bleibt inaktiv.
+          BD_API_KEY: ${{ secrets.BD_API_KEY }}
+          RMM_API_KEY: ${{ secrets.RMM_API_KEY }}
+          SDP_API_KEY: ${{ secrets.SDP_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # --- Optional (Variables, nicht sensibel) ---
+          # Leer lassen ist der Normalfall: BD_HOST faellt auf den GravityZone-
+          # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung,
+          # SDP_BASE_URL/SDP_OWNER_ID fallen auf die iGeeks-Standardwerte zurueck,
+          # ANTHROPIC_MODEL faellt auf einen aktuellen Claude-Sonnet-Stand zurueck.
+          BD_HOST: ${{ vars.BD_HOST }}
+          RMM_SERVER: ${{ vars.RMM_SERVER }}
+          SDP_BASE_URL: ${{ vars.SDP_BASE_URL }}
+          SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+        run: bash /opt/m365-security/deploy.sh

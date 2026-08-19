@@ -1,93 +1,265 @@
-# M365 Configurator
+# M365 Best Practice Settings
 
+**igeeks Security Policy Manager** – Web-basiertes Tool zur Konfiguration und Deployment von Microsoft 365 Security Best Practices.
 
+## Features
 
-## Getting started
+- 🛡️ **Anti-Phishing Policy** Configuration
+- 📧 **Anti-Spam Policy** Settings
+- 🦠 **Anti-Malware Policy** Management
+- 🔔 **Alert Policies** für Quarantine Notifications
+- 📦 **Quarantine Policies** mit Self-Service & Admin-Approval
+- 📜 **PowerShell Script Export** für automatisches Deployment
+- 💾 **JSON Export/Import** für Konfigurationsverwaltung
+- 📄 **Markdown Documentation Export**
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Deployment
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### Lokal testen
 
-## Add your files
+Einfach `index.html` im Browser öffnen.
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### Produktion
+
+Automatisches Deployment via GitHub Actions:
+
+```bash
+git add .
+git commit -m "Update configuration"
+git push
+```
+
+→ Container wird automatisch auf dem Docker-Server neu gebaut und deployed.
+
+**Live URL:** https://m365-security.igeeks.ch
+
+## Technologie
+
+- **Frontend:** Vanilla HTML/CSS/JavaScript
+- **Deployment:** Docker + Nginx
+- **CI/CD:** GitHub Actions mit Self-hosted Runner
+- **Proxy:** Nginx Proxy Manager
+
+## Lizenz
+
+© 2026 igeeks AG
+
+Ein interaktives Web-Tool zur Verwaltung und Dokumentation von Microsoft 365 Security Policies nach igeeks Best Practices.
+
+## 🎯 Features
+
+- **Interaktive Konfiguration** aller Security Policies (Anti-Phishing, Anti-Spam, Anti-Malware, Quarantine)
+- **Domain & Email Anpassung** - Einfache Anpassung von Domains und Admin-E-Mails
+- **PowerShell Export** - Generierung von Deployment- und Verification-Scripts
+- **Umfassende Dokumentation** - Best Practice Erklärungen und Delta-Analyse
+- **Settings-as-Code** - Exportierbare PowerShell-Scripts für automatisierte Deployments
+
+## 🚀 Verwendung
+
+### Lokale Nutzung
+
+1. Öffne `index.html` in einem modernen Browser (Chrome, Edge, Firefox)
+2. Passe die globalen Einstellungen an (Domain, Admin-Email)
+3. Konfiguriere die einzelnen Policies nach Bedarf
+4. Exportiere die PowerShell-Scripts über den "Export PowerShell" Button
+
+### Deployment in M365
+
+1. Generiere das PowerShell-Script über die Export-Funktion
+2. Verbinde dich mit Exchange Online PowerShell:
+   ```powershell
+   Connect-ExchangeOnline
+   ```
+3. Führe das generierte Script aus
+4. Verifiziere die Konfiguration mit dem Verification-Script
+
+## 📋 Konfigurierte Policies
+
+### 1. Anti-Phishing Policy (`BP_AntiPhishing`)
+
+- **Spoof Intelligence** aktiviert
+- **DMARC Honor Policy** aktiviert
+- **First Contact Safety Tips** aktiviert
+- **Differenzierte Aktionen** basierend auf DMARC-Policy
+
+**⚠️ Wichtig:** Die Quarantine Policy für Spoof-Fälle kann nur per PowerShell zugewiesen werden:
+
+```powershell
+Set-AntiPhishPolicy -Identity "BP_AntiPhishing" `
+    -SpoofQuarantineTag "BP_Quarantine-SelfReleaseNotification"
+```
+
+### 2. Anti-Spam Inbound Policy (`BP_AntiSpam_Inbound`)
+
+- **Bulk Threshold:** 7
+- **Legacy-ASF-Optionen (Advanced Spam Filter): Off** — entspricht der
+  Microsoft-Empfehlung und den Microsoft Standard-/Strict-Presets. Die
+  ASF-Schalter übersteuern ARC/Composite-Authentication, erzeugen False
+  Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie SEPPmail)
+  und ASF-Treffer sind nicht als False Positive meldbar. Im Tool bei Bedarf
+  gezielt aktivierbar.
+- **Differenzierte Aktionen:**
+  - Spam/Bulk → Quarantine (Self-Release-Policy)
+  - Phishing → Quarantine (Self-Release-Policy)
+  - High Confidence Phishing → Quarantine (Request-Release-Policy)
+
+### 3. Anti-Malware Policy (`BP_AntiMalware`)
+
+- **Common Attachments Filter** aktiviert
+- **47+ Custom File Types** blockiert
+- **Zero-Hour Auto Purge (ZAP)** aktiviert
+- **Admin Notifications** konfiguriert
+
+### 4. Quarantine Policies
+
+#### `BP_Quarantine-SelfReleaseNotification` (Permissions-Wert 59)
+Für Spam, Bulk, Spoof und normale Phishing-Fälle:
+- ✅ Request Release
+- ✅ Allow Sender
+- ✅ Block Sender
+- ✅ Preview
+- ✅ Delete
+- ✅ Notifications (inkl. Nachrichten von blockierten Absendern)
+- ❌ Direct Release
+
+#### `BP_Quarantine-RequestReleaseNotification` (Permissions-Wert 26)
+Für High Confidence Phishing und Malware mit Admin-Kontrolle:
+- ✅ Request Release
+- ✅ Block Sender
+- ✅ Preview
+- ✅ Notifications (ohne Nachrichten von blockierten Absendern)
+- ❌ Allow Sender
+- ❌ Delete
+- ❌ Direct Release
+
+## 🔐 Warum eigene Quarantine Policies?
+
+Microsoft Default Quarantine Policies haben folgende Probleme:
+
+- ❌ Unklare Userrechte
+- ❌ Inkonsistente Freigabelogik
+- ❌ Keine granular steuerbare Benachrichtigungen
+- ❌ Keine definierte Release-Governance
+- ❌ Intransparente User Experience
+
+**igeeks Lösung:** Zwei differenzierte Policies für unterschiedliche Risikostufen mit klaren Benutzerrechten und konsistenten Notifications.
+
+## 📊 Delta-Analyse: AppRiver → M365
+
+### ✅ Abgedeckt
+
+| AppRiver Feature | M365 Mapping | Status |
+|-----------------|--------------|--------|
+| SPF/DKIM/DMARC | AntiSpam + AntiPhish | ✅ |
+| Banned File Extensions | Anti-Malware Filter | ✅ |
+| Phishing Tests | Anti-Phishing Policy | ✅ |
+| Quarantine Workflow | Custom Quarantine Policies | ✅ |
+
+### ⚠️ Lizenz-bedingte Lücken
+
+**Ohne Defender for Office 365 nicht verfügbar:**
+
+- **Safe Links** - URL Rewrite + Time-of-click Protection
+- **Safe Attachments** - Sandbox / Detonation / Dynamic Delivery
+
+**Empfohlene Kompensation:**
+
+1. Tenant Allow/Block List sauber pflegen
+2. Erweiterte Custom File Types
+3. User Awareness Training
+
+## 🛠️ Technische Details
+
+### Projektstruktur
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.igeeks.ch/igeeks/igeeks-apps/m365-configurator.git
-git branch -M main
-git push -uf origin main
+m365-best-practice-settings/
+├── index.html          # Haupt-Interface
+├── styles.css          # Microsoft 365 Design System
+├── app.js              # Konfiguration & Export-Logik
+├── livedeploy.js       # Frontend für Live-Deploy (Tab "🚀 Live-Deploy")
+├── api/                # Live-Deploy-Backend (Node + pwsh im Container)
+│   ├── server.js       # Login, Tenant-Onboarding (Device-Code), Deploy-API
+│   ├── lib/exorunner.js# App-only Connect-ExchangeOnline via Zertifikat
+│   ├── lib/deploy.js   # Config-Validierung + PowerShell-Body-Generator
+│   └── Dockerfile      # node:20 + PowerShell 7 + ExchangeOnlineManagement
+└── README.md           # Diese Datei
 ```
 
-## Integrate with your tools
+### Browser-Kompatibilität
 
-* [Set up project integrations](https://gitlab.igeeks.ch/igeeks/igeeks-apps/m365-configurator/-/settings/integrations)
+- ✅ Chrome/Edge 90+
+- ✅ Firefox 88+
+- ✅ Safari 14+
 
-## Collaborate with your team
+### Server-Komponente optional
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Die Konfigurations- und Export-Funktionen laufen vollständig im Browser. Für den
+**Live-Deploy** (Tab "🚀 Live-Deploy") läuft zusätzlich das Backend aus `api/`
+im Docker-Stack — im rein statischen Betrieb zeigt der Tab einen Hinweis und
+die generierten PowerShell-Skripte bleiben der Weg zum Deployment.
 
-## Test and Deploy
+## 🚀 Live-Deploy (Policies direkt anwenden)
 
-Use the built-in continuous integration in GitLab.
+Statt das generierte Skript manuell auszuführen, kann das Tool die Policies
+direkt in einen Tenant deployen:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+1. **Backend-Login**: Zugangsdaten stehen beim ersten Start im Container-Log
+   (`docker logs m365-security-api`) oder werden über `ADMIN_PASSWORD` in der
+   Compose-Umgebung vorgegeben.
+2. **Tenant onboarden** (einmalig pro Tenant): Admin meldet sich per
+   Device-Code an. Dabei wird automatisch angelegt:
+   - App-Registrierung `M365-Security-Policy-Manager`
+   - API-Permission `Exchange.ManageAsApp` (Office 365 Exchange Online) inkl. Admin-Consent
+   - Entra-Rollen **Exchange Administrator** (Policies) und **Compliance
+     Administrator** (Alert Policy via Security & Compliance PowerShell)
+   - Self-signed Zertifikat (Public Key in der App, PEM im Backend-Volume `api-state`)
+3. **Deploy**: wendet die aktuelle Konfiguration idempotent an — Quarantine-,
+   Anti-Phishing-, Anti-Spam- und Anti-Malware-Policies inkl. Rules (app-only
+   `Connect-ExchangeOnline`) mit Live-Fortschritt. Vorhandene `BP_`-Policies
+   werden aktualisiert statt übersprungen.
+4. **🔎 Prüfen**: liest den Ist-Zustand der BP_-Policies live aus dem Tenant und
+   zeigt einen Soll/Ist-Vergleich gegen die aktuelle Konfiguration.
 
-***
+**Alert Policy = manueller Mini-Schritt:** Security & Compliance PowerShell
+(`Connect-IPPSSession`) ist laut Microsoft-Doku auf Linux nicht verfügbar — der
+Backend-Container kann `BP_UserRequestReleaseStatus` daher nicht selbst anlegen.
+Das Deploy-Ergebnis liefert stattdessen ein fertiges Snippet zum einmaligen
+Ausführen auf einem Windows-Rechner (Single-Event-Alert via
+`-AggregationType None`, kein E5 nötig).
 
-# Editing this README
+**Hinweis:** Frisch onboardete Tenants brauchen wenige Minuten
+Entra-Replikationszeit, bevor der erste Verbindungstest/Deploy klappt. Tenants,
+die vor der Alert-Policy-Erweiterung onboardet wurden, einfach neu onboarden —
+dabei wird die fehlende Compliance-Administrator-Rolle ergänzt (App und
+Zertifikat bleiben erhalten bzw. werden erneuert).
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## 📖 Verwendete Standards
 
-## Suggestions for a good README
+- **Microsoft 365 Security Best Practices**
+- **igeeks Security Guidelines**
+- **RFC-konforme DMARC Enforcement**
+- **Zero Trust Security Principles**
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## 🎨 Design
 
-## Name
-Choose a self-explaining name for your project.
+Das Tool verwendet das offizielle Microsoft 365 Design System:
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+- **Farben:** Microsoft Blue (#0078D4), Teal (#00BCF2), Light Blue (#50E6FF)
+- **Typography:** Inter Font Family
+- **Animations:** Smooth transitions und micro-interactions
+- **Responsive:** Mobile-first Design
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 📝 Lizenz
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+© 2026 igeeks - Internes Tool für M365 Security Policy Management
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## 🤝 Support
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Bei Fragen oder Problemen wende dich an das igeeks Security Team.
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+---
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+**Version:** 1.0.0  
+**Letzte Aktualisierung:** 2026-02-12  
+**Maintainer:** igeeks Security Team

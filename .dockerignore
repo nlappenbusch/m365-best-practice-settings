@@ -1,0 +1,8 @@
+# Build-Kontext schlank halten UND — wichtig — verhindern, dass lokale
+# node_modules (Windows-Binaries) im Alpine-Build das npm-ci-Ergebnis ueberschreiben.
+**/node_modules
+**/dist
+.git
+.github
+*.log
+frontend/.vite
