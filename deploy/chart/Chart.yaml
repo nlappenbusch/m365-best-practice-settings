@@ -1,0 +1,6 @@
+apiVersion: v2
+name: m365-configurator
+description: igeeks M365 Security Policy Manager — Svelte-SPA (nginx) + Live-Deploy-API (Node + PowerShell/EXO)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

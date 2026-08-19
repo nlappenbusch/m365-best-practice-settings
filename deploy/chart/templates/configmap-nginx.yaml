@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: m365-configurator-nginx
+data:
+  # k8s-Variante der repo-eigenen nginx.conf: statt Docker-DNS-Resolver
+  # (127.0.0.11) + Upstream-Variable wird der API-Service statisch referenziert
+  # (Cluster-DNS über resolv.conf-Searchpath, Auflösung beim nginx-Start).
+  # Alles andere ist 1:1 die nginx.conf aus dem Repo-Root.
+  default.conf: |
+    # TLS terminiert im Traefik davor — dieser nginx laeuft auf Port 80.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $http_x_forwarded_proto;
+        ""      $scheme;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Reale Client-IP + optionale IP-Allowlist (aus ENV generiert,
+        # docker/40-allowlist.sh — funktioniert im k8s-Pod unverändert)
+        include /etc/nginx/real_ip.conf;
+        include /etc/nginx/allowlist.conf;
+
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+        # Agent-Downloads: grosse Datei-Streams ohne Buffering
+        location /api/downloads/ {
+            proxy_pass http://m365-configurator-api:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+            proxy_buffering off;
+            proxy_request_buffering off;
+        }
+
+        # Live-Deploy-Backend (EXO-Deploys koennen mehrere Minuten dauern)
+        location /api/ {
+            proxy_pass http://m365-configurator-api:3000;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            proxy_read_timeout 900s;
+            proxy_send_timeout 900s;
+        }
+
+        # SPA: alles Nicht-Datei auf index.html; index.html nie cachen
+        location / {
+            try_files $uri $uri/ /index.html;
+            add_header Cache-Control "no-cache" always;
+        }
+
+        location ~* \.(js|css)$ {
+            add_header Cache-Control "no-cache";
+        }
+
+        location ~* \.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 30d;
+            add_header Cache-Control "public";
+        }
+
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+    }

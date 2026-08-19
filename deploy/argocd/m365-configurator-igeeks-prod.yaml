@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: m365-configurator
+  namespace: argocd
+  finalizers: [ resources-finalizer.argocd.argoproj.io ]
+spec:
+  project: default
+  source:
+    repoURL: https://gitlab.igeeks.ch/igeeks/igeeks-apps/m365-configurator.git
+    targetRevision: main
+    path: deploy/chart
+    plugin:
+      name: argocd-vault-plugin-helm-with-args
+      env: [ { name: helm_args, value: "-f values-igeeks-prod.yaml" } ]
+  destination: { server: https://kubernetes.default.svc, namespace: m365-configurator }
+  syncPolicy:
+    syncOptions: [ CreateNamespace=true, ApplyOutOfSyncOnly=true ]   # kein automated (Prod-Gate)

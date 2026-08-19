@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: m365-configurator-website
+  labels: { app.kubernetes.io/name: m365-configurator, app.kubernetes.io/component: website }
+spec:
+  replicas: {{ .Values.website.replicas }}
+  selector:
+    matchLabels:
+      {{- include "m365c.websiteLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "m365c.websiteLabels" . | nindent 8 }}
+      annotations:
+        checksum/nginx-conf: {{ include (print $.Template.BasePath "/configmap-nginx.yaml") . | sha256sum }}
+    spec:
+      imagePullSecrets: [ { name: m365-configurator-registry } ]
+      containers:
+        - name: website
+          image: "{{ .Values.image.websiteRepository }}:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [ { name: http, containerPort: 80 } ]
+          env:
+            - { name: ALLOWED_IPS, value: {{ .Values.website.allowedIps | quote }} }
+            - { name: TRUSTED_PROXY, value: {{ .Values.website.trustedProxy | quote }} }
+          volumeMounts:
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+          readinessProbe: { httpGet: { path: /, port: http }, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 5 }
+          livenessProbe:  { httpGet: { path: /, port: http }, initialDelaySeconds: 15, periodSeconds: 30, timeoutSeconds: 5 }
+          resources:
+            {{- toYaml .Values.website.resources | nindent 12 }}
+      volumes:
+        - name: nginx-conf
+          configMap: { name: m365-configurator-nginx }

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: m365-configurator-api
+  labels: { app.kubernetes.io/name: m365-configurator, app.kubernetes.io/component: api }
+spec:
+  replicas: {{ .Values.api.replicas }}
+  strategy: { type: Recreate }            # RWO-State-PVC + In-Memory-Sessions: single writer
+  selector:
+    matchLabels:
+      {{- include "m365c.apiLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "m365c.apiLabels" . | nindent 8 }}
+    spec:
+      imagePullSecrets: [ { name: m365-configurator-registry } ]
+      containers:
+        - name: api
+          image: "{{ .Values.image.apiRepository }}:{{ .Values.imageTag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [ { name: http, containerPort: 3000 } ]
+          env:
+            - { name: PORT, value: "3000" }
+            - { name: STATE_DIR, value: {{ .Values.api.persistence.mountPath | quote }} }
+            - { name: ADMIN_USER, value: {{ .Values.api.adminUser | quote }} }
+            - { name: BD_HOST, value: {{ .Values.api.bdHost | quote }} }
+            - { name: RMM_SERVER, value: {{ .Values.api.rmmServer | quote }} }
+            - { name: SDP_BASE_URL, value: {{ .Values.api.sdpBaseUrl | quote }} }
+            - { name: SDP_OWNER_ID, value: {{ .Values.api.sdpOwnerId | quote }} }
+            - { name: ANTHROPIC_MODEL, value: {{ .Values.api.anthropicModel | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ADMIN_PASSWORD } }
+            - name: BD_API_KEY
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: BD_API_KEY } }
+            - name: RMM_API_KEY
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: RMM_API_KEY } }
+            - name: SDP_API_KEY
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: SDP_API_KEY } }
+            - name: ANTHROPIC_API_KEY
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ANTHROPIC_API_KEY } }
+          volumeMounts:
+            - { name: state, mountPath: {{ .Values.api.persistence.mountPath }} }
+          readinessProbe: { httpGet: { path: /api/health, port: http }, initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 5 }
+          livenessProbe:  { httpGet: { path: /api/health, port: http }, initialDelaySeconds: 30, periodSeconds: 30, timeoutSeconds: 5 }
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+      volumes:
+        - name: state
+          persistentVolumeClaim: { claimName: m365-configurator-api-state }

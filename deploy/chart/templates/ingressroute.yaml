@@ -1,0 +1,10 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata: { name: m365-configurator }
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`{{ .Values.host }}`)
+      kind: Rule
+      services: [ { name: m365-configurator, port: 80 } ]
+  tls: { secretName: m365-configurator-tls }

@@ -1,0 +1,39 @@
+host: m365-configurator.igeeks-prod.igeeks.cloud
+vaultCluster: igeeks-k8s-201
+issuer: letsencrypt-azuredns
+
+# Ein Tag für beide Images — wird von der CI auf den Commit-SHA gebumpt
+imageTag: bootstrap
+image:
+  websiteRepository: registry.igeeks.ch/igeeks/igeeks-apps/m365-configurator/website
+  apiRepository: registry.igeeks.ch/igeeks/igeeks-apps/m365-configurator/api
+  pullPolicy: IfNotPresent
+
+website:
+  replicas: 1
+  # IP-Allowlist des nginx (leer = kein Filter; Zugriff ist eh VPN-only).
+  # Kommagetrennt, IPs und CIDR: "83.150.41.64, 10.20.0.0/24"
+  allowedIps: ""
+  # Vertrauenswürdige Upstreams für X-Forwarded-For (leer = private Ranges,
+  # deckt den externen Traefik 10.0.160.50 ab)
+  trustedProxy: ""
+  resources:
+    requests: { cpu: 50m,  memory: 64Mi }
+    limits:   { cpu: 500m, memory: 128Mi }
+
+api:
+  replicas: 1                     # express-session (in-memory) + State-File ⇒ 1
+  adminUser: admin
+  # Optionale Integrationen (leer = Bereich im Tool inaktiv bzw. Default-Host):
+  bdHost: ""
+  rmmServer: ""
+  sdpBaseUrl: ""
+  sdpOwnerId: ""
+  anthropicModel: ""
+  persistence:
+    storageClass: longhorn
+    size: 2Gi
+    mountPath: /app/state         # state.json, Session-/Cert-State, Intune-Backups
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits:   { cpu: "1",  memory: 1536Mi }   # pwsh + ExchangeOnlineManagement braucht Luft

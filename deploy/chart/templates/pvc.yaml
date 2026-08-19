@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: m365-configurator-api-state }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.api.persistence.storageClass }}
+  resources: { requests: { storage: {{ .Values.api.persistence.size }} } }
