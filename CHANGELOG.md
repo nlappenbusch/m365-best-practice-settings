@@ -1,5 +1,31 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.4 - Neue Navigation: Seitenleiste statt Tab-Leiste (2026-08-19)
+
+### 🧭 Linke Seitenleiste, nach Arbeitsablauf gruppiert
+
+Die zwölf Bereiche lagen bisher als flache Pillen-Leiste nebeneinander — auf
+schmaleren Schirmen musste man horizontal scrollen, und die Gruppen waren nur
+als dünner Strich erkennbar. Neu:
+
+- **Seitenleiste links** mit sichtbaren Gruppenüberschriften:
+  *Start* (Tenants, Vorlage) → *Mail-Security* (Ausrollen, Audit) →
+  *Identität* (Conditional Access) → *Geräte* (Intune, Autopilot, Mappings,
+  Agents) → *Betrieb* (Lizenzen, Tickets) → *Referenz* (Wissen).
+  Die Reihenfolge entspricht dem Einrichtungs-Assistenten aus dem Tenants-Tab:
+  von oben nach unten abarbeiten ergibt die richtige Reihenfolge.
+- **Einklappbar** auf reine Icons (Zustand bleibt in localStorage gespeichert).
+- **Schlanke Kopfzeile** zeigt den Namen des aktuellen Bereichs plus eine Zeile,
+  was er tut — daneben nur noch Tenant-Umschalter, Session und Darstellung.
+  Die Export-/Import-Schaltflächen erscheinen weiterhin nur im Bereich *Vorlage*.
+- **Schmale Schirme**: Die Leiste wird zur Schublade hinter einem Menü-Knopf
+  (schliesst per Auswahl, Backdrop-Klick oder Escape).
+- **Zuletzt offener Bereich** wird gemerkt; Startbereich ist neu *Tenants*
+  (dort wird der Kunde gewählt — alles Weitere arbeitet gegen diesen Tenant).
+
+Die Bereiche selbst sind unverändert und bleiben wie bisher alle gemountet,
+damit laufende Device-Code- und Job-Polls beim Wechsel nicht abbrechen.
+
 ## Version 2.3 - Autopilot-Paket-Generator (2026-07-19)
 
 ### 🚀 Neu: Autopilot-Staging-Paket pro Tenant

@@ -3,6 +3,9 @@
   import { session, refreshSession } from './lib/session.js'
   import { theme, cycleTheme } from './lib/theme.js'
   import { activeTab } from './lib/tabStore.js'
+  import { navItem } from './lib/nav.js'
+  import { mobileNavOpen, toggleMobileNav, closeMobileNav } from './lib/sidebarStore.js'
+  import Sidebar from './lib/Sidebar.svelte'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
   import LoginScreen from './lib/LoginScreen.svelte'
@@ -21,33 +24,15 @@
   import Downloads from './tabs/Downloads.svelte'
   import Tickets from './tabs/Tickets.svelte'
 
-  // Gruppiert nach Themenbereich (nur visuell — Klickverhalten bleibt ein
-  // flacher Tab-Wechsel wie zuvor, keine zweite Navigationsebene). Ein
-  // Gruppenwechsel bekommt einen dezenten Trenner in der Leiste.
-  const tabs = [
-    { id: 'config',      label: '⚙️ Vorlage',    group: 'Einrichtung' },
-    { id: 'tenants',     label: '🏢 Tenants',    group: 'Einrichtung' },
-    { id: 'mailsec',     label: '🛡 Mail-Security', group: 'Mail-Security' },
-    { id: 'audit',       label: '🔎 Audit',      group: 'Mail-Security' },
-    { id: 'intune',      label: '💻 Intune',     group: 'Geräte' },
-    { id: 'autopilot',   label: '🚀 Autopilot',  group: 'Geräte' },
-    { id: 'mappings',    label: '🗺️ Mappings', group: 'Geräte', isNew: true },
-    { id: 'downloads',   label: '📦 Agents',     group: 'Geräte' },
-    { id: 'ca',          label: '🔐 Conditional Access', group: 'Identität' },
-    { id: 'lizenzen',    label: '💰 Lizenzen',   group: 'Lizenzen' },
-    { id: 'tickets',     label: '🎫 Tickets',    group: 'Ticketing', isNew: true },
-    { id: 'wissen',      label: '📖 Wissen',     group: 'Referenz' }
-  ]
-  // Tickets-Tab nur fuer den freigeschalteten SSO-Nutzer + lokalen Login
-  // sichtbar -- die eigentliche Durchsetzung passiert serverseitig (403 auf
-  // /api/sdp, /api/runbooks), das hier ist nur die Nav-Sichtbarkeit.
-  let visibleTabs = $derived(tabs.filter(t => t.id !== 'tickets' || $session.ticketsAllowed))
-
+  // Tickets nur fuer den freigeschalteten Nutzer -- die Durchsetzung passiert
+  // serverseitig (403 auf /api/sdp, /api/runbooks), das hier ist nur die Sicht.
   $effect(() => {
     if ($activeTab === 'tickets' && $session.ready && !$session.ticketsAllowed) {
-      activeTab.set('config')
+      activeTab.set('tenants')
     }
   })
+
+  let current = $derived(navItem($activeTab))
 
   const THEME_META = {
     auto:  { icon: '🌓', label: 'Auto' },
@@ -68,16 +53,28 @@
   onMount(refreshSession)
 </script>
 
-<div class="app-container">
-  <header class="app-header">
-    <div class="header-content">
-      <div class="logo-section">
-        <div class="logo-mark" aria-hidden="true">🛡️</div>
-        <h1 title="Best Practice Configuration &amp; Autopilot Staging">M365 Security Policy Manager</h1>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && closeMobileNav()} />
+
+<div class="app-shell">
+  <Sidebar />
+
+  <!-- Abdunkelung hinter der Off-Canvas-Schublade (nur auf schmalen Schirmen sichtbar) -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="sb-backdrop" class:show={$mobileNavOpen} onclick={closeMobileNav}></div>
+
+  <div class="workspace">
+    <header class="topbar">
+      <button class="topbar-burger" onclick={toggleMobileNav} aria-label="Menü öffnen">☰</button>
+
+      <div class="topbar-title">
+        <h1>{current ? `${current.icon} ${current.label}` : 'M365 Security Policy Manager'}</h1>
+        {#if current}<p>{current.desc}</p>{/if}
       </div>
-      <div class="header-actions">
+
+      <div class="topbar-actions">
         {#if $activeTab === 'config'}
-          <div style="display:flex;gap:.5rem">
+          <div class="topbar-context">
             <button class="btn btn-secondary" onclick={doImport}>Import</button>
             <button class="btn btn-secondary" onclick={exportJson}>Export JSON</button>
             <button class="btn btn-secondary" onclick={exportDocs}>Export Doku</button>
@@ -85,51 +82,43 @@
           </div>
         {/if}
         <button class="btn btn-secondary theme-toggle" onclick={cycleTheme}
-                title="Darstellung: {THEME_META[$theme].label} (klicken zum Wechseln)">
-          {THEME_META[$theme].icon} {THEME_META[$theme].label}
+                title="Darstellung: {THEME_META[$theme].label} (klicken zum Wechseln)"
+                aria-label="Darstellung wechseln">
+          <span aria-hidden="true">{THEME_META[$theme].icon}</span>
+          <span class="theme-toggle-label">{THEME_META[$theme].label}</span>
         </button>
         <TenantSwitcher onManage={() => ($activeTab = 'tenants')} />
         <SessionWidget />
       </div>
-    </div>
-  </header>
+    </header>
 
-  <main class="main-content">
-    <nav class="tabs">
-      {#each visibleTabs as t, i}
-        {#if i > 0 && visibleTabs[i - 1].group !== t.group}<span class="tab-group-sep" aria-hidden="true"></span>{/if}
-        <button class="tab-btn" class:active={$activeTab === t.id} onclick={() => ($activeTab = t.id)}>
-          {t.label}
-          {#if t.isNew}<span class="tab-pill-new">Neu</span>{/if}
-        </button>
-      {/each}
-    </nav>
-
-    <!-- Alle Tabs bleiben gemountet (nur via CSS versteckt), damit laufende
-         Device-Code-/Job-Polls beim Tab-Wechsel nicht abbrechen. -->
-    <div class="tab-content">
-      <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
-      <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
-      <div class:tab-hidden={$activeTab !== 'mailsec'}><MailSecurity /></div>
-      <div class:tab-hidden={$activeTab !== 'audit'}><Audit /></div>
-      <div class:tab-hidden={$activeTab !== 'intune'}><Intune /></div>
-      <div class:tab-hidden={$activeTab !== 'autopilot'}><Autopilot /></div>
-      <div class:tab-hidden={$activeTab !== 'ca'}><ConditionalAccess /></div>
-      <div class:tab-hidden={$activeTab !== 'lizenzen'}><Lizenzen /></div>
-      <div class:tab-hidden={$activeTab !== 'mappings'}><Mappings /></div>
-      <div class:tab-hidden={$activeTab !== 'downloads'}><Downloads /></div>
-      {#if $session.ticketsAllowed}
-        <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
-      {/if}
-      <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
-    </div>
-  </main>
+    <!-- Alle Bereiche bleiben gemountet (nur via CSS versteckt), damit laufende
+         Device-Code-/Job-Polls beim Wechsel nicht abbrechen. -->
+    <main class="content">
+      <div class="content-card">
+        <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
+        <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
+        <div class:tab-hidden={$activeTab !== 'mailsec'}><MailSecurity /></div>
+        <div class:tab-hidden={$activeTab !== 'audit'}><Audit /></div>
+        <div class:tab-hidden={$activeTab !== 'intune'}><Intune /></div>
+        <div class:tab-hidden={$activeTab !== 'autopilot'}><Autopilot /></div>
+        <div class:tab-hidden={$activeTab !== 'ca'}><ConditionalAccess /></div>
+        <div class:tab-hidden={$activeTab !== 'lizenzen'}><Lizenzen /></div>
+        <div class:tab-hidden={$activeTab !== 'mappings'}><Mappings /></div>
+        <div class:tab-hidden={$activeTab !== 'downloads'}><Downloads /></div>
+        {#if $session.ticketsAllowed}
+          <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
+        {/if}
+        <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
+      </div>
+    </main>
+  </div>
 </div>
 
 <ExportModal open={exportOpen} onclose={() => (exportOpen = false)} />
 
 <!-- Vollbild-Login-Gate (SSO primaer, Passwort-Fallback) — liegt ueber allem,
-     solange die Session nicht angemeldet ist. Die Tabs bleiben darunter
+     solange die Session nicht angemeldet ist. Die Bereiche bleiben darunter
      gemountet, damit nichts an laufendem Zustand verloren geht. -->
 <LoginScreen />
 

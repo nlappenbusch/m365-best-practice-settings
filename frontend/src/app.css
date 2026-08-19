@@ -90,78 +90,203 @@ body {
 
 a { color: var(--accent); }
 
-/* ---------------- Shell ---------------- */
-.app-container { max-width: 1360px; margin: 0 auto; padding: 0.7rem 1.5rem 2rem; }
-
-.app-header {
-    background: var(--bg-raised);
-    border: 1px solid var(--rule);
-    border-top: 3px solid var(--accent);
-    border-radius: var(--radius-lg);
-    padding: 0.5rem 1.1rem;
-    margin-bottom: 0.6rem;
-    box-shadow: var(--shadow-sm);
+/* ---------------- Shell: Seitenleiste + Arbeitsbereich ----------------
+   Links eine feste Navigation (nach Arbeitsablauf gruppiert, einklappbar),
+   rechts eine schlanke Kopfzeile mit dem Namen des aktuellen Bereichs plus
+   Tenant/Session. Auf schmalen Schirmen wird die Leiste zur Schublade.
+   ---------------------------------------------------------------------- */
+:root {
+    --sb-width: 236px;
+    --sb-width-collapsed: 64px;
+    --topbar-h: 54px;
 }
-.header-content { display: flex; justify-content: space-between; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
-.logo-section { display: flex; align-items: center; gap: 0.65rem; }
-.logo-mark {
+
+/* Die Breite steckt in --sb-width am Wurzelelement (sidebarStore setzt
+   data-sidebar="collapsed"), damit Spalte und Leiste garantiert dieselbe
+   Breite haben — eine "auto"-Spalte wuerde sich am laengsten Menuepunkt
+   orientieren und die Leiste breiter ziehen als gewollt. */
+:root[data-sidebar="collapsed"] { --sb-width: var(--sb-width-collapsed); }
+
+.app-shell {
+    display: grid;
+    grid-template-columns: var(--sb-width) minmax(0, 1fr);
+    min-height: 100vh;
+}
+
+/* ---- Seitenleiste ---- */
+.sb {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-raised);
+    border-right: 1px solid var(--rule);
+    z-index: 40;
+}
+
+.sb-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: var(--topbar-h);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
+}
+.sb-logo {
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     width: 30px; height: 30px; border-radius: var(--radius-sm);
     background: linear-gradient(155deg, var(--accent), var(--accent-strong));
     color: #fff; font-size: 1rem; box-shadow: var(--shadow-sm);
 }
-.app-header h1 { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
-/* Untertitel bewusst entfernt (statischer Text, kostete auf jeder Seite eine
-   ganze Zeile Höhe ohne Mehrwert) - siehe Feedback: zu viel feste Kopf-/Nav-
-   Höhe zwingt auf jedem Tab zum Scrollen, bevor echter Inhalt sichtbar ist. */
-.header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.sb-brand-text { display: flex; flex-direction: column; min-width: 0; }
+.sb-brand-text strong {
+    font-size: 0.82rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-brand-text span { font-size: 0.68rem; color: var(--text-dim); white-space: nowrap; }
+.sb-drawer-close {
+    display: none; margin-left: auto; background: transparent; border: 0;
+    color: var(--text-dim); font-size: 1.5rem; line-height: 1; cursor: pointer; padding: 0 0.3rem;
+}
+.sb.sb-collapsed .sb-brand { justify-content: center; padding-inline: 0; }
+.sb.sb-collapsed .sb-brand-text { display: none; }
 
-.main-content {
+.sb-nav { flex: 1; overflow-y: auto; padding: 0.55rem 0.5rem 1rem; }
+.sb-group { display: flex; flex-direction: column; gap: 1px; }
+.sb-group + .sb-group { margin-top: 0.45rem; }
+.sb-group-label {
+    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--text-faint); padding: 0.5rem 0.6rem 0.25rem; white-space: nowrap;
+}
+/* Eingeklappt bleibt von der Gruppe nur ein Trennstrich uebrig. */
+.sb.sb-collapsed .sb-group-label {
+    height: 1px; padding: 0; margin: 0.45rem 0.6rem; overflow: hidden;
+    color: transparent; background: var(--rule);
+}
+
+.sb-item {
+    position: relative;
+    display: flex; align-items: center; gap: 0.6rem;
+    width: 100%; padding: 0.45rem 0.6rem;
+    background: transparent; border: 0; border-radius: var(--radius-sm);
+    font: inherit; font-size: 0.84rem; font-weight: 600; color: var(--text-dim);
+    text-align: left; white-space: nowrap; cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+}
+.sb-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+.sb-item.active { background: var(--accent-wash); color: var(--accent-strong); }
+.sb-item.active::before {
+    content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
+    width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.sb-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sb-icon { width: 1.35rem; flex-shrink: 0; text-align: center; font-size: 0.95rem; }
+.sb-label { overflow: hidden; text-overflow: ellipsis; }
+.sb-new {
+    margin-left: auto; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em;
+    background: var(--accent); color: #fff; padding: 0.05rem 0.4rem; border-radius: 999px;
+}
+.sb.sb-collapsed .sb-item { justify-content: center; padding-inline: 0; }
+.sb.sb-collapsed .sb-label,
+.sb.sb-collapsed .sb-new { display: none; }
+
+.sb-foot { padding: 0.5rem; border-top: 1px solid var(--rule); }
+.sb-collapse { color: var(--text-faint); font-weight: 600; }
+
+.sb-backdrop { display: none; }
+
+/* ---- Arbeitsbereich ---- */
+.workspace { display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 1rem;
+    min-height: var(--topbar-h);
+    padding: 0.45rem 1.25rem;
+    background: var(--bg-raised);
+    background: color-mix(in srgb, var(--bg-raised) 90%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+}
+.topbar-burger {
+    display: none; align-items: center; justify-content: center;
+    width: 34px; height: 34px; flex-shrink: 0;
+    background: transparent; border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    color: var(--text); font-size: 1rem; cursor: pointer;
+}
+.topbar-title { flex: 1 1 12rem; min-width: 0; }
+.topbar-title h1 {
+    font-size: 1rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.topbar-title p {
+    margin: 0; font-size: 0.74rem; color: var(--text-dim); line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.topbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.55rem; flex-wrap: wrap; }
+.topbar-context { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.topbar .btn { padding: 0.42rem 0.8rem; font-size: 0.8rem; }
+
+.content { padding: 1rem 1.25rem 2.5rem; }
+.content-card {
+    max-width: 1500px; margin: 0 auto;
     background: var(--bg-raised);
     border: 1px solid var(--rule);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
+    padding: 1.1rem 1.5rem 1.6rem;
     overflow: hidden;
 }
-
-.tabs {
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    padding: 0.3rem 0.75rem;
-    background: var(--bg-inset);
-    border-bottom: 1px solid var(--rule);
-    overflow-x: auto;
-}
-.tab-btn {
-    padding: 0.4rem 0.7rem;
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--text-dim);
-    cursor: pointer;
-    white-space: nowrap;
-    transition: color var(--transition), background var(--transition);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-}
-.tab-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
-.tab-btn.active { color: #fff; background: var(--accent); box-shadow: var(--shadow-sm); }
-.tab-btn.active:hover { color: #fff; background: var(--accent-strong); }
-.tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.tab-pill-new {
-    font-size: 0.6rem; font-weight: 700; background: var(--accent); color: #fff;
-    padding: 0.05rem 0.4rem; border-radius: 999px; letter-spacing: 0.02em;
-}
-.tab-btn.active .tab-pill-new { background: rgba(255,255,255,0.9); color: var(--accent-strong); }
-.tab-group-sep { width: 1px; align-self: center; height: 1.3rem; background: var(--rule); margin: 0 0.35rem; flex-shrink: 0; }
-
-.tab-content { padding: 1rem 1.5rem; }
 .tab-hidden { display: none; }
+
+/* ---- Schmale Schirme: Leiste wird zur Schublade ---- */
+@media (max-width: 1024px) {
+    .app-shell { grid-template-columns: minmax(0, 1fr); }
+    .sb, .sb.sb-collapsed {
+        position: fixed; top: 0; left: 0; bottom: 0;
+        height: 100dvh; width: 268px;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+    }
+    .sb.sb-open { transform: none; box-shadow: var(--shadow-md); }
+    /* In der Schublade immer die volle Beschriftung, egal was eingeklappt war. */
+    .sb.sb-collapsed .sb-brand { justify-content: flex-start; padding-inline: 0.75rem; }
+    .sb.sb-collapsed .sb-brand-text { display: flex; }
+    .sb.sb-collapsed .sb-label { display: block; }
+    .sb.sb-collapsed .sb-new { display: inline; }
+    .sb.sb-collapsed .sb-item { justify-content: flex-start; padding-inline: 0.6rem; }
+    .sb.sb-collapsed .sb-group-label {
+        height: auto; padding: 0.5rem 0.6rem 0.25rem; margin: 0;
+        color: var(--text-faint); background: transparent;
+    }
+    .sb-foot { display: none; }
+    .sb-drawer-close { display: block; }
+    .sb-backdrop {
+        display: block; position: fixed; inset: 0; z-index: 35;
+        background: rgba(8, 12, 20, 0.5);
+        opacity: 0; pointer-events: none; transition: opacity 150ms ease;
+    }
+    .sb-backdrop.show { opacity: 1; pointer-events: auto; }
+    .topbar-burger { display: inline-flex; }
+    .content { padding: 0.85rem 0.85rem 2rem; }
+    .content-card { padding: 1rem; }
+}
+
+@media (max-width: 640px) {
+    .topbar-title p { display: none; }
+    .theme-toggle-label { display: none; }
+    .theme-toggle { min-width: 0; }
+    .topbar-context { width: 100%; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sb, .sb-backdrop { transition: none; }
+}
 
 /* ---------------- Buttons ---------------- */
 .btn {
@@ -564,8 +689,6 @@ a { color: var(--accent); }
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 768px) {
-    .app-container { padding: 0.85rem; }
-    .header-content { flex-direction: column; align-items: flex-start; }
     .settings-grid, .checkbox-grid, .action-grid { grid-template-columns: 1fr; }
     .modal-content { width: 95%; max-height: 95vh; }
     .quick-wins-grid { grid-template-columns: 1fr; }
