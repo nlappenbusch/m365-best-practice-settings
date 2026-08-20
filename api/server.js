@@ -37,6 +37,7 @@ const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
 const FORTICLIENT = require("./lib/forticlient");
 const WIN32APP = require("./lib/win32app");
+const MIGRATION = require("./lib/migrationPackage");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
@@ -2969,6 +2970,125 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   }
   const job = createAppJob(t, APPDEPLOY_PHASES);
   runAppDeployJob(job, t, b);
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Tenant-zu-Tenant-Geraetemigration ----------
+// Konfigurator fuer das Migrationspaket (igeeks-Fork von
+// stevecapacity/intunemigration-v9). Deployt wird ausschliesslich im
+// QUELLTENANT -- dort sind die Geraete noch Intune-verwaltet. Der Zieltenant
+// braucht kein Deployment, nur eine App-Registrierung und ein Provisioning
+// Package. Der aktive Tenant im Tool ist also immer der Quelltenant.
+const MIGRATION_PHASES = [
+  "Paket zusammenstellen",
+  "App-Objekt anlegen",
+  "Content-Version anlegen",
+  "Installer verschluesseln",
+  "Content-Datei registrieren",
+  "Auf Azure-Storage-URI warten",
+  "Installer hochladen",
+  "Veroeffentlichen"
+];
+
+// Das Provisioning Package liegt waehrend der Konfiguration in der Session,
+// nicht im State: es enthaelt den Bulk-Enrollment-Token des Zieltenants und
+// hat auf der Platte des Servers nichts verloren.
+app.post("/api/tenants/:id/migration/ppkg", express.json({ limit: "8mb" }), (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || "").trim();
+  if (!/\.ppkg$/i.test(name)) return res.status(400).json({ error: "Datei muss auf .ppkg enden." });
+  let data;
+  try { data = Buffer.from(String(b.dataBase64 || ""), "base64"); }
+  catch (e) { return res.status(400).json({ error: "Datei nicht lesbar." }); }
+  if (!data.length) return res.status(400).json({ error: "Datei ist leer." });
+  if (data.length > 6 * 1024 * 1024) return res.status(413).json({ error: "Provisioning Package groesser als 6 MB — das ist vermutlich kein PPKG." });
+
+  req.session.migrationPpkg = { name, dataBase64: data.toString("base64"), size: data.length };
+  res.json({ ok: true, name, size: data.length });
+});
+
+app.get("/api/tenants/:id/migration/ppkg", (req, res) => {
+  const p = req.session.migrationPpkg;
+  res.json({ ok: true, present: !!p, name: p ? p.name : null, size: p ? p.size : 0 });
+});
+
+app.delete("/api/tenants/:id/migration/ppkg", (req, res) => {
+  delete req.session.migrationPpkg;
+  res.json({ ok: true });
+});
+
+// Vorschau der config.json — damit vor dem Deploy sichtbar ist, was auf den
+// Geraeten landet. Secrets werden maskiert.
+app.post("/api/tenants/:id/migration/preview", wrap(async (req, res) => {
+  const cfg = MIGRATION.buildConfig(req.body || {});
+  const masked = JSON.parse(JSON.stringify(cfg));
+  masked.sourceTenant.clientSecret = "<gesetzt>";
+  masked.targetTenant.clientSecret = "<gesetzt>";
+  if (masked.fallbackAdmin.password) masked.fallbackAdmin.password = "<gesetzt>";
+  res.json({ ok: true, config: masked, ppkg: req.session.migrationPpkg ? req.session.migrationPpkg.name : null });
+}));
+
+async function runMigrationDeployJob(job, t, b, ppkg) {
+  const onProgress = appJobProgress(job);
+  const cert = certPemPath(t.tenantId);
+  try {
+    onProgress("Paket zusammenstellen");
+    const cfg = MIGRATION.buildConfig(b);
+    const files = MIGRATION.buildPackageFiles(cfg, { name: ppkg.name, data: Buffer.from(ppkg.dataBase64, "base64") });
+    const payload = MIGRATION.buildAppPayload({
+      appName: b.appName || "Tenant-Migration",
+      description: b.description,
+      targetTenantName: cfg.targetTenant.tenantName,
+      packageName: WIN32APP.INTUNE_PACKAGE_NAME
+    });
+
+    let appId;
+    if (process.env.FAKE_DEPLOY === "1") {
+      for (const p of MIGRATION_PHASES.slice(1)) { onProgress(p); await new Promise(r => setTimeout(r, 300)); }
+      appId = "fake-migration-app";
+    } else {
+      const r = await WIN32APP.createWin32AppWithContent(t, cert, {
+        appPayload: payload,
+        setupFileName: files.setupFileName,
+        installerBuffer: files.installerBuffer,
+        extraFiles: files.extraFiles,
+        onProgress
+      });
+      appId = r.appId;
+    }
+
+    job.appId = appId;
+    // Bewusst KEINE automatische Zuweisung: dieses Paket loest ein Geraet aus
+    // dem Tenant. Die Zuweisung an eine Pilotgruppe macht der Admin in Intune
+    // selbst -- eine falsch getroffene Zielgruppe waere hier nicht reparabel.
+    job.hint = "Nicht zugewiesen — Zuweisung an die Pilotgruppe bewusst manuell in Intune vornehmen.";
+    finishAppJob(job, true);
+  } catch (e) {
+    const isPermIssue = e.status === 403 || /insufficient privileges|authorization|forbidden/i.test(String(e.message || ""));
+    finishAppJob(job, false, e.message, e.hint || (isPermIssue
+      ? "Braucht DeviceManagementApps.ReadWrite.All im Quelltenant — im Bereich 'Tenants' einmal Reparieren ausfuehren."
+      : null));
+  }
+}
+
+app.post("/api/tenants/:id/migration/deploy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const ppkg = req.session.migrationPpkg;
+  if (!ppkg) return res.status(400).json({ error: "Kein Provisioning Package hochgeladen." });
+  if (!String(b.appName || "").trim()) return res.status(400).json({ error: "Name der Intune-App fehlt." });
+
+  // Validierung vor dem Job, damit Eingabefehler im Formular landen statt als
+  // fehlgeschlagener Job.
+  MIGRATION.buildConfig(b);
+
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein App-Deployment.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, MIGRATION_PHASES);
+  runMigrationDeployJob(job, t, b, ppkg);
   res.json({ ok: true, jobId: job.id });
 }));
 

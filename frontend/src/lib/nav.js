@@ -49,7 +49,9 @@ export const NAV_GROUPS = [
       { id: 'mappings', icon: '🗺️', label: 'Mappings', isNew: true,
         desc: 'Laufwerk- und Druckermappings als Intune-Profil erzeugen und zuweisen' },
       { id: 'downloads', icon: '📦', label: 'Agents',
-        desc: 'Installer für Bitdefender, N-sight RMM und FortiClient' }
+        desc: 'Installer für Bitdefender, N-sight RMM und FortiClient' },
+      { id: 'migration', icon: '🔀', label: 'Migration', isNew: true,
+        desc: 'Geräte in einen anderen Tenant umziehen — Paket konfigurieren und als Intune-App ausrollen' }
     ]
   },
   {
