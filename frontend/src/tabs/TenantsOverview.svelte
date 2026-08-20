@@ -248,24 +248,37 @@
   let fixStep = $state(null)
   let fixResult = $state(null)       // { error } | { items }
   let fixCopied = $state(false)
+  let fixReplacing = $state(false)   // laeuft dieser Durchgang mit Zertifikatsersatz?
   let fixTimer = null
 
-  async function startFix(t) {
+  // replaceCert=true ersetzt die an der App hinterlegten Zertifikate durch das
+  // lokale. Nur nach ausdruecklicher Bestaetigung — siehe retryFixWithReplace.
+  async function startFix(t, replaceCert = false) {
     if (fixTimer) { clearTimeout(fixTimer); fixTimer = null }
     fixTargetId = t.id
     fixTargetName = t.name
     fixStep = null
     fixResult = null
     fixCopied = false
+    fixReplacing = replaceCert
     let start
     try {
-      start = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/fix/start`)
+      start = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/fix/start`, { replaceCert })
     } catch (e) {
       fixResult = { error: e.message }
       return
     }
     fixStep = start
     scheduleFixPoll(start.interval || 5)
+  }
+
+  function retryFixWithReplace() {
+    const t = ($tenants || []).find(x => x.id === fixTargetId)
+    if (!t) return
+    if (!confirm(`Zertifikate an der App-Registrierung von "${t.name}" ersetzen?\n\n`
+      + 'Die dort hinterlegten Zertifikate werden entfernt und durch das lokale ersetzt. '
+      + 'Andere Systeme, die dieselbe App-Registrierung nutzen, verlieren damit den Zugriff.')) return
+    startFix(t, true)
   }
 
   function scheduleFixPoll(interval) {
@@ -300,8 +313,8 @@
     if (fixTargetId === t.id) closeFixPanel()
   }
 
-  const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌' }
-  const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen' }
+  const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌', mismatch: '⚠️' }
+  const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen', mismatch: 'Eingriff nötig' }
 
   // ---------- SSO-Konfiguration (iGeeks-Tenant "verheiraten") ----------
   let ssoInfo = $state(null)        // { enabled, redirectUri }
@@ -595,7 +608,14 @@
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>✕ schließen</button>
       </div>
       {#if fixStep}
-        <div class="ld-step"><small>Prüft und repariert: Exchange.ManageAsApp, Admin-Consent, Exchange-Admin- + Compliance-Rolle, Zertifikat-Hinterlegung. Das bestehende Zertifikat bleibt unangetastet.</small></div>
+        <div class="ld-step"><small>
+          Prüft und repariert: Exchange.ManageAsApp, Admin-Consent, Exchange-Admin- + Compliance-Rolle, Zertifikat-Hinterlegung.
+          {#if fixReplacing}
+            <strong>Achtung: Dieser Durchgang ersetzt die an der App hinterlegten Zertifikate durch das lokale.</strong>
+          {:else}
+            Das lokale Zertifikat wird nicht rotiert, vorhandene Zertifikate an der App werden nicht angetastet.
+          {/if}
+        </small></div>
         <div class="ld-onboard-step">1️⃣ Öffne <a href={fixStep.verificationUri} target="_blank" rel="noopener">{fixStep.verificationUri}</a></div>
         <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin von {fixTargetName}</strong> an und gib diesen Code ein:
           <span class="ld-code">{fixStep.userCode}</span>
@@ -607,6 +627,10 @@
       {:else if fixResult?.items}
         {@const failed = fixResult.items.filter(i => i.state === 'failed').length}
         {@const fixedCount = fixResult.items.filter(i => i.state === 'fixed').length}
+        {@const mismatch = fixResult.items.filter(i => i.state === 'mismatch').length}
+        {#if mismatch > 0}
+          <div class="ld-banner warn">⚠️ An der App-Registrierung liegt ein anderes Zertifikat als das lokale — deshalb schlägt die Anmeldung mit AADSTS700027 fehl.</div>
+        {/if}
         {#if failed > 0}
           <div class="ld-banner warn">⚠️ {failed} Punkt(e) konnten nicht repariert werden — Details unten.</div>
         {:else if fixedCount > 0}
@@ -615,12 +639,21 @@
           <div class="ld-banner ok">✅ Alles bereits korrekt — nichts zu reparieren.</div>
         {/if}
         {#each fixResult.items as i}
-          <div class="ld-step {i.state === 'failed' ? 'fail' : 'ok'}">
+          <div class="ld-step {i.state === 'failed' || i.state === 'mismatch' ? 'fail' : 'ok'}">
             <span class="ld-ico">{fixIcons[i.state]}</span> {i.name}
             <small>({fixText[i.state]}{i.detail ? ' — ' + i.detail : ''})</small>
           </div>
         {/each}
-        <div class="ld-step"><small>💡 Danach im Tab „🛡 Mail-Security" mit „Verbindung testen" prüfen — frisch reparierte Rollen brauchen ggf. ein paar Minuten Replikationszeit.</small></div>
+        {#if mismatch > 0}
+          <div class="ld-step">
+            <small>Zwei Wege: entweder das lokale Zertifikat an der App hinterlegen (ersetzt die dortigen) oder den
+              Tenant neu onboarden. Wer sonst noch mit dieser App-Registrierung arbeitet, verliert in beiden Fällen den Zugriff.</small>
+            <div style="margin-top:0.5rem;">
+              <button class="btn btn-secondary" onclick={retryFixWithReplace}>🔑 Lokales Zertifikat an der App hinterlegen (ersetzt vorhandene)</button>
+            </div>
+          </div>
+        {/if}
+        <div class="ld-step"><small>💡 Danach im Bereich „🛡 Mail-Security" mit „Verbindung testen" prüfen — frisch reparierte Rollen brauchen ggf. ein paar Minuten Replikationszeit.</small></div>
       {/if}
     </div>
   {/if}

@@ -295,7 +295,8 @@ async function provisionAppReg(token) {
  * Admin-Consent, beide Entra-Rollen und die Zertifikat-Hinterlegung an der App
  * (aus dem lokalen PEM, KEINE Rotation). Liefert pro Punkt ok/fixed/failed.
  */
-async function repairAppReg(token, rec) {
+async function repairAppReg(token, rec, opts) {
+  const replaceCert = !!(opts && opts.replaceCert);
   const items = [];
   const push = (name, state, detail) => items.push({ name, state, detail: detail || "" });
 
@@ -367,21 +368,51 @@ async function repairAppReg(token, rec) {
   //    lokalen PEM wieder an der App hinterlegen (falls dort entfernt).
   try {
     const localPem = fs.existsSync(certPemPath(rec.tenantId)) ? fs.readFileSync(certPemPath(rec.tenantId), "utf8") : null;
-    const appHasCert = Array.isArray(app.keyCredentials) && app.keyCredentials.length > 0;
+    const m = localPem && localPem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
+    const registered = Array.isArray(app.keyCredentials) ? app.keyCredentials : [];
+
     if (!localPem) {
       push("Zertifikat", "failed", "Kein lokales Zertifikat im Backend — Tenant neu onboarden (erzeugt ein neues).");
-    } else if (appHasCert) {
-      push("Zertifikat", "ok", "lokal + in der App hinterlegt");
+    } else if (!m) {
+      push("Zertifikat", "failed", "Lokales PEM enthaelt kein Zertifikat — Tenant neu onboarden.");
     } else {
-      const m = localPem.match(/-----BEGIN CERTIFICATE-----([\s\S]*?)-----END CERTIFICATE-----/);
-      if (!m) {
-        push("Zertifikat", "failed", "Lokales PEM enthaelt kein Zertifikat — Tenant neu onboarden.");
-      } else {
-        const certB64 = m[1].replace(/\s+/g, "");
+      // Es reicht NICHT zu pruefen, ob ueberhaupt Schluessel an der App haengen:
+      // liegt dort ein anderes Zertifikat, meldet Azure beim Token-Holen
+      // AADSTS700027 ("key was not found"), waehrend die Pruefung "ok" sagt.
+      // Deshalb Thumbprint-Vergleich. customKeyIdentifier ist der SHA1-
+      // Thumbprint base64-kodiert.
+      const certB64 = m[1].replace(/\s+/g, "");
+      const localThumb = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex").toUpperCase();
+      const thumbs = registered
+        .map(k => (k.customKeyIdentifier ? Buffer.from(k.customKeyIdentifier, "base64").toString("hex").toUpperCase() : null))
+        .filter(Boolean);
+
+      if (thumbs.includes(localThumb)) {
+        push("Zertifikat", "ok", "lokal + an der App hinterlegt (Thumbprint " + localThumb.slice(0, 8) + "…)");
+      } else if (registered.length === 0) {
         await gReq(token, "PATCH", `/applications/${app.id}`, {
           keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: APP_DISPLAY_NAME + "-cert" }]
         });
-        push("Zertifikat", "fixed", "Public Key aus lokalem PEM wieder an der App hinterlegt");
+        push("Zertifikat", "fixed", "Public Key aus lokalem PEM an der App hinterlegt");
+      } else if (!replaceCert) {
+        // Fremde Schluessel NICHT stillschweigend wegwerfen: Graph liefert den
+        // oeffentlichen Teil bestehender keyCredentials beim GET nicht mit,
+        // ein PATCH ersetzt die Liste also zwangslaeufig komplett. Wer sonst
+        // noch mit dieser App-Registrierung arbeitet, verliert dabei den
+        // Zugriff — das muss eine bewusste Entscheidung sein.
+        const others = registered
+          .map(k => `${k.displayName || "ohne Namen"} (${k.customKeyIdentifier ? Buffer.from(k.customKeyIdentifier, "base64").toString("hex").toUpperCase().slice(0, 8) + "…" : "?"}${k.endDateTime ? ", gültig bis " + String(k.endDateTime).slice(0, 10) : ""})`)
+          .join(", ");
+        push("Zertifikat", "mismatch",
+          `An der App hängen ${registered.length} Zertifikat(e), aber nicht unseres (lokal: ${localThumb.slice(0, 8)}…). ` +
+          `Vorhanden: ${others}. Deshalb schlägt die Anmeldung mit AADSTS700027 fehl. ` +
+          `Ersetzen ist möglich, entfernt aber die vorhandenen Zertifikate von dieser App-Registrierung.`);
+      } else {
+        await gReq(token, "PATCH", `/applications/${app.id}`, {
+          keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: APP_DISPLAY_NAME + "-cert" }]
+        });
+        push("Zertifikat", "fixed",
+          `Zertifikate an der App durch das lokale ersetzt (${registered.length} vorheriges/vorherige entfernt, neu: ${localThumb.slice(0, 8)}…)`);
       }
     }
   } catch (e) { push("Zertifikat", "failed", e.message); }
@@ -1274,8 +1305,13 @@ app.post("/api/tenants/:id/fix/start", wrap(async (req, res) => {
   const t = (s.tenants || []).find(x => x.id === req.params.id);
   if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
 
+  // replaceCert nur setzen, wenn der Aufrufer es ausdruecklich mitgibt: das
+  // Ersetzen wirft die an der App hinterlegten Zertifikate weg (siehe
+  // repairAppReg) und ist damit ein bewusster Eingriff im Kundentenant.
+  const replaceCert = !!(req.body && req.body.replaceCert);
+
   if (process.env.FAKE_DEPLOY === "1") {
-    req.session.fix = { tenantRecId: t.id, fake: true, polls: 0 };
+    req.session.fix = { tenantRecId: t.id, fake: true, polls: 0, replaceCert };
     return res.json({ userCode: "FAKE-CODE", verificationUri: "https://microsoft.com/devicelogin", interval: 2 });
   }
 
@@ -1290,7 +1326,7 @@ app.post("/api/tenants/:id/fix/start", wrap(async (req, res) => {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
   req.session.fix = {
-    tenantRecId: t.id, loginTenant,
+    tenantRecId: t.id, loginTenant, replaceCert,
     deviceCode: j.device_code, interval: (j.interval || 5),
     expiresAt: Date.now() + (j.expires_in || 900) * 1000
   };
@@ -1341,7 +1377,7 @@ app.post("/api/fix/poll", wrap(async (req, res) => {
   const t = (s.tenants || []).find(x => x.id === df.tenantRecId);
   if (!t) { delete req.session.fix; return res.json({ status: "error", error: "Tenant nicht mehr vorhanden." }); }
 
-  const result = await repairAppReg(j.access_token, t);
+  const result = await repairAppReg(j.access_token, t, { replaceCert: !!df.replaceCert });
 
   // Tenant-Flags aktualisieren, damit die Badges den echten Zustand zeigen
   t.exoRole = result.exoRole;
