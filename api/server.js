@@ -2364,6 +2364,31 @@ app.delete("/api/tenants/:id/config", (req, res) => {
   res.json({ ok: true });
 });
 
+// Nur pruefen, nichts schreiben: sind die Policy-Cmdlets inzwischen frei?
+// Nach Enable-OrganizationCustomization dauert es bis zu 4 Stunden, bis die
+// Freischaltung durchgezogen ist. Damit laesst sich das ueberwachen, ohne
+// jedes Mal den schreibenden Endpunkt anzufassen.
+app.get("/api/tenants/:id/org-customization-status", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const body = [
+    "$cfg = Get-OrganizationConfig -ErrorAction Stop",
+    "$cmdletOk = $false; $cmdletError = $null",
+    "try { Get-QuarantinePolicy -ErrorAction Stop | Out-Null; $cmdletOk = $true }",
+    "catch { $cmdletError = $_.Exception.Message }",
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; isDehydrated = [bool]$cfg.IsDehydrated; cmdletOk = $cmdletOk; cmdletError = $cmdletError } | ConvertTo-Json -Compress) + 'ENDJSON')"
+  ].join("\r\n");
+  const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 180000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Prüfung fehlgeschlagen" });
+  res.json({
+    ok: true,
+    isDehydrated: !!r.data.isDehydrated,
+    ready: !!r.data.cmdletOk,
+    cmdletError: r.data.cmdletError || null,
+    checkedAt: new Date().toISOString()
+  });
+}));
+
 // Organisationsanpassung aktivieren (Enable-OrganizationCustomization).
 // Schreibender Eingriff im Kundentenant und nicht rueckgaengig zu machen —
 // wird deshalb NIE automatisch im Deploy mitgemacht, sondern nur ueber diesen

@@ -171,7 +171,10 @@
     if (text) navigator.clipboard.writeText(text)
   }
 
-  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer) })
+  onDestroy(() => {
+    if (jobTimer) clearTimeout(jobTimer)
+    if (watchTimer) clearTimeout(watchTimer)
+  })
 
   // Zwei unabhaengige $derived statt einem, das nebenbei ein anderes $state
   // mutiert — Svelte 5 verbietet Zustandsmutation waehrend der Auswertung
@@ -200,6 +203,44 @@
   // ueber sein needsOrgCustomization-Flag — beides deutet auf dieselbe Ursache.
   let orgCustBusy = $state(false)
   let orgCustResult = $state(null)
+
+  // Freischaltung beobachten: nach Enable-OrganizationCustomization dauert es
+  // bis zu 4 Stunden. Statt selbst alle paar Minuten zu klicken, prueft das
+  // Tool im Hintergrund (rein lesend) und meldet, sobald es soweit ist.
+  let watchTimer = null
+  let watching = $state(false)
+  let watchState = $state(null)   // { ready, checkedAt, error }
+  const WATCH_INTERVAL_MS = 3 * 60 * 1000
+
+  async function checkOrgStatus() {
+    const t = $activeTenant
+    if (!t) return null
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(t.id)}/org-customization-status`)
+      watchState = { ready: !!r.ready, checkedAt: new Date(), error: null }
+      return r
+    } catch (e) {
+      watchState = { ready: false, checkedAt: new Date(), error: e.message }
+      return null
+    }
+  }
+
+  function stopWatching() {
+    watching = false
+    if (watchTimer) { clearTimeout(watchTimer); watchTimer = null }
+  }
+
+  async function toggleWatch() {
+    if (watching) { stopWatching(); return }
+    watching = true
+    const tick = async () => {
+      if (!watching) return
+      const r = await checkOrgStatus()
+      if (r && r.ready) { stopWatching(); return }   // fertig — Deploy kann laufen
+      if (watching) watchTimer = setTimeout(tick, WATCH_INTERVAL_MS)
+    }
+    tick()
+  }
 
   let needsOrgCustomization = $derived(
     !!job && (job.needsOrgCustomization === true || (job.steps || []).some(s => s.needsOrgCustomization))
@@ -377,12 +418,33 @@
             <button class="btn btn-secondary" disabled={orgCustBusy} onclick={enableOrgCustomization}>
               {orgCustBusy ? 'Läuft…' : '🔓 Organisationsanpassung jetzt aktivieren'}
             </button>
+            <button class="btn btn-secondary" onclick={toggleWatch}>
+              {watching ? '⏸ Überwachung stoppen' : '👀 Auf Freischaltung warten'}
+            </button>
             {#if orgCustResult}
               <span class="ld-section-hint" style="margin:0">
                 {orgCustResult.ok ? '✅' : '⏳'} {orgCustResult.text}
               </span>
             {/if}
           </div>
+
+          {#if watchState}
+            {#if watchState.ready}
+              <div class="ld-banner ok" style="margin-top:0.5rem">
+                ✅ Freigeschaltet — die Policy-Cmdlets antworten. Deploy kann jetzt laufen.
+              </div>
+            {:else}
+              <div class="ld-step" style="margin-top:0.35rem">
+                <small>
+                  {watching ? '⏳ Überwachung läuft, Prüfung alle 3 Minuten.' : '⏸ Überwachung gestoppt.'}
+                  Zuletzt geprüft {watchState.checkedAt.toLocaleTimeString('de-CH')}: noch gesperrt.
+                  {#if watchState.error}<br />Fehler bei der Prüfung: {watchState.error}{/if}
+                  <br />Die Überwachung läuft nur, solange diese Seite offen ist — du kannst genauso gut später
+                  wiederkommen und einmal prüfen.
+                </small>
+              </div>
+            {/if}
+          {/if}
         </div>
       {/if}
 
