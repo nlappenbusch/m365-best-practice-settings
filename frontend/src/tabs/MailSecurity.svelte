@@ -38,6 +38,22 @@
   let deployError = $state(null)
   let job = $state(null)
   let jobTimer = null
+  let cancelBusy = $state(false)
+
+  // Nach einem Reload oder Tenantwechsel den laufenden bzw. letzten Deploy
+  // wieder einblenden — sonst ist ein laufender Job unsichtbar und der
+  // naechste Startversuch laeuft nur in "laeuft bereits".
+  let lastCheckedTenant = null
+  $effect(() => {
+    const t = $activeTenant
+    if (!t || lastCheckedTenant === t.id) return
+    lastCheckedTenant = t.id
+    if (jobTimer) { clearTimeout(jobTimer); jobTimer = null }
+    job = null
+    deployRunning = false
+    deployError = null
+    attachRunningJob(t.id)
+  })
   let lastTenantId = null
   let manualAck = $state({}) // Schrittname -> bool ("ich habe das manuell erledigt")
 
@@ -71,7 +87,9 @@
   }
 
   function openConfirm() {
-    if (deployRunning) { alert('Es läuft bereits ein Deploy — bitte warten.'); return }
+    // Laeuft schon einer: nicht wegklicken, sondern den Fortschritt zeigen —
+    // dort steht auch der Abbrechen-Knopf.
+    if (deployRunning) return
     confirmOpen = true
     job = null
     deployError = null
@@ -89,11 +107,53 @@
     try {
       start = await apiPost(`/api/tenants/${encodeURIComponent(tenantId)}/deploy`, { config: $config, autoDomains: $autoDomains })
     } catch (e) {
+      // 409 heisst: es laeuft schon einer. Statt nur zu meckern an den
+      // laufenden Job andocken — der Fortschritt ist sonst nicht einsehbar,
+      // weil die Job-Id bisher nur im Browser-Tab lebte.
+      if (e.status === 409) {
+        const running = await attachRunningJob(tenantId)
+        if (running) return
+      }
       deployRunning = false
       deployError = e.message
       return
     }
     pollJob(start.jobId)
+  }
+
+  // Laufenden (oder letzten) Deploy des Tenants holen und anzeigen.
+  async function attachRunningJob(tenantId) {
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/deploy/active`)
+      if (!r.job) return false
+      job = r.job
+      if (r.running) {
+        deployRunning = true
+        deployError = null
+        pollJob(r.job.id)
+        return true
+      }
+      deployRunning = false
+      return false
+    } catch (e) {
+      return false
+    }
+  }
+
+  async function cancelDeploy() {
+    if (!job || job.status !== 'running') return
+    if (!confirm('Laufenden Deploy abbrechen?\n\nWas bereits in Exchange Online geschrieben wurde, bleibt bestehen — '
+      + 'die Schritte sind idempotent, ein erneuter Deploy zieht den Rest nach.')) return
+    cancelBusy = true
+    try {
+      await apiPost(`/api/jobs/${encodeURIComponent(job.id)}/cancel`)
+      if (jobTimer) { clearTimeout(jobTimer); jobTimer = null }
+      job = await apiGet(`/api/jobs/${encodeURIComponent(job.id)}`)
+      deployRunning = false
+    } catch (e) {
+      deployError = 'Abbrechen fehlgeschlagen: ' + e.message
+    }
+    cancelBusy = false
   }
 
   function pollJob(jobId) {
@@ -155,9 +215,12 @@
     orgCustResult = null
     try {
       const r = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/enable-org-customization`)
-      orgCustResult = r.hint || 'Erledigt.'
+      // cmdletOk ist der belastbare Teil: ein echter Aufruf von
+      // Get-QuarantinePolicy. IsDehydrated allein sagt nur, dass die
+      // Freischaltung angestossen wurde, nicht dass sie wirkt.
+      orgCustResult = { ok: !!r.cmdletOk, text: r.hint || 'Erledigt.' }
     } catch (e) {
-      orgCustResult = 'Fehlgeschlagen: ' + e.message
+      orgCustResult = { ok: false, text: 'Fehlgeschlagen: ' + e.message }
     }
     orgCustBusy = false
   }
@@ -271,6 +334,12 @@
       <div class="ld-job-head">
         <strong>{running ? '⏳' : ''} Deploy nach {$activeTenant.name}</strong>
         <span class="ld-job-meta">{running ? job.phase + ' · läuft seit ' : ''}{elapsed(job.startedAt, job.finishedAt)}</span>
+        {#if running}
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;"
+                  disabled={cancelBusy} onclick={cancelDeploy}>
+            {cancelBusy ? 'Bricht ab…' : '⏹ Abbrechen'}
+          </button>
+        {/if}
       </div>
       <div class="ld-progress"><div class="ld-progress-fill" class:animated={running} style="width:{pct}%"></div></div>
       <div class="ld-progress-label">{finished} / {total} Schritte</div>
@@ -283,6 +352,8 @@
         {:else}
           <div class="ld-banner ok">✅ Fertig — alle {total} Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}).</div>
         {/if}
+      {:else if job.status === 'cancelled'}
+        <div class="ld-banner warn">⏹ Abgebrochen. Bereits geschriebene Policies bleiben bestehen — einfach erneut deployen, die Schritte sind idempotent.</div>
       {:else if job.status === 'partial'}
         <div class="ld-banner warn">⚠️ {failedCount} von {total} Schritten fehlgeschlagen (Details unten). Einfach erneut deployen — erfolgreiche Schritte werden dabei nur aktualisiert.</div>
       {:else if job.status === 'failed'}
@@ -307,7 +378,9 @@
               {orgCustBusy ? 'Läuft…' : '🔓 Organisationsanpassung jetzt aktivieren'}
             </button>
             {#if orgCustResult}
-              <span class="ld-section-hint" style="margin:0">{orgCustResult}</span>
+              <span class="ld-section-hint" style="margin:0">
+                {orgCustResult.ok ? '✅' : '⏳'} {orgCustResult.text}
+              </span>
             {/if}
           </div>
         </div>

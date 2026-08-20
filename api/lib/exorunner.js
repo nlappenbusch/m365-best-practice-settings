@@ -31,7 +31,9 @@ const COMMANDS = [
 
 // Generischer pwsh-Lauf: Skript ueber stdin, JSON zwischen Markern extrahieren.
 // onProgress (optional) bekommt live jedes BPPROGRESS-Objekt aus dem stdout-Stream.
-function runPwsh(script, timeoutMs, onProgress) {
+// onChild (optional) bekommt den Kindprozess, damit ein laufender Job von aussen
+// abgebrochen werden kann (siehe /api/deploy/:jobId/cancel).
+function runPwsh(script, timeoutMs, onProgress, onChild) {
   timeoutMs = timeoutMs || 180000;
   return new Promise((resolve) => {
     let ps;
@@ -40,6 +42,7 @@ function runPwsh(script, timeoutMs, onProgress) {
     } catch (e) {
       return resolve({ ok: false, error: "pwsh nicht startbar: " + e.message, raw: "" });
     }
+    if (onChild) { try { onChild(ps); } catch (e) { /* Abbruch-Handle ist optional */ } }
     let out = "", err = "", done = false, scanned = 0;
     const scanProgress = () => {
       if (!onProgress) return;
@@ -77,7 +80,7 @@ function psQuote(s) { return "'" + String(s == null ? "" : s).replace(/'/g, "''"
  * @param {object} opts { appId, organization (tenant.onmicrosoft.com), certPemPath }
  * @param {string} bodyScript  gibt sein Ergebnis via BEGINJSON..ENDJSON aus
  */
-async function runExo(opts, bodyScript, timeoutMs, onProgress) {
+async function runExo(opts, bodyScript, timeoutMs, onProgress, onChild) {
   if (!opts.certPemPath) return { ok: false, error: "Kein Zertifikat-Pfad." };
   const wrapper = [
     "$ErrorActionPreference = 'Stop'",
@@ -95,7 +98,7 @@ async function runExo(opts, bodyScript, timeoutMs, onProgress) {
     "",
     "try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}"
   ].join("\r\n");
-  return runPwsh(wrapper, timeoutMs, onProgress);
+  return runPwsh(wrapper, timeoutMs, onProgress, onChild);
 }
 
 // Hinweis: Ein runIpps (Connect-IPPSSession fuer die Alert Policy) gab es hier mal —

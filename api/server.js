@@ -2371,35 +2371,65 @@ app.delete("/api/tenants/:id/config", (req, res) => {
 // in dehydrierten Tenants saemtliche eigenen Policies.
 app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
   const t = requireTenant(req);
+  // IsDehydrated allein sagt nur, ob Enable-OrganizationCustomization
+  // ANGESTOSSEN wurde — nicht, ob die Cmdlets schon freigegeben sind. Die
+  // Freischaltung zieht im Hintergrund durch (bis zu 4 Stunden); in der
+  // Zwischenzeit meldet sich die Organisation als angepasst, waehrend
+  // New-QuarantinePolicy weiter blockt. Deshalb zusaetzlich ein echter
+  // Funktionstest mit einem lesenden Cmdlet aus derselben Familie.
   const body = [
     "$cfg = Get-OrganizationConfig -ErrorAction Stop",
-    "if (-not $cfg.IsDehydrated) {",
-    "  Write-Output ('BEGINJSON' + (@{ ok = $true; alreadyEnabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
-    "} else {",
-    "  try {",
-    "    Enable-OrganizationCustomization -ErrorAction Stop",
-    "    Write-Output ('BEGINJSON' + (@{ ok = $true; enabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
-    "  } catch {",
-    // Laeuft die Freischaltung schon, meldet EXO das als Fehler — fuer den
-    // Anwender ist das kein Problem, sondern die Antwort "schon passiert".
+    "$dehydrated = [bool]$cfg.IsDehydrated",
+    "$enabled = $false; $err = $null",
+    "if ($dehydrated) {",
+    "  try { Enable-OrganizationCustomization -ErrorAction Stop; $enabled = $true }",
+    "  catch {",
     "    $m = $_.Exception.Message",
-    "    if ($m -match 'already been enabled' -or $m -match 'is already') {",
-    "      Write-Output ('BEGINJSON' + (@{ ok = $true; alreadyEnabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
-    "    } else {",
-    "      Write-Output ('BEGINJSON' + (@{ ok = $false; error = $m } | ConvertTo-Json -Compress) + 'ENDJSON')",
-    "    }",
+    "    if ($m -match 'already been enabled' -or $m -match 'is already') { $enabled = $false }",
+    "    else { $err = $m }",
     "  }",
-    "}"
+    "}",
+    "# Funktionstest: geht das lesende Cmdlet durch, sind die Policy-Cmdlets frei.",
+    "$cmdletOk = $false; $cmdletError = $null",
+    "try { Get-QuarantinePolicy -ErrorAction Stop | Out-Null; $cmdletOk = $true }",
+    "catch { $cmdletError = $_.Exception.Message }",
+    "Write-Output ('BEGINJSON' + (@{",
+    "  ok = ($null -eq $err); error = $err;",
+    "  wasDehydrated = $dehydrated; enabled = $enabled;",
+    "  cmdletOk = $cmdletOk; cmdletError = $cmdletError",
+    "} | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
   const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 300000);
   if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
   if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Enable-OrganizationCustomization fehlgeschlagen" });
+
+  const d = r.data;
+  let hint;
+  if (d.cmdletOk && d.enabled) {
+    hint = "Freischaltung angestossen und bereits wirksam — Deploy kann laufen.";
+  } else if (d.cmdletOk) {
+    hint = "Organisationsanpassung ist aktiv und die Policy-Cmdlets sind freigegeben — Deploy kann laufen.";
+  } else if (d.enabled) {
+    hint = "Freischaltung angestossen, aber noch nicht wirksam: die Policy-Cmdlets sind weiterhin gesperrt. "
+         + "Das kann bis zu 4 Stunden dauern. Danach Deploy erneut starten.";
+  } else if (!d.wasDehydrated) {
+    // Genau der scheinbare Widerspruch: Organisation meldet sich als angepasst,
+    // die Cmdlets bleiben trotzdem gesperrt.
+    hint = "Die Organisation meldet sich als angepasst (IsDehydrated = false), die Policy-Cmdlets sind aber weiterhin "
+         + "gesperrt. Die Freischaltung wurde also schon angestossen und ist noch nicht durchgezogen — das dauert bis zu "
+         + "4 Stunden. Warten und den Deploy danach erneut starten.";
+  } else {
+    hint = "Enable-OrganizationCustomization lief bereits, die Policy-Cmdlets sind aber noch gesperrt. "
+         + "Bis zu 4 Stunden warten, dann Deploy erneut starten.";
+  }
+
   res.json({
     ok: true,
-    alreadyEnabled: !!r.data.alreadyEnabled,
-    hint: r.data.alreadyEnabled
-      ? "Die Organisationsanpassung war bereits aktiv."
-      : "Freischaltung angestossen. Sie kann bis zu 4 Stunden dauern — danach Deploy erneut starten."
+    wasDehydrated: !!d.wasDehydrated,
+    enabled: !!d.enabled,
+    cmdletOk: !!d.cmdletOk,
+    cmdletError: d.cmdletError || null,
+    hint
   });
 }));
 
@@ -2432,6 +2462,9 @@ function createJob(t) {
 function jobProgressHandler(job) {
   return (evt) => {
     if (!evt || typeof evt !== "object") return;
+    // Nach einem Abbruch nichts mehr am Job aendern: der PowerShell-Prozess
+    // kann noch Marker nachliefern, bevor der Kill greift.
+    if (job.status === "cancelled") return;
     if (evt.type === "phase" && evt.label) { job.phase = String(evt.label); return; }
     if (evt.type === "step" && evt.name) {
       let st = job.steps.find(s => s.name === evt.name);
@@ -2464,6 +2497,9 @@ function mergeStepResults(job, resultSteps) {
 }
 
 function finishJob(job) {
+  // Ein abgebrochener Job bleibt abgebrochen — sonst ueberschreibt der
+  // auslaufende Lauf den Abbruch mit "partial"/"done".
+  if (job.status === "cancelled") return;
   job.phase = "Fertig";
   // "manual" zaehlt nicht als Fehlschlag — der Schritt ist bewusst dem Admin ueberlassen.
   job.status = job.steps.every(s => s.state === "done" || s.state === "manual") ? "done" : "partial";
@@ -2477,7 +2513,10 @@ async function runDeployJob(job, t, cfg) {
   // Dev-Simulation fuer UI-Tests ohne echten Tenant (FAKE_DEPLOY=1 — nie in Prod setzen)
   if (process.env.FAKE_DEPLOY === "1") return fakeDeployJob(job, onProgress, cfg);
 
-  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000, onProgress);
+  // Kindprozess am Job merken, damit /api/jobs/:id/cancel ihn beenden kann.
+  const r = await EXO.runExo(auth, DEPLOY.buildDeployBody(cfg), 600000, onProgress, (child) => { job.child = child; });
+  job.child = null;
+  if (job.status === "cancelled") { job.finishedAt = job.finishedAt || new Date().toISOString(); return; }
   if (!r.ok || !r.data || r.data.ok === false) {
     job.status = "failed";
     job.error = (r.data && r.data.error) || r.error || "Deploy fehlgeschlagen";
@@ -2610,10 +2649,53 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   res.json({ ok: true, jobId: job.id });
 }));
 
+// job.child ist der laufende pwsh-Prozess — der darf nie in die Antwort, sonst
+// scheitert die Serialisierung. Deshalb geht jede Job-Ausgabe hier durch.
+function publicJob(job) {
+  if (!job) return null;
+  const { child, ...rest } = job;
+  return rest;
+}
+
 app.get("/api/jobs/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
-  res.json(job);
+  res.json(publicJob(job));
+});
+
+// Laufender bzw. letzter Deploy eines Tenants. Ohne das war ein Deploy nach
+// einem Reload unsichtbar: die Job-Id lebte nur im Browser-Tab, und ein Neustart
+// lief in "Fuer diesen Tenant laeuft bereits ein Deploy" ohne Weg zum Status.
+app.get("/api/tenants/:id/deploy/active", (req, res) => {
+  const list = [...jobs.values()].filter(j => j.tenantId === req.params.id);
+  const running = list.find(j => j.status === "running");
+  const latest = list.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))[0] || null;
+  res.json({ ok: true, job: publicJob(running || latest || null), running: !!running });
+});
+
+// Laufenden Deploy abbrechen: beendet den pwsh-Prozess. Was bis dahin in
+// Exchange Online geschrieben wurde, bleibt geschrieben — die Schritte sind
+// idempotent, ein erneuter Deploy zieht den Rest nach.
+app.post("/api/jobs/:id/cancel", (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
+  if (job.status !== "running") return res.status(409).json({ error: "Dieser Job läuft nicht mehr.", status: job.status });
+
+  job.cancelRequested = true;
+  let killed = false;
+  if (job.child) {
+    try { job.child.kill(); killed = true; } catch (e) { /* Prozess schon weg */ }
+  }
+  job.status = "cancelled";
+  job.error = "Vom Benutzer abgebrochen." + (killed ? "" : " (Der PowerShell-Prozess war bereits beendet.)");
+  job.finishedAt = new Date().toISOString();
+  for (const s of job.steps) {
+    if (s.state === "running" || s.state === "retry") {
+      s.state = "failed";
+      s.error = "abgebrochen";
+    }
+  }
+  res.json({ ok: true, killed });
 });
 
 // ---------- App-Deployment-Jobs: Agent (Bitdefender/N-sight) -> Intune-Win32-App ----------
