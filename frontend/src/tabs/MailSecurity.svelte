@@ -217,7 +217,16 @@
     if (!t) return null
     try {
       const r = await apiGet(`/api/tenants/${encodeURIComponent(t.id)}/org-customization-status`)
-      watchState = { ready: !!r.ready, checkedAt: new Date(), error: null }
+      // ready = das ANLEGEN einer Policy laeuft durch (Trockenlauf). Lesen
+      // funktioniert in dehydrierten Tenants auch, sagt also nichts aus.
+      watchState = {
+        ready: !!r.ready,
+        readOk: !!r.readOk,
+        cmdletError: r.cmdletError || null,
+        whatIfUnsupported: !!r.whatIfUnsupported,
+        checkedAt: new Date(),
+        error: null
+      }
       return r
     } catch (e) {
       watchState = { ready: false, checkedAt: new Date(), error: e.message }
@@ -431,13 +440,18 @@
           {#if watchState}
             {#if watchState.ready}
               <div class="ld-banner ok" style="margin-top:0.5rem">
-                ✅ Freigeschaltet — die Policy-Cmdlets antworten. Deploy kann jetzt laufen.
+                ✅ Freigeschaltet — das Anlegen einer Policy läuft im Trockenlauf durch. Deploy kann jetzt laufen.
+              </div>
+            {:else if watchState.whatIfUnsupported}
+              <div class="ld-banner warn" style="margin-top:0.5rem">
+                ⚠️ Konnte nicht sicher geprüft werden (kein <code>-WhatIf</code> an diesem Cmdlet). Deploy starten und schauen.
               </div>
             {:else}
               <div class="ld-step" style="margin-top:0.35rem">
                 <small>
                   {watching ? '⏳ Überwachung läuft, Prüfung alle 3 Minuten.' : '⏸ Überwachung gestoppt.'}
-                  Zuletzt geprüft {watchState.checkedAt.toLocaleTimeString('de-CH')}: noch gesperrt.
+                  Zuletzt geprüft {watchState.checkedAt.toLocaleTimeString('de-CH')}: Anlegen noch gesperrt{watchState.readOk ? ' (Lesen geht bereits — das allein reicht nicht)' : ''}.
+                  {#if watchState.cmdletError}<br />Exchange meldet: <code>{watchState.cmdletError.slice(0, 220)}</code>{/if}
                   {#if watchState.error}<br />Fehler bei der Prüfung: {watchState.error}{/if}
                   <br />Die Überwachung läuft nur, solange diese Seite offen ist — du kannst genauso gut später
                   wiederkommen und einmal prüfen.

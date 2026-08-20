@@ -2364,6 +2364,32 @@ app.delete("/api/tenants/:id/config", (req, res) => {
   res.json({ ok: true });
 });
 
+// Pruefsnippet: Ist das SCHREIBENDE Policy-Cmdlet freigegeben?
+//
+// Ein lesendes Get-QuarantinePolicy taugt dafuer nicht — in dehydrierten
+// Tenants antwortet es normal, waehrend New-/Set- weiterhin gesperrt sind.
+// Getestet wird deshalb mit -WhatIf, also einem Trockenlauf: das Cmdlet
+// durchlaeuft serverseitig Berechtigungs- und Hydration-Pruefung, legt aber
+// nichts an. Als Sicherheitsnetz wird hinterher geprueft, ob wider Erwarten
+// doch etwas entstanden ist, und das dann wieder entfernt.
+const ORG_PROBE_PS = [
+  "$probeName = 'BP_Probe_OrgCustomizationCheck'",
+  "$writeOk = $false; $writeError = $null; $whatIfUnsupported = $false; $probeLeftOver = $false",
+  "try {",
+  "  New-QuarantinePolicy -Name $probeName -EndUserQuarantinePermissionsValue 0 -WhatIf -ErrorAction Stop | Out-Null",
+  "  $writeOk = $true",
+  "} catch {",
+  "  $writeError = $_.Exception.Message",
+  "  if ($writeError -match \"parameter name 'WhatIf'\" -or $writeError -match 'A parameter cannot be found') { $whatIfUnsupported = $true }",
+  "}",
+  "try {",
+  "  $left = Get-QuarantinePolicy -Identity $probeName -ErrorAction SilentlyContinue",
+  "  if ($left) { $probeLeftOver = $true; Remove-QuarantinePolicy -Identity $probeName -Confirm:$false -ErrorAction SilentlyContinue }",
+  "} catch { }",
+  "$readOk = $false",
+  "try { Get-QuarantinePolicy -ErrorAction Stop | Out-Null; $readOk = $true } catch { }"
+].join("\r\n");
+
 // Nur pruefen, nichts schreiben: sind die Policy-Cmdlets inzwischen frei?
 // Nach Enable-OrganizationCustomization dauert es bis zu 4 Stunden, bis die
 // Freischaltung durchgezogen ist. Damit laesst sich das ueberwachen, ohne
@@ -2372,10 +2398,9 @@ app.get("/api/tenants/:id/org-customization-status", wrap(async (req, res) => {
   const t = requireTenant(req);
   const body = [
     "$cfg = Get-OrganizationConfig -ErrorAction Stop",
-    "$cmdletOk = $false; $cmdletError = $null",
-    "try { Get-QuarantinePolicy -ErrorAction Stop | Out-Null; $cmdletOk = $true }",
-    "catch { $cmdletError = $_.Exception.Message }",
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; isDehydrated = [bool]$cfg.IsDehydrated; cmdletOk = $cmdletOk; cmdletError = $cmdletError } | ConvertTo-Json -Compress) + 'ENDJSON')"
+    ORG_PROBE_PS,
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; isDehydrated = [bool]$cfg.IsDehydrated; cmdletOk = $writeOk; readOk = $readOk;",
+    "  cmdletError = $writeError; whatIfUnsupported = $whatIfUnsupported; probeLeftOver = $probeLeftOver } | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
   const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 180000);
   if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
@@ -2383,8 +2408,12 @@ app.get("/api/tenants/:id/org-customization-status", wrap(async (req, res) => {
   res.json({
     ok: true,
     isDehydrated: !!r.data.isDehydrated,
+    // "ready" heisst: das schreibende Cmdlet laeuft durch. Nur darauf kommt es an.
     ready: !!r.data.cmdletOk,
+    readOk: !!r.data.readOk,
     cmdletError: r.data.cmdletError || null,
+    whatIfUnsupported: !!r.data.whatIfUnsupported,
+    probeLeftOver: !!r.data.probeLeftOver,
     checkedAt: new Date().toISOString()
   });
 }));
@@ -2414,14 +2443,13 @@ app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
     "    else { $err = $m }",
     "  }",
     "}",
-    "# Funktionstest: geht das lesende Cmdlet durch, sind die Policy-Cmdlets frei.",
-    "$cmdletOk = $false; $cmdletError = $null",
-    "try { Get-QuarantinePolicy -ErrorAction Stop | Out-Null; $cmdletOk = $true }",
-    "catch { $cmdletError = $_.Exception.Message }",
+    "# Funktionstest mit dem SCHREIBENDEN Cmdlet (Trockenlauf) — lesend sagt nichts aus.",
+    ORG_PROBE_PS,
     "Write-Output ('BEGINJSON' + (@{",
     "  ok = ($null -eq $err); error = $err;",
     "  wasDehydrated = $dehydrated; enabled = $enabled;",
-    "  cmdletOk = $cmdletOk; cmdletError = $cmdletError",
+    "  cmdletOk = $writeOk; readOk = $readOk; cmdletError = $writeError;",
+    "  whatIfUnsupported = $whatIfUnsupported; probeLeftOver = $probeLeftOver",
     "} | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
   const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 300000);
@@ -2430,19 +2458,24 @@ app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
 
   const d = r.data;
   let hint;
-  if (d.cmdletOk && d.enabled) {
+  if (d.whatIfUnsupported) {
+    hint = "Konnte nicht sicher geprüft werden: New-QuarantinePolicy kennt hier kein -WhatIf. "
+         + "Deploy starten und schauen, ob er durchläuft.";
+  } else if (d.cmdletOk && d.enabled) {
     hint = "Freischaltung angestossen und bereits wirksam — Deploy kann laufen.";
   } else if (d.cmdletOk) {
-    hint = "Organisationsanpassung ist aktiv und die Policy-Cmdlets sind freigegeben — Deploy kann laufen.";
+    hint = "Organisationsanpassung ist aktiv und das Anlegen von Policies funktioniert — Deploy kann laufen.";
   } else if (d.enabled) {
     hint = "Freischaltung angestossen, aber noch nicht wirksam: die Policy-Cmdlets sind weiterhin gesperrt. "
          + "Das kann bis zu 4 Stunden dauern. Danach Deploy erneut starten.";
   } else if (!d.wasDehydrated) {
     // Genau der scheinbare Widerspruch: Organisation meldet sich als angepasst,
-    // die Cmdlets bleiben trotzdem gesperrt.
-    hint = "Die Organisation meldet sich als angepasst (IsDehydrated = false), die Policy-Cmdlets sind aber weiterhin "
-         + "gesperrt. Die Freischaltung wurde also schon angestossen und ist noch nicht durchgezogen — das dauert bis zu "
-         + "4 Stunden. Warten und den Deploy danach erneut starten.";
+    // die schreibenden Cmdlets bleiben trotzdem gesperrt.
+    hint = "Die Organisation meldet sich als angepasst (IsDehydrated = false)"
+         + (d.readOk ? " und Policies lassen sich lesen" : "")
+         + ", das Anlegen ist aber weiterhin gesperrt. Die Freischaltung wurde also schon angestossen und ist noch nicht "
+         + "durchgezogen — das dauert bis zu 4 Stunden."
+         + (d.cmdletError ? " Meldung von Exchange: " + String(d.cmdletError).slice(0, 300) : "");
   } else {
     hint = "Enable-OrganizationCustomization lief bereits, die Policy-Cmdlets sind aber noch gesperrt. "
          + "Bis zu 4 Stunden warten, dann Deploy erneut starten.";
