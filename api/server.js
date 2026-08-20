@@ -2974,6 +2974,172 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   res.json({ ok: true, jobId: job.id });
 }));
 
+// ---------- Migration: App-Registrierungen anlegen lassen ----------
+// Client-IDs und Secrets von Hand aus zwei Portalen zusammenzusuchen ist die
+// Stelle, an der eine Migration typischerweise scheitert -- ein Zeichen falsch
+// und der Fehler faellt erst auf dem Geraet auf. Deshalb legt das Tool die
+// beiden App-Registrierungen selbst an, per Device-Code-Anmeldung eines Admins
+// im jeweiligen Tenant.
+const MIGRATION_APP_NAME = "IG-TenantMigration";
+
+// Getrennte Rechte je Seite (nicht eine Sammelliste fuer beides):
+// Im Quelltenant wird geloescht, im Zieltenant geschrieben und gelesen.
+const MIGRATION_PERMS = {
+  source: [
+    "DeviceManagementManagedDevices.ReadWrite.All", // Intune-Objekt des Geraets loeschen
+    "DeviceManagementServiceConfig.ReadWrite.All",  // Autopilot-Eintrag loeschen
+    "Directory.Read.All"                            // Geraet/Benutzer nachschlagen
+  ],
+  target: [
+    "DeviceManagementManagedDevices.ReadWrite.All", // Primary User setzen
+    "DeviceManagementServiceConfig.ReadWrite.All",  // Autopilot-Import
+    "Device.ReadWrite.All",                         // GroupTag in physicalIds schreiben
+    "Group.Read.All",                               // dynamische Gruppen fuer die GroupTag-Auswahl
+    "Directory.Read.All"
+  ]
+};
+
+async function createMigrationApp(token, side) {
+  const perms = MIGRATION_PERMS[side];
+  const displayName = MIGRATION_APP_NAME + "-" + (side === "source" ? "Source" : "Target");
+
+  const graphSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${GRAPH_APP_ID}'`)).value[0];
+  if (!graphSp) throw new Error("Microsoft-Graph Service-Principal nicht gefunden.");
+  const roles = perms.map(v => {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (!role) throw new Error("Graph-Permission fehlt im SP: " + v);
+    return role;
+  });
+  const requiredResourceAccess = [{ resourceAppId: GRAPH_APP_ID, resourceAccess: roles.map(r => ({ id: r.id, type: "Role" })) }];
+
+  let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(displayName)}'`)).value[0];
+  if (app) {
+    await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess, signInAudience: "AzureADMyOrg" });
+  } else {
+    app = await gReq(token, "POST", "/applications", { displayName, signInAudience: "AzureADMyOrg", requiredResourceAccess });
+  }
+  let appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
+  if (!appSp) appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId });
+
+  let consentOk = true, consentErr = null;
+  try {
+    const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
+    for (const r of roles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
+  } catch (e) { consentOk = false; consentErr = e.message; }
+
+  // Secret bewusst kurzlebig: es wandert in ein Paket, das auf Kundengeraeten
+  // landet. 6 Monate reichen fuer jede Migrationswelle.
+  const pw = await gReq(token, "POST", `/applications/${app.id}/addPassword`, {
+    passwordCredential: { displayName: displayName + "-secret", endDateTime: isoInMonths(6) }
+  });
+
+  return {
+    appId: app.appId, clientSecret: pw.secretText, displayName,
+    permissions: perms, consentOk, consentErr, secretExpiresAt: isoInMonths(6)
+  };
+}
+
+app.post("/api/migration/appreg/start", wrap(async (req, res) => {
+  const b = req.body || {};
+  const side = b.side === "target" ? "target" : "source";
+  const tenant = String(b.tenant || "").trim();
+  if (!tenant) return res.status(400).json({ error: "Tenant-Domain oder -ID angeben." });
+
+  const params = new URLSearchParams({
+    client_id: GRAPH_CLI_CLIENT,
+    scope: "Application.ReadWrite.All AppRoleAssignment.ReadWrite.All Directory.ReadWrite.All offline_access openid"
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+
+  req.session.migrationAppReg = {
+    side, tenant, deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({ userCode: j.user_code, verificationUri: j.verification_uri || "https://microsoft.com/devicelogin", interval: j.interval || 5, side });
+}));
+
+app.post("/api/migration/appreg/poll", wrap(async (req, res) => {
+  const df = req.session.migrationAppReg;
+  if (!df) return res.status(400).json({ error: "Kein laufender Vorgang." });
+  if (Date.now() > df.expiresAt) { delete req.session.migrationAppReg; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.tenant)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.migrationAppReg;
+    return res.json({ status: "error", error: j.error_description || j.error || ("HTTP " + r.status) });
+  }
+
+  const side = df.side;
+  const tenant = df.tenant;
+  delete req.session.migrationAppReg;
+  const result = await createMigrationApp(j.access_token, side);
+  res.json({ status: "done", side, tenant, ...result });
+}));
+
+// GroupTags des ZIELtenants — gelesen mit genau den Credentials, die gerade
+// erzeugt wurden. Dort gibt es kein Zertifikat wie bei den onboardeten
+// Tenants, deshalb client_credentials statt des ueblichen Graph-Helfers.
+app.post("/api/migration/grouptags", wrap(async (req, res) => {
+  const b = req.body || {};
+  const tenant = String(b.tenantName || "").trim();
+  const clientId = String(b.clientId || "").trim();
+  const clientSecret = String(b.clientSecret || "").trim();
+  if (!tenant || !clientId || !clientSecret) return res.status(400).json({ error: "Tenant, Client-ID und Secret noetig." });
+
+  const body = new URLSearchParams({
+    grant_type: "client_credentials", client_id: clientId,
+    client_secret: clientSecret, scope: "https://graph.microsoft.com/.default"
+  });
+  const tr = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body
+  });
+  const tj = await tr.json().catch(() => ({}));
+  if (!tr.ok) {
+    const e = new Error("Anmeldung am Zieltenant fehlgeschlagen: " + (tj.error_description || tj.error || tr.status));
+    e.status = 400;
+    throw e;
+  }
+
+  const gr = await fetch("https://graph.microsoft.com/beta/groups?$filter=" +
+    encodeURIComponent("groupTypes/any(c:c eq 'DynamicMembership') and securityEnabled eq true") +
+    "&$select=id,displayName,membershipRule&$top=100",
+    { headers: { Authorization: "Bearer " + tj.access_token } });
+  const gj = await gr.json().catch(() => ({}));
+  if (!gr.ok) {
+    const e = new Error("Gruppen nicht lesbar: " + ((gj.error && gj.error.message) || gr.status) +
+      " — Admin-Consent im Zieltenant noch nicht durch?");
+    e.status = 400;
+    throw e;
+  }
+
+  // [OrderID]:<Tag> aus den Mitgliedschaftsregeln ziehen — dieselbe Konvention
+  // wie im Autopilot-Bereich.
+  const seen = new Map();
+  for (const g of gj.value || []) {
+    const rule = String(g.membershipRule || "");
+    const re = /\[OrderID\]:([^"'\s)]+)/gi;
+    let m;
+    while ((m = re.exec(rule)) !== null) {
+      const tag = m[1].trim();
+      if (tag && !seen.has(tag)) seen.set(tag, { groupTag: tag, groupName: g.displayName, groupId: g.id });
+    }
+  }
+  res.json({ ok: true, groupTags: [...seen.values()].sort((a, b) => a.groupTag.localeCompare(b.groupTag)) });
+}));
+
 // ---------- Kundenreports und Monitoring-Uebersicht ----------
 const REPORT_PHASES_PREFIX = "Verbinden";
 

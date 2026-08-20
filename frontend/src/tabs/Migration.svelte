@@ -31,6 +31,79 @@
     loadPpkgState()
   })
 
+  // ---------- App-Registrierungen anlegen lassen ----------
+  // Client-ID und Secret aus zwei Portalen zusammenzusuchen ist fehleranfällig
+  // und der häufigste Grund, warum es erst auf dem Gerät knallt. Stattdessen
+  // meldet sich ein Admin des jeweiligen Tenants per Device-Code an, und das
+  // Tool legt die App mit den passenden Rechten selbst an.
+  let appRegStep = $state(null)      // { side, userCode, verificationUri }
+  let appRegError = $state(null)
+  let appRegDone = $state({})        // side -> { appId, permissions, consentOk, consentErr }
+  let appRegCopied = $state(false)
+  let appRegTimer = null
+
+  const SIDE_LABEL = { source: 'Quelltenant', target: 'Zieltenant' }
+
+  async function startAppReg(side) {
+    const tenant = side === 'source' ? form.sourceTenant.tenantName : form.targetTenant.tenantName
+    if (!tenant.trim()) { appRegError = `Erst die Domain des ${SIDE_LABEL[side]}s eintragen.`; return }
+    appRegError = null
+    appRegCopied = false
+    if (appRegTimer) { clearTimeout(appRegTimer); appRegTimer = null }
+    try {
+      const r = await apiPost('/api/migration/appreg/start', { side, tenant })
+      appRegStep = { side, userCode: r.userCode, verificationUri: r.verificationUri }
+      pollAppReg(r.interval || 5)
+    } catch (e) {
+      appRegError = e.message
+    }
+  }
+
+  function pollAppReg(interval) {
+    appRegTimer = setTimeout(async () => {
+      let r
+      try { r = await apiPost('/api/migration/appreg/poll') }
+      catch (e) { appRegError = e.message; appRegStep = null; return }
+      if (r.status === 'pending') { pollAppReg(r.interval || interval); return }
+      if (r.status === 'error') { appRegError = r.error; appRegStep = null; return }
+
+      const side = r.side
+      const target = side === 'source' ? form.sourceTenant : form.targetTenant
+      target.clientId = r.appId
+      target.clientSecret = r.clientSecret
+      appRegDone[side] = { appId: r.appId, permissions: r.permissions, consentOk: r.consentOk, consentErr: r.consentErr, displayName: r.displayName }
+      appRegStep = null
+      // Mit den frischen Credentials gleich die GroupTags holen
+      if (side === 'target') loadGroupTags()
+    }, interval * 1000)
+  }
+
+  // ---------- GroupTags des Zieltenants ----------
+  let groupTags = $state(null)       // null = nicht geladen, [] = keine gefunden
+  let groupTagsError = $state(null)
+  let groupTagsBusy = $state(false)
+
+  async function loadGroupTags() {
+    const t = form.targetTenant
+    if (!t.tenantName.trim() || !t.clientId.trim() || !t.clientSecret.trim()) {
+      groupTagsError = 'Zieltenant-Zugang fehlt — erst App-Registrierung anlegen.'
+      return
+    }
+    groupTagsBusy = true
+    groupTagsError = null
+    try {
+      const r = await apiPost('/api/migration/grouptags', {
+        tenantName: t.tenantName, clientId: t.clientId, clientSecret: t.clientSecret
+      })
+      groupTags = r.groupTags || []
+      if (groupTags.length && !form.groupTag) form.groupTag = groupTags[0].groupTag
+    } catch (e) {
+      groupTagsError = e.message
+      groupTags = null
+    }
+    groupTagsBusy = false
+  }
+
   // ---------- Provisioning Package ----------
   let ppkg = $state(null)      // { name, size }
   let ppkgBusy = $state(false)
@@ -127,7 +200,10 @@
     !!form.sourceTenant.tenantName.trim() && !!form.sourceTenant.clientId.trim() && !!form.sourceTenant.clientSecret.trim()
   )
 
-  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer) })
+  onDestroy(() => {
+    if (jobTimer) clearTimeout(jobTimer)
+    if (appRegTimer) clearTimeout(appRegTimer)
+  })
 </script>
 
 <TenantContext>
@@ -138,6 +214,10 @@
     App-Registrierung und das Provisioning Package. Zuweisen an eine Pilotgruppe machst du bewusst selbst in Intune.
   </div>
 
+  {#if appRegError}
+    <div class="alert alert-warning">❌ App-Registrierung: {appRegError}</div>
+  {/if}
+
   <div class="settings-group">
     <h4>1️⃣ Intune-App</h4>
     <div class="input-group" style="max-width:420px">
@@ -147,45 +227,109 @@
     </div>
   </div>
 
+  {#snippet appRegBlock(side)}
+    {@const done = appRegDone[side]}
+    {#if done}
+      <div class="wizard-step">
+        <div class="wizard-step-body">
+          <div class="wizard-step-title">✅ App „{done.displayName}" angelegt</div>
+          <div class="wizard-step-desc">
+            Client-ID {done.appId} · Secret übernommen (6 Monate gültig)<br />
+            Rechte: {done.permissions.join(', ')}
+            {#if !done.consentOk}<br /><strong>⚠️ Admin-Consent nicht durchgelaufen:</strong> {done.consentErr}{/if}
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick={() => startAppReg(side)}>↻ Neu anlegen</button>
+      </div>
+    {:else if appRegStep?.side === side}
+      <div class="ld-job">
+        <div class="ld-onboard-step">1️⃣ Öffne <a href={appRegStep.verificationUri} target="_blank" rel="noopener">{appRegStep.verificationUri}</a></div>
+        <div class="ld-onboard-step">2️⃣ Als <strong>Admin des {SIDE_LABEL[side]}s</strong> anmelden und diesen Code eingeben:
+          <span class="ld-code">{appRegStep.userCode}</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;"
+                  onclick={() => navigator.clipboard.writeText(appRegStep.userCode).then(() => (appRegCopied = true))}>
+            {appRegCopied ? '✓ Kopiert' : 'Kopieren'}
+          </button>
+        </div>
+        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf die Anmeldung…</div>
+      </div>
+    {:else}
+      <button class="btn btn-primary" onclick={() => startAppReg(side)}>🔑 App-Registrierung im {SIDE_LABEL[side]} anlegen</button>
+      <p class="ld-section-hint">Legt <code>IG-TenantMigration-{side === 'source' ? 'Source' : 'Target'}</code> an, erteilt den
+        Admin-Consent und trägt Client-ID und Secret unten ein. Du brauchst dafür einen Admin-Login im {SIDE_LABEL[side]}.</p>
+    {/if}
+  {/snippet}
+
   <div class="settings-group">
     <h4>2️⃣ Quelltenant (hier laufen die Geräte heute)</h4>
-    <p class="ld-section-hint">App-Registrierung im Quelltenant mit Client Secret — die Skripte melden sich damit an,
-      um Intune- und Autopilot-Objekt des Geräts nach der Migration zu entfernen.</p>
-    <div class="settings-grid">
-      <div class="input-group">
-        <label for="mg-src-tenant">Tenant (Domain oder ID)</label>
-        <input id="mg-src-tenant" type="text" bind:value={form.sourceTenant.tenantName} placeholder="alt.onmicrosoft.com" />
-      </div>
-      <div class="input-group">
-        <label for="mg-src-client">Client-ID</label>
-        <input id="mg-src-client" type="text" bind:value={form.sourceTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
-      </div>
-      <div class="input-group">
-        <label for="mg-src-secret">Client Secret</label>
-        <input id="mg-src-secret" type="password" bind:value={form.sourceTenant.clientSecret} autocomplete="off" />
-      </div>
+    <p class="ld-section-hint">Die Skripte melden sich damit an, um Intune- und Autopilot-Objekt des Geräts nach der
+      Migration zu entfernen.</p>
+    <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
+      <label for="mg-src-tenant">Tenant (Domain oder ID)</label>
+      <input id="mg-src-tenant" type="text" bind:value={form.sourceTenant.tenantName} placeholder="alt.onmicrosoft.com" />
     </div>
+    {@render appRegBlock('source')}
+    <details style="margin-top:0.6rem">
+      <summary class="ld-section-hint" style="cursor:pointer">Client-ID und Secret von Hand eintragen</summary>
+      <div class="settings-grid" style="margin-top:0.5rem">
+        <div class="input-group">
+          <label for="mg-src-client">Client-ID</label>
+          <input id="mg-src-client" type="text" bind:value={form.sourceTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
+        </div>
+        <div class="input-group">
+          <label for="mg-src-secret">Client Secret</label>
+          <input id="mg-src-secret" type="password" bind:value={form.sourceTenant.clientSecret} autocomplete="off" />
+        </div>
+      </div>
+    </details>
   </div>
 
   <div class="settings-group">
     <h4>3️⃣ Zieltenant (dorthin wandern die Geräte)</h4>
-    <div class="settings-grid">
-      <div class="input-group">
-        <label for="mg-dst-tenant">Tenant (Domain oder ID)</label>
-        <input id="mg-dst-tenant" type="text" bind:value={form.targetTenant.tenantName} placeholder="neu.onmicrosoft.com" />
-      </div>
-      <div class="input-group">
-        <label for="mg-dst-client">Client-ID</label>
-        <input id="mg-dst-client" type="text" bind:value={form.targetTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
-      </div>
-      <div class="input-group">
-        <label for="mg-dst-secret">Client Secret</label>
-        <input id="mg-dst-secret" type="password" bind:value={form.targetTenant.clientSecret} autocomplete="off" />
-      </div>
+    <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
+      <label for="mg-dst-tenant">Tenant (Domain oder ID)</label>
+      <input id="mg-dst-tenant" type="text" bind:value={form.targetTenant.tenantName} placeholder="neu.onmicrosoft.com" />
     </div>
-    <div class="input-group" style="max-width:320px; margin-top:0.6rem">
-      <label for="mg-grouptag">GroupTag im Zieltenant <small>(optional)</small></label>
-      <input id="mg-grouptag" type="text" bind:value={form.groupTag} placeholder="DEV-STD" />
+    {@render appRegBlock('target')}
+    <details style="margin-top:0.6rem">
+      <summary class="ld-section-hint" style="cursor:pointer">Client-ID und Secret von Hand eintragen</summary>
+      <div class="settings-grid" style="margin-top:0.5rem">
+        <div class="input-group">
+          <label for="mg-dst-client">Client-ID</label>
+          <input id="mg-dst-client" type="text" bind:value={form.targetTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
+        </div>
+        <div class="input-group">
+          <label for="mg-dst-secret">Client Secret</label>
+          <input id="mg-dst-secret" type="password" bind:value={form.targetTenant.clientSecret} autocomplete="off" />
+        </div>
+      </div>
+    </details>
+
+    <div style="margin-top:0.9rem">
+      <label for="mg-grouptag"><strong>GroupTag im Zieltenant</strong> <small>(optional)</small></label>
+      {#if groupTags && groupTags.length}
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
+          <select id="mg-grouptag" bind:value={form.groupTag} style="max-width:320px">
+            <option value="">— kein GroupTag —</option>
+            {#each groupTags as g}
+              <option value={g.groupTag}>{g.groupTag} → {g.groupName}</option>
+            {/each}
+          </select>
+          <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy}>↻</button>
+        </div>
+        <small class="ld-section-hint">Aus den dynamischen Gruppen des Zieltenants gelesen ([OrderID]-Regel).</small>
+      {:else}
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
+          <input id="mg-grouptag" type="text" bind:value={form.groupTag} placeholder="DEV-STD" style="max-width:220px" />
+          <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy}>
+            {groupTagsBusy ? 'Lade…' : '🔎 Aus dem Zieltenant laden'}
+          </button>
+        </div>
+        {#if groupTags && groupTags.length === 0}
+          <small class="ld-section-hint">Keine dynamischen Gruppen mit [OrderID]-Regel gefunden — Tag von Hand eintragen.</small>
+        {/if}
+      {/if}
+      {#if groupTagsError}<div class="alert alert-warning" style="margin-top:0.5rem">{groupTagsError}</div>{/if}
     </div>
   </div>
 
