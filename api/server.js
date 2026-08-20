@@ -2315,6 +2315,45 @@ app.post("/api/tenants/:id/test", wrap(async (req, res) => {
   res.json({ ok: true, domains: r.data.domains || [] });
 }));
 
+// Organisationsanpassung aktivieren (Enable-OrganizationCustomization).
+// Schreibender Eingriff im Kundentenant und nicht rueckgaengig zu machen —
+// wird deshalb NIE automatisch im Deploy mitgemacht, sondern nur ueber diesen
+// Endpunkt nach ausdruecklicher Bestaetigung im Frontend. Ohne ihn sperrt EXO
+// in dehydrierten Tenants saemtliche eigenen Policies.
+app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const body = [
+    "$cfg = Get-OrganizationConfig -ErrorAction Stop",
+    "if (-not $cfg.IsDehydrated) {",
+    "  Write-Output ('BEGINJSON' + (@{ ok = $true; alreadyEnabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "} else {",
+    "  try {",
+    "    Enable-OrganizationCustomization -ErrorAction Stop",
+    "    Write-Output ('BEGINJSON' + (@{ ok = $true; enabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "  } catch {",
+    // Laeuft die Freischaltung schon, meldet EXO das als Fehler — fuer den
+    // Anwender ist das kein Problem, sondern die Antwort "schon passiert".
+    "    $m = $_.Exception.Message",
+    "    if ($m -match 'already been enabled' -or $m -match 'is already') {",
+    "      Write-Output ('BEGINJSON' + (@{ ok = $true; alreadyEnabled = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "    } else {",
+    "      Write-Output ('BEGINJSON' + (@{ ok = $false; error = $m } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "    }",
+    "  }",
+    "}"
+  ].join("\r\n");
+  const r = await EXO.runExo({ appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) }, body, 300000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Enable-OrganizationCustomization fehlgeschlagen" });
+  res.json({
+    ok: true,
+    alreadyEnabled: !!r.data.alreadyEnabled,
+    hint: r.data.alreadyEnabled
+      ? "Die Organisationsanpassung war bereits aktiv."
+      : "Freischaltung angestossen. Sie kann bis zu 4 Stunden dauern — danach Deploy erneut starten."
+  });
+}));
+
 // ---------- Deploy-Jobs (asynchron, Fortschritt via Polling) ----------
 const jobs = new Map(); // jobId -> Job
 const JOB_KEEP = 20;
@@ -2351,7 +2390,11 @@ function jobProgressHandler(job) {
       if (evt.state === "running") { st.state = "running"; st.try = evt.try || 1; }
       else if (evt.state === "retry") { st.state = "retry"; st.try = evt.try; st.lastError = evt.error; }
       else if (evt.state === "done") { st.state = "done"; st.action = evt.action; st.tries = evt.tries; }
-      else if (evt.state === "failed") { st.state = "failed"; st.error = evt.error; st.tries = evt.tries; }
+      else if (evt.state === "failed") {
+        st.state = "failed"; st.error = evt.error; st.tries = evt.tries;
+        if (evt.hint) st.hint = evt.hint;
+        if (evt.needsOrgCustomization) { st.needsOrgCustomization = true; job.needsOrgCustomization = true; }
+      }
     }
   };
 }
@@ -2365,6 +2408,8 @@ function mergeStepResults(job, resultSteps) {
     if (st.state !== "done" && st.state !== "failed") {
       st.state = s.ok ? "done" : "failed";
       st.action = s.action; st.error = s.error; st.tries = s.tries;
+      if (s.hint) st.hint = s.hint;
+      if (s.needsOrgCustomization) { st.needsOrgCustomization = true; job.needsOrgCustomization = true; }
     }
   }
 }
@@ -2387,7 +2432,14 @@ async function runDeployJob(job, t, cfg) {
   if (!r.ok || !r.data || r.data.ok === false) {
     job.status = "failed";
     job.error = (r.data && r.data.error) || r.error || "Deploy fehlgeschlagen";
-    job.hint = "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden). Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit.";
+    // Dehydrierter Tenant hat eine eigene Ursache und einen eigenen Weg raus —
+    // der Standardhinweis auf Rollen/Replikation waere hier irrefuehrend.
+    if (r.data && r.data.needsOrgCustomization) {
+      job.needsOrgCustomization = true;
+      job.hint = "Enable-OrganizationCustomization muss einmalig im Tenant laufen (siehe Knopf unten).";
+    } else {
+      job.hint = "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (Tenant neu onboarden). Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit.";
+    }
     job.finishedAt = new Date().toISOString();
     return;
   }

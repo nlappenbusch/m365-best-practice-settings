@@ -134,6 +134,33 @@
 
   const manualSteps = $derived(job ? job.steps.filter(s => s.state === 'manual') : [])
   const allManualAcked = $derived(manualSteps.length > 0 && manualSteps.every(s => manualAck[s.name]))
+
+  // ---------- Dehydrierter Tenant (Enable-OrganizationCustomization) ----------
+  // Die Vorpruefung im Deploy-Skript meldet es direkt, ein einzelner Schritt
+  // ueber sein needsOrgCustomization-Flag — beides deutet auf dieselbe Ursache.
+  let orgCustBusy = $state(false)
+  let orgCustResult = $state(null)
+
+  let needsOrgCustomization = $derived(
+    !!job && (job.needsOrgCustomization === true || (job.steps || []).some(s => s.needsOrgCustomization))
+  )
+
+  async function enableOrgCustomization() {
+    const t = $activeTenant
+    if (!t) return
+    if (!confirm(`Organisationsanpassung im Tenant "${t.name}" aktivieren?\n\n`
+      + 'Enable-OrganizationCustomization ist ein schreibender Eingriff im Kundentenant und lässt sich '
+      + 'nicht rückgängig machen. Die Freischaltung kann bis zu 4 Stunden dauern.')) return
+    orgCustBusy = true
+    orgCustResult = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/enable-org-customization`)
+      orgCustResult = r.hint || 'Erledigt.'
+    } catch (e) {
+      orgCustResult = 'Fehlgeschlagen: ' + e.message
+    }
+    orgCustBusy = false
+  }
 </script>
 
 <TenantContext>
@@ -260,6 +287,30 @@
         <div class="ld-banner warn">⚠️ {failedCount} von {total} Schritten fehlgeschlagen (Details unten). Einfach erneut deployen — erfolgreiche Schritte werden dabei nur aktualisiert.</div>
       {:else if job.status === 'failed'}
         <div class="ld-banner fail">❌ {job.error || 'Deploy fehlgeschlagen'}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
+      {/if}
+
+      <!-- Dehydrierter Tenant: EXO sperrt eigene Policies, bis die
+           Organisationsanpassung einmalig aktiviert wurde. -->
+      {#if needsOrgCustomization}
+        <div class="ld-banner warn" style="margin-top:0.5rem">
+          ⚠️ In diesem Tenant ist die <strong>Organisationsanpassung</strong> nicht aktiviert. Exchange Online sperrt damit
+          alle eigenen Policies — deshalb schlägt schon die erste Quarantäne-Policy fehl.
+        </div>
+        <div class="ld-step">
+          <small>
+            <code>Enable-OrganizationCustomization</code> muss einmalig im Tenant laufen. Das ist ein schreibender,
+            <strong>nicht rückgängig zu machender</strong> Eingriff im Kundentenant und schaltet dauerhaft die
+            Anpassbarkeit frei. Die Freischaltung kann bis zu 4 Stunden dauern; danach den Deploy erneut starten.
+          </small>
+          <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+            <button class="btn btn-secondary" disabled={orgCustBusy} onclick={enableOrgCustomization}>
+              {orgCustBusy ? 'Läuft…' : '🔓 Organisationsanpassung jetzt aktivieren'}
+            </button>
+            {#if orgCustResult}
+              <span class="ld-section-hint" style="margin:0">{orgCustResult}</span>
+            {/if}
+          </div>
+        </div>
       {/if}
 
       {#if job.domains?.length}
