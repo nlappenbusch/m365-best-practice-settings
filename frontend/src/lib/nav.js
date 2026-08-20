@@ -67,6 +67,14 @@ export const NAV_GROUPS = [
     ]
   },
   {
+    id: 'insight',
+    label: 'Auswertung',
+    items: [
+      { id: 'reports', icon: '📊', label: 'Reports', isNew: true,
+        desc: 'Statusbericht pro Kunde erzeugen und Übersicht über alle Tenants' }
+    ]
+  },
+  {
     id: 'reference',
     label: 'Referenz',
     items: [

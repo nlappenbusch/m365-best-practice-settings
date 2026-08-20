@@ -38,6 +38,7 @@ const NSIGHT = require("./lib/nsight");
 const FORTICLIENT = require("./lib/forticlient");
 const WIN32APP = require("./lib/win32app");
 const MIGRATION = require("./lib/migrationPackage");
+const REPORT = require("./lib/report");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
@@ -2972,6 +2973,105 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   runAppDeployJob(job, t, b);
   res.json({ ok: true, jobId: job.id });
 }));
+
+// ---------- Kundenreports und Monitoring-Uebersicht ----------
+const REPORT_PHASES_PREFIX = "Verbinden";
+
+app.get("/api/reports/sections", (req, res) => res.json({ ok: true, sections: REPORT.SECTIONS }));
+
+// Im State landet NUR die Auswertung (Kennzahlen, Zusammenfassung), nicht die
+// Rohdaten: der Lizenzbaustein liefert alle Benutzer mit, das wuerde state.json
+// bei einem Dutzend Tenants unnoetig aufblaehen.
+function storeReport(tenantRecId, report) {
+  const s = loadState();
+  const idx = (s.tenants || []).findIndex(x => x.id === tenantRecId);
+  if (idx < 0) return;
+  const slim = {
+    generatedAt: report.generatedAt,
+    summary: report.summary,
+    sections: {}
+  };
+  for (const [id, sec] of Object.entries(report.sections)) {
+    slim.sections[id] = { ok: sec.ok, label: sec.label, metrics: sec.metrics || [], error: sec.error || null };
+  }
+  s.tenants[idx].report = slim;
+  saveState(s);
+}
+
+async function runReportJob(job, t) {
+  const onProgress = appJobProgress(job);
+  const cert = certPemPath(t.tenantId);
+  try {
+    onProgress(REPORT_PHASES_PREFIX);
+    const report = await REPORT.runReport(t, cert, job.sections, (label) => onProgress(label));
+    job.report = report;
+    storeReport(t.id, report);
+    const failed = report.summary.failedSections;
+    finishAppJob(job, true, null, failed.length
+      ? "Nicht abrufbar: " + failed.join(", ") + " — fehlende Berechtigung oder Lizenz im Tenant."
+      : null);
+  } catch (e) {
+    finishAppJob(job, false, e.message, e.hint || null);
+  }
+}
+
+app.post("/api/tenants/:id/report/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const sections = Array.isArray(req.body && req.body.sections) ? req.body.sections : [];
+  const labels = [REPORT_PHASES_PREFIX, ...REPORT.SECTIONS
+    .filter(s => !sections.length || sections.includes(s.id))
+    .map(s => s.label)];
+  const job = createAppJob(t, labels);
+  job.sections = sections;
+  runReportJob(job, t);
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// Vollstaendiger Report inklusive Rohdaten — nur solange der Job im Speicher
+// liegt. Was den Neustart ueberlebt, ist die schlanke Fassung im State.
+app.get("/api/jobs/report/:jobId", (req, res) => {
+  const job = appJobs.get(req.params.jobId);
+  if (!job || !job.report) return res.status(404).json({ error: "Report nicht (mehr) verfuegbar — bitte neu erzeugen." });
+  res.json({ ok: true, report: job.report });
+});
+
+app.get("/api/tenants/:id/report/latest", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, report: t.report || null });
+});
+
+// Monitoring-Uebersicht ueber ALLE Tenants — liest nur die gespeicherten
+// Reports, fragt also nichts live ab. Damit bleibt die Seite schnell, auch
+// wenn zwoelf Tenants hinterlegt sind.
+app.get("/api/reports/overview", (req, res) => {
+  const s = loadState();
+  const rows = (s.tenants || []).map(t => {
+    const r = t.report;
+    return {
+      id: t.id,
+      name: t.name,
+      organization: t.organization || null,
+      generatedAt: r ? r.generatedAt : null,
+      summary: r ? r.summary : null,
+      // Auffaellige Kennzahlen nach oben holen, damit die Uebersicht ohne
+      // Aufklappen zeigt, wo etwas zu tun ist.
+      findings: r
+        ? Object.values(r.sections || {})
+            .flatMap(sec => (sec.metrics || []).filter(m => m.state !== "ok")
+              .map(m => ({ section: sec.label, ...m })))
+            .sort((a, b) => (a.state === "crit" ? -1 : 1) - (b.state === "crit" ? -1 : 1))
+        : []
+    };
+  });
+  res.json({ ok: true, tenants: rows });
+});
 
 // ---------- Tenant-zu-Tenant-Geraetemigration ----------
 // Konfigurator fuer das Migrationspaket (igeeks-Fork von
