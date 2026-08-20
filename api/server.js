@@ -850,6 +850,10 @@ app.get("/api/tenants", (req, res) => {
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
+    // Nur ob und wann eine Vorlage hinterlegt ist — der Inhalt kommt ueber
+    // /api/tenants/:id/config, damit die Liste schlank bleibt.
+    hasConfig: !!t.config,
+    configSavedAt: t.configSavedAt || null,
     aiWritePermissions: t.aiWritePermissions || {},
     aiAutoDeployGroupId: t.aiAutoDeployGroupId || null,
     mcpPermissions: t.mcpPermissions || {}
@@ -2314,6 +2318,51 @@ app.post("/api/tenants/:id/test", wrap(async (req, res) => {
   if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Verbindungstest fehlgeschlagen", hint: "Frische App-Registrierungen brauchen ein paar Minuten Replikationszeit." });
   res.json({ ok: true, domains: r.data.domains || [] });
 }));
+
+// ---------- Vorlage pro Tenant ----------
+// Die Vorlage (Domains, Admin-/MSP-Adresse, Policy-Werte) lag bisher nur im
+// Browser-Tab: nach einem Reload stand wieder example.com da, und wer mehrere
+// Kunden betreut, tippte die Werte bei jedem Wechsel neu. Sie wird deshalb pro
+// Tenant im State abgelegt — keine Geheimnisse, nur Domains, Mailadressen und
+// Policy-Werte.
+const TENANT_CONFIG_MAX_BYTES = 100 * 1024;
+
+app.get("/api/tenants/:id/config", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, config: t.config || null, savedAt: t.configSavedAt || null });
+});
+
+app.put("/api/tenants/:id/config", (req, res) => {
+  const s = loadState();
+  const idx = (s.tenants || []).findIndex(x => x.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: "Tenant nicht gefunden" });
+
+  const cfg = req.body && req.body.config;
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) {
+    return res.status(400).json({ error: "Keine Konfiguration uebergeben." });
+  }
+  if (Buffer.byteLength(JSON.stringify(cfg), "utf8") > TENANT_CONFIG_MAX_BYTES) {
+    return res.status(413).json({ error: "Konfiguration zu gross." });
+  }
+  // Bewusst ohne sanitizeConfig: hier darf auch ein Zwischenstand liegen, der
+  // noch nicht deploybar ist. Geprueft wird beim Deploy, nicht beim Speichern.
+  s.tenants[idx].config = cfg;
+  s.tenants[idx].configSavedAt = new Date().toISOString();
+  saveState(s);
+  res.json({ ok: true, savedAt: s.tenants[idx].configSavedAt });
+});
+
+app.delete("/api/tenants/:id/config", (req, res) => {
+  const s = loadState();
+  const idx = (s.tenants || []).findIndex(x => x.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  delete s.tenants[idx].config;
+  delete s.tenants[idx].configSavedAt;
+  saveState(s);
+  res.json({ ok: true });
+});
 
 // Organisationsanpassung aktivieren (Enable-OrganizationCustomization).
 // Schreibender Eingriff im Kundentenant und nicht rueckgaengig zu machen —

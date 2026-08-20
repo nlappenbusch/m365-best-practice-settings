@@ -1,5 +1,63 @@
 <script>
   import { config } from '../lib/config.js'
+  import { activeTenant } from '../lib/tenantStore.js'
+  import { session } from '../lib/session.js'
+  import { tenantConfigState, loadTenantConfig, saveTenantConfig, clearTenantConfig } from '../lib/tenantConfig.js'
+
+  // ---------- Vorlage pro Tenant ----------
+  // Beim Umschalten die gespeicherte Vorlage des Tenants laden. Gibt es keine,
+  // bleibt die aktuelle stehen — ein Wechsel soll nie unbemerkt Eingaben
+  // wegwerfen (die Statuszeile sagt dann "noch nicht gespeichert").
+  let lastLoadedFor = null
+  let saveBusy = $state(false)
+  let saveMsg = $state(null)
+
+  $effect(() => {
+    const t = $activeTenant
+    if (!$session.loggedIn || !t) return
+    if (lastLoadedFor === t.id) return
+    lastLoadedFor = t.id
+    loadTenantConfig(t.id)
+  })
+
+  async function saveForTenant() {
+    if (!$activeTenant) return
+    saveBusy = true
+    saveMsg = null
+    try {
+      await saveTenantConfig($activeTenant.id)
+      saveMsg = { ok: true, text: 'Gespeichert.' }
+    } catch (e) {
+      saveMsg = { ok: false, text: e.message }
+    }
+    saveBusy = false
+    setTimeout(() => (saveMsg = null), 4000)
+  }
+
+  async function reloadForTenant() {
+    if (!$activeTenant) return
+    const r = await loadTenantConfig($activeTenant.id)
+    saveMsg = r.loaded
+      ? { ok: true, text: 'Gespeicherte Vorlage geladen.' }
+      : { ok: false, text: 'Für diesen Tenant ist nichts gespeichert.' }
+    setTimeout(() => (saveMsg = null), 4000)
+  }
+
+  async function forgetForTenant() {
+    if (!$activeTenant) return
+    if (!confirm(`Gespeicherte Vorlage für "${$activeTenant.name}" löschen?\n\nDie aktuell angezeigten Werte bleiben stehen — sie sind danach nur nicht mehr hinterlegt.`)) return
+    try {
+      await clearTenantConfig($activeTenant.id)
+      saveMsg = { ok: true, text: 'Gespeicherte Vorlage gelöscht.' }
+    } catch (e) {
+      saveMsg = { ok: false, text: e.message }
+    }
+    setTimeout(() => (saveMsg = null), 4000)
+  }
+
+  const savedAtText = $derived(
+    $tenantConfigState.savedAt ? new Date($tenantConfigState.savedAt).toLocaleString('de-CH') : null
+  )
 
   // Collapse-Zustand je Policy-Card (Vanilla: toggle-btn -> .expanded).
   let open = $state({ phish: false, spam: false, malware: false, quarantine: false })
@@ -21,6 +79,35 @@
     return bad
   })
 </script>
+
+<!-- Vorlage am Tenant hinterlegen: sonst stehen nach jedem Reload wieder die
+     Platzhalter da und die Werte müssen pro Kunde neu getippt werden. -->
+{#if $session.loggedIn && $activeTenant}
+  <div class="tcfg-bar">
+    <div class="tcfg-status">
+      <strong>Vorlage für {$activeTenant.name}</strong>
+      {#if $tenantConfigState.loading}
+        <span>wird geladen…</span>
+      {:else if savedAtText}
+        <span>gespeichert am {savedAtText} — beim Wechsel auf diesen Tenant automatisch geladen</span>
+      {:else}
+        <span>noch nicht gespeichert — die Werte unten gelten nur in diesem Browser-Tab</span>
+      {/if}
+    </div>
+    <div class="tcfg-actions">
+      <button class="btn btn-primary" disabled={saveBusy} onclick={saveForTenant}>
+        {saveBusy ? 'Speichert…' : '💾 Für diesen Tenant speichern'}
+      </button>
+      {#if savedAtText}
+        <button class="btn btn-secondary" onclick={reloadForTenant}>↺ Gespeicherte laden</button>
+        <button class="btn btn-secondary" onclick={forgetForTenant}>✕ Verwerfen</button>
+      {/if}
+      {#if saveMsg}
+        <span class="tcfg-msg {saveMsg.ok ? 'ok' : 'err'}">{saveMsg.ok ? '✅' : '⚠️'} {saveMsg.text}</span>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <!-- Globale Einstellungen -->
 <section class="settings-section">

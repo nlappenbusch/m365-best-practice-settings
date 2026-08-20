@@ -16,6 +16,16 @@ export async function apiPost(path, body) {
   return handle(r)
 }
 
+export async function apiPut(path, body) {
+  const r = await fetch(path, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  })
+  return handle(r)
+}
+
 export async function apiDelete(path) {
   const r = await fetch(path, { method: 'DELETE', credentials: 'same-origin' })
   return handle(r)

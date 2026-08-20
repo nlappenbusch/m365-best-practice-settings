@@ -244,6 +244,25 @@ a { color: var(--accent); }
 }
 .tab-hidden { display: none; }
 
+/* ---- Vorlage pro Tenant (Kopfleiste im Bereich "Vorlage") ---- */
+.tcfg-bar {
+    display: flex; flex-wrap: wrap; gap: 0.75rem;
+    align-items: center; justify-content: space-between;
+    margin-bottom: 1rem; padding: 0.65rem 0.9rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+}
+.tcfg-status { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.tcfg-status strong { font-size: 0.88rem; }
+.tcfg-status span { font-size: 0.76rem; color: var(--text-dim); }
+.tcfg-actions { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.tcfg-actions .btn { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
+.tcfg-msg { font-size: 0.78rem; }
+.tcfg-msg.ok { color: var(--ok); }
+.tcfg-msg.err { color: var(--crit); }
+
 /* ---- Diagnose: Server-Log ---- */
 .diag-log {
     margin-top: 0.75rem;

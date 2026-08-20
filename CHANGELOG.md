@@ -1,5 +1,66 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.5 - Vorlage pro Tenant, Diagnose, zwei handfeste Fehlerquellen (2026-08-20)
+
+### 💾 Vorlage pro Tenant speicherbar
+
+Die Vorlage (Domains, Admin-/MSP-Adresse, alle Policy-Werte) lebte bisher nur im
+Browser-Tab: nach einem Reload standen wieder die `example.com`-Platzhalter da, und
+wer mehrere Kunden betreut, tippte bei jedem Wechsel neu. Neu hängt sie am Tenant:
+
+- **„Für diesen Tenant speichern"** im Bereich *Vorlage*, mit Statuszeile
+  (gespeichert am … / noch nicht gespeichert).
+- Beim Umschalten des Tenants wird die gespeicherte Vorlage **automatisch geladen**.
+  Gibt es keine, bleiben die aktuellen Werte stehen — ein Wechsel wirft nie
+  unbemerkt Eingaben weg.
+- Fehlende Abschnitte einer älteren gespeicherten Vorlage werden aus den
+  Standardwerten aufgefüllt.
+- Endpunkte: `GET/PUT/DELETE /api/tenants/:id/config`. Geprüft wird beim Deploy,
+  nicht beim Speichern — ein unfertiger Zwischenstand darf liegen bleiben.
+
+### 🩺 Neuer Bereich „Diagnose"
+
+Seit dem GitOps-Deploy läuft die API als Pod; `docker logs` gibt es nicht mehr.
+
+- **Server-Log** der laufenden Instanz (letzte 400 Zeilen, Auto-Refresh,
+  Fehlerfilter, Kopieren). Passwörter, Tokens und JWTs werden maskiert.
+- **Erreichbarkeitstest** gegen `login.microsoftonline.com`, `graph.microsoft.com`
+  und `outlook.office365.com` — beantwortet „kommt der Container raus?" ohne Shell
+  im Pod.
+- Fehler landen mit Methode, Pfad und Status im Log; bei Netzfehlern wird
+  zusätzlich `e.cause` ausgegeben (`ENOTFOUND`, `ECONNREFUSED`, Zertifikat).
+  „fetch failed" allein sagte nichts.
+
+### 🔑 Zertifikat-Prüfung vergleicht jetzt Thumbprints
+
+Die Reparatur meldete „Zertifikat ok", sobald an der App-Registrierung überhaupt
+ein Schlüssel hing — auch wenn es ein anderes Zertifikat war. Beim Token-Holen kam
+dann `AADSTS700027`, während die Prüfung Entwarnung gab. Neu wird der SHA1-
+Thumbprint des lokalen PEM gegen die registrierten `keyCredentials` verglichen.
+Passt er nicht, gibt es den Zustand **„Eingriff nötig"** samt Auflistung der
+vorhandenen Zertifikate — Ersetzen nur auf ausdrücklichen Knopfdruck, weil Graph
+den öffentlichen Teil bestehender Schlüssel beim GET nicht mitliefert und ein PATCH
+die Liste zwangsläufig komplett ersetzt.
+
+### 🔓 Dehydrierte Tenants werden erkannt
+
+Ist die Organisationsanpassung nie aktiviert worden, sperrt Exchange Online alle
+eigenen Policies. Das lief bisher in die Retry-Schleife: vier Versuche, 60 Sekunden
+Wartezeit, am Ende eine abgeschnittene Meldung.
+
+- Vorprüfung `Get-OrganizationConfig.IsDehydrated` bricht sofort mit Begründung ab.
+- Das Fehlermuster bricht ohne Retry ab; transiente Fehler (Replikation, Race)
+  gehen weiterhin in die Wiederholung.
+- `POST /api/tenants/:id/enable-org-customization` führt
+  `Enable-OrganizationCustomization` aus — eigener Endpunkt hinter einer Rückfrage,
+  nie automatisch im Deploy: schreibender, nicht rückgängig zu machender Eingriff
+  im Kundentenant.
+
+### 📄 Netzwerk-Freigaben dokumentiert
+
+`docs/netzwerk-freigaben.md` listet alle Gegenstellen mit Fundstelle im Code,
+getrennt nach zwingend, funktionsabhängig und Build-Zeit.
+
 ## Version 2.4 - Neue Navigation: Seitenleiste statt Tab-Leiste (2026-08-19)
 
 ### 🧭 Linke Seitenleiste, nach Arbeitsablauf gruppiert
