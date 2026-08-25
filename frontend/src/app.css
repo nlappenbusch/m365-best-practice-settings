@@ -648,17 +648,21 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .wissen-hero h1 { font-size: 1.35rem; margin-bottom: 0.3rem; }
 .wissen-hero p { color: var(--text-dim); font-size: 0.9rem; max-width: 62ch; }
 
-.topic-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin: 1rem 0 1.4rem; }
-.topic-card {
-    display: flex; flex-direction: column; gap: 0.3rem; text-align: left;
-    background: var(--bg-raised); border: 1px solid var(--rule); border-radius: var(--radius-lg);
-    padding: 1rem 1.1rem; cursor: pointer; box-shadow: var(--shadow-sm); font: inherit; color: var(--text);
+/* Themenwahl im Wissen-Bereich: eine Zeile Reiter statt acht Karten. */
+.topic-bar {
+    display: flex; flex-wrap: wrap; gap: 0.35rem;
+    margin: 0.85rem 0 1.1rem; padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--rule);
 }
-.topic-card:hover { border-color: var(--accent); }
-.topic-card.active { border-color: var(--accent); background: var(--accent-wash); box-shadow: 0 0 0 1px var(--accent) inset; }
-.topic-card .topic-icon { font-size: 1.5rem; }
-.topic-card b { font-size: 0.94rem; }
-.topic-card span { font-size: 0.78rem; color: var(--text-dim); line-height: 1.4; }
+.topic-chip {
+    background: var(--bg-inset); border: 1px solid var(--rule); border-radius: 999px;
+    padding: 0.3rem 0.8rem; font: inherit; font-size: 0.82rem; font-weight: 600;
+    color: var(--text-dim); cursor: pointer; white-space: nowrap;
+    transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+.topic-chip:hover { color: var(--text); border-color: var(--text-faint); }
+.topic-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.topic-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .flow-diagram { background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-lg); padding: 0.75rem 1rem; margin: 0.8rem 0 1.1rem; overflow-x: auto; }
 .flow-diagram svg { display: block; width: 100%; height: auto; min-width: 640px; }
@@ -1035,10 +1039,15 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .map-table .map-remove { padding: 0.3rem 0.55rem; }
 
 /* ---------------- KPI-Kacheln (Lizenzen, M365Optimizer-Stil) ---------------- */
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.7rem; margin-bottom: 1.25rem; }
-.kpi-tile { border: 1px solid var(--rule); border-radius: var(--radius-md); padding: 0.7rem 0.9rem; background: var(--bg-raised); }
-.kpi-tile b { display: block; font-size: 1.5rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
+/* Kennzahlen sind hier Beiwerk, nicht die Hauptsache -- entsprechend kleiner,
+   damit der eigentliche Inhalt frueher beginnt. */
+.kpi-grid { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-bottom: 0.9rem; }
+.kpi-tile { border: 0; padding: 0; background: none; display: flex; align-items: baseline; gap: 0.4rem; }
+.kpi-tile b { font-size: 1.05rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .kpi-tile span { font-size: 0.76rem; color: var(--text-dim); }
+.kpi-tile.warn b { color: var(--warn); }
+.kpi-tile.bad b { color: var(--crit); }
+.kpi-tile.ok b { color: var(--ok); }
 .kpi-tile.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: var(--warn-wash); }
 .kpi-tile.warn b { color: var(--warn); }
 .kpi-tile.bad { border-color: color-mix(in srgb, var(--crit) 45%, transparent); background: var(--crit-wash); }

@@ -175,12 +175,14 @@
   </div>
 </section>
 
-<div class="topic-card-grid">
+<!-- Themenwahl als kompakte Reiterleiste: acht Karten mit Teasertext waren
+     eine halbe Bildschirmseite, bevor der eigentliche Inhalt begann. Der
+     Teaser steht jetzt im Tooltip. -->
+<div class="topic-bar">
   {#each topics as t (t.id)}
-    <button type="button" class="topic-card" class:active={sub === t.id} onclick={() => (sub = t.id)}>
-      <span class="topic-icon">{t.icon}</span>
-      <b>{t.title}</b>
-      <span>{t.teaser}</span>
+    <button type="button" class="topic-chip" class:active={sub === t.id}
+            title={t.teaser} onclick={() => (sub = t.id)}>
+      {t.title}
     </button>
   {/each}
 </div>
