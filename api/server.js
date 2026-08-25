@@ -2265,27 +2265,6 @@ app.get("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
   }
 }));
 
-// Deployment-Profil anlegen -- schreibend im Kundentenant. Ohne Profil bleibt
-// jedes Autopilot-Geraet in der normalen OOBE stehen; bisher musste man dafuer
-// ins Intune-Portal wechseln.
-app.post("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
-  const t = requireTenant(req);
-  const b = req.body || {};
-  if (process.env.FAKE_DEPLOY === "1") {
-    return res.json({ ok: true, profile: { id: "fake-profile", displayName: b.displayName || "Autopilot" }, assigned: null });
-  }
-  const profile = await AUTOPILOT.createDeploymentProfile(t, certPemPath(t.tenantId), b);
-
-  // Direkt zuweisen, wenn eine Gruppe mitkommt: ein Profil ohne Zuweisung
-  // wirkt nicht, und der zweite Klick wird sonst gern vergessen.
-  let assigned = null;
-  if (b.groupId) {
-    try { assigned = await AUTOPILOT.assignProfileToGroup(t, certPemPath(t.tenantId), profile.id, b.groupId); }
-    catch (e) { assigned = "failed: " + e.message; }
-  }
-  res.json({ ok: true, profile, assigned });
-}));
-
 app.post("/api/tenants/:id/autopilot/profiles/:profileId/assign", wrap(async (req, res) => {
   const t = requireTenant(req);
   const groupId = String((req.body || {}).groupId || "");

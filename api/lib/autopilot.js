@@ -347,57 +347,6 @@ async function loadAutopilotProfiles(tenant, certPemPath) {
   }));
 }
 
-/**
- * Autopilot-Deployment-Profil anlegen.
- *
- * Voreinstellungen entsprechen dem, was bei unseren Kunden ohnehin eingestellt
- * wird: user-driven Entra-Join, deutschsprachige OOBE, Datenschutz- und
- * EULA-Seite uebersprungen, Standardbenutzer (kein lokaler Admin). Bewusst
- * NICHT self-deploying -- das braucht TPM-Attestation und ist ein anderer Fall.
- */
-async function createDeploymentProfile(tenant, certPemPath, opts) {
-  const beta = { beta: true };
-  const name = String(opts.displayName || "").trim();
-  if (!name) { const e = new Error("Name des Profils fehlt."); e.status = 400; throw e; }
-
-  // deviceNameTemplate: max. 15 Zeichen inklusive %SERIAL% / %RAND:x%.
-  // Leer heisst "Windows vergibt den Namen".
-  const tpl = String(opts.deviceNameTemplate || "").trim();
-  if (tpl && tpl.length > 15) {
-    const e = new Error("Gerätename-Vorlage: maximal 15 Zeichen (inklusive %SERIAL% bzw. %RAND:x%).");
-    e.status = 400;
-    throw e;
-  }
-
-  const payload = {
-    "@odata.type": "#microsoft.graph.azureADWindowsAutopilotDeploymentProfile",
-    displayName: name,
-    description: String(opts.description || "").trim(),
-    language: String(opts.language || "de-DE"),
-    locale: String(opts.language || "de-DE"),
-    // Hardware-Hash beim Enrollment nicht neu erheben -- die Geraete sind ueber
-    // das Staging-Paket bzw. den Haendler bereits registriert.
-    extractHardwareHash: false,
-    deviceNameTemplate: tpl,
-    deviceType: "windowsPc",
-    enableWhiteGlove: opts.allowWhiteGlove === true,
-    roleScopeTagIds: ["0"],
-    hybridAzureADJoinSkipConnectivityCheck: false,
-    outOfBoxExperienceSettings: {
-      hidePrivacySettings: opts.hidePrivacy !== false,
-      hideEULA: opts.hideEula !== false,
-      userType: opts.userType === "administrator" ? "administrator" : "standard",
-      deviceUsageType: "singleUser",
-      skipKeyboardSelectionPage: opts.skipKeyboard !== false,
-      hideEscapeLink: true
-    }
-  };
-
-  const created = await graphReq(tenant, certPemPath, "POST",
-    "/deviceManagement/windowsAutopilotDeploymentProfiles", payload, beta);
-  return { id: created.id, displayName: created.displayName };
-}
-
 /** Autopilot-Profil einer Gruppe zuweisen (Merge, bestehende bleiben). */
 async function assignProfileToGroup(tenant, certPemPath, profileId, groupId) {
   const beta = { beta: true };
@@ -444,4 +393,4 @@ async function updateDeviceGroupTag(tenant, certPemPath, deviceId, groupTag) {
     { groupTag: String(groupTag || "") });
 }
 
-module.exports = { loadGroupTags, buildAutopilotZip, buildAutounattend, parseWlanProfile, tagsFromRule, loadAutopilotProfiles, createDeploymentProfile, assignProfileToGroup, loadAutopilotDevices, updateDeviceGroupTag };
+module.exports = { loadGroupTags, buildAutopilotZip, buildAutounattend, parseWlanProfile, tagsFromRule, loadAutopilotProfiles, assignProfileToGroup, loadAutopilotDevices, updateDeviceGroupTag };

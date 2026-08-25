@@ -108,86 +108,17 @@
   let assigningProfile = $state({})        // profileId -> bool
   let profileResult = $state({})           // profileId -> { error } | { status, gname }
 
-  // ---------- Profil anlegen ----------
-  // Ohne Deployment-Profil bleibt jedes Autopilot-Gerät in der normalen OOBE
-  // stehen. Bisher hiess das: rüber ins Intune-Portal wechseln.
-  let newProfileOpen = $state(false)
-  let newProfileBusy = $state(false)
-  let newProfile = $state({
-    displayName: 'Autopilot - User-Driven',
-    description: '',
-    language: 'de-DE',
-    deviceNameTemplate: '',
-    userType: 'standard',
-    hideEula: true,
-    hidePrivacy: true,
-    skipKeyboard: true,
-    allowWhiteGlove: false,
-    groupId: ''
-  })
+  // ---------- Deployment-Profile: anlegen im Intune-Portal ----------
+  // Das Anlegen lief eine Zeit lang ueber dieses Tool. Der Dienst dahinter
+  // (DeviceEnrollmentFE) faellt aber regelmaessig mit 500 aus, und ein
+  // halb angelegtes Profil ist schlechter als gar keines. Deshalb fuehrt der
+  // Weg jetzt direkt ins Portal -- dort sieht man auch, ob die Stoerung
+  // gerade ueberhaupt Aktionen zulaesst.
+  const INTUNE_PROFILES_URL = $derived(
+    'https://intune.microsoft.com/' + ($activeTenant?.organization || '') +
+    '#view/Microsoft_Intune_Enrollment/AutopilotProfilesBlade'
+  )
 
-  // ---------- Gerätename-Vorlage: Baukasten ----------
-  // Intune-Regeln: max. 15 Zeichen, nur Buchstaben/Ziffern/Bindestrich, nicht nur
-  // Ziffern. %SERIAL% → Seriennummer (Überlänge wird am Ende abgeschnitten),
-  // %RAND:x% → x Zufallsziffern. Pro Vorlage ist nur ein Platzhalter sinnvoll.
-  const TPL_MAX = 15
-  let tplRandDigits = $state(4)
-
-  function tplInsert(token) {
-    const prefix = (newProfile.deviceNameTemplate || '').replace(/%SERIAL%|%RAND:\d+%/gi, '')
-    newProfile.deviceNameTemplate = prefix + token
-  }
-
-  const tplCheck = $derived.by(() => {
-    const t = (newProfile.deviceNameTemplate || '').trim()
-    if (!t) return { text: '💡 Leer — Windows vergibt den Namen automatisch. Empfehlung: Präfix + Seriennummer, z. B. IG-%SERIAL%', error: false }
-    const rand = t.match(/%RAND:(\d+)%/i)
-    const hasSerial = /%SERIAL%/i.test(t)
-    const fixed = t.replace(/%SERIAL%|%RAND:\d+%/gi, '')
-    const placeholders = (t.match(/%SERIAL%|%RAND:\d+%/gi) || []).length
-    if (placeholders > 1) return { text: '⛔ Nur ein Platzhalter pro Vorlage — %SERIAL% oder %RAND:x%, nicht beides.', error: true }
-    if (/[^A-Za-z0-9-]/.test(fixed)) return { text: '⛔ Nur Buchstaben, Ziffern und Bindestrich erlaubt — keine Leer- oder Sonderzeichen.', error: true }
-    if (rand) {
-      const n = Number(rand[1])
-      const len = fixed.length + n
-      if (len > TPL_MAX) return { text: `⛔ Zu lang: Präfix ${fixed.length} + ${n} Zufallsziffern = ${len} von max. ${TPL_MAX} Zeichen.`, error: true }
-      return { text: `✅ ${len} von ${TPL_MAX} Zeichen. Beispiel: ${t.replace(/%RAND:\d+%/i, '83052914'.slice(0, n))}`, error: false }
-    }
-    if (hasSerial) {
-      const rest = TPL_MAX - fixed.length
-      if (rest < 1) return { text: `⛔ Präfix füllt alle ${TPL_MAX} Zeichen — von der Seriennummer bliebe nichts übrig, alle Geräte hiessen gleich.`, error: true }
-      const sample = t.replace(/%SERIAL%/i, '5CD045L29H').slice(0, TPL_MAX)
-      return { text: `${rest < 4 ? '⚠️' : '✅'} Präfix ${fixed.length} Zeichen — ${rest} bleiben für die Seriennummer (längere werden abgeschnitten${rest < 4 ? ', Namenskollisionen möglich' : ''}). Beispiel: ${sample}`, error: false }
-    }
-    if (t.length > TPL_MAX) return { text: `⛔ Zu lang: ${t.length} von max. ${TPL_MAX} Zeichen.`, error: true }
-    if (/^\d+$/.test(t)) return { text: '⛔ Der Name darf nicht nur aus Ziffern bestehen.', error: true }
-    return { text: `⚠️ Fester Name (${t.length} von ${TPL_MAX} Zeichen) — jedes Gerät bekäme denselben Namen. Besser %SERIAL% oder Zufallsziffern anhängen.`, error: false }
-  })
-
-  async function createProfile() {
-    if (!$activeTenant || !newProfile.displayName.trim()) return
-    const gname = newProfile.groupId
-      ? (profileGroups.find(g => g.id === newProfile.groupId)?.displayName || newProfile.groupId)
-      : null
-    if (!confirm(`Deployment-Profil „${newProfile.displayName}" im Tenant ${$activeTenant.name} anlegen?`
-      + (gname
-        ? `\n\nEs wird direkt der Gruppe „${gname}" zugewiesen.`
-        : '\n\nOhne Zuweisung — das Profil wirkt erst, wenn du ihm unten eine Gruppe zuweist.'))) return
-
-    newProfileBusy = true
-    profilesError = null
-    try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/autopilot/profiles`, newProfile)
-      newProfileOpen = false
-      await loadProfiles()
-      if (r.assigned && String(r.assigned).startsWith('failed')) {
-        profilesError = `Profil angelegt, aber die Zuweisung schlug fehl: ${String(r.assigned).slice(8)}`
-      }
-    } catch (e) {
-      profilesError = e.message
-    }
-    newProfileBusy = false
-  }
 
   async function loadProfiles() {
     if (!$activeTenant) return
@@ -450,73 +381,21 @@
       </div>
     {/if}
 
-    <!-- Profil anlegen: gilt für beide Fälle, leerer Tenant und weiteres Profil -->
-    {#if !profilesLoading && !profilesError}
+    <!-- Anlegen fuehrt ins Portal, siehe Kommentar im Skriptteil -->
+    {#if !profilesLoading}
       <div class="ld-job" style="margin-bottom:1rem">
-        {#if !newProfileOpen}
-          <button class="btn btn-primary" onclick={() => (newProfileOpen = true)}>➕ Deployment-Profil anlegen</button>
-        {:else}
-          <div class="ld-job-head"><strong>Neues Deployment-Profil</strong>
-            <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (newProfileOpen = false)}>✕</button>
-          </div>
-          <div class="settings-grid" style="margin-top:0.6rem">
-            <div class="input-group">
-              <label for="np-name">Name</label>
-              <input id="np-name" type="text" bind:value={newProfile.displayName} />
-            </div>
-            <div class="input-group">
-              <label for="np-lang">Sprache / Region</label>
-              <select id="np-lang" bind:value={newProfile.language}>
-                <option value="de-DE">Deutsch (de-DE)</option>
-                <option value="de-CH">Deutsch Schweiz (de-CH)</option>
-                <option value="fr-CH">Französisch Schweiz (fr-CH)</option>
-                <option value="it-CH">Italienisch Schweiz (it-CH)</option>
-                <option value="en-US">Englisch (en-US)</option>
-                <option value="os-default">Betriebssystem-Standard</option>
-              </select>
-            </div>
-            <div class="input-group">
-              <label for="np-tpl">Gerätename-Vorlage <small>(max. 15 Zeichen, leer = automatisch)</small></label>
-              <input id="np-tpl" type="text" bind:value={newProfile.deviceNameTemplate} placeholder="IG-%SERIAL%" />
-              <div style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center; margin-top:0.35rem; font-size:0.78rem">
-                <span><small>Präfix tippen, dann:</small></span>
-                <button type="button" class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.75rem;" onclick={() => tplInsert('%SERIAL%')}>+ Seriennummer</button>
-                <button type="button" class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.75rem;" onclick={() => tplInsert(`%RAND:${tplRandDigits}%`)}>+ Zufallsziffern</button>
-                <select bind:value={tplRandDigits} title="Anzahl Zufallsziffern" style="padding:0.1rem 0.25rem; font-size:0.75rem; width:auto">
-                  {#each [2, 3, 4, 5, 6] as n}<option value={n}>{n}</option>{/each}
-                </select>
-              </div>
-              <small style={tplCheck.error ? 'color:#c0392b' : ''}>{tplCheck.text}</small>
-            </div>
-            <div class="input-group">
-              <label for="np-user">Kontotyp des Anwenders</label>
-              <select id="np-user" bind:value={newProfile.userType}>
-                <option value="standard">Standardbenutzer (empfohlen)</option>
-                <option value="administrator">Lokaler Administrator</option>
-              </select>
-            </div>
-            <div class="input-group">
-              <label for="np-group">Direkt zuweisen an <small>(optional)</small></label>
-              <select id="np-group" bind:value={newProfile.groupId}>
-                <option value="">— später zuweisen —</option>
-                {#each profileGroups as g}<option value={g.id}>{g.displayName}</option>{/each}
-              </select>
-            </div>
-          </div>
-          <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; font-size:0.85rem">
-            <label><input type="checkbox" bind:checked={newProfile.hidePrivacy} /> Datenschutzseite überspringen</label>
-            <label><input type="checkbox" bind:checked={newProfile.hideEula} /> Lizenzbedingungen überspringen</label>
-            <label><input type="checkbox" bind:checked={newProfile.skipKeyboard} /> Tastaturauswahl überspringen</label>
-            <label><input type="checkbox" bind:checked={newProfile.allowWhiteGlove} /> Pre-Provisioning (White Glove) erlauben</label>
-          </div>
-          <div style="margin-top:0.75rem">
-            <button class="btn btn-primary" disabled={newProfileBusy || !newProfile.displayName.trim() || tplCheck.error} onclick={createProfile}>
-              {newProfileBusy ? 'Lege an…' : '✅ Profil anlegen'}
-            </button>
-            <small class="ld-section-hint">User-driven mit Entra-Join. Self-deploying wird bewusst nicht angeboten —
-              das braucht TPM-Attestation und ist ein anderer Anwendungsfall.</small>
-          </div>
-        {/if}
+        <div class="ld-step"><small>
+          Neue Deployment-Profile werden im Intune-Portal angelegt. Das Anlegen über dieses Tool ist bewusst
+          entfallen: der Dienst dahinter fällt regelmässig aus, und ein halb angelegtes Profil ist schlechter als
+          keines. Zuweisen und Prüfen geht hier weiterhin.
+        </small></div>
+        <a class="btn btn-primary" href={INTUNE_PROFILES_URL} target="_blank" rel="noopener">
+          Im Intune-Portal anlegen
+        </a>
+        <small class="ld-section-hint">
+          Öffnet die Bereitstellungsprofile im Tenant {$activeTenant?.name}. Danach hier „Neu laden" — das Profil
+          erscheint in der Liste und kann zugewiesen werden.
+        </small>
       </div>
     {/if}
 
