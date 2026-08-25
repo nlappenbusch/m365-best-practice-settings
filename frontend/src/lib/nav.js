@@ -50,6 +50,8 @@ export const NAV_GROUPS = [
         desc: 'Laufwerk- und Druckermappings als Intune-Profil erzeugen und zuweisen' },
       { id: 'downloads', icon: '📦', label: 'Agents',
         desc: 'Installer für Bitdefender, N-sight RMM und FortiClient' },
+      { id: 'grouptags', icon: '🏷', label: 'GroupTags', isNew: true,
+        desc: 'Dynamische Gerätegruppen anlegen und Autopilot-Geräten GroupTags zuordnen' },
       { id: 'migration', icon: '🔀', label: 'Migration', isNew: true,
         desc: 'Geräte in einen anderen Tenant umziehen — Paket konfigurieren und als Intune-App ausrollen' }
     ]

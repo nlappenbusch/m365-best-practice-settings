@@ -39,6 +39,7 @@ const FORTICLIENT = require("./lib/forticlient");
 const WIN32APP = require("./lib/win32app");
 const MIGRATION = require("./lib/migrationPackage");
 const REPORT = require("./lib/report");
+const GROUPTAGS = require("./lib/groupTags");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
@@ -2972,6 +2973,73 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   const job = createAppJob(t, APPDEPLOY_PHASES);
   runAppDeployJob(job, t, b);
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- GroupTags: Gruppen und Geraetezuordnung ----------
+// Nutzbar fuer beide Faelle: den aktiven onboardeten Tenant (Zertifikat) und
+// einen fremden Tenant per Client-ID/Secret -- etwa den Zieltenant einer
+// Migration, in dem die AAD-Gruppen erst noch entstehen muessen.
+async function groupTagAccess(req) {
+  const b = req.body || {};
+  const q = req.query || {};
+  const tenantName = String(b.tenantName || q.tenantName || "").trim();
+  const clientId = String(b.clientId || q.clientId || "").trim();
+  const clientSecret = String(b.clientSecret || q.clientSecret || "").trim();
+
+  if (tenantName && clientId && clientSecret) {
+    const accessToken = await GROUPTAGS.tokenFromSecret(tenantName, clientId, clientSecret);
+    return { kind: "token", accessToken, label: tenantName };
+  }
+  const t = requireTenant(req);
+  return { kind: "cert", tenant: t, certPemPath: certPemPath(t.tenantId), label: t.name };
+}
+
+app.post("/api/grouptags/groups", wrap(async (req, res) => {
+  const access = await groupTagAccess(req);
+  res.json({ ok: true, tenant: access.label, groups: await GROUPTAGS.listGroups(access) });
+}));
+
+app.post("/api/grouptags/devices", wrap(async (req, res) => {
+  const access = await groupTagAccess(req);
+  res.json({ ok: true, tenant: access.label, devices: await GROUPTAGS.listDevices(access) });
+}));
+
+// Schreibend im Kundentenant — legt eine dynamische Sicherheitsgruppe an.
+app.post("/api/grouptags/groups/create", wrap(async (req, res) => {
+  const b = req.body || {};
+  const access = await groupTagAccess(req);
+  const r = await GROUPTAGS.createGroupForTag(access, b.groupTag, b.displayName);
+  res.json({ ok: true, ...r });
+}));
+
+// Schreibend im Kundentenant — setzt den GroupTag eines Autopilot-Geraets.
+app.post("/api/grouptags/devices/tag", wrap(async (req, res) => {
+  const b = req.body || {};
+  if (!b.deviceId) return res.status(400).json({ error: "deviceId fehlt." });
+  const access = await groupTagAccess(req);
+  const r = await GROUPTAGS.setDeviceTag(access, b.deviceId, b.groupTag);
+  res.json({ ok: true, ...r });
+}));
+
+// Mehrere Geraete auf einmal — bei einer Migrationswelle sind das schnell
+// dreissig Stueck. Fehler pro Geraet sammeln statt beim ersten abzubrechen.
+app.post("/api/grouptags/devices/tag-bulk", wrap(async (req, res) => {
+  const b = req.body || {};
+  const ids = Array.isArray(b.deviceIds) ? b.deviceIds : [];
+  if (!ids.length) return res.status(400).json({ error: "Keine Geraete ausgewaehlt." });
+  if (ids.length > 200) return res.status(400).json({ error: "Maximal 200 Geraete pro Durchgang." });
+
+  const access = await groupTagAccess(req);
+  const results = [];
+  for (const id of ids) {
+    try {
+      await GROUPTAGS.setDeviceTag(access, id, b.groupTag);
+      results.push({ deviceId: id, ok: true });
+    } catch (e) {
+      results.push({ deviceId: id, ok: false, error: e.message });
+    }
+  }
+  res.json({ ok: true, results, failed: results.filter(r => !r.ok).length });
 }));
 
 // ---------- Migration: App-Registrierungen anlegen lassen ----------
