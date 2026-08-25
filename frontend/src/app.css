@@ -358,6 +358,17 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 /* ---- Assignment-Check: auffaellige Zeilen markieren ---- */
 .gt-table tr.ac-issue td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 
+/* ---- Eingeklappte Werkzeug-Einstellungen (Tenants-Bereich) ---- */
+.tn-settings { margin-top: 1.5rem; border-top: 1px solid var(--rule); padding-top: 0.75rem; }
+.tn-settings > summary {
+    cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-dim);
+    padding: 0.3rem 0; list-style: none;
+}
+.tn-settings > summary::-webkit-details-marker { display: none; }
+.tn-settings > summary::before { content: '▸ '; color: var(--text-faint); }
+.tn-settings[open] > summary::before { content: '▾ '; }
+.tn-settings > summary:hover { color: var(--text); }
+
 /* ---- Administrative Rollen ---- */
 .ar-summary { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
 .ar-admin {

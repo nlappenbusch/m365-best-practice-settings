@@ -375,66 +375,6 @@
   <div class="alert alert-warning"><strong>Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.</div>
 {:else}
   <div class="settings-group">
-    <h4>MCP-Zugriff (externe Claude-Sessions)</h4>
-    <p class="ld-section-hint">API-Keys fuer lokale MCP-Server (z.B. aus einem anderen Projektordner heraus), die
-      lesend + schreibend auf freigeschaltete Tenants zugreifen -- ohne Bestaetigungsklick im Web-Tool. Freischaltung
-      passiert pro Tenant einzeln weiter unten unter „🔌 MCP-Zugriff" pro Tenant-Zeile.</p>
-    <button class="btn btn-secondary" onclick={toggleMcpKeysPanel}>{mcpKeysOpen ? '▾' : '▸'} API-Keys verwalten</button>
-    <button class="btn btn-secondary" onclick={toggleMcpAuditPanel} style="margin-left:0.5rem;">{mcpAuditOpen ? '▾' : '▸'} Audit-Log</button>
-
-    {#if mcpKeysOpen}
-      <div class="ld-job" style="margin-top:0.75rem;">
-        {#if mcpFreshKey}
-          <div class="alert alert-warning" style="margin-bottom:0.75rem;">
-            <strong>Key „{mcpFreshKey.label}" erzeugt -- jetzt notieren, wird nie wieder angezeigt:</strong>
-            <div style="font-family:monospace; word-break:break-all; margin-top:0.4rem; user-select:all;">{mcpFreshKey.key}</div>
-            <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={() => (mcpFreshKey = null)}>Verstanden, ausblenden</button>
-          </div>
-        {/if}
-        <div class="input-group" style="max-width:420px; margin-bottom:0.6rem;">
-          <label for="mcpNewLabel">Neuer Key -- Bezeichnung (z.B. „ADHS-Manager")</label>
-          <div style="display:flex; gap:0.5rem;">
-            <input id="mcpNewLabel" type="text" bind:value={mcpNewLabel} placeholder="Bezeichnung" />
-            <button class="btn btn-primary" disabled={mcpKeyBusy} onclick={createMcpKey}>+ Erzeugen</button>
-          </div>
-        </div>
-        {#if !mcpKeysLoaded}
-          <p class="ld-section-hint">Lade…</p>
-        {:else if mcpKeys.length === 0}
-          <p class="ld-section-hint">Noch keine Keys erzeugt.</p>
-        {:else}
-          {#each mcpKeys as k (k.id)}
-            <div class="wizard-step">
-              <div class="wizard-step-body">
-                <div class="wizard-step-title">{k.label}</div>
-                <div class="wizard-step-desc">Erzeugt: {new Date(k.createdAt).toLocaleString('de-CH')} · Zuletzt verwendet: {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString('de-CH') : 'nie'}</div>
-              </div>
-              <button class="btn btn-secondary" onclick={() => revokeMcpKey(k.id)}>✕ Widerrufen</button>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    {/if}
-
-    {#if mcpAuditOpen}
-      <div class="ld-job" style="margin-top:0.75rem;">
-        {#if mcpAuditLog.length === 0}
-          <p class="ld-section-hint">Noch keine Eintraege.</p>
-        {:else}
-          {#each mcpAuditLog as entry (entry.id)}
-            <div class="wizard-step">
-              <div class="wizard-step-body">
-                <div class="wizard-step-title">{entry.action} · {entry.tenantId} {entry.userId ? '· ' + entry.userId : ''}</div>
-                <div class="wizard-step-desc">{new Date(entry.at).toLocaleString('de-CH')} · Key „{entry.keyLabel}" · {entry.result}</div>
-              </div>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  <div class="settings-group">
     <h4>Onboardete Tenants</h4>
     {#if !$tenantsLoaded}
       <p class="ld-section-hint">Lade…</p>
@@ -702,6 +642,70 @@
     {/if}
   </div>
 
+  <!-- Selten gebraucht: einmal eingerichtet, danach im Weg. Deshalb
+       eingeklappt ans Ende statt oben ueber den Tenants. -->
+  <details class="tn-settings">
+    <summary>Werkzeug-Einstellungen: MCP-Zugriff und SSO</summary>
+  <div class="settings-group">
+    <h4>MCP-Zugriff (externe Claude-Sessions)</h4>
+    <p class="ld-section-hint">API-Keys fuer lokale MCP-Server (z.B. aus einem anderen Projektordner heraus), die
+      lesend + schreibend auf freigeschaltete Tenants zugreifen -- ohne Bestaetigungsklick im Web-Tool. Freischaltung
+      passiert pro Tenant einzeln weiter unten unter „🔌 MCP-Zugriff" pro Tenant-Zeile.</p>
+    <button class="btn btn-secondary" onclick={toggleMcpKeysPanel}>{mcpKeysOpen ? '▾' : '▸'} API-Keys verwalten</button>
+    <button class="btn btn-secondary" onclick={toggleMcpAuditPanel} style="margin-left:0.5rem;">{mcpAuditOpen ? '▾' : '▸'} Audit-Log</button>
+
+    {#if mcpKeysOpen}
+      <div class="ld-job" style="margin-top:0.75rem;">
+        {#if mcpFreshKey}
+          <div class="alert alert-warning" style="margin-bottom:0.75rem;">
+            <strong>Key „{mcpFreshKey.label}" erzeugt -- jetzt notieren, wird nie wieder angezeigt:</strong>
+            <div style="font-family:monospace; word-break:break-all; margin-top:0.4rem; user-select:all;">{mcpFreshKey.key}</div>
+            <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={() => (mcpFreshKey = null)}>Verstanden, ausblenden</button>
+          </div>
+        {/if}
+        <div class="input-group" style="max-width:420px; margin-bottom:0.6rem;">
+          <label for="mcpNewLabel">Neuer Key -- Bezeichnung (z.B. „ADHS-Manager")</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input id="mcpNewLabel" type="text" bind:value={mcpNewLabel} placeholder="Bezeichnung" />
+            <button class="btn btn-primary" disabled={mcpKeyBusy} onclick={createMcpKey}>+ Erzeugen</button>
+          </div>
+        </div>
+        {#if !mcpKeysLoaded}
+          <p class="ld-section-hint">Lade…</p>
+        {:else if mcpKeys.length === 0}
+          <p class="ld-section-hint">Noch keine Keys erzeugt.</p>
+        {:else}
+          {#each mcpKeys as k (k.id)}
+            <div class="wizard-step">
+              <div class="wizard-step-body">
+                <div class="wizard-step-title">{k.label}</div>
+                <div class="wizard-step-desc">Erzeugt: {new Date(k.createdAt).toLocaleString('de-CH')} · Zuletzt verwendet: {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString('de-CH') : 'nie'}</div>
+              </div>
+              <button class="btn btn-secondary" onclick={() => revokeMcpKey(k.id)}>✕ Widerrufen</button>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+
+    {#if mcpAuditOpen}
+      <div class="ld-job" style="margin-top:0.75rem;">
+        {#if mcpAuditLog.length === 0}
+          <p class="ld-section-hint">Noch keine Eintraege.</p>
+        {:else}
+          {#each mcpAuditLog as entry (entry.id)}
+            <div class="wizard-step">
+              <div class="wizard-step-body">
+                <div class="wizard-step-title">{entry.action} · {entry.tenantId} {entry.userId ? '· ' + entry.userId : ''}</div>
+                <div class="wizard-step-desc">{new Date(entry.at).toLocaleString('de-CH')} · Key „{entry.keyLabel}" · {entry.result}</div>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    {/if}
+  </div>
+
   <div class="settings-group">
     <h4>SSO: Anmeldung über den iGeeks-Tenant</h4>
     <p class="ld-section-hint">Verheiratet das Tool mit dem iGeeks-M365-Tenant als primäre Anmeldemethode — dient NUR dem Zugriff auf dieses Tool, nicht dem Management des iGeeks-Tenants. Der Passwort-Login bleibt als Fallback erhalten.</p>
@@ -745,4 +749,5 @@
       <div class="ld-banner {ssoMsg.ok ? 'ok' : 'fail'}" style="margin-top:0.75rem;">{ssoMsg.ok ? '✅' : '❌'} {ssoMsg.text}</div>
     {/if}
   </div>
+  </details>
 {/if}
