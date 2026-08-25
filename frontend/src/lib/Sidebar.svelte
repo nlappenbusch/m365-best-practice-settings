@@ -3,6 +3,7 @@
   import { activeTab, goToTab } from './tabStore.js'
   import { session } from './session.js'
   import { sidebarCollapsed, mobileNavOpen, toggleSidebar, closeMobileNav } from './sidebarStore.js'
+  import Icon from './Icon.svelte'
 
   let groups = $derived(
     NAV_GROUPS
@@ -14,12 +15,12 @@
 <aside class="sb" class:sb-collapsed={$sidebarCollapsed} class:sb-open={$mobileNavOpen}
        aria-label="Bereiche">
   <div class="sb-brand">
-    <div class="sb-logo" aria-hidden="true">🛡️</div>
+    <div class="sb-logo" aria-hidden="true"><Icon name="shieldCheck" size={17} stroke={2} /></div>
     <div class="sb-brand-text">
       <strong>Security Policy Manager</strong>
       <span>igeeks · Microsoft 365</span>
     </div>
-    <button class="sb-drawer-close" onclick={closeMobileNav} aria-label="Menü schliessen">&times;</button>
+    <button class="sb-drawer-close" onclick={closeMobileNav} aria-label="Menü schliessen"><Icon name="x" size={18} /></button>
   </div>
 
   <nav class="sb-nav">
@@ -31,7 +32,7 @@
                   onclick={() => goToTab(it.id)}
                   aria-current={$activeTab === it.id ? 'page' : undefined}
                   title={$sidebarCollapsed ? `${it.label} — ${it.desc}` : it.desc}>
-            <span class="sb-icon" aria-hidden="true">{it.icon}</span>
+            <span class="sb-icon"><Icon name={it.icon} size={17} /></span>
             <span class="sb-label">{it.label}</span>
             {#if it.isNew}<span class="sb-new">Neu</span>{/if}
           </button>
@@ -43,7 +44,7 @@
   <div class="sb-foot">
     <button class="sb-item sb-collapse" onclick={toggleSidebar}
             title={$sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}>
-      <span class="sb-icon" aria-hidden="true">{$sidebarCollapsed ? '»' : '«'}</span>
+      <span class="sb-icon"><Icon name={$sidebarCollapsed ? 'chevronRight' : 'chevronLeft'} size={16} /></span>
       <span class="sb-label">Einklappen</span>
     </button>
   </div>

@@ -113,20 +113,51 @@ async function listGroups(access) {
   })).sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-/** Autopilot-Geräte mit ihrem aktuellen GroupTag. */
+/**
+ * Autopilot-Geräte mit GroupTag und dem tatsächlichen Benutzer.
+ *
+ * Das Autopilot-Objekt kennt nur `userPrincipalName` — das ist die optionale
+ * Vorabzuweisung ("dieses Gerät ist für Frau X reserviert") und in der Praxis
+ * fast immer leer. Wer ein Gerät wirklich benutzt, steht am Intune-Objekt.
+ * Deshalb werden die verwalteten Geräte einmal mitgeladen und über die
+ * Seriennummer zugeordnet — ein Aufruf, nicht einer pro Gerät.
+ */
 async function listDevices(access) {
   const devices = await allPages(access,
     "/deviceManagement/windowsAutopilotDeviceIdentities?$top=200", { beta: true });
-  return devices.map(d => ({
-    id: d.id,
-    serialNumber: d.serialNumber || "",
-    model: d.model || "",
-    manufacturer: d.manufacturer || "",
-    groupTag: d.groupTag || "",
-    assignedUser: d.userPrincipalName || "",
-    enrollmentState: d.enrollmentState || "",
-    lastContact: d.lastContactedDateTime || null
-  })).sort((a, b) => (a.groupTag || "~").localeCompare(b.groupTag || "~") || a.serialNumber.localeCompare(b.serialNumber));
+
+  const bySerial = new Map();
+  try {
+    const managed = await allPages(access,
+      "/deviceManagement/managedDevices?$select=id,deviceName,serialNumber,userPrincipalName,userDisplayName,lastSyncDateTime&$top=500");
+    for (const m of managed) {
+      const key = String(m.serialNumber || "").trim().toLowerCase();
+      if (key) bySerial.set(key, m);
+    }
+  } catch (e) {
+    // Ohne DeviceManagementManagedDevices.Read bleibt die Spalte leer statt
+    // die ganze Liste scheitern zu lassen.
+  }
+
+  return devices.map(d => {
+    const m = bySerial.get(String(d.serialNumber || "").trim().toLowerCase()) || null;
+    return {
+      id: d.id,
+      serialNumber: d.serialNumber || "",
+      model: d.model || "",
+      manufacturer: d.manufacturer || "",
+      groupTag: d.groupTag || "",
+      // Autopilot-Vorabzuweisung — meist leer, deshalb getrennt ausgewiesen
+      assignedUser: d.userPrincipalName || "",
+      // Tatsächlicher Benutzer und Gerätename aus Intune
+      deviceName: m ? (m.deviceName || "") : "",
+      user: m ? (m.userPrincipalName || "") : "",
+      userDisplayName: m ? (m.userDisplayName || "") : "",
+      lastSync: m ? (m.lastSyncDateTime || null) : null,
+      enrollmentState: d.enrollmentState || "",
+      lastContact: d.lastContactedDateTime || null
+    };
+  }).sort((a, b) => (a.groupTag || "~").localeCompare(b.groupTag || "~") || a.serialNumber.localeCompare(b.serialNumber));
 }
 
 /**

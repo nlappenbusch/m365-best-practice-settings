@@ -126,7 +126,8 @@
       ? devices.filter(d => {
           const f = filter.trim().toLowerCase()
           if (!f) return true
-          return (d.serialNumber + ' ' + d.model + ' ' + d.groupTag + ' ' + d.assignedUser).toLowerCase().includes(f)
+          return [d.serialNumber, d.model, d.deviceName, d.groupTag, d.user, d.userDisplayName, d.assignedUser]
+            .filter(Boolean).join(' ').toLowerCase().includes(f)
         })
       : []
   )
@@ -267,14 +268,17 @@
         <div class="gt-table-wrap">
           <table class="gt-table">
             <thead>
-              <tr><th></th><th>Seriennummer</th><th>Modell</th><th>GroupTag</th><th>Zugewiesen an</th><th>Status</th></tr>
+              <tr><th></th><th>Gerät</th><th>Seriennummer</th><th>GroupTag</th><th>Benutzer</th><th>Status</th></tr>
             </thead>
             <tbody>
               {#each shown as d (d.id)}
                 <tr class:gt-untagged={!d.groupTag}>
                   <td><input type="checkbox" bind:checked={selected[d.id]} /></td>
+                  <td>
+                    {#if d.deviceName}<strong>{d.deviceName}</strong><br />{/if}
+                    <small>{d.manufacturer} {d.model}</small>
+                  </td>
                   <td><code>{d.serialNumber}</code></td>
-                  <td>{d.manufacturer} {d.model}</td>
                   <td>
                     <div class="gt-tagcell">
                       <select class="gt-tagselect" disabled={rowBusy[d.id]}
@@ -293,7 +297,16 @@
                       {/if}
                     </div>
                   </td>
-                  <td>{d.assignedUser || '—'}</td>
+                  <td>
+                    {#if d.user}
+                      {d.userDisplayName || d.user}
+                      {#if d.userDisplayName}<br /><small>{d.user}</small>{/if}
+                    {:else if d.assignedUser}
+                      {d.assignedUser}<br /><small>vorab zugewiesen, noch nicht angemeldet</small>
+                    {:else}
+                      <em>—</em>
+                    {/if}
+                  </td>
                   <td>{d.enrollmentState || '—'}</td>
                 </tr>
               {/each}
@@ -301,8 +314,10 @@
           </table>
         </div>
       {/if}
-      <p class="ld-section-hint">Ein geänderter GroupTag wirkt, sobald Entra die dynamischen Gruppen neu auswertet —
-        das dauert üblicherweise ein paar Minuten.</p>
+      <p class="ld-section-hint">„Benutzer" ist der Primärbenutzer aus Intune. Bleibt die Spalte leer, hat sich noch
+        niemand am Gerät angemeldet — die Benutzer-Vorabzuweisung im Autopilot-Objekt setzen die wenigsten.
+        <br />Ein geänderter GroupTag wirkt, sobald Entra die dynamischen Gruppen neu auswertet — das dauert
+        üblicherweise ein paar Minuten.</p>
     </div>
   {/if}
 </TenantContext>

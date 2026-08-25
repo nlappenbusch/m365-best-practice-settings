@@ -90,6 +90,13 @@ body {
 
 a { color: var(--accent); }
 
+/* ---------------- Icons ----------------
+   Strichicons als Inline-SVG (siehe lib/Icon.svelte). currentColor sorgt
+   dafuer, dass sie Textfarbe und Theme ohne Sonderregeln mitnehmen.
+   ---------------------------------------------------------------------- */
+.ico { display: block; flex-shrink: 0; }
+.btn .ico { margin-right: 0.1rem; }
+
 /* ---------------- Shell: Seitenleiste + Arbeitsbereich ----------------
    Links eine feste Navigation (nach Arbeitsablauf gruppiert, einklappbar),
    rechts eine schlanke Kopfzeile mit dem Namen des aktuellen Bereichs plus
@@ -139,8 +146,7 @@ a { color: var(--accent); }
 .sb-logo {
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     width: 30px; height: 30px; border-radius: var(--radius-sm);
-    background: linear-gradient(155deg, var(--accent), var(--accent-strong));
-    color: #fff; font-size: 1rem; box-shadow: var(--shadow-sm);
+    background: var(--accent); color: #fff;
 }
 .sb-brand-text { display: flex; flex-direction: column; min-width: 0; }
 .sb-brand-text strong {
@@ -159,8 +165,9 @@ a { color: var(--accent); }
 .sb-group { display: flex; flex-direction: column; gap: 1px; }
 .sb-group + .sb-group { margin-top: 0.45rem; }
 .sb-group-label {
-    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-    color: var(--text-faint); padding: 0.5rem 0.6rem 0.25rem; white-space: nowrap;
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--text-faint); padding: 0.55rem 0.6rem 0.3rem; white-space: nowrap;
+    opacity: 0.85;
 }
 /* Eingeklappt bleibt von der Gruppe nur ein Trennstrich uebrig. */
 .sb.sb-collapsed .sb-group-label {
@@ -178,17 +185,26 @@ a { color: var(--accent); }
     transition: background var(--transition), color var(--transition);
 }
 .sb-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
-.sb-item.active { background: var(--accent-wash); color: var(--accent-strong); }
+.sb-item.active { background: var(--accent-wash); color: var(--accent-strong); font-weight: 650; }
 .sb-item.active::before {
     content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
     width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
 }
 .sb-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.sb-icon { width: 1.35rem; flex-shrink: 0; text-align: center; font-size: 0.95rem; }
+.sb-icon {
+    width: 1.35rem; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-faint);
+    transition: color var(--transition);
+}
+.sb-item:hover .sb-icon { color: var(--text-dim); }
+.sb-item.active .sb-icon { color: var(--accent); }
 .sb-label { overflow: hidden; text-overflow: ellipsis; }
+/* Dezenter Punkt statt Farbpille -- bei einem Dutzend neuer Bereiche wird
+   eine Pille pro Zeile zum Rauschen. */
 .sb-new {
-    margin-left: auto; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em;
-    background: var(--accent); color: #fff; padding: 0.05rem 0.4rem; border-radius: 999px;
+    margin-left: auto; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); font-size: 0; flex-shrink: 0;
 }
 .sb.sb-collapsed .sb-item { justify-content: center; padding-inline: 0; }
 .sb.sb-collapsed .sb-label,
@@ -220,6 +236,12 @@ a { color: var(--accent); }
     color: var(--text); font-size: 1rem; cursor: pointer;
 }
 .topbar-title { flex: 1 1 12rem; min-width: 0; }
+.topbar-heading { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.topbar-icon {
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: var(--radius-sm);
+    background: var(--accent-wash); color: var(--accent-strong);
+}
 .topbar-title h1 {
     font-size: 1rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

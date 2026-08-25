@@ -14,6 +14,9 @@
 // (goToTab) und im gemerkten letzten Bereich (localStorage). Beschriftungen
 // dürfen sich ändern, Ids nicht.
 //
+// `icon` ist ein Name aus lib/Icon.svelte (Strichicons, kein Emoji): einheitliche
+// Strichstaerke, faerbt sich mit currentColor und braucht keine externe Schrift.
+//
 // `desc` erscheint als Tooltip in der Leiste und als Untertitel in der Kopfzeile.
 
 export const NAV_GROUPS = [
@@ -21,9 +24,9 @@ export const NAV_GROUPS = [
     id: 'setup',
     label: 'Einrichtung',
     items: [
-      { id: 'tenants', icon: '🏢', label: 'Tenants',
+      { id: 'tenants', icon: 'building', label: 'Tenants',
         desc: 'Kunden-Tenants onboarden, Status prüfen, geführter Einrichtungs-Assistent' },
-      { id: 'config', icon: '⚙️', label: 'Vorlage',
+      { id: 'config', icon: 'sliders', label: 'Vorlage',
         desc: 'Baseline: Domains, Admin-/MSP-Adressen, Policy-Werte — Grundlage für alle Werkzeuge' }
     ]
   },
@@ -31,9 +34,9 @@ export const NAV_GROUPS = [
     id: 'identity',
     label: 'Identität & Zugriff',
     items: [
-      { id: 'ca', icon: '🔐', label: 'Conditional Access',
+      { id: 'ca', icon: 'lock', label: 'Conditional Access',
         desc: 'CA-Tier wählen, im Report-only-Pilot starten, Policies ausrollen und aufräumen' },
-      { id: 'adminroles', icon: '👤', label: 'Administrative Rollen', isNew: true,
+      { id: 'adminroles', icon: 'userCog', label: 'Administrative Rollen', isNew: true,
         desc: 'Wer hat erhöhte Rechte — Globale Administratoren mit ihren Gruppen und weiteren Rollen' }
     ]
   },
@@ -41,9 +44,9 @@ export const NAV_GROUPS = [
     id: 'mail',
     label: 'Mail-Security',
     items: [
-      { id: 'mailsec', icon: '🛡', label: 'Ausrollen',
+      { id: 'mailsec', icon: 'shieldCheck', label: 'Ausrollen',
         desc: 'BP_-Policies live deployen: Quarantäne, Anti-Phishing, Anti-Spam, Anti-Malware' },
-      { id: 'audit', icon: '🔎', label: 'Audit',
+      { id: 'audit', icon: 'search', label: 'Audit',
         desc: 'Soll/Ist-Vergleich der Policies und SPF/DKIM/DMARC der Domains' }
     ]
   },
@@ -51,11 +54,11 @@ export const NAV_GROUPS = [
     id: 'intune',
     label: 'Intune',
     items: [
-      { id: 'intune', icon: '🛠', label: 'Policies',
+      { id: 'intune', icon: 'wrench', label: 'Policies',
         desc: 'OIB-Baseline-Policies zuweisen — inklusive Hinweis auf Break-Risiken' },
-      { id: 'mappings', icon: '🗺️', label: 'Mappings',
+      { id: 'mappings', icon: 'map', label: 'Mappings',
         desc: 'Laufwerk- und Druckermappings als Intune-Profil erzeugen und zuweisen' },
-      { id: 'downloads', icon: '📦', label: 'Apps & Agents',
+      { id: 'downloads', icon: 'package', label: 'Apps & Agents',
         desc: 'Bitdefender, N-sight RMM und FortiClient als Win32-App ausrollen' }
     ]
   },
@@ -63,11 +66,11 @@ export const NAV_GROUPS = [
     id: 'rollout',
     label: 'Geräte-Rollout',
     items: [
-      { id: 'grouptags', icon: '🏷', label: 'GroupTags',
+      { id: 'grouptags', icon: 'tag', label: 'GroupTags',
         desc: 'Dynamische Gerätegruppen anlegen und Autopilot-Geräten GroupTags zuordnen' },
-      { id: 'autopilot', icon: '🚀', label: 'Autopilot',
+      { id: 'autopilot', icon: 'rocket', label: 'Autopilot',
         desc: 'Staging-Paket bauen, Autopilot-Profile und registrierte Geräte verwalten' },
-      { id: 'migration', icon: '🔀', label: 'Tenant-Migration', isNew: true,
+      { id: 'migration', icon: 'shuffle', label: 'Tenant-Migration', isNew: true,
         desc: 'Geräte in einen anderen Tenant umziehen — Paket konfigurieren und als Intune-App ausrollen' }
     ]
   },
@@ -75,13 +78,13 @@ export const NAV_GROUPS = [
     id: 'ops',
     label: 'Betrieb',
     items: [
-      { id: 'reports', icon: '📊', label: 'Reports', isNew: true,
+      { id: 'reports', icon: 'chart', label: 'Reports', isNew: true,
         desc: 'Statusbericht pro Kunde erzeugen und Übersicht über alle Tenants' },
-      { id: 'lizenzen', icon: '💰', label: 'Lizenzen',
+      { id: 'lizenzen', icon: 'coins', label: 'Lizenzen',
         desc: 'Lizenzbestand, ungenutzte Seats und Lizenzen an inaktiven Konten' },
-      { id: 'tickets', icon: '🎫', label: 'Tickets', gated: 'ticketsAllowed',
+      { id: 'tickets', icon: 'ticket', label: 'Tickets', gated: 'ticketsAllowed',
         desc: 'SDP-Ticket-Copilot: offene Tickets, Runbooks, Worklogs' },
-      { id: 'diagnose', icon: '🩺', label: 'Diagnose',
+      { id: 'diagnose', icon: 'stethoscope', label: 'Diagnose',
         desc: 'Server-Log der laufenden Instanz und Erreichbarkeitstest der Microsoft-Endpunkte' }
     ]
   },
@@ -89,7 +92,7 @@ export const NAV_GROUPS = [
     id: 'reference',
     label: 'Referenz',
     items: [
-      { id: 'wissen', icon: '📖', label: 'Wissen',
+      { id: 'wissen', icon: 'book', label: 'Wissen',
         desc: 'Best-Practice-Doku, Begründungen und Sprunglinks in die passenden Werkzeuge' }
     ]
   }

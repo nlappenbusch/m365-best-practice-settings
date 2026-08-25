@@ -6,6 +6,7 @@
   import { navItem } from './lib/nav.js'
   import { mobileNavOpen, toggleMobileNav, closeMobileNav } from './lib/sidebarStore.js'
   import Sidebar from './lib/Sidebar.svelte'
+  import Icon from './lib/Icon.svelte'
   import TenantSwitcher from './lib/TenantSwitcher.svelte'
   import SessionWidget from './lib/SessionWidget.svelte'
   import LoginScreen from './lib/LoginScreen.svelte'
@@ -40,9 +41,9 @@
   let current = $derived(navItem($activeTab))
 
   const THEME_META = {
-    auto:  { icon: '🌓', label: 'Auto' },
-    light: { icon: '☀️', label: 'Hell' },
-    dark:  { icon: '🌙', label: 'Dunkel' }
+    auto:  { icon: 'contrast', label: 'Auto' },
+    light: { icon: 'sun', label: 'Hell' },
+    dark:  { icon: 'moon', label: 'Dunkel' }
   }
 
   let exportOpen = $state(false)
@@ -70,11 +71,20 @@
 
   <div class="workspace">
     <header class="topbar">
-      <button class="topbar-burger" onclick={toggleMobileNav} aria-label="Menü öffnen">☰</button>
+      <button class="topbar-burger" onclick={toggleMobileNav} aria-label="Menü öffnen"><Icon name="menu" size={18} /></button>
 
       <div class="topbar-title">
-        <h1>{current ? `${current.icon} ${current.label}` : 'M365 Security Policy Manager'}</h1>
-        {#if current}<p>{current.desc}</p>{/if}
+        {#if current}
+          <div class="topbar-heading">
+            <span class="topbar-icon"><Icon name={current.icon} size={19} /></span>
+            <div>
+              <h1>{current.label}</h1>
+              <p>{current.desc}</p>
+            </div>
+          </div>
+        {:else}
+          <h1>M365 Security Policy Manager</h1>
+        {/if}
       </div>
 
       <div class="topbar-actions">
@@ -89,7 +99,7 @@
         <button class="btn btn-secondary theme-toggle" onclick={cycleTheme}
                 title="Darstellung: {THEME_META[$theme].label} (klicken zum Wechseln)"
                 aria-label="Darstellung wechseln">
-          <span aria-hidden="true">{THEME_META[$theme].icon}</span>
+          <Icon name={THEME_META[$theme].icon} size={16} />
           <span class="theme-toggle-label">{THEME_META[$theme].label}</span>
         </button>
         <TenantSwitcher onManage={() => ($activeTab = 'tenants')} />
