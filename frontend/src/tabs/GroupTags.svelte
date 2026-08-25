@@ -268,7 +268,7 @@
         <div class="gt-table-wrap">
           <table class="gt-table">
             <thead>
-              <tr><th></th><th>Gerät</th><th>Seriennummer</th><th>GroupTag</th><th>Benutzer</th><th>Status</th></tr>
+              <tr><th></th><th>Gerät</th><th>Seriennummer</th><th>GroupTag</th><th>Autopilot-Profil</th><th>Benutzer</th><th>Status</th></tr>
             </thead>
             <tbody>
               {#each shown as d (d.id)}
@@ -298,6 +298,18 @@
                     </div>
                   </td>
                   <td>
+                    {#if d.profileName}
+                      {d.profileName}
+                      {#if d.profileStatus && !/assignedinsync|assigned$/i.test(d.profileStatus)}
+                        <br /><small title={d.profileStatusDetail}>{d.profileStatus}</small>
+                      {/if}
+                    {:else if d.profileStatus}
+                      <em>{d.profileStatus}</em>
+                    {:else}
+                      <em>kein Profil</em>
+                    {/if}
+                  </td>
+                  <td>
                     {#if d.user}
                       {d.userDisplayName || d.user}
                       {#if d.userDisplayName}<br /><small>{d.user}</small>{/if}
@@ -314,8 +326,11 @@
           </table>
         </div>
       {/if}
-      <p class="ld-section-hint">„Benutzer" ist der Primärbenutzer aus Intune. Bleibt die Spalte leer, hat sich noch
-        niemand am Gerät angemeldet — die Benutzer-Vorabzuweisung im Autopilot-Objekt setzen die wenigsten.
+      <p class="ld-section-hint">„Benutzer" ist der Primärbenutzer aus Intune — wer sich als Erster am Gerät
+        angemeldet hat. Leer heisst: noch keine Anmeldung, ein gemeinsam genutztes Gerät, oder der Primärbenutzer
+        wurde bewusst entfernt.
+        <br />Pro Gerät wirkt genau <strong>ein</strong> Autopilot-Profil. Sind mehrere Profile auf Gruppen zugewiesen,
+        in denen das Gerät steckt, entscheidet Intune selbst — angezeigt wird das tatsächlich wirksame.
         <br />Ein geänderter GroupTag wirkt, sobald Entra die dynamischen Gruppen neu auswertet — das dauert
         üblicherweise ein paar Minuten.</p>
     </div>

@@ -123,14 +123,29 @@ async function listGroups(access) {
  * Seriennummer zugeordnet — ein Aufruf, nicht einer pro Gerät.
  */
 async function listDevices(access) {
-  const devices = await allPages(access,
-    "/deviceManagement/windowsAutopilotDeviceIdentities?$top=200", { beta: true });
+  // deploymentProfile mitexpandieren: pro Gerät wirkt genau EIN Profil, und
+  // ohne Profil bleibt das Gerät in der normalen OOBE stehen. Kann der Tenant
+  // das Expand nicht (aeltere beta-Stände), wird ohne erneut geladen.
+  let devices;
+  try {
+    devices = await allPages(access,
+      "/deviceManagement/windowsAutopilotDeviceIdentities?$expand=deploymentProfile&$top=200", { beta: true });
+  } catch (e) {
+    devices = await allPages(access,
+      "/deviceManagement/windowsAutopilotDeviceIdentities?$top=200", { beta: true });
+  }
 
+  // Verknuepfung zum Intune-Objekt: managedDeviceId steht am Autopilot-Objekt
+  // und ist die verlaessliche Zuordnung. Die Seriennummer ist nur der
+  // Rueckfallweg -- Hersteller schreiben sie nicht immer gleich in beide
+  // Objekte (Leerzeichen, Gross-/Kleinschreibung, abweichende Felder).
+  const byId = new Map();
   const bySerial = new Map();
   try {
     const managed = await allPages(access,
       "/deviceManagement/managedDevices?$select=id,deviceName,serialNumber,userPrincipalName,userDisplayName,lastSyncDateTime&$top=500");
     for (const m of managed) {
+      byId.set(String(m.id), m);
       const key = String(m.serialNumber || "").trim().toLowerCase();
       if (key) bySerial.set(key, m);
     }
@@ -140,8 +155,15 @@ async function listDevices(access) {
   }
 
   return devices.map(d => {
-    const m = bySerial.get(String(d.serialNumber || "").trim().toLowerCase()) || null;
+    const managedId = String(d.managedDeviceId || "").trim();
+    const m = (managedId && byId.get(managedId))
+      || bySerial.get(String(d.serialNumber || "").trim().toLowerCase())
+      || null;
     return {
+      // Genau ein Profil ist wirksam — mehrere Zuweisungen loest Intune selbst auf.
+      profileName: (d.deploymentProfile && d.deploymentProfile.displayName) || "",
+      profileStatus: d.deploymentProfileAssignmentStatus || "",
+      profileStatusDetail: d.deploymentProfileAssignmentDetailedStatus || "",
       id: d.id,
       serialNumber: d.serialNumber || "",
       model: d.model || "",

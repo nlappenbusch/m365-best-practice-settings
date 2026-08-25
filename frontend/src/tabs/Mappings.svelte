@@ -412,12 +412,35 @@
     }
     rpSaving = false
   }
+
+  // ---------- Untertabs ----------
+  // Vier Bereiche gleichzeitig sind eine Bildschirmlaenge Rauschen, in der man
+  // den gesuchten Punkt nicht findet. Nur einer ist sichtbar; die Zahl am
+  // Reiter zeigt, wie viele Profile dort schon deployt sind.
+  let subTab = $state('drives')   // drives | printers | sharepoint | registry
 </script>
 
 <TenantContext>
+  <div class="dl-subtabs">
+    <button type="button" class="dl-subtab" class:active={subTab === 'drives'} onclick={() => (subTab = 'drives')}>
+      Netzlaufwerke{profiles?.length ? ` (${profiles.length})` : ''}
+    </button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'printers'} onclick={() => (subTab = 'printers')}>
+      Drucker{pmData?.profiles?.length ? ` (${pmData.profiles.length})` : ''}
+    </button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'sharepoint'} onclick={() => (subTab = 'sharepoint')}>
+      SharePoint-Sync{spProfiles?.length ? ` (${spProfiles.length})` : ''}
+    </button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'registry'} onclick={() => (subTab = 'registry')}>
+      Registry{rpProfiles?.length ? ` (${rpProfiles.length})` : ''}
+    </button>
+  </div>
+
+  <div class="map-panel" class:tab-hidden={subTab !== 'drives'}>
   <div class="settings-group">
-    <h4>🗺️ Netzlaufwerk-Mappings <small>(Intune Drive Mapping Generator)</small></h4>
-    <p class="ld-section-hint">Erzeugt aus deiner Laufwerk-Liste ein PowerShell-Plattformskript (Vorlage: <a href="https://github.com/nicolonsky/IntuneDriveMapping" target="_blank" rel="noopener">nicolonsky/IntuneDriveMapping</a>) und weist es dynamischen Gerätegruppen zu — ohne App-Abhängigkeit. Optionaler Gruppenfilter je Laufwerk nutzt On-Prem-AD-Gruppen (hybrid). Bearbeiten liest die Konfiguration direkt aus dem deployten Skript zurück.</p>
+    <h4>Netzlaufwerk-Mappings <small>(Intune Drive Mapping Generator)</small></h4>
+    <details class="map-info"><summary>Was macht das?</summary>
+      <p class="ld-section-hint">Erzeugt aus deiner Laufwerk-Liste ein PowerShell-Plattformskript (Vorlage: <a href="https://github.com/nicolonsky/IntuneDriveMapping" target="_blank" rel="noopener">nicolonsky/IntuneDriveMapping</a>) und weist es dynamischen Gerätegruppen zu — ohne App-Abhängigkeit. Optionaler Gruppenfilter je Laufwerk nutzt On-Prem-AD-Gruppen (hybrid). Bearbeiten liest die Konfiguration direkt aus dem deployten Skript zurück.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={newProfile}>➕ Neues Profil</button>
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
@@ -540,9 +563,13 @@
     </div>
   {/if}
 
-  <div class="settings-group" style="margin-top:2rem;">
-    <h4>🖨️ Drucker-Mappings <small>(Weatherlights Intune Printer Mapping)</small></h4>
-    <p class="ld-section-hint">Verbindet On-Prem-Netzwerkdrucker per <a href="https://github.com/Weatherlights/Intune-Printer-Mapping-Tool/wiki" target="_blank" rel="noopener">Intune-Printer-Mapping-Tool</a>: die ADMX-Vorlage wird automatisch importiert, das Konfigurationsprofil (inkl. Pflicht-Schalter) angelegt und die Store-App auf Wunsch gleich mit deployt. Voraussetzungen laut Wiki: Seamless SSO/Cloud Kerberos Trust, Druckertreiber auf den Geräten, Druckberechtigungen.</p>
+  </div>
+
+  <div class="map-panel" class:tab-hidden={subTab !== 'printers'}>
+  <div class="settings-group">
+    <h4>Drucker-Mappings <small>(Weatherlights Intune Printer Mapping)</small></h4>
+    <details class="map-info"><summary>Was macht das?</summary>
+      <p class="ld-section-hint">Verbindet On-Prem-Netzwerkdrucker per <a href="https://github.com/Weatherlights/Intune-Printer-Mapping-Tool/wiki" target="_blank" rel="noopener">Intune-Printer-Mapping-Tool</a>: die ADMX-Vorlage wird automatisch importiert, das Konfigurationsprofil (inkl. Pflicht-Schalter) angelegt und die Store-App auf Wunsch gleich mit deployt. Voraussetzungen laut Wiki: Seamless SSO/Cloud Kerberos Trust, Druckertreiber auf den Geräten, Druckberechtigungen.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={pmNew}>➕ Neues Drucker-Profil</button>
       <button class="btn btn-secondary" onclick={pmLoad} disabled={pmLoading}>{pmLoading ? '…' : '🔄 Neu laden'}</button>
@@ -665,9 +692,13 @@
     </div>
   {/if}
 
+  </div>
+
+  <div class="map-panel" class:tab-hidden={subTab !== 'sharepoint'}>
   <div class="settings-group">
-    <h4>☁️ SharePoint-Sync-Mappings <small>(OneDrive „Configure team site libraries to sync automatically")</small></h4>
-    <p class="ld-section-hint">SharePoint-Bibliotheken auswählen — OneDrive synct sie beim nächsten Anmelden automatisch (Fenster bis zu 8h), ohne dass Nutzer die Site manuell besuchen/synchronisieren müssen. Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.</p>
+    <h4>SharePoint-Sync-Mappings <small>(OneDrive „Configure team site libraries to sync automatically")</small></h4>
+    <details class="map-info"><summary>Was macht das?</summary>
+      <p class="ld-section-hint">SharePoint-Bibliotheken auswählen — OneDrive synct sie beim nächsten Anmelden automatisch (Fenster bis zu 8h), ohne dass Nutzer die Site manuell besuchen/synchronisieren müssen. Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-primary" onclick={spNew}>➕ Neues Sync-Profil</button>
       <button class="btn btn-secondary" onclick={spLoad} disabled={spLoading}>{spLoading ? '…' : '🔄 Neu laden'}</button>
@@ -783,9 +814,13 @@
     {/if}
   </div>
 
+  </div>
+
+  <div class="map-panel" class:tab-hidden={subTab !== 'registry'}>
   <div class="settings-group">
-    <h4>🖥️ Registry-Richtlinien <small>(HKLM, generisch + Vorlagen)</small></h4>
-    <p class="ld-section-hint">Für einzelne, einfache Registry-Schalter, die (noch) nicht als Settings-Catalog-Einstellung durchsuchbar sind (z.&nbsp;B. ganz neue Richtlinien) oder schlicht ein simpler Ein-Wert-Schalter sind. Erzeugt ein PowerShell-Plattformskript, das im Systemkontext (SYSTEM) direkt unter <code>HKLM</code> schreibt.</p>
+    <h4>Registry-Richtlinien <small>(HKLM, generisch + Vorlagen)</small></h4>
+    <details class="map-info"><summary>Was macht das?</summary>
+      <p class="ld-section-hint">Für einzelne, einfache Registry-Schalter, die (noch) nicht als Settings-Catalog-Einstellung durchsuchbar sind (z.&nbsp;B. ganz neue Richtlinien) oder schlicht ein simpler Ein-Wert-Schalter sind. Erzeugt ein PowerShell-Plattformskript, das im Systemkontext (SYSTEM) direkt unter <code>HKLM</code> schreibt.</p></details>
 
     <div class="alert alert-info">
       <strong>ℹ️ Neu: EU-DMA-SSO-Prompt automatisch akzeptieren.</strong> Mit dem Sicherheitsupdate vom Juli 2026 (<a href="https://support.microsoft.com/en-us/servicing/os/windows-11/2026/07/july-14-2026-kb5101650-os-builds-26200-8875-and-26100-8875" target="_blank" rel="noopener">KB5101650</a>, Windows&nbsp;11 24H2/25H2) zeigt Windows in der EU/EWR nach der Windows-Anmeldung erstmalig pro App eine SSO-Rückfrage („Weiter anmelden?"), bevor die Windows-Anmeldedaten auch für andere Microsoft-Apps/-Dienste verwendet werden dürfen — eine Folge des EU Digital Markets Act. Für verwaltete Geräte mit Entra-ID-Konto lässt sich diese Abfrage per Registry-Richtlinie automatisch bestätigen: <code>HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\AAD</code> → <code>AutoAcceptSsoPermission</code> (DWORD) = <code>1</code>. Gilt <b>nicht</b> für private Microsoft-Konten (MSA) oder unverwaltete Geräte — dort bleibt der Prompt bestehen. Vorlage unten per Klick übernehmbar.
@@ -889,5 +924,6 @@
         {/each}
       </div>
     {/if}
+  </div>
   </div>
 </TenantContext>
