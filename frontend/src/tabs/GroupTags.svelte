@@ -1,16 +1,14 @@
 <script>
   // GroupTag-Verwaltung: dynamische Gruppen anlegen, Autopilot-Geräte sehen und
-  // ihnen Tags zuordnen.
+  // ihnen Tags zuordnen — immer im oben gewählten Tenant.
   //
-  // Funktioniert für zwei Fälle: den aktiven onboardeten Tenant (Zertifikat)
-  // und einen fremden Tenant per Client-ID/Secret — etwa den Zieltenant einer
-  // Migration, in dem die Gruppen erst noch entstehen müssen.
+  // (Die Endpunkte können serverseitig auch fremde Tenants per Client-Id/Secret
+  // bedienen. Das nutzt der Migrations-Bereich für den Zieltenant; hier wäre
+  // ein zweiter Tenant-Umschalter neben dem im Kopf nur verwirrend.)
   import { apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
-
-  let mode = $state('active')     // 'active' = onboardeter Tenant | 'foreign' = per Secret
-  let foreign = $state({ tenantName: '', clientId: '', clientSecret: '' })
+  import TenantContext from '../lib/TenantContext.svelte'
 
   let groups = $state(null)
   let devices = $state(null)
@@ -18,19 +16,29 @@
   let error = $state(null)
   let notice = $state(null)
 
-  // Für den fremden Tenant müssen die Zugangsdaten bei jedem Aufruf mit —
-  // serverseitig wird dafür nichts zwischengespeichert. Beim aktiven Tenant
-  // geht die Id mit: diese Endpunkte liegen nicht unter /api/tenants/:id.
+  // Die Endpunkte liegen nicht unter /api/tenants/:id, deshalb geht die Id im
+  // Body mit. (Serverseitig kann derselbe Weg auch fremde Tenants per
+  // Client-Id/Secret bedienen — das nutzt der Migrations-Bereich für den
+  // Zieltenant. Hier gilt immer der oben gewählte Tenant.)
   function creds() {
-    if (mode !== 'foreign') return { tenantId: $activeTenant ? $activeTenant.id : '' }
-    return { tenantName: foreign.tenantName.trim(), clientId: foreign.clientId.trim(), clientSecret: foreign.clientSecret }
+    return { tenantId: $activeTenant ? $activeTenant.id : '' }
   }
 
-  const canQuery = $derived(
-    mode === 'active'
-      ? !!$activeTenant
-      : !!(foreign.tenantName.trim() && foreign.clientId.trim() && foreign.clientSecret.trim())
-  )
+  const canQuery = $derived(!!$activeTenant)
+
+  // Beim Betreten und bei jedem Tenantwechsel automatisch laden — der Knopf
+  // war ein unnötiger Zwischenschritt.
+  let loadedFor = null
+  $effect(() => {
+    const t = $activeTenant
+    if (!$session.loggedIn || !t || busy) return
+    if (loadedFor === t.id) return
+    loadedFor = t.id
+    groups = null
+    devices = null
+    selected = {}
+    loadAll()
+  })
 
   async function loadAll() {
     if (!canQuery) return
@@ -66,7 +74,7 @@
   async function createGroup(tag) {
     const t = (tag || newTag).trim()
     if (!t) return
-    if (!confirm(`Dynamische Sicherheitsgruppe für GroupTag "${t}" anlegen?\n\nDas schreibt in den Tenant ${mode === 'active' ? $activeTenant?.name : foreign.tenantName}.`)) return
+    if (!confirm(`Dynamische Sicherheitsgruppe für GroupTag "${t}" anlegen?\n\nDas schreibt in den Tenant ${$activeTenant?.name}.`)) return
     createBusy = true; error = null; notice = null
     try {
       const r = await apiPost('/api/grouptags/groups/create', { ...creds(), groupTag: t, displayName: tag ? '' : newName })
@@ -86,6 +94,32 @@
   let bulkTag = $state('')
   let bulkBusy = $state(false)
   let filter = $state('')
+  let rowBusy = $state({})        // deviceId -> bool, während eine Einzelzuweisung läuft
+  let rowDone = $state({})        // deviceId -> true, kurz nach Erfolg
+
+  // Einzelzuweisung direkt in der Zeile: für "dieses eine Gerät bitte auf
+  // DEV-ADM" ist der Umweg über Auswahl + Bulk unnötig umständlich.
+  async function setRowTag(device, tag) {
+    if (tag === device.groupTag) return
+    rowBusy[device.id] = true
+    error = null
+    try {
+      await apiPost('/api/grouptags/devices/tag', { ...creds(), deviceId: device.id, groupTag: tag })
+      device.groupTag = tag          // sofort sichtbar, statt die ganze Liste neu zu ziehen
+      rowDone[device.id] = true
+      setTimeout(() => { rowDone[device.id] = false }, 2500)
+    } catch (e) {
+      error = `Gerät ${device.serialNumber}: ${e.message}`
+    }
+    rowBusy[device.id] = false
+  }
+
+  // Auswahlmöglichkeiten für die Zuweisung: bekannte Tags plus die, die schon
+  // auf Geräten kleben (auch ohne Gruppe — sonst kann man sie nicht wieder
+  // wegnehmen, wenn man sie im Dropdown nicht sieht).
+  const assignableTags = $derived(
+    [...new Set([...(knownTags || []), ...(devices || []).map(d => d.groupTag).filter(Boolean)])].sort()
+  )
 
   const shown = $derived(
     devices
@@ -122,37 +156,16 @@
   }
 </script>
 
-{#if !$session.loggedIn}
-  <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts anmelden.</div>
-{:else}
-  <div class="settings-group">
-    <h4>Tenant</h4>
-    <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:center">
-      <label><input type="radio" bind:group={mode} value="active" /> Aktiver Tenant{$activeTenant ? ` (${$activeTenant.name})` : ''}</label>
-      <label><input type="radio" bind:group={mode} value="foreign" /> Anderer Tenant per Client-ID/Secret</label>
-    </div>
-    {#if mode === 'foreign'}
-      <p class="ld-section-hint">Für Tenants, die hier nicht onboardet sind — etwa das Ziel einer Migration. Die
-        Zugangsdaten der App-Registrierung <code>IG-TenantMigration-Target</code> passen hier hinein.</p>
-      <div class="settings-grid">
-        <div class="input-group">
-          <label for="gt-tenant">Tenant (Domain oder ID)</label>
-          <input id="gt-tenant" type="text" bind:value={foreign.tenantName} placeholder="neu.onmicrosoft.com" />
-        </div>
-        <div class="input-group">
-          <label for="gt-client">Client-ID</label>
-          <input id="gt-client" type="text" bind:value={foreign.clientId} />
-        </div>
-        <div class="input-group">
-          <label for="gt-secret">Client Secret</label>
-          <input id="gt-secret" type="password" bind:value={foreign.clientSecret} autocomplete="off" />
-        </div>
-      </div>
-    {/if}
-    <button class="btn btn-primary" style="margin-top:0.6rem" onclick={loadAll} disabled={!canQuery || busy}>
-      {busy ? 'Lade…' : '🔎 Gruppen und Geräte laden'}
+<TenantContext>
+  <div style="display:flex; justify-content:flex-end; margin-bottom:0.5rem">
+    <button class="btn btn-secondary" onclick={loadAll} disabled={!canQuery || busy}>
+      {busy ? 'Lade…' : '↻ Aktualisieren'}
     </button>
   </div>
+
+  {#if busy && !groups}
+    <p class="ld-section-hint"><span class="ld-spinner"></span> Lade Gruppen und Geräte…</p>
+  {/if}
 
   {#if error}<div class="alert alert-warning">❌ {error}</div>{/if}
   {#if notice}<div class="ld-banner ok">✅ {notice}</div>{/if}
@@ -175,17 +188,29 @@
       {#if groups.length === 0}
         <p class="ld-section-hint">Keine dynamischen Sicherheitsgruppen vorhanden.</p>
       {:else}
-        {#each groups as g (g.id)}
-          <div class="wizard-step">
-            <div class="wizard-step-body">
-              <div class="wizard-step-title">{g.displayName} {#if g.state !== 'On'}<span class="tbadge warn">Regel {g.state || 'aus'}</span>{/if}</div>
-              <div class="wizard-step-desc">
-                {#if g.tags.length}Tags: <strong>{g.tags.join(', ')}</strong>{:else}<em>kein [OrderID]-Tag in der Regel</em>{/if}
-                <br /><code style="font-size:0.72rem">{g.rule.slice(0, 160)}{g.rule.length > 160 ? '…' : ''}</code>
+        <div class="gt-groups">
+          {#each groups as g (g.id)}
+            {@const count = devices ? devices.filter(d => d.groupTag && g.tags.includes(d.groupTag)).length : null}
+            <div class="gt-group" class:gt-group-plain={!g.tags.length}>
+              <div class="gt-group-head">
+                <strong>{g.displayName}</strong>
+                {#if g.state !== 'On'}<span class="tbadge warn">Regel {g.state || 'aus'}</span>{/if}
               </div>
+              {#if g.tags.length}
+                <div class="gt-taglist">
+                  {#each g.tags as t}<span class="gt-tag">{t}</span>{/each}
+                  {#if count !== null}<span class="gt-count">{count} Gerät{count === 1 ? '' : 'e'}</span>{/if}
+                </div>
+              {:else}
+                <div class="gt-plainnote">kein [OrderID]-Tag — für GroupTags nicht relevant</div>
+              {/if}
+              <details class="gt-rule">
+                <summary>Regel</summary>
+                <code>{g.rule || '—'}</code>
+              </details>
             </div>
-          </div>
-        {/each}
+          {/each}
+        </div>
       {/if}
 
       <div style="margin-top:0.85rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end">
@@ -251,12 +276,22 @@
                   <td><code>{d.serialNumber}</code></td>
                   <td>{d.manufacturer} {d.model}</td>
                   <td>
-                    {#if d.groupTag}
-                      <strong>{d.groupTag}</strong>
-                      {#if orphanTags.includes(d.groupTag)}<span class="tbadge warn" title="Keine Gruppe wertet diesen Tag aus">ohne Gruppe</span>{/if}
-                    {:else}
-                      <em>—</em>
-                    {/if}
+                    <div class="gt-tagcell">
+                      <select class="gt-tagselect" disabled={rowBusy[d.id]}
+                              value={d.groupTag}
+                              onchange={(e) => setRowTag(d, e.currentTarget.value)}>
+                        <option value="">— kein Tag —</option>
+                        {#each assignableTags as t}<option value={t}>{t}</option>{/each}
+                      </select>
+                      {#if rowBusy[d.id]}
+                        <span class="ld-spinner"></span>
+                      {:else if rowDone[d.id]}
+                        <span class="gt-ok" title="gesetzt">✅</span>
+                      {:else if d.groupTag && orphanTags.includes(d.groupTag)}
+                        <button class="tbadge warn gt-fix" title="Keine Gruppe wertet diesen Tag aus — Gruppe anlegen"
+                                onclick={() => createGroup(d.groupTag)}>ohne Gruppe ➕</button>
+                      {/if}
+                    </div>
                   </td>
                   <td>{d.assignedUser || '—'}</td>
                   <td>{d.enrollmentState || '—'}</td>
@@ -270,4 +305,4 @@
         das dauert üblicherweise ein paar Minuten.</p>
     </div>
   {/if}
-{/if}
+</TenantContext>

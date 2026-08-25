@@ -40,6 +40,7 @@ const WIN32APP = require("./lib/win32app");
 const MIGRATION = require("./lib/migrationPackage");
 const REPORT = require("./lib/report");
 const GROUPTAGS = require("./lib/groupTags");
+const ADMINROLES = require("./lib/adminRoles");
 const APPGROUPS = require("./lib/appGroups");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
@@ -2229,6 +2230,27 @@ app.get("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
   res.json({ ok: true, profiles });
 }));
 
+// Deployment-Profil anlegen -- schreibend im Kundentenant. Ohne Profil bleibt
+// jedes Autopilot-Geraet in der normalen OOBE stehen; bisher musste man dafuer
+// ins Intune-Portal wechseln.
+app.post("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, profile: { id: "fake-profile", displayName: b.displayName || "Autopilot" }, assigned: null });
+  }
+  const profile = await AUTOPILOT.createDeploymentProfile(t, certPemPath(t.tenantId), b);
+
+  // Direkt zuweisen, wenn eine Gruppe mitkommt: ein Profil ohne Zuweisung
+  // wirkt nicht, und der zweite Klick wird sonst gern vergessen.
+  let assigned = null;
+  if (b.groupId) {
+    try { assigned = await AUTOPILOT.assignProfileToGroup(t, certPemPath(t.tenantId), profile.id, b.groupId); }
+    catch (e) { assigned = "failed: " + e.message; }
+  }
+  res.json({ ok: true, profile, assigned });
+}));
+
 app.post("/api/tenants/:id/autopilot/profiles/:profileId/assign", wrap(async (req, res) => {
   const t = requireTenant(req);
   const groupId = String((req.body || {}).groupId || "");
@@ -2973,6 +2995,13 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   const job = createAppJob(t, APPDEPLOY_PHASES);
   runAppDeployJob(job, t, b);
   res.json({ ok: true, jobId: job.id });
+}));
+
+// ---------- Administrative Rollen ----------
+// Wer hat erhoehte Rechte, und wie kam er dazu. Rein lesend.
+app.get("/api/tenants/:id/adminroles", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, ...(await ADMINROLES.loadAdminRoles(t, certPemPath(t.tenantId))) });
 }));
 
 // ---------- GroupTags: Gruppen und Geraetezuordnung ----------

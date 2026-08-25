@@ -263,6 +263,46 @@ a { color: var(--accent); }
 .tcfg-msg.ok { color: var(--ok); }
 .tcfg-msg.err { color: var(--crit); }
 
+/* ---- Administrative Rollen ---- */
+.ar-summary { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+.ar-admin {
+    border: 1px solid var(--rule); border-left: 3px solid var(--ok);
+    border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; margin-top: 0.55rem; background: var(--bg-inset);
+}
+.ar-admin.ar-flag { border-left-color: var(--crit); }
+.ar-admin-head { display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap; }
+.ar-upn { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.1rem; }
+.ar-line { font-size: 0.8rem; margin-top: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: baseline; }
+.ar-key { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); min-width: 6rem; }
+.ar-groups { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.gt-table tr.ar-priv td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
+/* ---- GroupTags: Gruppenkarten ---- */
+.gt-groups { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); margin-top: 0.6rem; }
+.gt-group {
+    border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; background: var(--bg-inset);
+}
+.gt-group-plain { border-left-color: var(--rule); opacity: 0.72; }
+.gt-group-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.gt-group-head strong { font-size: 0.9rem; }
+.gt-taglist { display: flex; gap: 0.35rem; flex-wrap: wrap; align-items: center; margin-top: 0.4rem; }
+.gt-tag {
+    font-size: 0.75rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px;
+    background: var(--accent-wash); color: var(--accent-strong);
+}
+.gt-count { font-size: 0.73rem; color: var(--text-dim); }
+.gt-plainnote { font-size: 0.75rem; color: var(--text-faint); margin-top: 0.35rem; }
+.gt-rule { margin-top: 0.45rem; }
+.gt-rule summary { font-size: 0.73rem; color: var(--text-dim); cursor: pointer; }
+.gt-rule code { display: block; margin-top: 0.3rem; font-size: 0.7rem; word-break: break-all; color: var(--text-dim); }
+
+/* ---- GroupTags: Zuweisung in der Zeile ---- */
+.gt-tagcell { display: flex; align-items: center; gap: 0.4rem; }
+.gt-tagselect { font-size: 0.79rem; padding: 0.15rem 0.4rem; max-width: 11rem; }
+.gt-ok { font-size: 0.8rem; }
+.gt-fix { border: 0; cursor: pointer; font: inherit; font-size: 0.68rem; }
+
 /* ---- GroupTags: Geräteliste ---- */
 .gt-table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius-sm); }
 .gt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }

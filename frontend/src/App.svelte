@@ -24,6 +24,7 @@
   import Downloads from './tabs/Downloads.svelte'
   import Tickets from './tabs/Tickets.svelte'
   import Diagnose from './tabs/Diagnose.svelte'
+  import AdminRoles from './tabs/AdminRoles.svelte'
   import GroupTags from './tabs/GroupTags.svelte'
   import Migration from './tabs/Migration.svelte'
   import Reports from './tabs/Reports.svelte'
@@ -113,6 +114,7 @@
         {#if $session.ticketsAllowed}
           <div class:tab-hidden={$activeTab !== 'tickets'}><Tickets /></div>
         {/if}
+        <div class:tab-hidden={$activeTab !== 'adminroles'}><AdminRoles /></div>
         <div class:tab-hidden={$activeTab !== 'grouptags'}><GroupTags /></div>
         <div class:tab-hidden={$activeTab !== 'migration'}><Migration /></div>
         <div class:tab-hidden={$activeTab !== 'reports'}><Reports /></div>

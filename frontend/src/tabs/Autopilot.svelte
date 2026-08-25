@@ -105,6 +105,49 @@
   let assigningProfile = $state({})        // profileId -> bool
   let profileResult = $state({})           // profileId -> { error } | { status, gname }
 
+  // ---------- Profil anlegen ----------
+  // Ohne Deployment-Profil bleibt jedes Autopilot-Gerät in der normalen OOBE
+  // stehen. Bisher hiess das: rüber ins Intune-Portal wechseln.
+  let newProfileOpen = $state(false)
+  let newProfileBusy = $state(false)
+  let newProfile = $state({
+    displayName: 'Autopilot - User-Driven',
+    description: '',
+    language: 'de-DE',
+    deviceNameTemplate: '',
+    userType: 'standard',
+    hideEula: true,
+    hidePrivacy: true,
+    skipKeyboard: true,
+    allowWhiteGlove: false,
+    groupId: ''
+  })
+
+  async function createProfile() {
+    if (!$activeTenant || !newProfile.displayName.trim()) return
+    const gname = newProfile.groupId
+      ? (profileGroups.find(g => g.id === newProfile.groupId)?.displayName || newProfile.groupId)
+      : null
+    if (!confirm(`Deployment-Profil „${newProfile.displayName}" im Tenant ${$activeTenant.name} anlegen?`
+      + (gname
+        ? `\n\nEs wird direkt der Gruppe „${gname}" zugewiesen.`
+        : '\n\nOhne Zuweisung — das Profil wirkt erst, wenn du ihm unten eine Gruppe zuweist.'))) return
+
+    newProfileBusy = true
+    profilesError = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/autopilot/profiles`, newProfile)
+      newProfileOpen = false
+      await loadProfiles()
+      if (r.assigned && String(r.assigned).startsWith('failed')) {
+        profilesError = `Profil angelegt, aber die Zuweisung schlug fehl: ${String(r.assigned).slice(8)}`
+      }
+    } catch (e) {
+      profilesError = e.message
+    }
+    newProfileBusy = false
+  }
+
   async function loadProfiles() {
     if (!$activeTenant) return
     profilesLoading = true
@@ -341,8 +384,75 @@
         {/if}
       </div>
     {:else if !profiles.length}
-      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Deployment-Profile im Tenant gefunden.</div></div>
-    {:else}
+      <div class="ld-job">
+        <div class="ld-banner warn">⚠️ Keine Autopilot-Deployment-Profile im Tenant gefunden.</div>
+        <div class="ld-step"><small>Ohne Profil bleibt jedes registrierte Gerät in der normalen Windows-Einrichtung
+          stehen. Unten eines anlegen — die Voreinstellungen entsprechen unserem Standard.</small></div>
+      </div>
+    {/if}
+
+    <!-- Profil anlegen: gilt für beide Fälle, leerer Tenant und weiteres Profil -->
+    {#if !profilesLoading && !profilesError}
+      <div class="ld-job" style="margin-bottom:1rem">
+        {#if !newProfileOpen}
+          <button class="btn btn-primary" onclick={() => (newProfileOpen = true)}>➕ Deployment-Profil anlegen</button>
+        {:else}
+          <div class="ld-job-head"><strong>➕ Neues Deployment-Profil</strong>
+            <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (newProfileOpen = false)}>✕</button>
+          </div>
+          <div class="settings-grid" style="margin-top:0.6rem">
+            <div class="input-group">
+              <label for="np-name">Name</label>
+              <input id="np-name" type="text" bind:value={newProfile.displayName} />
+            </div>
+            <div class="input-group">
+              <label for="np-lang">Sprache / Region</label>
+              <select id="np-lang" bind:value={newProfile.language}>
+                <option value="de-DE">Deutsch (de-DE)</option>
+                <option value="de-CH">Deutsch Schweiz (de-CH)</option>
+                <option value="fr-CH">Französisch Schweiz (fr-CH)</option>
+                <option value="it-CH">Italienisch Schweiz (it-CH)</option>
+                <option value="en-US">Englisch (en-US)</option>
+                <option value="os-default">Betriebssystem-Standard</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="np-tpl">Gerätename-Vorlage <small>(max. 15 Zeichen, leer = automatisch)</small></label>
+              <input id="np-tpl" type="text" bind:value={newProfile.deviceNameTemplate} placeholder="IG-%SERIAL%" />
+            </div>
+            <div class="input-group">
+              <label for="np-user">Kontotyp des Anwenders</label>
+              <select id="np-user" bind:value={newProfile.userType}>
+                <option value="standard">Standardbenutzer (empfohlen)</option>
+                <option value="administrator">Lokaler Administrator</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="np-group">Direkt zuweisen an <small>(optional)</small></label>
+              <select id="np-group" bind:value={newProfile.groupId}>
+                <option value="">— später zuweisen —</option>
+                {#each profileGroups as g}<option value={g.id}>{g.displayName}</option>{/each}
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.5rem; font-size:0.85rem">
+            <label><input type="checkbox" bind:checked={newProfile.hidePrivacy} /> Datenschutzseite überspringen</label>
+            <label><input type="checkbox" bind:checked={newProfile.hideEula} /> Lizenzbedingungen überspringen</label>
+            <label><input type="checkbox" bind:checked={newProfile.skipKeyboard} /> Tastaturauswahl überspringen</label>
+            <label><input type="checkbox" bind:checked={newProfile.allowWhiteGlove} /> Pre-Provisioning (White Glove) erlauben</label>
+          </div>
+          <div style="margin-top:0.75rem">
+            <button class="btn btn-primary" disabled={newProfileBusy || !newProfile.displayName.trim()} onclick={createProfile}>
+              {newProfileBusy ? 'Lege an…' : '✅ Profil anlegen'}
+            </button>
+            <small class="ld-section-hint">User-driven mit Entra-Join. Self-deploying wird bewusst nicht angeboten —
+              das braucht TPM-Attestation und ist ein anderer Anwendungsfall.</small>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if profiles.length}
       <div class="ld-job">
         <div class="ld-job-head"><strong>🎯 Autopilot-Profile: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{profiles.length} Profile · {profileGroups.length} Gruppen</span></div>
