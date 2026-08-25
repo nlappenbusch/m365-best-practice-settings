@@ -169,14 +169,14 @@
   {/if}
 
   {#if error}<div class="alert alert-warning">❌ {error}</div>{/if}
-  {#if notice}<div class="ld-banner ok">✅ {notice}</div>{/if}
+  {#if notice}<div class="ld-banner ok">{notice}</div>{/if}
 
   {#if groups}
     <div class="settings-group" style="margin-top:1.25rem">
-      <h4>🏷 Dynamische Gruppen ({groups.length})</h4>
+      <h4>Dynamische Gruppen ({groups.length})</h4>
       {#if orphanTags.length}
         <div class="alert alert-warning">
-          <strong>⚠️ {orphanTags.length} GroupTag(s) ohne Gruppe:</strong> {orphanTags.join(', ')}<br />
+          <strong>{orphanTags.length} GroupTag(s) ohne Gruppe:</strong> {orphanTags.join(', ')}<br />
           <small>Geräte tragen diese Tags, aber keine Gruppe wertet sie aus — die Geräte bekommen weder Profil noch Policies.</small>
           <div style="margin-top:0.5rem; display:flex; gap:0.4rem; flex-wrap:wrap">
             {#each orphanTags as t}
@@ -232,7 +232,7 @@
 
   {#if devices}
     <div class="settings-group" style="margin-top:1.25rem">
-      <h4>💻 Autopilot-Geräte ({devices.length}{untaggedCount ? `, davon ${untaggedCount} ohne Tag` : ''})</h4>
+      <h4>Autopilot-Geräte ({devices.length}{untaggedCount ? `, davon ${untaggedCount} ohne Tag` : ''})</h4>
 
       <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:0.6rem">
         <div class="input-group" style="max-width:240px; margin:0">

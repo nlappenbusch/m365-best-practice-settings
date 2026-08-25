@@ -442,7 +442,7 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>💻 Intune-Baseline <small>(OpenIntuneBaseline)</small></h4>
+    <h4>Intune-Baseline <small>(OpenIntuneBaseline)</small></h4>
     <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen — oder die Baseline zuerst direkt aus dem OpenIntuneBaseline-Repo importieren.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
@@ -463,20 +463,20 @@
 
   {#if bkOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
-      <div class="ld-job-head"><strong>💾 Intune-Backup &amp; -Restore: {$activeTenant.name}</strong>
+      <div class="ld-job-head"><strong>Intune-Backup &amp; -Restore: {$activeTenant.name}</strong>
         {#if bkList}<span class="ld-job-meta">{bkList.backups.length} Snapshot{bkList.backups.length === 1 ? '' : 's'}</span>{/if}</div>
       <p class="ld-section-hint">Sichert Settings Catalog (inkl. Einstellungen), Compliance, Device Configurations, Plattform-Skripte (inkl. Inhalt) und Update-Profile als Snapshot. Restore legt ausschliesslich <b>neue</b> Objekte mit „[Restored]"-Präfix und ohne Zuweisungen an — bestehende Konfiguration wird nie verändert. Admin Templates (ADMX) sind bewusst nicht enthalten.</p>
 
       <div class="ld-oib-toolbar">
         <button class="btn btn-primary" onclick={startBackup} disabled={bkBusy}>{bkBusy ? 'Läuft…' : '📸 Backup jetzt erstellen'}</button>
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={loadBackups} disabled={bkLoading}>🔄</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={loadBackups} disabled={bkLoading}></button>
       </div>
 
       {#if bkJob}
         {#if bkJob.status === 'failed'}
-          <div class="ld-banner fail">❌ {bkJob.error}</div>
+          <div class="ld-banner fail">{bkJob.error}</div>
         {:else if bkJob.status === 'done' && bkJob.results?.backupId}
-          <div class="ld-banner ok">✅ Backup erstellt — {bkJob.results.counts?.total ?? '?'} Objekte gesichert.</div>
+          <div class="ld-banner ok">Backup erstellt — {bkJob.results.counts?.total ?? '?'} Objekte gesichert.</div>
         {:else if bkJob.status === 'done' && bkJob.results?.details}
           <div class="ld-banner {bkJob.results.failed ? 'warn' : 'ok'}">
             {bkJob.results.failed ? '⚠️' : '✅'} Restore fertig — {bkJob.results.created} angelegt{bkJob.results.failed ? `, ${bkJob.results.failed} fehlgeschlagen` : ''}. Wiederhergestellte Objekte sind unzugewiesen und heissen „[Restored] …".
@@ -497,14 +497,14 @@
       {#if bkLoading}
         <div class="ld-step running"><span class="ld-spinner"></span> Lade Snapshots…</div>
       {:else if bkError}
-        <div class="ld-banner fail">❌ {bkError}</div>
+        <div class="ld-banner fail">{bkError}</div>
       {:else if bkList}
         {#if !bkList.backups.length}
           <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Snapshots — oben das erste Backup erstellen.</div>
         {/if}
         {#if bkList.backups.length >= 2}
           <div class="ld-oib-target">
-            <strong>🔍 Drift-Vergleich:</strong>
+            <strong>Drift-Vergleich:</strong>
             <select bind:value={cmpA}><option value="">— älterer Snapshot —</option>{#each bkList.backups as b2 (b2.backupId)}<option value={b2.backupId}>{new Date(b2.createdAt).toLocaleString('de-CH')}</option>{/each}</select>
             <select bind:value={cmpB}><option value="">— neuerer Snapshot —</option>{#each bkList.backups as b2 (b2.backupId)}<option value={b2.backupId}>{new Date(b2.createdAt).toLocaleString('de-CH')}</option>{/each}</select>
             <button class="btn btn-secondary" onclick={runCompare} disabled={cmpBusy || !cmpA || !cmpB}>{cmpBusy ? '…' : 'Vergleichen'}</button>
@@ -519,7 +519,7 @@
               {#each d.removed as n}<div class="ld-step fail"><span class="ld-ico">➖</span> {n}</div>{/each}
             {/each}
             {#if !cmpResult.diff.some(d => d.added.length || d.removed.length)}
-              <div class="ld-banner ok">✅ Kein Drift — beide Snapshots enthalten dieselben Objekte (auf Namensebene).</div>
+              <div class="ld-banner ok">Kein Drift — beide Snapshots enthalten dieselben Objekte (auf Namensebene).</div>
             {/if}
           </div>
         {/if}
@@ -550,8 +550,7 @@
                   {/if}
                 {/each}
                 <div class="ld-confirm-actions">
-                  <button class="btn btn-primary" onclick={startRestore} disabled={bkBusy || bkSelCount === 0}>
-                    ♻️ {bkSelCount} Objekt(e) wiederherstellen (als „[Restored]“, unzugewiesen)
+                  <button class="btn btn-primary" onclick={startRestore} disabled={bkBusy || bkSelCount === 0}>{bkSelCount} Objekt(e) wiederherstellen (als „[Restored]“, unzugewiesen)
                   </button>
                 </div>
               {/if}
@@ -564,14 +563,14 @@
 
   {#if checkOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
-      <div class="ld-job-head"><strong>🔍 Assignment-Check: {$activeTenant.name}</strong>
+      <div class="ld-job-head"><strong>Assignment-Check: {$activeTenant.name}</strong>
         {#if checkData}<span class="ld-job-meta">{checkData.summary.total} Objekte geprüft</span>{/if}</div>
       <p class="ld-section-hint">Read-only-Audit aller Intune-Policies und -Apps: findet Objekte ohne Zuweisung, Zuweisungen auf leere oder gelöschte Gruppen und breite „Alle Benutzer/Geräte"-Zuweisungen.</p>
 
       {#if checkLoading}
         <div class="ld-step running"><span class="ld-spinner"></span> Lese alle Policies, Apps und Zuweisungen aus dem Tenant… (kann bei vielen Objekten etwas dauern)</div>
       {:else if checkError}
-        <div class="ld-banner fail">❌ {checkError}</div>
+        <div class="ld-banner fail">{checkError}</div>
       {:else if checkData}
         <div class="ld-setup-list" style="margin-bottom:0.6rem;">
           <span class="ld-badge {checkData.summary.unassigned ? 'warn' : 'ok'}">{ISSUE_META.unassigned.icon} {checkData.summary.unassigned} ohne Zuweisung</span>
@@ -583,10 +582,10 @@
           <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; cursor:pointer;">
             <input type="checkbox" bind:checked={checkOnlyIssues} /> Nur Auffälligkeiten zeigen
           </label>
-          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={runCheck}>🔄 Neu prüfen</button>
+          <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={runCheck}>Neu prüfen</button>
         </div>
         {#if !checkVisible.length}
-          <div class="ld-banner ok">✅ {checkOnlyIssues ? 'Keine Auffälligkeiten — alle Zuweisungen sehen sauber aus.' : 'Keine Objekte gefunden.'}</div>
+          <div class="ld-banner ok">{checkOnlyIssues ? 'Keine Auffälligkeiten — alle Zuweisungen sehen sauber aus.' : 'Keine Objekte gefunden.'}</div>
         {/if}
         {#each checkVisible as r}
           <div class="ld-phase {r.issues.length ? '' : 'complete'}" class:active={r.issues.length > 0}>
@@ -611,14 +610,14 @@
 
   {#if importOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
-      <div class="ld-job-head"><strong>⬇️ OpenIntuneBaseline importieren{baseline?.oibVersion ? ` (v${baseline.oibVersion})` : ''}</strong>
+      <div class="ld-job-head"><strong>OpenIntuneBaseline importieren{baseline?.oibVersion ? ` (v${baseline.oibVersion})` : ''}</strong>
         {#if baseline}<span class="ld-job-meta">{importSelectedCount}/{baseline.policies.length} ausgewählt</span>{/if}</div>
       <p class="ld-section-hint">Lädt die Windows-Baseline direkt aus <a href="https://github.com/SkipToTheEndpoint/OpenIntuneBaseline" target="_blank" rel="noopener">SkipToTheEndpoint/OpenIntuneBaseline</a> und legt die Policies OHNE Zuweisung im Tenant an. Bereits vorhandene Policies (gleicher Name) werden übersprungen — nie überschrieben. Zuweisen danach wie gewohnt unten.</p>
 
       {#if baselineLoading}
         <div class="ld-step running"><span class="ld-spinner"></span> Lade Baseline-Index von GitHub…</div>
       {:else if baselineError}
-        <div class="ld-banner fail">❌ {baselineError}</div>
+        <div class="ld-banner fail">{baselineError}</div>
       {:else if baseline}
         <div class="ld-oib-toolbar">
           <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => importSelectAll(true)}>Alle neuen</button>
@@ -647,7 +646,7 @@
 
       {#if importJob}
         {#if importJob.status === 'failed'}
-          <div class="ld-banner fail">❌ {importJob.error}</div>
+          <div class="ld-banner fail">{importJob.error}</div>
           {#if importJob.hint}<div class="ld-step"><small>💡 {importJob.hint}</small></div>{/if}
         {:else if importJob.status === 'done'}
           <div class="ld-banner {importJob.results?.failed ? 'warn' : 'ok'}">
@@ -672,21 +671,21 @@
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Policies und dynamische Gruppen aus dem Tenant…</div></div>
   {:else if loadError}
     <div class="ld-job">
-      <div class="ld-banner fail">❌ {loadError}</div>
+      <div class="ld-banner fail">{loadError}</div>
       <div class="ld-step"><small>💡 Braucht die Graph-Permissions (DeviceManagementConfiguration, Group.Read) — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
     </div>
   {:else if data}
     {#if !data.policies?.length}
-      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine "Win - OIB"-Policies im Tenant gefunden — zuerst die OIB-Baseline importieren.</div></div>
+      <div class="ld-job"><div class="ld-banner warn">Keine "Win - OIB"-Policies im Tenant gefunden — zuerst die OIB-Baseline importieren.</div></div>
     {:else if !data.groups?.length}
-      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen (AAD-DEV-*) anlegen.</div></div>
+      <div class="ld-job"><div class="ld-banner warn">Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen (AAD-DEV-*) anlegen.</div></div>
     {:else}
       <div class="ld-job">
-        <div class="ld-job-head"><strong>🧩 OIB-Policies: {$activeTenant.name}</strong>
+        <div class="ld-job-head"><strong>OIB-Policies: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{data.policies.length} Policies · {data.groups.length} dynamische Gruppen</span></div>
 
         {#if data.intentsError}
-          <div class="ld-banner warn">⚠️ Endpoint-Security-Policies (intents) konnten nicht geladen werden: {data.intentsError}
+          <div class="ld-banner warn">Endpoint-Security-Policies (intents) konnten nicht geladen werden: {data.intentsError}
             <br /><small>Settings-Catalog-Policies sind trotzdem verfügbar. Falls gerade erst 🔧 repariert wurde: ein paar Minuten Consent-Replikation abwarten und erneut laden.</small></div>
         {/if}
 
@@ -735,7 +734,7 @@
         {#if assigning}
           <div class="ld-step running"><span class="ld-spinner"></span> Zuweisung läuft…</div>
         {:else if assignResult?.error}
-          <div class="ld-banner fail">❌ {assignResult.error}</div>
+          <div class="ld-banner fail">{assignResult.error}</div>
         {:else if assignResult?.results}
           {@const okCount = assignResult.results.filter(x => x.status === 'assigned').length}
           {@const failCount = assignResult.results.filter(x => x.status === 'failed').length}
@@ -755,15 +754,15 @@
   {#if bdOpen}
     <div class="ld-job" style="margin-top:1.5rem">
       <div class="ld-job-head">
-        <strong>🗑️ Aufräumen: {$activeTenant.name}</strong>
+        <strong>Aufräumen: {$activeTenant.name}</strong>
         <span class="ld-job-meta">{bdObjects.length} Objekte gefunden</span>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={loadBulkDeleteObjects} disabled={bdLoading}>🔄 Neu laden</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={loadBulkDeleteObjects} disabled={bdLoading}>Neu laden</button>
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={toggleBulkDeleteLog}>{bdLogOpen ? '✕ Log schließen' : '📜 Log'}</button>
       </div>
       <p class="ld-section-hint">⚠️ Löscht Objekte UNWIDERRUFLICH aus dem Tenant (inkl. Zuweisungen). Erst prüfen, dann auswählen, dann löschen — es gibt kein Undo.</p>
 
       {#if bdFetchErrors.length}
-        <div class="ld-banner warn">⚠️ Diese Typen konnten nicht geladen werden (Rest ist trotzdem nutzbar): {bdFetchErrors.map(e => e.type).join(', ')}</div>
+        <div class="ld-banner warn">Diese Typen konnten nicht geladen werden (Rest ist trotzdem nutzbar): {bdFetchErrors.map(e => e.type).join(', ')}</div>
       {/if}
 
       {#if bdLogOpen}
@@ -783,7 +782,7 @@
       {#if bdLoading}
         <div class="ld-step running"><span class="ld-spinner"></span> Lade Objekte…</div>
       {:else if bdError}
-        <div class="ld-banner fail">❌ {bdError}</div>
+        <div class="ld-banner fail">{bdError}</div>
       {:else if bdObjects.length === 0}
         <p class="ld-section-hint">Keine löschbaren Objekte gefunden.</p>
       {:else}

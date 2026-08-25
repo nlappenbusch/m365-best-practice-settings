@@ -370,12 +370,12 @@
 </script>
 
 {#if !$session.online}
-  <div class="alert alert-warning"><strong>⚠️ Backend nicht erreichbar.</strong> Läuft nur im Docker-Stack (<code>docker compose up -d</code>).</div>
+  <div class="alert alert-warning"><strong>Backend nicht erreichbar.</strong> Läuft nur im Docker-Stack (<code>docker compose up -d</code>).</div>
 {:else if !$session.loggedIn}
-  <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.</div>
+  <div class="alert alert-warning"><strong>Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.</div>
 {:else}
   <div class="settings-group">
-    <h4>🔌 MCP-Zugriff (externe Claude-Sessions)</h4>
+    <h4>MCP-Zugriff (externe Claude-Sessions)</h4>
     <p class="ld-section-hint">API-Keys fuer lokale MCP-Server (z.B. aus einem anderen Projektordner heraus), die
       lesend + schreibend auf freigeschaltete Tenants zugreifen -- ohne Bestaetigungsklick im Web-Tool. Freischaltung
       passiert pro Tenant einzeln weiter unten unter „🔌 MCP-Zugriff" pro Tenant-Zeile.</p>
@@ -435,7 +435,7 @@
   </div>
 
   <div class="settings-group">
-    <h4>🏢 Onboardete Tenants</h4>
+    <h4>Onboardete Tenants</h4>
     {#if !$tenantsLoaded}
       <p class="ld-section-hint">Lade…</p>
     {:else if $tenants.length === 0}
@@ -484,7 +484,7 @@
       {@const doneCount = ONBOARDING_STEPS.filter(s => wt.onboardingSteps?.[s.id]).length}
       <div class="ld-job" style="margin-bottom:1.5rem">
         <div class="ld-job-head">
-          <strong>🧭 Einrichtungs-Assistent: {wt.name}</strong>
+          <strong>Einrichtungs-Assistent: {wt.name}</strong>
           <span class="ld-job-meta">{doneCount}/{ONBOARDING_STEPS.length} erledigt</span>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (wizardTargetId = null)}>✕ schließen</button>
         </div>
@@ -526,7 +526,7 @@
     {#if apt}
       <div class="ld-job" style="margin-bottom:1.5rem">
         <div class="ld-job-head">
-          <strong>🤖 KI-Schreibrechte: {apt.name}</strong>
+          <strong>KI-Schreibrechte: {apt.name}</strong>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (aiPermTargetId = null)}>✕ schließen</button>
         </div>
         <p class="ld-section-hint">Steuert PRO TENANT, welche automatisierten Schreib-Aktionen aus dem Ticket-Copilot
@@ -545,7 +545,7 @@
         {/each}
 
         <div class="settings-group" style="margin-top:0.75rem; border-top:1px solid var(--border, #333); padding-top:0.75rem;">
-          <h4>⚡ Automatisch vorgeschlagen</h4>
+          <h4>Automatisch vorgeschlagen</h4>
           <p class="ld-section-hint">
             Erweiterung von „Eigene Settings-Catalog-Policy": die KI sucht/löst die Einstellung beim Erzeugen eines
             Ticket-Vorschlags gleich selbst auf (Suchbegriff → gefundene Einstellung + Wert) und zeigt im Runbook
@@ -580,7 +580,7 @@
     {#if mpt}
       <div class="ld-job" style="margin-bottom:1.5rem">
         <div class="ld-job-head">
-          <strong>🔌 MCP-Zugriff: {mpt.name}</strong>
+          <strong>MCP-Zugriff: {mpt.name}</strong>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (mcpPermTargetId = null)}>✕ schließen</button>
         </div>
         <p class="ld-section-hint">Steuert, was externe MCP-Clients mit einem gueltigen API-Key (siehe oben) fuer
@@ -604,8 +604,8 @@
   {#if fixTargetId}
     <div class="ld-job" style="margin-bottom:1.5rem">
       <div class="ld-job-head">
-        <strong>🔧 App-Registrierung reparieren: {fixTargetName}</strong>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>✕ schließen</button>
+        <strong>App-Registrierung reparieren: {fixTargetName}</strong>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>schließen</button>
       </div>
       {#if fixStep}
         <div class="ld-step"><small>
@@ -616,27 +616,27 @@
             Das lokale Zertifikat wird nicht rotiert, vorhandene Zertifikate an der App werden nicht angetastet.
           {/if}
         </small></div>
-        <div class="ld-onboard-step">1️⃣ Öffne <a href={fixStep.verificationUri} target="_blank" rel="noopener">{fixStep.verificationUri}</a></div>
-        <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin von {fixTargetName}</strong> an und gib diesen Code ein:
+        <div class="ld-onboard-step"><span class="step-n">1</span> Öffne <a href={fixStep.verificationUri} target="_blank" rel="noopener">{fixStep.verificationUri}</a></div>
+        <div class="ld-onboard-step"><span class="step-n">2</span> Melde dich als <strong>Admin von {fixTargetName}</strong> an und gib diesen Code ein:
           <span class="ld-code">{fixStep.userCode}</span>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={copyFixCode}>{fixCopied ? '✓ Kopiert' : 'Kopieren'}</button>
         </div>
-        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf deine Anmeldung…</div>
+        <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf deine Anmeldung…</div>
       {:else if fixResult?.error}
-        <div class="ld-banner fail">❌ {fixResult.error}</div>
+        <div class="ld-banner fail">{fixResult.error}</div>
       {:else if fixResult?.items}
         {@const failed = fixResult.items.filter(i => i.state === 'failed').length}
         {@const fixedCount = fixResult.items.filter(i => i.state === 'fixed').length}
         {@const mismatch = fixResult.items.filter(i => i.state === 'mismatch').length}
         {#if mismatch > 0}
-          <div class="ld-banner warn">⚠️ An der App-Registrierung liegt ein anderes Zertifikat als das lokale — deshalb schlägt die Anmeldung mit AADSTS700027 fehl.</div>
+          <div class="ld-banner warn">An der App-Registrierung liegt ein anderes Zertifikat als das lokale — deshalb schlägt die Anmeldung mit AADSTS700027 fehl.</div>
         {/if}
         {#if failed > 0}
-          <div class="ld-banner warn">⚠️ {failed} Punkt(e) konnten nicht repariert werden — Details unten.</div>
+          <div class="ld-banner warn">{failed} Punkt(e) konnten nicht repariert werden — Details unten.</div>
         {:else if fixedCount > 0}
-          <div class="ld-banner ok">✅ Reparatur abgeschlossen — {fixedCount} Punkt(e) korrigiert, Rest war bereits korrekt.</div>
+          <div class="ld-banner ok">Reparatur abgeschlossen — {fixedCount} Punkt(e) korrigiert, Rest war bereits korrekt.</div>
         {:else}
-          <div class="ld-banner ok">✅ Alles bereits korrekt — nichts zu reparieren.</div>
+          <div class="ld-banner ok">Alles bereits korrekt — nichts zu reparieren.</div>
         {/if}
         {#each fixResult.items as i}
           <div class="ld-step {i.state === 'failed' || i.state === 'mismatch' ? 'fail' : 'ok'}">
@@ -649,7 +649,7 @@
             <small>Zwei Wege: entweder das lokale Zertifikat an der App hinterlegen (ersetzt die dortigen) oder den
               Tenant neu onboarden. Wer sonst noch mit dieser App-Registrierung arbeitet, verliert in beiden Fällen den Zugriff.</small>
             <div style="margin-top:0.5rem;">
-              <button class="btn btn-secondary" onclick={retryFixWithReplace}>🔑 Lokales Zertifikat an der App hinterlegen (ersetzt vorhandene)</button>
+              <button class="btn btn-secondary" onclick={retryFixWithReplace}>Lokales Zertifikat an der App hinterlegen (ersetzt vorhandene)</button>
             </div>
           </div>
         {/if}
@@ -659,7 +659,7 @@
   {/if}
 
   <div class="settings-group">
-    <h4>➕ Neuen Tenant onboarden</h4>
+    <h4>Neuen Tenant onboarden</h4>
     <p class="ld-section-hint">Legt im Ziel-Tenant eine App-Registrierung mit Exchange.ManageAsApp + Zertifikat an (Device-Code-Anmeldung als Admin).</p>
     <div class="input-group" style="max-width:420px; margin-bottom:0.75rem;">
       <label for="tOnboardTenant">Tenant-Domain oder Tenant-ID <small>(optional)</small></label>
@@ -671,19 +671,19 @@
 
     {#if onboardStep}
       <div class="ld-job" style="margin-top:1rem">
-        <div class="ld-onboard-step">1️⃣ Öffne <a href={onboardStep.verificationUri} target="_blank" rel="noopener">{onboardStep.verificationUri}</a></div>
-        <div class="ld-onboard-step">2️⃣ Melde dich als <strong>Admin des Ziel-Tenants</strong> an und gib diesen Code ein:
+        <div class="ld-onboard-step"><span class="step-n">1</span> Öffne <a href={onboardStep.verificationUri} target="_blank" rel="noopener">{onboardStep.verificationUri}</a></div>
+        <div class="ld-onboard-step"><span class="step-n">2</span> Melde dich als <strong>Admin des Ziel-Tenants</strong> an und gib diesen Code ein:
           <span class="ld-code">{onboardStep.userCode}</span>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={copyOnboardCode}>{onboardCopied ? '✓ Kopiert' : 'Kopieren'}</button>
         </div>
-        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf deine Anmeldung… (Code ist ca. 15 Minuten gültig)</div>
+        <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf deine Anmeldung… (Code ist ca. 15 Minuten gültig)</div>
       </div>
     {:else if onboardResult?.error}
-      <div class="ld-banner fail" style="margin-top:1rem">❌ {onboardResult.error}</div>
+      <div class="ld-banner fail" style="margin-top:1rem">{onboardResult.error}</div>
     {:else if onboardResult?.tenant}
       {@const su = onboardResult.setup}
       <div class="ld-job" style="margin-top:1rem">
-        <div class="ld-banner ok">✅ <strong>{onboardResult.tenant.name}</strong> ist onboardet.</div>
+        <div class="ld-banner ok"><strong>{onboardResult.tenant.name}</strong> ist onboardet.</div>
         <div class="ld-setup-list">
           <span class="ld-badge {su.app ? 'ok' : 'warn'}">{su.app ? '✓' : '⚠'} App-Registrierung</span>
           <span class="ld-badge {su.consent ? 'ok' : 'warn'}">{su.consent ? '✓' : '⚠'} Admin-Consent</span>
@@ -703,12 +703,12 @@
   </div>
 
   <div class="settings-group">
-    <h4>🔗 SSO: Anmeldung über den iGeeks-Tenant</h4>
+    <h4>SSO: Anmeldung über den iGeeks-Tenant</h4>
     <p class="ld-section-hint">Verheiratet das Tool mit dem iGeeks-M365-Tenant als primäre Anmeldemethode — dient NUR dem Zugriff auf dieses Tool, nicht dem Management des iGeeks-Tenants. Der Passwort-Login bleibt als Fallback erhalten.</p>
 
     {#if ssoInfo?.enabled}
-      <div class="ld-banner ok">✅ SSO ist aktiv — der Anmeldebildschirm zeigt „Mit Microsoft anmelden" als primären Weg.</div>
-      <button class="btn btn-secondary" onclick={removeSso} disabled={ssoBusy}>✕ SSO-Konfiguration entfernen</button>
+      <div class="ld-banner ok">SSO ist aktiv — der Anmeldebildschirm zeigt „Mit Microsoft anmelden" als primären Weg.</div>
+      <button class="btn btn-secondary" onclick={removeSso} disabled={ssoBusy}>SSO-Konfiguration entfernen</button>
     {:else}
       <button class="btn btn-primary" onclick={() => (ssoFormOpen = !ssoFormOpen)} disabled={ssoBusy}>
         {ssoFormOpen ? '✕ Schließen' : '🔗 iGeeks-Tenant verheiraten'}

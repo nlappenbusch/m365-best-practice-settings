@@ -275,9 +275,9 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>🚀 Autopilot</h4>
+    <h4>Autopilot</h4>
     <p class="ld-section-hint">Staging-Paket erzeugen (App-Registrierung mit Secret + Zertifikat, GroupTags aus den dynamischen Gruppen, fertiges ZIP) sowie Deployment-Profile einsehen und zuweisen.</p>
-    <p class="ld-section-hint"><small>💡 Empfohlene Reihenfolge: 1️⃣ Staging-Paket erstellen → 2️⃣ Deployment-Profile der passenden Gruppe zuweisen → 3️⃣ Geräte-GroupTags nur bei Bedarf nachträglich korrigieren.</small></p>
+    <p class="ld-section-hint"><small>💡 Empfohlene Reihenfolge: <span class="step-n">1</span> Staging-Paket erstellen → <span class="step-n">2</span> Deployment-Profile der passenden Gruppe zuweisen → <span class="step-n">3</span> Geräte-GroupTags nur bei Bedarf nachträglich korrigieren.</small></p>
   </div>
 
   <div class="dl-subtabs">
@@ -291,15 +291,15 @@
       <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade GroupTags aus den dynamischen Gruppen…</div></div>
     {:else if groupTagsError}
       <div class="ld-job">
-        <div class="ld-banner fail">❌ {groupTagsError}</div>
+        <div class="ld-banner fail">{groupTagsError}</div>
         <div class="ld-step"><small>💡 Braucht die Graph-Permission Group.Read.All — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
       </div>
     {:else if !groupTags.length}
-      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine GroupTags in den dynamischen Security Groups gefunden.
+      <div class="ld-job"><div class="ld-banner warn">Keine GroupTags in den dynamischen Security Groups gefunden.
         <br /><small>Die Regeln müssen ein <code>[OrderID]:&lt;GroupTag&gt;</code> enthalten (Nils' GroupTag-Konzept). Zuerst die AAD-DEV-*-Gruppen anlegen.</small></div></div>
     {:else}
       <div class="ld-job">
-        <div class="ld-job-head"><strong>🚀 Autopilot-Staging-Paket: {$activeTenant.name}</strong>
+        <div class="ld-job-head"><strong>Autopilot-Staging-Paket: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{groupTags.length} GroupTags gefunden</span></div>
         <div class="ld-step"><small>Das Paket enthält eine dedizierte App-Registrierung <code>IG-Autopilot-Staging</code>
           (Client Secret + Zertifikat, Autopilot-Permissions), das HWID-Import-Skript, den Staging-Wrapper mit
@@ -341,18 +341,18 @@
         </div>
 
         <div class="ld-confirm-actions">
-          <button class="btn btn-primary" onclick={startBuild} disabled={building}>📦 Paket erstellen (Admin-Login nötig)</button>
+          <button class="btn btn-primary" onclick={startBuild} disabled={building}>Paket erstellen (Admin-Login nötig)</button>
         </div>
 
         {#if buildStep}
           <div style="margin-top:0.75rem;">
-            <div class="ld-onboard-step">1️⃣ Öffne <a href={buildStep.verificationUri} target="_blank" rel="noopener">{buildStep.verificationUri}</a></div>
-            <div class="ld-onboard-step">2️⃣ Als <strong>Admin von {$activeTenant.name}</strong> anmelden, Code eingeben:
+            <div class="ld-onboard-step"><span class="step-n">1</span> Öffne <a href={buildStep.verificationUri} target="_blank" rel="noopener">{buildStep.verificationUri}</a></div>
+            <div class="ld-onboard-step"><span class="step-n">2</span> Als <strong>Admin von {$activeTenant.name}</strong> anmelden, Code eingeben:
               <span class="ld-code">{buildStep.userCode}</span></div>
-            <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf Anmeldung, dann wird die App angelegt und das Paket gebaut…</div>
+            <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf Anmeldung, dann wird die App angelegt und das Paket gebaut…</div>
           </div>
         {:else if buildResult?.error}
-          <div class="ld-banner fail" style="margin-top:0.75rem">❌ {buildResult.error}</div>
+          <div class="ld-banner fail" style="margin-top:0.75rem">{buildResult.error}</div>
         {:else if buildResult?.appId}
           {@const warn = buildResult.warnings}
           {@const pfxLine = buildResult.pfxIncluded
@@ -360,7 +360,7 @@
             : 'Zertifikat als PEM enthalten (openssl-PFX nicht verfügbar)'}
           {@const wlanLine = buildResult.wlanIncluded ? ' · WLAN-Profil in autounattend.xml eingebettet' : ' · autounattend.xml ohne WLAN (deutsche UI, kein AutoLogon)'}
           <div style="margin-top:0.75rem;">
-            <div class="ld-banner ok">✅ App <code>{buildResult.appId}</code> angelegt, Paket gebaut.
+            <div class="ld-banner ok">App <code>{buildResult.appId}</code> angelegt, Paket gebaut.
               {#if warn.length}{#each warn as w}<br />⚠️ {w}{/each}{/if}</div>
             <div class="ld-step"><small>GroupTags im Wrapper-Menü: {buildResult.groupTags.join(', ')}{wlanLine}<br />{pfxLine}</small></div>
             <div class="ld-step"><small>💡 Der Download-Link unten ist einmalig und läuft nach 10 Minuten ab — danach einfach „📦 Paket erstellen" erneut ausführen. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>
@@ -376,7 +376,7 @@
       <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Deployment-Profile und Gruppen…</div></div>
     {:else if profilesError}
       <div class="ld-job">
-        <div class="ld-banner fail">❌ {profilesError}</div>
+        <div class="ld-banner fail">{profilesError}</div>
         {#if /internal server error/i.test(profilesError)}
           <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Dienst antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
         {:else}
@@ -385,7 +385,7 @@
       </div>
     {:else if !profiles.length}
       <div class="ld-job">
-        <div class="ld-banner warn">⚠️ Keine Autopilot-Deployment-Profile im Tenant gefunden.</div>
+        <div class="ld-banner warn">Keine Autopilot-Deployment-Profile im Tenant gefunden.</div>
         <div class="ld-step"><small>Ohne Profil bleibt jedes registrierte Gerät in der normalen Windows-Einrichtung
           stehen. Unten eines anlegen — die Voreinstellungen entsprechen unserem Standard.</small></div>
       </div>
@@ -397,7 +397,7 @@
         {#if !newProfileOpen}
           <button class="btn btn-primary" onclick={() => (newProfileOpen = true)}>➕ Deployment-Profil anlegen</button>
         {:else}
-          <div class="ld-job-head"><strong>➕ Neues Deployment-Profil</strong>
+          <div class="ld-job-head"><strong>Neues Deployment-Profil</strong>
             <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (newProfileOpen = false)}>✕</button>
           </div>
           <div class="settings-grid" style="margin-top:0.6rem">
@@ -454,7 +454,7 @@
 
     {#if profiles.length}
       <div class="ld-job">
-        <div class="ld-job-head"><strong>🎯 Autopilot-Profile: {$activeTenant.name}</strong>
+        <div class="ld-job-head"><strong>Autopilot-Profile: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{profiles.length} Profile · {profileGroups.length} Gruppen</span></div>
 
         {#each profiles as p (p.id)}
@@ -475,7 +475,7 @@
               </button>
             </div>
             {#if res?.error}
-              <div class="ld-banner fail">❌ {res.error}</div>
+              <div class="ld-banner fail">{res.error}</div>
             {:else if res}
               <div class="ld-banner {res.status === 'assigned' ? 'ok' : 'warn'}">
                 {res.status === 'assigned' ? '✅ Zugewiesen' : '⏭️ War bereits zugewiesen'} — „{res.gname}"
@@ -492,7 +492,7 @@
       <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Autopilot-Geräte…</div></div>
     {:else if devicesError}
       <div class="ld-job">
-        <div class="ld-banner fail">❌ {devicesError}</div>
+        <div class="ld-banner fail">{devicesError}</div>
         {#if /internal server error/i.test(devicesError)}
           <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Geräte-Endpoint antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
         {:else}
@@ -500,11 +500,11 @@
         {/if}
       </div>
     {:else if !devices.length}
-      <div class="ld-job"><div class="ld-banner warn">⚠️ Keine Autopilot-Geräte im Tenant registriert.</div></div>
+      <div class="ld-job"><div class="ld-banner warn">Keine Autopilot-Geräte im Tenant registriert.</div></div>
     {:else}
       {#if devicesStale}
         <div class="ld-job">
-          <div class="ld-banner warn">⚠️ Microsoft-Dienst antwortet weiterhin mit 500 — zeige zuletzt erfolgreich geladene Liste{#if devicesCachedAt} vom {new Date(devicesCachedAt).toLocaleString('de-CH')}{/if}.</div>
+          <div class="ld-banner warn">Microsoft-Dienst antwortet weiterhin mit 500 — zeige zuletzt erfolgreich geladene Liste{#if devicesCachedAt} vom {new Date(devicesCachedAt).toLocaleString('de-CH')}{/if}.</div>
           <div class="ld-step"><small>💡 GroupTag-Änderungen unten gehen direkt an einen anderen Endpoint und funktionieren meist trotzdem — die Liste selbst ist nur nicht taggenau aktuell.</small></div>
         </div>
       {/if}
@@ -512,9 +512,9 @@
         {#each groupTags as g (g.groupTag)}<option value={g.groupTag}></option>{/each}
       </datalist>
       <div class="ld-job">
-        <div class="ld-job-head"><strong>📱 Autopilot-Geräte: {$activeTenant.name}</strong>
+        <div class="ld-job-head"><strong>Autopilot-Geräte: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{devices.length} Geräte</span>
-          <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadDevices}>🔄 Neu laden</button>
+          <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadDevices}>Neu laden</button>
         </div>
         <div class="ld-step"><small>GroupTag hier setzen/ändern wirkt wie ein nachträgliches „Etikett wechseln" — das Gerät rutscht dadurch
           über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Tab „📖 Wissen → 🏷️ Namenskonventionen").
@@ -534,9 +534,9 @@
               {#if dev.groupTag}<span class="tbadge ok">aktuell: {dev.groupTag}</span>{:else}<span class="tbadge warn">kein GroupTag</span>{/if}
             </div>
             {#if res?.error}
-              <div class="ld-banner fail">❌ {res.error}</div>
+              <div class="ld-banner fail">{res.error}</div>
             {:else if res?.ok}
-              <div class="ld-banner ok">✅ GroupTag gesetzt — Gerät fällt bei nächster Sync in die passende dynamische Gruppe.</div>
+              <div class="ld-banner ok">GroupTag gesetzt — Gerät fällt bei nächster Sync in die passende dynamische Gruppe.</div>
             {/if}
           </div>
         {/each}

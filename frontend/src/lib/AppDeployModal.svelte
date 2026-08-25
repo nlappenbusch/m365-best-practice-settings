@@ -130,7 +130,7 @@
   <div class="modal" style="display:flex" onclick={(e) => e.target === e.currentTarget && close()}>
     <div class="modal-content" role="dialog" aria-modal="true" aria-label="In Intune bereitstellen">
       <div class="modal-header">
-        <h2>🟦 In Intune bereitstellen</h2>
+        <h2>In Intune bereitstellen</h2>
         <button class="close-btn" onclick={close}>&times;</button>
       </div>
       <div class="modal-body">
@@ -140,11 +140,11 @@
           <div class="ld-job">
             <div class="ld-job-head"><strong>App-Deployment: {tenantName}</strong></div>
             {#if job.status === 'done'}
-              <div class="ld-banner ok">✅ App veröffentlicht und zugewiesen.</div>
+              <div class="ld-banner ok">App veröffentlicht und zugewiesen.</div>
               <div class="ld-step"><small>Intune-App-ID: <code>{job.appId}</code><br />
                 Ziel: <code>{job.appGroupName}</code> ({job.deviceGroupName} genestet)</small></div>
             {:else if job.status === 'failed'}
-              <div class="ld-banner fail">❌ {job.error}</div>
+              <div class="ld-banner fail">{job.error}</div>
               {#if job.hint}<div class="ld-step"><small>💡 {job.hint}</small></div>{/if}
             {/if}
             {#each job.steps as s}
@@ -230,7 +230,7 @@
             {/if}
           </div>
 
-          {#if startError}<div class="ld-banner fail">❌ {startError}</div>{/if}
+          {#if startError}<div class="ld-banner fail">{startError}</div>{/if}
         {/if}
       </div>
       <div class="modal-footer">

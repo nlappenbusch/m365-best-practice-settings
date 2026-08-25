@@ -417,7 +417,7 @@
     return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
       '<title>Ist-Zustand ' + ldEsc(data.name) + ' — M365 Security Doku</title>' +
       '<style>' + ldAuditReportCss() + '</style></head><body>' +
-      '<button class="no-print print-btn" onclick="window.print()">📄 Als PDF speichern / Drucken</button>' +
+      '<button class="no-print print-btn" onclick="window.print()">Als PDF speichern / Drucken</button>' +
       '<div class="page">' +
       '<header class="rpt-head">' +
       '<div class="rpt-head-main">' +
@@ -609,7 +609,7 @@
     return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
       '<title>Konfig-Doku ' + ldEsc(data.name) + ' — M365 Security</title>' +
       '<style>' + ldTenantDocCss() + '</style></head><body>' +
-      '<button class="no-print print-btn" onclick="window.print()">📘 Als PDF speichern / Drucken</button>' +
+      '<button class="no-print print-btn" onclick="window.print()">Als PDF speichern / Drucken</button>' +
       '<div class="page">' +
       '<div class="doc-head">' +
       '<h1>Microsoft&nbsp;365 – Schutz-Konfiguration</h1>' +
@@ -716,7 +716,7 @@
     return '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">' +
       '<title>Mail-Authentifizierung ' + ldEsc(data.name) + ' — SPF/DKIM/DMARC</title>' +
       '<style>' + ldDomainAuthReportCss() + '</style></head><body>' +
-      '<button class="no-print print-btn" onclick="window.print()">📧 Als PDF speichern / Drucken</button>' +
+      '<button class="no-print print-btn" onclick="window.print()">Als PDF speichern / Drucken</button>' +
       '<div class="page">' +
       '<header class="rpt-head">' +
       '<div class="rpt-head-main">' +
@@ -787,7 +787,7 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>🔎 Audit</h4>
+    <h4>Audit</h4>
     <p class="ld-section-hint">Ist-Zustand aus dem Tenant lesen und mit der Vorlage vergleichen (Soll/Ist).</p>
     <label class="checkbox-label" style="margin-bottom: 0.75rem;">
       <input type="checkbox" bind:checked={$autoDomains} />
@@ -798,24 +798,24 @@
 
   {#if auditBusy}
     <div class="ld-job">
-      <div class="ld-job-head"><strong>🔎 Ist-Zustand: {$activeTenant.name}</strong></div>
+      <div class="ld-job-head"><strong>Ist-Zustand: {$activeTenant.name}</strong></div>
       <div class="ld-step running"><span class="ld-spinner"></span> Lese Policies aus dem Tenant — dauert ca. 30–60 Sekunden…</div>
     </div>
   {:else if auditError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {auditError}</div></div>
+    <div class="ld-job"><div class="ld-banner fail">{auditError}</div></div>
   {:else if auditData}
     <div class="ld-job">
       <div class="ld-job-head">
-        <strong>🔎 Ist-Zustand: {$activeTenant.name}</strong>
+        <strong>Ist-Zustand: {$activeTenant.name}</strong>
         <span class="ld-job-meta">Soll-Domains: {domSrc}</span>
-        <button class="btn btn-secondary ld-pdf-btn" onclick={openAuditPdfReport} title="Audit-Report (Soll/Ist-Checkliste) als PDF speichern">📄 Audit-PDF</button>
-        <button class="btn btn-secondary ld-pdf-btn ld-pdf-btn2" onclick={openTenantConfigDoc} title="Nüchterne Konfigurations-Dokumentation des Tenants (Best Practice + Ist + gewollte Abweichungen mit Begründung) als PDF">📘 Konfig-Doku</button>
+        <button class="btn btn-secondary ld-pdf-btn" onclick={openAuditPdfReport} title="Audit-Report (Soll/Ist-Checkliste) als PDF speichern">Audit-PDF</button>
+        <button class="btn btn-secondary ld-pdf-btn ld-pdf-btn2" onclick={openTenantConfigDoc} title="Nüchterne Konfigurations-Dokumentation des Tenants (Best Practice + Ist + gewollte Abweichungen mit Begründung) als PDF">Konfig-Doku</button>
       </div>
 
       {#if allOk}
-        <div class="ld-banner ok">✅ Ist-Zustand entspricht der Konfiguration ({okCount}/{countable.length} Checks OK).{#if acceptedCount}<span class="ld-acc-note"> · {acceptedCount} als gewollt markiert</span>{/if}</div>
+        <div class="ld-banner ok">Ist-Zustand entspricht der Konfiguration ({okCount}/{countable.length} Checks OK).{#if acceptedCount}<span class="ld-acc-note"> · {acceptedCount} als gewollt markiert</span>{/if}</div>
       {:else}
-        <div class="ld-banner warn">⚠️ {countable.length - okCount} von {countable.length} Checks weichen ab — ein Deploy bringt den Tenant auf den Soll-Zustand.{#if acceptedCount}<span class="ld-acc-note"> · {acceptedCount} als gewollt markiert</span>{/if}</div>
+        <div class="ld-banner warn">{countable.length - okCount} von {countable.length} Checks weichen ab — ein Deploy bringt den Tenant auf den Soll-Zustand.{#if acceptedCount}<span class="ld-acc-note"> · {acceptedCount} als gewollt markiert</span>{/if}</div>
       {/if}
 
       {#each groups as grp (grp.title)}
@@ -842,7 +842,7 @@
   {/if}
 
   <div class="settings-group" style="margin-top:1.5rem;">
-    <h4>📧 Mail-Authentifizierung (SPF / DKIM / DMARC)</h4>
+    <h4>Mail-Authentifizierung (SPF / DKIM / DMARC)</h4>
     <p class="ld-section-hint">Prüft je Mail-Domain des Tenants das öffentliche SPF- und DMARC-TXT-Record sowie
       — kombiniert aus Exchange Online (Get-DkimSigningConfig) und öffentlichem DNS — ob DKIM wirklich signiert
       wird. Deckt speziell den Fall ab, dass DKIM in M365 als „aktiviert" gilt, die CNAME-Records beim Registrar
@@ -855,17 +855,17 @@
       <div class="ld-step running"><span class="ld-spinner"></span> Lese DKIM-Status aus Exchange Online und löse DNS-Records auf…</div>
     </div>
   {:else if daError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {daError}</div></div>
+    <div class="ld-job"><div class="ld-banner fail">{daError}</div></div>
   {:else if daResults}
     <div class="ld-job">
       <div class="ld-job-head">
-        <strong>📧 Mail-Authentifizierung: {$activeTenant?.name}</strong>
+        <strong>Mail-Authentifizierung: {$activeTenant?.name}</strong>
         <span class="ld-job-meta">{daResults.length} Domain(s)</span>
-        <button class="btn btn-secondary ld-pdf-btn" onclick={openDomainAuthReport} title="SPF/DKIM/DMARC-Report als PDF speichern" disabled={!daResults.length}>📧 Domain-PDF</button>
+        <button class="btn btn-secondary ld-pdf-btn" onclick={openDomainAuthReport} title="SPF/DKIM/DMARC-Report als PDF speichern" disabled={!daResults.length}>Domain-PDF</button>
       </div>
 
       {#if !daResults.length}
-        <div class="ld-banner warn">⚠️ Keine Mail-Domains gefunden.</div>
+        <div class="ld-banner warn">Keine Mail-Domains gefunden.</div>
       {:else}
         {#if daKpi}
           <div class="kpi-grid">

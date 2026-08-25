@@ -66,7 +66,7 @@
           {/each}
         {/if}
         <div class="tswitch-foot">
-          <button type="button" class="linklike" onclick={manage}>⚙ Tenants verwalten / onboarden</button>
+          <button type="button" class="linklike" onclick={manage}>Tenants verwalten / onboarden</button>
         </div>
       </div>
     {/if}

@@ -149,7 +149,7 @@
 </div>
 
 <section class="docs-section">
-  <h2>📘 Konfig-Doku (PDF)</h2>
+  <h2>Konfig-Doku (PDF)</h2>
   <div class="alert alert-info" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
     <div style="flex:1;min-width:260px;">
       <strong>Nüchterne Konfigurationsdokumentation der aktuellen Mail-Security-Vorlage</strong> —
@@ -162,11 +162,11 @@
   </div>
   <p style="font-size:.85rem;color:var(--text-dim);margin-top:.5rem;">
     💡 Die Doku eines <em>konkreten Tenants</em> (Ist-Zustand + gewollte Abweichungen mit Begründung)
-    gibt es im Tab <strong>🔎 Audit</strong>.
+    gibt es im Tab <strong>Audit</strong>.
   </p>
   <div class="alert alert-info" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:0.75rem;">
     <div style="flex:1;min-width:260px;">
-      <strong>🔗 Nützliche externe Tools:</strong> Schnellzugriff auf alle Microsoft-Admin-Portale —
+      <strong>Nützliche externe Tools:</strong> Schnellzugriff auf alle Microsoft-Admin-Portale —
       <a href="https://cmd.ms" target="_blank" rel="noopener"><strong>cmd.ms</strong></a>
       (merkbares URL-Schema, z.B. <code>entra.cmd.ms</code>, <code>intune.cmd.ms</code>, <code>ca.cmd.ms</code>) und
       <a href="https://msportals.io" target="_blank" rel="noopener"><strong>msportals.io</strong></a>
@@ -187,7 +187,7 @@
 
 <div class="dl-panel" class:active={sub === 'mailsec'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfMailSecurity}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfMailSecurity}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Best Practice Documentation</h2>
@@ -201,7 +201,7 @@
 
 <div class="dl-panel" class:active={sub === 'autopilot'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfAutopilot}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfAutopilot}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Blueprint — Geräteprovisionierung (Autopilot)</h2>
@@ -211,7 +211,7 @@
 
 <div class="dl-panel" class:active={sub === 'oib'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfOib}>📄 Als PDF speichern (Audit-tauglich)</button>
+    <button class="btn btn-secondary" onclick={pdfOib}>Als PDF speichern (Audit-tauglich)</button>
   </div>
   <section class="docs-section">
     <h2>OpenIntuneBaseline (OIB) — Management Summary</h2>
@@ -221,7 +221,7 @@
 
 <div class="dl-panel" class:active={sub === 'ca'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfConditionalAccess}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfConditionalAccess}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Conditional Access — Ring-Konzept &amp; Sicherheitsleitplanken</h2>
@@ -231,7 +231,7 @@
 
 <div class="dl-panel" class:active={sub === 'backup'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfIntuneBackup}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfIntuneBackup}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Intune-Backup &amp; -Restore</h2>
@@ -241,7 +241,7 @@
 
 <div class="dl-panel" class:active={sub === 'mappings'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfMappings}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfMappings}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Mappings — Laufwerke &amp; Drucker auf Cloud-only-Geräten</h2>
@@ -258,13 +258,13 @@
 
 <div class="dl-panel" class:active={sub === 'naming'}>
   <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
-    <button class="btn btn-secondary" onclick={pdfNaming}>📄 Als PDF speichern</button>
+    <button class="btn btn-secondary" onclick={pdfNaming}>Als PDF speichern</button>
   </div>
   <section class="docs-section">
     <h2>Gruppenkonzept &amp; Namenskonventionen M365 (Blueprint)</h2>
 
     <div class="name-builder">
-      <h4>🧪 Gruppennamen live generieren</h4>
+      <h4>Gruppennamen live generieren</h4>
       <div class="name-builder-row">
         <label class="name-builder-field">
           Kategorie

@@ -62,12 +62,12 @@
 </script>
 
 {#if !$session.online}
-  <div class="alert alert-warning"><strong>⚠️ Backend nicht erreichbar.</strong> Ohne API gibt es hier nichts zu sehen.</div>
+  <div class="alert alert-warning"><strong>Backend nicht erreichbar.</strong> Ohne API gibt es hier nichts zu sehen.</div>
 {:else if !$session.loggedIn}
-  <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts anmelden.</div>
+  <div class="alert alert-warning"><strong>Nicht angemeldet.</strong> Oben rechts anmelden.</div>
 {:else}
   <div class="settings-group">
-    <h4>🌐 Erreichbarkeit der Microsoft-Endpunkte</h4>
+    <h4>Erreichbarkeit der Microsoft-Endpunkte</h4>
     <p class="ld-section-hint">Testet aus dem Container heraus, ob die Gegenstellen erreichbar sind, die Onboarding
       (Device-Code), Graph-Abfragen und Exchange-Deploys brauchen. Schlägt hier etwas fehl, liegt es an Egress,
       DNS oder einem TLS-abfangenden Proxy — nicht am Tool.</p>
@@ -100,7 +100,7 @@
   </div>
 
   <div class="settings-group" style="margin-top:1.25rem;">
-    <h4>📋 Server-Log</h4>
+    <h4>Server-Log</h4>
     <p class="ld-section-hint">Die letzten Zeilen der laufenden API-Instanz. Passwörter, Tokens und Secrets werden
       vor der Anzeige maskiert. Der Puffer lebt im Arbeitsspeicher — ein Neustart des Pods setzt ihn zurück.</p>
 
@@ -111,7 +111,7 @@
         <input type="checkbox" bind:checked={onlyErrors} /> nur Fehler/Warnungen
       </label>
       {#if entries.length}
-        <button class="btn btn-secondary" onclick={copyLog}>📋 Kopieren</button>
+        <button class="btn btn-secondary" onclick={copyLog}>Kopieren</button>
       {/if}
       {#if lastLoad}
         <span class="ld-section-hint" style="margin:0;">Stand: {lastLoad.toLocaleTimeString('de-CH')}</span>

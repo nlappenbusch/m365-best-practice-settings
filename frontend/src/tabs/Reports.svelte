@@ -92,10 +92,10 @@
 </script>
 
 {#if !$session.loggedIn}
-  <div class="alert alert-warning"><strong>🔒 Nicht angemeldet.</strong> Oben rechts anmelden.</div>
+  <div class="alert alert-warning"><strong>Nicht angemeldet.</strong> Oben rechts anmelden.</div>
 {:else}
   <div class="settings-group">
-    <h4>📊 Übersicht über alle Tenants</h4>
+    <h4>Übersicht über alle Tenants</h4>
     <p class="ld-section-hint">Stand der zuletzt erzeugten Reports — nichts wird live abgefragt. Für frische Zahlen
       unten einen Report erzeugen.</p>
 
@@ -142,7 +142,7 @@
   </div>
 
   <div class="settings-group" style="margin-top:1.25rem">
-    <h4>📄 Report erzeugen{$activeTenant ? ` — ${$activeTenant.name}` : ''}</h4>
+    <h4>Report erzeugen{$activeTenant ? ` — ${$activeTenant.name}` : ''}</h4>
     {#if !$activeTenant}
       <p class="ld-section-hint">Oben rechts einen Tenant wählen.</p>
     {:else}
@@ -161,21 +161,21 @@
           {job?.status === 'running' ? 'Läuft…' : '▶ Report erzeugen'}
         </button>
         {#if fullReport}
-          <button class="btn btn-secondary" onclick={exportHtml}>⬇ Als HTML speichern (druckbar)</button>
+          <button class="btn btn-secondary" onclick={exportHtml}>Als HTML speichern (druckbar)</button>
         {/if}
       </div>
     {/if}
 
-    {#if jobError}<div class="ld-banner fail" style="margin-top:0.75rem">❌ {jobError}</div>{/if}
+    {#if jobError}<div class="ld-banner fail" style="margin-top:0.75rem">{jobError}</div>{/if}
 
     {#if job}
       <div class="ld-job" style="margin-top:0.75rem">
         <div class="ld-job-head"><strong>{job.status === 'running' ? '⏳' : ''} Report {$activeTenant?.name}</strong>
           <span class="ld-job-meta">{job.phase}</span></div>
         {#if job.status === 'done'}
-          <div class="ld-banner ok">✅ Fertig.{job.hint ? ' ' + job.hint : ''}</div>
+          <div class="ld-banner ok">Fertig.{job.hint ? ' ' + job.hint : ''}</div>
         {:else if job.status === 'failed'}
-          <div class="ld-banner fail">❌ {job.error}</div>
+          <div class="ld-banner fail">{job.error}</div>
         {/if}
         {#each job.steps as s}
           <div class="ld-step {s.state === 'failed' ? 'fail' : 'ok'}">

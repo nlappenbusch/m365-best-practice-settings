@@ -100,7 +100,7 @@
       </button>
       {#if savedAtText}
         <button class="btn btn-secondary" onclick={reloadForTenant}>↺ Gespeicherte laden</button>
-        <button class="btn btn-secondary" onclick={forgetForTenant}>✕ Verwerfen</button>
+        <button class="btn btn-secondary" onclick={forgetForTenant}>Verwerfen</button>
       {/if}
       {#if saveMsg}
         <span class="tcfg-msg {saveMsg.ok ? 'ok' : 'err'}">{saveMsg.ok ? '✅' : '⚠️'} {saveMsg.text}</span>
@@ -198,7 +198,7 @@
           <small>💡 <strong>Spoof Quarantine:</strong> BP_Quarantine-SelfReleaseNotification</small><br>
           <small>⚠️ <strong>Hinweis:</strong> Spoof Quarantine Policy kann nur per PowerShell gesetzt werden (GUI-Limitation)</small>
         </div>
-        <div class="alert alert-warning"><strong>⚠️ GUI Limitation:</strong> Die Quarantine Policy für Spoof-Fälle kann nur per PowerShell zugewiesen werden.</div>
+        <div class="alert alert-warning"><strong>GUI Limitation:</strong> Die Quarantine Policy für Spoof-Fälle kann nur per PowerShell zugewiesen werden.</div>
       </div>
     </div>
   </div>
@@ -221,7 +221,7 @@
         <div class="input-group"><label>MSP Alert Email</label>
           <input type="email" bind:value={$config.global.igeeksEmail}><small>Email für Managed Service Alerts (Quarantine Requests)</small></div>
         <div class="alert alert-warning" style="margin-bottom:.75rem;">
-          <strong>⚠️ Legacy-ASF-Optionen (Advanced Spam Filter):</strong> Microsoft empfiehlt <strong>Off</strong> — auch die Microsoft Standard-/Strict-Presets lassen alle aus. Sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie SEPPmail) und ASF-Treffer sind bei Microsoft <em>nicht als False Positive meldbar</em>. Nur gezielt und mit klarem Grund aktivieren.
+          <strong>Legacy-ASF-Optionen (Advanced Spam Filter):</strong> Microsoft empfiehlt <strong>Off</strong> — auch die Microsoft Standard-/Strict-Presets lassen alle aus. Sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie SEPPmail) und ASF-Treffer sind bei Microsoft <em>nicht als False Positive meldbar</em>. Nur gezielt und mit klarem Grund aktivieren.
         </div>
         <div class="checkbox-grid">
           <label class="checkbox-label"><input type="checkbox" bind:checked={$config.antiSpam.bizInfoUrls}><span>URLs zu .biz/.info</span></label>

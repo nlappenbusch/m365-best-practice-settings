@@ -144,17 +144,17 @@
       {/if}
     </div>
   {/if}
-  {#if notice}<div class="ld-banner ok">✅ {notice}</div>{/if}
+  {#if notice}<div class="ld-banner ok">{notice}</div>{/if}
 
   {#if data}
     <!-- 1. Globale Administratoren: die Liste, um die es geht -->
     <div class="settings-group">
       <h4>Globale Administratoren ({data.globalAdmins.length})</h4>
       {#each data.findings.filter(f => f.state === 'crit') as f}
-        <div class="ld-banner fail">❌ {f.text}</div>
+        <div class="ld-banner fail">{f.text}</div>
       {/each}
       {#each data.findings.filter(f => f.state === 'warn') as f}
-        <div class="ld-banner warn">⚠️ {f.text}</div>
+        <div class="ld-banner warn">{f.text}</div>
       {/each}
 
       <div class="gt-table-wrap" style="margin-top:0.6rem">

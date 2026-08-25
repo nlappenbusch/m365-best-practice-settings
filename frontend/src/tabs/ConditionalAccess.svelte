@@ -490,22 +490,22 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>🔐 Conditional Access</h4>
+    <h4>Conditional Access</h4>
     <p class="ld-section-hint">Rollt eine der drei Best-Practice-Vorlagen aus <a href="https://github.com/AlexFilipin/ConditionalAccess" target="_blank">AlexFilipin/ConditionalAccess</a> aus.</p>
     <div class="alert alert-warning">
       ⚠️ <strong>Sicherheitshinweis:</strong> Jede Policy wird ausschliesslich im <b>Report-only-Zustand</b> angelegt — nichts
       wird automatisch scharf geschaltet. Aktivieren ist immer ein separater, bestätigter Schritt weiter unten.
       Ein falsch aktiviertes Conditional-Access-Regelwerk kann im schlimmsten Fall den gesamten Tenant aussperren.
     </div>
-    <p class="ld-section-hint" style="margin-top:0.6rem;"><b>Ablauf:</b> 1️⃣ Vorlage auswählen &amp; ausrollen (immer Report-only) → 2️⃣ Schutzgruppen befüllen (v.&nbsp;a. Break-Glass!) → 3️⃣ einzelne Policies gezielt scharf schalten, deren Scope einschränken oder aufräumen.</p>
+    <p class="ld-section-hint" style="margin-top:0.6rem;"><b>Ablauf:</b> <span class="step-n">1</span> Vorlage auswählen &amp; ausrollen (immer Report-only) → <span class="step-n">2</span> Schutzgruppen befüllen (v.&nbsp;a. Break-Glass!) → <span class="step-n">3</span> einzelne Policies gezielt scharf schalten, deren Scope einschränken oder aufräumen.</p>
   </div>
 
   {#if tiersError}
-    <div class="ld-banner fail">❌ {tiersError}</div>
+    <div class="ld-banner fail">{tiersError}</div>
   {:else if !tiers}
     <div class="ld-step running"><span class="ld-spinner"></span> Lade Tiers…</div>
   {:else}
-    <h4 style="margin-bottom:0.5rem;">1️⃣ Vorlage auswählen &amp; ausrollen</h4>
+    <h4 style="margin-bottom:0.5rem;"><span class="step-n">1</span> Vorlage auswählen &amp; ausrollen</h4>
     <div class="settings-grid" style="margin-bottom:1.5rem;">
       {#each TIER_ORDER as key}
         {@const t = tiers[key]}
@@ -526,7 +526,7 @@
       {@const t = tiers[key]}
       {#if previewOpen[key]}
         <div class="ld-job" style="margin-bottom:1.5rem;">
-          <div class="ld-job-head"><strong>👁 Vorschau: {t.label}</strong>
+          <div class="ld-job-head"><strong>Vorschau: {t.label}</strong>
             <span class="ld-job-meta">{previewSelectedCount(key)}/{(t.policyNames || []).length} ausgewählt</span></div>
           <p class="ld-section-hint">Alle Policies werden trotzdem nur im Report-only-Zustand angelegt — die Auswahl hier bestimmt nur, WELCHE der Vorlagen-Policies überhaupt angelegt werden.</p>
 
@@ -575,14 +575,13 @@
     <div class="ld-job" style="margin-bottom:1.5rem;">
       <div class="ld-job-head"><strong>{job.status === 'running' ? '⏳' : ''} Conditional-Access-Deployment: {$activeTenant.name}</strong></div>
       {#if job.status === 'failed'}
-        <div class="ld-banner fail">❌ {job.error}</div>
+        <div class="ld-banner fail">{job.error}</div>
         {#if job.hint}<div class="ld-step"><small>💡 {job.hint}</small></div>{/if}
       {:else if job.status === 'done'}
-        <div class="ld-banner ok">
-          ✅ Fertig — {job.results?.created ?? 0} angelegt, {job.results?.updated ?? 0} aktualisiert{job.results?.failed ? `, ${job.results.failed} fehlgeschlagen` : ''}{job.results?.ring ? ` (Ring ${job.results.ring})` : ''}.
+        <div class="ld-banner ok">Fertig — {job.results?.created ?? 0} angelegt, {job.results?.updated ?? 0} aktualisiert{job.results?.failed ? `, ${job.results.failed} fehlgeschlagen` : ''}{job.results?.ring ? ` (Ring ${job.results.ring})` : ''}.
         </div>
         {#if job.results?.ringGroup}
-          <div class="ld-banner warn">🎯 Ring-getargetet ausgerollt: Die Policies gelten nur für Mitglieder von <code>{job.results.ringGroup}</code> — unten bei den Schutzgruppen jetzt die Ring-Mitglieder pflegen, sonst wirkt der Ring auf niemanden.</div>
+          <div class="ld-banner warn">Ring-getargetet ausgerollt: Die Policies gelten nur für Mitglieder von <code>{job.results.ringGroup}</code> — unten bei den Schutzgruppen jetzt die Ring-Mitglieder pflegen, sonst wirkt der Ring auf niemanden.</div>
         {/if}
       {/if}
       {#each job.steps as s}
@@ -600,13 +599,13 @@
   {#if policiesLoading}
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Policies und Schutzgruppen…</div></div>
   {:else if policiesError}
-    <div class="ld-banner fail">❌ {policiesError}</div>
+    <div class="ld-banner fail">{policiesError}</div>
   {:else if supportGroups.length}
-    <h4 style="margin-bottom:0.5rem;">2️⃣ Schutzgruppen befüllen</h4>
+    <h4 style="margin-bottom:0.5rem;"><span class="step-n">2</span> Schutzgruppen befüllen</h4>
     <div class="ld-job" style="margin-bottom:1.25rem;">
-      <div class="ld-job-head"><strong>🛡 Schutzgruppen</strong></div>
+      <div class="ld-job-head"><strong>Schutzgruppen</strong></div>
       {#if breakGlassEmpty}
-        <div class="ld-banner warn">⚠️ <b>AAD-CA-BreakGlass ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
+        <div class="ld-banner warn"><b>AAD-CA-BreakGlass ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
       {/if}
       {#each supportGroups as g}
         <div class="ld-step {g.memberCount === 0 && g.key === 'breakGlass' ? 'retry' : 'ok'}">
@@ -642,7 +641,7 @@
             <span><small>@{$activeTenant.organization || $activeTenant.tenantId}</small></span>
             <button class="btn btn-primary" onclick={createBreakGlass} disabled={bgBusy || !bgUsername.trim()}>{bgBusy ? '…' : 'Anlegen + Passwort generieren'}</button>
           </div>
-          {#if bgError}<div class="ld-banner fail">❌ {bgError}</div>{/if}
+          {#if bgError}<div class="ld-banner fail">{bgError}</div>{/if}
         {/if}
       {/each}
     </div>
@@ -654,23 +653,23 @@
       <div>⚠️ <b>Dieses Passwort wird nur JETZT angezeigt</b> — Microsoft speichert es nicht im Klartext, ein späteres Auslesen ist nicht möglich. Jetzt sicher speichern (Passwort-Manager)!</div>
       <div style="display:flex; gap:0.6rem; align-items:center;">
         <code style="font-size:1rem; padding:0.3rem 0.6rem; border-radius:4px; background:var(--rule);">{bgResult.password}</code>
-        <button class="btn btn-secondary" onclick={copyBgPassword}>📋 Kopieren</button>
+        <button class="btn btn-secondary" onclick={copyBgPassword}>Kopieren</button>
       </div>
       <button class="btn btn-primary" onclick={ackBgResult}>Ich habe das Passwort sicher gespeichert</button>
     </div>
   {/if}
 
   {#if policies.length}
-    <h4 style="margin-bottom:0.5rem;">3️⃣ Policies verwalten</h4>
+    <h4 style="margin-bottom:0.5rem;"><span class="step-n">3</span> Policies verwalten</h4>
     <div class="ld-job">
-      <div class="ld-job-head"><strong>📋 Alle Conditional-Access-Policies dieses Tenants</strong>
+      <div class="ld-job-head"><strong>Alle Conditional-Access-Policies dieses Tenants</strong>
         <span class="ld-job-meta">{policies.length} gesamt · {managedCount} vom Tool · {foreignCount} fremd · {activeCount} aktiv</span></div>
       {#if foreignCount}
         <p class="ld-section-hint">🌐 <b>Fremd</b> = nicht vom Tool angelegt (z.&nbsp;B. manuell im Portal oder von einem anderen Werkzeug) — wird beim Deploy/Aktivieren nie automatisch angefasst, kann hier aber wie jede andere Policy verwaltet oder gelöscht werden.</p>
       {/if}
       <div class="ld-step" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
         <label><input type="checkbox" checked={allSelected} onchange={toggleAll} /> Alle auswählen</label>
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={deleteAllPolicies} disabled={batchBusy}>🗑️ Alle {policies.length} Policies löschen</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={deleteAllPolicies} disabled={batchBusy}>Alle {policies.length} Policies löschen</button>
       </div>
       {#if selectedIds.length}
         <div class="ld-oib-target">
@@ -685,7 +684,7 @@
                   title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
             {breakGlassEmpty ? '🚨' : '🔓'} Auswahl aktivieren
           </button>
-          <button class="btn btn-secondary" onclick={batchDelete} disabled={batchBusy}>🗑️ Auswahl löschen</button>
+          <button class="btn btn-secondary" onclick={batchDelete} disabled={batchBusy}>Auswahl löschen</button>
           <button class="btn btn-secondary" onclick={clearSelection} disabled={batchBusy}>Auswahl aufheben</button>
         </div>
         {#if batchProgress}

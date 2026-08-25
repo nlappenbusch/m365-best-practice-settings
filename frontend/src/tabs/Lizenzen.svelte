@@ -99,7 +99,7 @@
       @media print { body { background:#fff; } .no-print { display:none !important; } .page { box-shadow:none; margin:0; max-width:none; border-radius:0; padding:0; } }
       @page { size:A4; margin:16mm; }
     </style></head><body>
-    <button class="no-print print-btn" onclick="window.print()">📄 Als PDF speichern / Drucken</button>
+    <button class="no-print print-btn" onclick="window.print()">Als PDF speichern / Drucken</button>
     <div class="page">
       <h1>Lizenzreport &amp; Optimierungspotenzial</h1>
       <p class="lead">${esc(t.name)} · ${esc(t.organization || t.tenantId)} · Stand ${today}</p>
@@ -145,11 +145,11 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>💰 Lizenzen &amp; Optimierung</h4>
+    <h4>Lizenzen &amp; Optimierung</h4>
     <p class="ld-section-hint">Read-only-Lizenzreport: Bestand, freie bezahlte Seats, Lizenzen an deaktivierten oder inaktiven Konten, Mehrfach-Lizenzierung. Bewusst ohne Fantasie-Preisrechnung — die Seats und Konten sind belastbar.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
-      <button class="btn btn-primary" onclick={openPdf} disabled={!data}>📄 Report als PDF</button>
+      <button class="btn btn-primary" onclick={openPdf} disabled={!data}>Report als PDF</button>
     </div>
   </div>
 
@@ -157,7 +157,7 @@
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lese SKUs und Benutzer-Lizenzen aus dem Tenant…</div></div>
   {:else if loadError}
     <div class="ld-job">
-      <div class="ld-banner fail">❌ {loadError}</div>
+      <div class="ld-banner fail">{loadError}</div>
       <div class="ld-step"><small>💡 Braucht Organization.Read.All + AuditLog.Read.All — im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
     </div>
   {:else if data}
@@ -170,7 +170,7 @@
     </div>
 
     <div class="ld-job" style="margin-bottom:1.25rem;">
-      <div class="ld-job-head"><strong>📦 Lizenzbestand</strong>
+      <div class="ld-job-head"><strong>Lizenzbestand</strong>
         <span class="ld-job-meta">{paidSkus.length} bezahlte SKUs{freeSkus.length ? ` · ${freeSkus.length} kostenlose` : ''}</span></div>
       {#each paidSkus as s (s.skuPartNumber)}
         <div class="ld-step {s.available > 0 ? 'retry' : 'ok'}">
@@ -185,7 +185,7 @@
     </div>
 
     <div class="ld-job" style="margin-bottom:1.25rem;">
-      <div class="ld-job-head"><strong>🚫 Lizenzen an deaktivierten Konten</strong>
+      <div class="ld-job-head"><strong>Lizenzen an deaktivierten Konten</strong>
         <span class="ld-job-meta">{data.findings.disabledWithLicense.length}</span></div>
       {#if data.findings.disabledWithLicense.length}
         {#each data.findings.disabledWithLicense as u (u.upn)}
@@ -193,31 +193,31 @@
         {/each}
         <div class="ld-step"><small>💡 Lizenz entziehen; Postfach vorher ggf. in ein freigegebenes Postfach umwandeln.</small></div>
       {:else}
-        <div class="ld-banner ok">✅ Keine bezahlten Lizenzen an deaktivierten Konten.</div>
+        <div class="ld-banner ok">Keine bezahlten Lizenzen an deaktivierten Konten.</div>
       {/if}
     </div>
 
     <div class="ld-job" style="margin-bottom:1.25rem;">
-      <div class="ld-job-head"><strong>😴 Inaktive lizenzierte Konten (&gt;{data.inactiveDays} Tage)</strong>
+      <div class="ld-job-head"><strong>Inaktive lizenzierte Konten (&gt;{data.inactiveDays} Tage)</strong>
         <span class="ld-job-meta">{data.findings.inactiveWithLicense ? data.findings.inactiveWithLicense.length : '–'}</span></div>
       {#if !data.signInAvailable}
-        <div class="ld-banner warn">⚠️ Sign-in-Daten nicht verfügbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant) — einmal 🔧 Reparieren ausführen und neu laden.</div>
+        <div class="ld-banner warn">Sign-in-Daten nicht verfügbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant) — einmal 🔧 Reparieren ausführen und neu laden.</div>
       {:else if data.findings.inactiveWithLicense.length}
         {#each data.findings.inactiveWithLicense as u (u.upn)}
           <div class="ld-step retry"><span class="ld-ico">😴</span> {u.displayName}
             <small>({u.upn}) — {u.lastSignIn ? `zuletzt ${u.lastSignIn}, ${u.daysInactive} Tage` : 'nie angemeldet'} — {u.licenses.join(', ')}</small></div>
         {/each}
       {:else}
-        <div class="ld-banner ok">✅ Alle lizenzierten Konten waren in den letzten {data.inactiveDays} Tagen aktiv.</div>
+        <div class="ld-banner ok">Alle lizenzierten Konten waren in den letzten {data.inactiveDays} Tagen aktiv.</div>
       {/if}
     </div>
 
     <div class="ld-job">
-      <div class="ld-job-head"><strong>📚 Mehrfach-Lizenzierung</strong>
+      <div class="ld-job-head"><strong>Mehrfach-Lizenzierung</strong>
         <span class="ld-job-meta">{multiActionable.length} prüfenswert · {data.findings.multiSuite.length} gesamt</span></div>
       {#if data.findings.multiSuite.length}
         {#if !multiActionable.length}
-          <div class="ld-banner ok">✅ Keine prüfenswerten Überlappungen — nur unauffällige Suite+Add-on-Kombis (siehe unten).</div>
+          <div class="ld-banner ok">Keine prüfenswerten Überlappungen — nur unauffällige Suite+Add-on-Kombis (siehe unten).</div>
         {/if}
         {#each multiActionable as u (u.upn)}
           <div class="license-row {u.verdict === 'redundant' ? 'bad' : 'warn'}">
@@ -249,7 +249,7 @@
         {/if}
         <div class="ld-step"><small>💡 🔴 = die Suite enthält die Zusatzlizenz bereits (kündbar) · 🟠 = mehrere Suiten, Überlappung prüfen · 🟢 = übliche Suite+Add-on-Kombi (z.B. E3 + Teams Phone — Teams Phone ist erst in E5 enthalten).</small></div>
       {:else}
-        <div class="ld-banner ok">✅ Keine Konten mit mehreren bezahlten Produkten.</div>
+        <div class="ld-banner ok">Keine Konten mit mehreren bezahlten Produkten.</div>
       {/if}
     </div>
   {/if}

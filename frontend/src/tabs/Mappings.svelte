@@ -442,7 +442,7 @@
     <details class="map-info"><summary>Was macht das?</summary>
       <p class="ld-section-hint">Erzeugt aus deiner Laufwerk-Liste ein PowerShell-Plattformskript (Vorlage: <a href="https://github.com/nicolonsky/IntuneDriveMapping" target="_blank" rel="noopener">nicolonsky/IntuneDriveMapping</a>) und weist es dynamischen Gerätegruppen zu — ohne App-Abhängigkeit. Optionaler Gruppenfilter je Laufwerk nutzt On-Prem-AD-Gruppen (hybrid). Bearbeiten liest die Konfiguration direkt aus dem deployten Skript zurück.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick={newProfile}>➕ Neues Profil</button>
+      <button class="btn btn-primary" onclick={newProfile}>Neues Profil</button>
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
     </div>
   </div>
@@ -453,7 +453,7 @@
 
   {#if editorOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
-      <div class="ld-job-head"><strong>🛠 Profil-Konfigurator</strong>
+      <div class="ld-job-head"><strong>Profil-Konfigurator</strong>
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (editorOpen = false)}>✕ schließen</button></div>
 
       <div class="input-group" style="max-width:320px; margin-bottom:0.75rem;">
@@ -485,15 +485,15 @@
       </div>
       <div class="ld-oib-toolbar">
         <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={addRow}>+ Laufwerk</button>
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={downloadScript}>⬇️ PowerShell-Skript herunterladen</button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={downloadScript}>PowerShell-Skript herunterladen</button>
         <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => (importOpen = !importOpen)}>{importOpen ? '✕ Import schließen' : '📥 Bestehendes Skript einlesen'}</button>
       </div>
       {#if importOpen}
         <div class="input-group" style="margin-bottom:0.75rem;">
           <label for="dmImport">Vorhandenes DriveMapping-Skript hier einfügen (aus Intune oder dem Original-Generator) — die Konfiguration wird herausgelesen und füllt die Tabelle:</label>
           <textarea id="dmImport" rows="5" bind:value={importText} placeholder="Inhalt der DriveMapping.ps1 einfügen…" style="font-family:var(--font-mono); font-size:0.78rem;"></textarea>
-          <div><button class="btn btn-primary" onclick={importScript} disabled={!importText.trim()}>📥 Einlesen</button></div>
-          {#if importError}<div class="ld-banner fail">❌ {importError}</div>{/if}
+          <div><button class="btn btn-primary" onclick={importScript} disabled={!importText.trim()}>Einlesen</button></div>
+          {#if importError}<div class="ld-banner fail">{importError}</div>{/if}
         </div>
       {/if}
 
@@ -531,14 +531,14 @@
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Profile aus dem Tenant…</div></div>
   {:else if loadError}
     <div class="ld-job">
-      <div class="ld-banner fail">❌ {loadError}</div>
+      <div class="ld-banner fail">{loadError}</div>
       {#if /DeviceManagementScripts|not authorized/i.test(loadError)}
         <div class="ld-step"><small>💡 Braucht die Graph-Permission <code>DeviceManagementScripts.ReadWrite.All</code> — im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen (danach ein paar Minuten Consent-Replikation abwarten).</small></div>
       {/if}
     </div>
   {:else if profiles}
     <div class="ld-job">
-      <div class="ld-job-head"><strong>📜 Deployte Profile</strong>
+      <div class="ld-job-head"><strong>Deployte Profile</strong>
         <span class="ld-job-meta">{profiles.length}</span></div>
       {#if !profiles.length}
         <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Profile — oben eines anlegen.</div>
@@ -571,7 +571,7 @@
     <details class="map-info"><summary>Was macht das?</summary>
       <p class="ld-section-hint">Verbindet On-Prem-Netzwerkdrucker per <a href="https://github.com/Weatherlights/Intune-Printer-Mapping-Tool/wiki" target="_blank" rel="noopener">Intune-Printer-Mapping-Tool</a>: die ADMX-Vorlage wird automatisch importiert, das Konfigurationsprofil (inkl. Pflicht-Schalter) angelegt und die Store-App auf Wunsch gleich mit deployt. Voraussetzungen laut Wiki: Seamless SSO/Cloud Kerberos Trust, Druckertreiber auf den Geräten, Druckberechtigungen.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick={pmNew}>➕ Neues Drucker-Profil</button>
+      <button class="btn btn-primary" onclick={pmNew}>Neues Drucker-Profil</button>
       <button class="btn btn-secondary" onclick={pmLoad} disabled={pmLoading}>{pmLoading ? '…' : '🔄 Neu laden'}</button>
     </div>
   </div>
@@ -579,11 +579,11 @@
   {#if pmJob}
     <div class="ld-job" style="margin-bottom:1rem;">
       {#if pmJob.status === 'failed'}
-        <div class="ld-banner fail">❌ {pmJob.error}</div>
+        <div class="ld-banner fail">{pmJob.error}</div>
         {#if pmJob.hint}<div class="ld-step"><small>💡 {pmJob.hint}</small></div>{/if}
       {:else if pmJob.status === 'done'}
-        <div class="ld-banner ok">✅ „{pmJob.results?.displayName}" {pmJob.results?.updated ? 'aktualisiert' : 'ausgerollt'}{pmJob.results?.app ? ` · Store-App ${pmJob.results.app.created ? 'angelegt' : 'war vorhanden'} und zugewiesen` : ''}.</div>
-        <div class="ld-banner warn">📋 <b>Ein manueller Schritt bleibt</b> (einmal pro Tenant): Die App startet erst automatisch, wenn sie in einer Geräterestriktions-Richtlinie als erlaubte Autostart-App eingetragen ist —
+        <div class="ld-banner ok">„{pmJob.results?.displayName}" {pmJob.results?.updated ? 'aktualisiert' : 'ausgerollt'}{pmJob.results?.app ? ` · Store-App ${pmJob.results.app.created ? 'angelegt' : 'war vorhanden'} und zugewiesen` : ''}.</div>
+        <div class="ld-banner warn"><b>Ein manueller Schritt bleibt</b> (einmal pro Tenant): Die App startet erst automatisch, wenn sie in einer Geräterestriktions-Richtlinie als erlaubte Autostart-App eingetragen ist —
           <code>{pmData?.autostartPfn}</code>
           <button class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.78rem;" onclick={pmCopyPfn}>{pmPfnCopied ? '✓ Kopiert' : '📋 Kopieren'}</button>
         </div>
@@ -600,7 +600,7 @@
 
   {#if pmEditorOpen}
     <div class="ld-job" style="margin-bottom:1.5rem;">
-      <div class="ld-job-head"><strong>🛠 Drucker-Profil-Konfigurator</strong>
+      <div class="ld-job-head"><strong>Drucker-Profil-Konfigurator</strong>
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (pmEditorOpen = false)}>✕ schließen</button></div>
 
       <div class="ld-oib-target">
@@ -668,10 +668,10 @@
   {#if pmLoading && !pmData}
     <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Drucker-Profile…</div></div>
   {:else if pmError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {pmError}</div></div>
+    <div class="ld-job"><div class="ld-banner fail">{pmError}</div></div>
   {:else if pmData}
     <div class="ld-job">
-      <div class="ld-job-head"><strong>🖨️ Deployte Drucker-Profile</strong>
+      <div class="ld-job-head"><strong>Deployte Drucker-Profile</strong>
         <span class="ld-job-meta">{pmData.profiles.length}</span></div>
       {#if !pmData.profiles.length}
         <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Drucker-Profile — oben eines anlegen.</div>
@@ -700,13 +700,13 @@
     <details class="map-info"><summary>Was macht das?</summary>
       <p class="ld-section-hint">SharePoint-Bibliotheken auswählen — OneDrive synct sie beim nächsten Anmelden automatisch (Fenster bis zu 8h), ohne dass Nutzer die Site manuell besuchen/synchronisieren müssen. Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.</p></details>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick={spNew}>➕ Neues Sync-Profil</button>
+      <button class="btn btn-primary" onclick={spNew}>Neues Sync-Profil</button>
       <button class="btn btn-secondary" onclick={spLoad} disabled={spLoading}>{spLoading ? '…' : '🔄 Neu laden'}</button>
     </div>
 
     {#if spEditorOpen}
       <div class="ld-job" style="margin-top:1rem; margin-bottom:1.5rem;">
-        <div class="ld-job-head"><strong>🛠 Sync-Profil-Konfigurator</strong>
+        <div class="ld-job-head"><strong>Sync-Profil-Konfigurator</strong>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (spEditorOpen = false)}>✕ schließen</button></div>
 
         <div class="input-group" style="max-width:280px; margin-bottom:0.75rem;">
@@ -720,7 +720,7 @@
         </div>
 
         {#if spSitesError}
-          <div class="ld-banner fail" style="margin-top:0.5rem;">❌ Sites konnten nicht geladen werden: {spSitesError}<br /><small>Falls „Reparieren" seit dem letzten Update dieser Funktion nicht ausgeführt wurde: im Tab „Tenants" einmal „🔧 Reparieren" ausführen (neue Berechtigung Sites.Read.All).</small></div>
+          <div class="ld-banner fail" style="margin-top:0.5rem;">Sites konnten nicht geladen werden: {spSitesError}<br /><small>Falls „Reparieren" seit dem letzten Update dieser Funktion nicht ausgeführt wurde: im Tab „Tenants" einmal „🔧 Reparieren" ausführen (neue Berechtigung Sites.Read.All).</small></div>
         {:else if !spSitesLoading}
           <div class="ld-oib-toolbar" style="margin-top:0.5rem;">
             <span>{spSelSiteCount} ausgewählt · {spFilteredSites.length} sichtbar</span>
@@ -745,7 +745,7 @@
             </button>
           </div>
         {/if}
-        {#if spResolveError}<div class="ld-banner fail" style="margin-top:0.5rem;">❌ {spResolveError}</div>{/if}
+        {#if spResolveError}<div class="ld-banner fail" style="margin-top:0.5rem;">{spResolveError}</div>{/if}
 
         {#if spMappings.length}
           <div style="overflow-x:auto; margin-top:0.75rem;">
@@ -789,10 +789,10 @@
     {#if spLoading && !spProfiles}
       <div class="ld-job" style="margin-top:1rem;"><div class="ld-step running"><span class="ld-spinner"></span> Lade Sync-Profile…</div></div>
     {:else if spError}
-      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">❌ {spError}</div></div>
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">{spError}</div></div>
     {:else if spProfiles}
       <div class="ld-job" style="margin-top:1rem;">
-        <div class="ld-job-head"><strong>☁️ Deployte Sync-Profile</strong>
+        <div class="ld-job-head"><strong>Deployte Sync-Profile</strong>
           <span class="ld-job-meta">{spProfiles.length}</span></div>
         {#if !spProfiles.length}
           <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Sync-Profile — oben eines anlegen.</div>
@@ -827,13 +827,13 @@
     </div>
 
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
-      <button class="btn btn-primary" onclick={rpNew}>➕ Neues Profil</button>
+      <button class="btn btn-primary" onclick={rpNew}>Neues Profil</button>
       <button class="btn btn-secondary" onclick={rpLoad} disabled={rpLoading}>{rpLoading ? '…' : '🔄 Neu laden'}</button>
     </div>
 
     {#if rpEditorOpen}
       <div class="ld-job" style="margin-top:1rem; margin-bottom:1.5rem;">
-        <div class="ld-job-head"><strong>🛠 Registry-Profil-Konfigurator</strong>
+        <div class="ld-job-head"><strong>Registry-Profil-Konfigurator</strong>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (rpEditorOpen = false)}>✕ schließen</button></div>
 
         <div class="input-group" style="max-width:320px; margin-bottom:0.75rem;">
@@ -876,7 +876,7 @@
         {:else}
           <p class="ld-section-hint">Noch kein Registry-Wert hinzugefügt — Vorlage übernehmen oder manuell anlegen.</p>
         {/if}
-        <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={rpAddRow}>➕ Zeile hinzufügen</button>
+        <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={rpAddRow}>Zeile hinzufügen</button>
 
         <div class="ld-phase complete" style="margin-top:0.75rem;">
           <div class="ld-phase-title">👥 Zuweisung ({rpSelGroupCount} Gruppe{rpSelGroupCount === 1 ? '' : 'n'})</div>
@@ -901,10 +901,10 @@
     {#if rpLoading && !rpProfiles}
       <div class="ld-job" style="margin-top:1rem;"><div class="ld-step running"><span class="ld-spinner"></span> Lade Registry-Profile…</div></div>
     {:else if rpError}
-      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">❌ {rpError}</div></div>
+      <div class="ld-job" style="margin-top:1rem;"><div class="ld-banner fail">{rpError}</div></div>
     {:else if rpProfiles}
       <div class="ld-job" style="margin-top:1rem;">
-        <div class="ld-job-head"><strong>🖥️ Deployte Registry-Profile</strong>
+        <div class="ld-job-head"><strong>Deployte Registry-Profile</strong>
           <span class="ld-job-meta">{rpProfiles.length}</span></div>
         {#if !rpProfiles.length}
           <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Registry-Profile — oben eines anlegen.</div>

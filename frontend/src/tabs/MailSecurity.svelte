@@ -278,7 +278,7 @@
 
 <TenantContext>
   <div class="settings-group">
-    <h4>🛡 Mail-Security</h4>
+    <h4>Mail-Security</h4>
     <p class="ld-section-hint">Best-Practice-Policies (Anti-Phishing/Spam/Malware/Quarantäne) aus der Vorlage im Tenant anlegen/aktualisieren.</p>
     <label class="checkbox-label" style="margin-bottom: 0.9rem;">
       <input type="checkbox" bind:checked={$autoDomains} />
@@ -293,9 +293,8 @@
   </div>
 
   <div class="ld-job" style="margin-bottom:1.25rem;">
-    <div class="ld-job-head"><strong>🪟 Was per Web/API nicht geht</strong></div>
-    <div class="ld-banner warn">
-      ⚠️ Die Warnungsrichtlinie <code>BP_UserRequestReleaseStatus</code> (Alert Policy für Freigabe-Anfragen aus der
+    <div class="ld-job-head"><strong>Was per Web/API nicht geht</strong></div>
+    <div class="ld-banner warn">Die Warnungsrichtlinie <code>BP_UserRequestReleaseStatus</code> (Alert Policy für Freigabe-Anfragen aus der
       Quarantäne) kann dieses Tool <strong>nicht automatisch</strong> setzen: Security &amp; Compliance PowerShell
       (<code>Connect-IPPSSession</code>) läuft laut Microsoft-Dokumentation nicht auf Linux — das Backend läuft aber
       in einem Linux-Container. Alles andere auf dieser Seite läuft vollautomatisch per Exchange-Online-App-only.
@@ -332,10 +331,10 @@
   {:else if testResult}
     <div class="ld-job">
       {#if testResult.ok}
-        <div class="ld-banner ok">✅ Verbindung OK — der Tenant ist bereit für den Deploy.</div>
+        <div class="ld-banner ok">Verbindung OK — der Tenant ist bereit für den Deploy.</div>
         <div class="ld-step"><small>Accepted Domains im Tenant: {testResult.domains.join(', ')}</small></div>
       {:else}
-        <div class="ld-banner fail">❌ {testResult.error}</div>
+        <div class="ld-banner fail">{testResult.error}</div>
         {#if testResult.hint}<div class="ld-step"><small>💡 {testResult.hint}</small></div>{/if}
       {/if}
     </div>
@@ -349,7 +348,7 @@
     {@const recipients = [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
     {@const domains = [...g.domains, g.onmicrosoftDomain].filter(Boolean)}
     <div class="ld-confirm">
-      <strong>🚀 Deploy nach {$activeTenant.name} — das wird angewendet:</strong>
+      <strong>Deploy nach {$activeTenant.name} — das wird angewendet:</strong>
       <ul>
         {#if $autoDomains}
           <li><strong>Domains:</strong> automatisch aus dem Ziel-Tenant (Get-AcceptedDomain) ✅</li>
@@ -363,14 +362,14 @@
       </ul>
       <small>Alles idempotent: Vorhandene BP_-Policies werden aktualisiert, fehlende angelegt.</small>
       <div class="ld-confirm-actions">
-        <button class="btn btn-primary" onclick={startDeploy}>🚀 Jetzt deployen</button>
+        <button class="btn btn-primary" onclick={startDeploy}>Jetzt deployen</button>
         <button class="btn btn-secondary" onclick={() => (confirmOpen = false)}>Abbrechen</button>
       </div>
     </div>
   {/if}
 
   {#if deployError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {deployError}</div></div>
+    <div class="ld-job"><div class="ld-banner fail">{deployError}</div></div>
   {/if}
 
   {#if job}
@@ -396,25 +395,24 @@
 
       {#if job.status === 'done'}
         {#if manualCount > 0 && !allManualAcked}
-          <div class="ld-banner ok">✅ Alle automatischen Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}) — {manualCount} manueller Schritt übrig (siehe „📋 Manuelle Schritte" unten).</div>
+          <div class="ld-banner ok">Alle automatischen Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}) — {manualCount} manueller Schritt übrig (siehe „📋 Manuelle Schritte" unten).</div>
         {:else if manualCount > 0}
-          <div class="ld-banner ok">✅ Fertig — alle automatischen Schritte erfolgreich, manuelle Schritte von dir bestätigt.</div>
+          <div class="ld-banner ok">Fertig — alle automatischen Schritte erfolgreich, manuelle Schritte von dir bestätigt.</div>
         {:else}
-          <div class="ld-banner ok">✅ Fertig — alle {total} Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}).</div>
+          <div class="ld-banner ok">Fertig — alle {total} Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}).</div>
         {/if}
       {:else if job.status === 'cancelled'}
         <div class="ld-banner warn">⏹ Abgebrochen. Bereits geschriebene Policies bleiben bestehen — einfach erneut deployen, die Schritte sind idempotent.</div>
       {:else if job.status === 'partial'}
-        <div class="ld-banner warn">⚠️ {failedCount} von {total} Schritten fehlgeschlagen (Details unten). Einfach erneut deployen — erfolgreiche Schritte werden dabei nur aktualisiert.</div>
+        <div class="ld-banner warn">{failedCount} von {total} Schritten fehlgeschlagen (Details unten). Einfach erneut deployen — erfolgreiche Schritte werden dabei nur aktualisiert.</div>
       {:else if job.status === 'failed'}
-        <div class="ld-banner fail">❌ {job.error || 'Deploy fehlgeschlagen'}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
+        <div class="ld-banner fail">{job.error || 'Deploy fehlgeschlagen'}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
       {/if}
 
       <!-- Dehydrierter Tenant: EXO sperrt eigene Policies, bis die
            Organisationsanpassung einmalig aktiviert wurde. -->
       {#if needsOrgCustomization}
-        <div class="ld-banner warn" style="margin-top:0.5rem">
-          ⚠️ In diesem Tenant ist die <strong>Organisationsanpassung</strong> nicht aktiviert. Exchange Online sperrt damit
+        <div class="ld-banner warn" style="margin-top:0.5rem">In diesem Tenant ist die <strong>Organisationsanpassung</strong> nicht aktiviert. Exchange Online sperrt damit
           alle eigenen Policies — deshalb schlägt schon die erste Quarantäne-Policy fehl.
         </div>
         <div class="ld-step">
@@ -439,12 +437,10 @@
 
           {#if watchState}
             {#if watchState.ready}
-              <div class="ld-banner ok" style="margin-top:0.5rem">
-                ✅ Freigeschaltet — das Anlegen einer Policy läuft im Trockenlauf durch. Deploy kann jetzt laufen.
+              <div class="ld-banner ok" style="margin-top:0.5rem">Freigeschaltet — das Anlegen einer Policy läuft im Trockenlauf durch. Deploy kann jetzt laufen.
               </div>
             {:else if watchState.whatIfUnsupported}
-              <div class="ld-banner warn" style="margin-top:0.5rem">
-                ⚠️ Konnte nicht sicher geprüft werden (kein <code>-WhatIf</code> an diesem Cmdlet). Deploy starten und schauen.
+              <div class="ld-banner warn" style="margin-top:0.5rem">Konnte nicht sicher geprüft werden (kein <code>-WhatIf</code> an diesem Cmdlet). Deploy starten und schauen.
               </div>
             {:else}
               <div class="ld-step" style="margin-top:0.35rem">

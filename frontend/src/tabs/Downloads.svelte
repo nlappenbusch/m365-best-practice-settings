@@ -126,7 +126,7 @@
 </script>
 
 <section class="settings-section">
-  <h2>📦 Agent-Downloads — Bitdefender, N-sight RMM &amp; FortiClient</h2>
+  <h2>Agent-Downloads — Bitdefender, N-sight RMM &amp; FortiClient</h2>
   <div class="alert alert-info">
     <strong>ℹ️ So funktioniert es:</strong> Kunde bzw. Paket suchen → Windows-Agent herunterladen.
     Die API-Keys liegen im Backend (<code>BD_API_KEY</code> / <code>RMM_API_KEY</code>) und werden
@@ -134,10 +134,10 @@
   </div>
 
   {#if !$session.online}
-    <div class="alert alert-warning"><strong>⚠️ Backend nicht erreichbar.</strong></div>
+    <div class="alert alert-warning"><strong>Backend nicht erreichbar.</strong></div>
   {:else if !$session.loggedIn}
     <div class="alert alert-warning">
-      <strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.
+      <strong>Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.
     </div>
   {:else if !cfg}
     <div class="dl-empty">Lade …</div>

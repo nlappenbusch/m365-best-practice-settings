@@ -208,7 +208,7 @@
 
 <TenantContext>
   <div class="alert alert-warning">
-    <strong>⚠️ Dieses Paket löst Geräte aus dem aktuellen Tenant.</strong>
+    <strong>Dieses Paket löst Geräte aus dem aktuellen Tenant.</strong>
     Der aktive Tenant <strong>{$activeTenant?.name}</strong> ist der <strong>Quelltenant</strong> — dorthin wird die
     Intune-App deployt, dort laufen die Geräte noch. Der Zieltenant bekommt kein Deployment, nur eine
     App-Registrierung und das Provisioning Package. Zuweisen an eine Pilotgruppe machst du bewusst selbst in Intune.
@@ -219,7 +219,7 @@
   {/if}
 
   <div class="settings-group">
-    <h4>1️⃣ Intune-App</h4>
+    <h4><span class="step-n">1</span> Intune-App</h4>
     <div class="input-group" style="max-width:420px">
       <label for="mg-appname">Name der App in Intune</label>
       <input id="mg-appname" type="text" bind:value={form.appName} />
@@ -236,22 +236,22 @@
           <div class="wizard-step-desc">
             Client-ID {done.appId} · Secret übernommen (6 Monate gültig)<br />
             Rechte: {done.permissions.join(', ')}
-            {#if !done.consentOk}<br /><strong>⚠️ Admin-Consent nicht durchgelaufen:</strong> {done.consentErr}{/if}
+            {#if !done.consentOk}<br /><strong>Admin-Consent nicht durchgelaufen:</strong> {done.consentErr}{/if}
           </div>
         </div>
         <button class="btn btn-secondary" onclick={() => startAppReg(side)}>↻ Neu anlegen</button>
       </div>
     {:else if appRegStep?.side === side}
       <div class="ld-job">
-        <div class="ld-onboard-step">1️⃣ Öffne <a href={appRegStep.verificationUri} target="_blank" rel="noopener">{appRegStep.verificationUri}</a></div>
-        <div class="ld-onboard-step">2️⃣ Als <strong>Admin des {SIDE_LABEL[side]}s</strong> anmelden und diesen Code eingeben:
+        <div class="ld-onboard-step"><span class="step-n">1</span> Öffne <a href={appRegStep.verificationUri} target="_blank" rel="noopener">{appRegStep.verificationUri}</a></div>
+        <div class="ld-onboard-step"><span class="step-n">2</span> Als <strong>Admin des {SIDE_LABEL[side]}s</strong> anmelden und diesen Code eingeben:
           <span class="ld-code">{appRegStep.userCode}</span>
           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;"
                   onclick={() => navigator.clipboard.writeText(appRegStep.userCode).then(() => (appRegCopied = true))}>
             {appRegCopied ? '✓ Kopiert' : 'Kopieren'}
           </button>
         </div>
-        <div class="ld-onboard-step">3️⃣ <span class="ld-spinner"></span> Warte auf die Anmeldung…</div>
+        <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf die Anmeldung…</div>
       </div>
     {:else}
       <button class="btn btn-primary" onclick={() => startAppReg(side)}>🔑 App-Registrierung im {SIDE_LABEL[side]} anlegen</button>
@@ -261,7 +261,7 @@
   {/snippet}
 
   <div class="settings-group">
-    <h4>2️⃣ Quelltenant (hier laufen die Geräte heute)</h4>
+    <h4><span class="step-n">2</span> Quelltenant (hier laufen die Geräte heute)</h4>
     <p class="ld-section-hint">Die Skripte melden sich damit an, um Intune- und Autopilot-Objekt des Geräts nach der
       Migration zu entfernen.</p>
     <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
@@ -285,7 +285,7 @@
   </div>
 
   <div class="settings-group">
-    <h4>3️⃣ Zieltenant (dorthin wandern die Geräte)</h4>
+    <h4><span class="step-n">3</span> Zieltenant (dorthin wandern die Geräte)</h4>
     <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
       <label for="mg-dst-tenant">Tenant (Domain oder ID)</label>
       <input id="mg-dst-tenant" type="text" bind:value={form.targetTenant.tenantName} placeholder="neu.onmicrosoft.com" />
@@ -334,7 +334,7 @@
   </div>
 
   <div class="settings-group">
-    <h4>4️⃣ Provisioning Package des Zieltenants</h4>
+    <h4><span class="step-n">4</span> Provisioning Package des Zieltenants</h4>
     <p class="ld-section-hint">Mit dem Windows Configuration Designer im Zieltenant erzeugen (Bulk-Enrollment-Token).
       Die Datei liegt nur in deiner Sitzung, nicht auf dem Server-Datenträger.</p>
     {#if ppkg}
@@ -343,7 +343,7 @@
           <div class="wizard-step-title">✅ {ppkg.name}</div>
           <div class="wizard-step-desc">{(ppkg.size / 1024).toFixed(1)} KB</div>
         </div>
-        <button class="btn btn-secondary" onclick={removePpkg}>✕ Entfernen</button>
+        <button class="btn btn-secondary" onclick={removePpkg}>Entfernen</button>
       </div>
     {:else}
       <input type="file" accept=".ppkg" onchange={onPpkgSelected} disabled={ppkgBusy} />
@@ -353,7 +353,7 @@
   </div>
 
   <div class="settings-group">
-    <h4>5️⃣ Verhalten auf dem Gerät</h4>
+    <h4><span class="step-n">5</span> Verhalten auf dem Gerät</h4>
     <div class="settings-grid">
       <div class="input-group">
         <label for="mg-bitlocker">BitLocker</label>
@@ -374,7 +374,7 @@
   </div>
 
   <div class="settings-group">
-    <h4>6️⃣ Fallback-Admin</h4>
+    <h4><span class="step-n">6</span> Fallback-Admin</h4>
     <p class="ld-section-hint">Lokales Adminkonto, das vor dem ersten destruktiven Schritt angelegt wird und die
       Migration überlebt. Damit kommst du auf ein Gerät, das unterwegs hängen bleibt.</p>
     <div class="settings-grid">
@@ -397,9 +397,9 @@
   </div>
 
   <div class="settings-group">
-    <h4>7️⃣ Prüfen und deployen</h4>
+    <h4><span class="step-n">7</span> Prüfen und deployen</h4>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick={loadPreview} disabled={!$activeTenant}>👁 config.json ansehen</button>
+      <button class="btn btn-secondary" onclick={loadPreview} disabled={!$activeTenant}>config.json ansehen</button>
       <button class="btn btn-primary" onclick={() => (confirmOpen = true)} disabled={!ready || job?.status === 'running'}>
         🚀 Als Intune-App in {$activeTenant?.name ?? '—'} anlegen
       </button>
@@ -417,7 +417,7 @@
 
   {#if confirmOpen}
     <div class="ld-confirm">
-      <strong>🚀 Migrationspaket nach {$activeTenant?.name} hochladen</strong>
+      <strong>Migrationspaket nach {$activeTenant?.name} hochladen</strong>
       <ul>
         <li>Ziel der Migration: <strong>{form.targetTenant.tenantName}</strong></li>
         <li>Die App wird angelegt, aber <strong>keiner Gruppe zugewiesen</strong> — das machst du in Intune</li>
@@ -432,7 +432,7 @@
   {/if}
 
   {#if deployError}
-    <div class="ld-job"><div class="ld-banner fail">❌ {deployError}</div></div>
+    <div class="ld-job"><div class="ld-banner fail">{deployError}</div></div>
   {/if}
 
   {#if job}
@@ -442,9 +442,9 @@
         <span class="ld-job-meta">{job.phase}</span>
       </div>
       {#if job.status === 'done'}
-        <div class="ld-banner ok">✅ App angelegt (ID {job.appId}). {job.hint || ''}</div>
+        <div class="ld-banner ok">App angelegt (ID {job.appId}). {job.hint || ''}</div>
       {:else if job.status === 'failed'}
-        <div class="ld-banner fail">❌ {job.error}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
+        <div class="ld-banner fail">{job.error}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
       {/if}
       {#each job.steps as s}
         <div class="ld-step {s.state === 'failed' ? 'fail' : 'ok'}">

@@ -361,7 +361,7 @@
 
   {#if t.attachments && t.attachments.length}
     <div class="settings-group">
-      <h4>📎 Anhänge ({t.attachments.length})</h4>
+      <h4>Anhänge ({t.attachments.length})</h4>
       {#each t.attachments as a (a.id)}
         <div class="ld-step" style="display:flex; align-items:center; gap:0.6rem;">
           <span>{a.name}{#if a.size} <small>({Math.round(a.size / 1024)} KB)</small>{/if}</span>
@@ -373,7 +373,7 @@
   {/if}
 
   <div class="settings-group">
-    <h4>🗒️ Notizen {#if t.notesError}<small class="tbadge warn">Fehler: {t.notesError}</small>{/if}</h4>
+    <h4>Notizen {#if t.notesError}<small class="tbadge warn">Fehler: {t.notesError}</small>{/if}</h4>
     {#if !t.notes || !t.notes.length}
       <div class="ld-step"><small>Keine Notizen.</small></div>
     {:else}
@@ -388,7 +388,7 @@
 
   {#if t.tasks && t.tasks.length}
     <div class="settings-group">
-      <h4>✅ Tasks</h4>
+      <h4>Tasks</h4>
       {#each t.tasks as task (task.id)}
         <div class="ld-step"><small><code>{task.bookingTarget}</code> — {task.title} <span class="tbadge">{task.status}</span></small></div>
       {/each}
@@ -396,7 +396,7 @@
   {/if}
 
   <div class="settings-group">
-    <h4>🤖 KI-Vorschlag</h4>
+    <h4>KI-Vorschlag</h4>
     <div class="ld-oib-target">
       <select bind:value={aiTenantChoice[t.id]}>
         <option value="">— kein Tenant-Abgleich —</option>
@@ -409,7 +409,7 @@
     <div class="ld-step"><small>Ohne Tenant-Auswahl wird nur der Ticket-Text analysiert (keine Annahmen gegen Live-Daten geprueft).</small></div>
 
     {#if aiError[t.id]}
-      <div class="ld-banner fail">❌ {aiError[t.id]}</div>
+      <div class="ld-banner fail">{aiError[t.id]}</div>
     {:else if aiResult[t.id]}
       {@const s = aiResult[t.id]}
       <div class="ld-phase complete" style="margin-top:0.5rem;">
@@ -437,15 +437,14 @@
       {/if}
       <div class="ld-step"><small>{s.automatable ? '🤖' : 'ℹ️'} {s.automatableReason}</small></div>
       {#if aiSavedRunbookId[t.id]}
-        <div class="ld-banner ok" style="margin-top:0.5rem;">💾 Als KI-Runbook gespeichert (siehe Tab „📚 Runbooks").</div>
+        <div class="ld-banner ok" style="margin-top:0.5rem;">Als KI-Runbook gespeichert (siehe Tab „📚 Runbooks").</div>
       {/if}
       {#if aiConfirmResult[t.id]}
         {@const cr = aiConfirmResult[t.id]}
-        <div class="ld-banner ok" style="margin-top:0.5rem;">✅ „{cr.policyName}" angelegt und zugewiesen ({cr.assignStatus}).</div>
+        <div class="ld-banner ok" style="margin-top:0.5rem;">„{cr.policyName}" angelegt und zugewiesen ({cr.assignStatus}).</div>
       {:else if aiAutoPreview[t.id]?.ok}
         {@const ap = aiAutoPreview[t.id]}
-        <div class="ld-banner ok" style="margin-top:0.5rem;">
-          🤖⚡ Automatisch gefunden: „{ap.preview.settingDisplayName}" → wird gesetzt auf <strong>{ap.preview.resolvedOptionLabel}</strong>
+        <div class="ld-banner ok" style="margin-top:0.5rem;">Automatisch gefunden: „{ap.preview.settingDisplayName}" → wird gesetzt auf <strong>{ap.preview.resolvedOptionLabel}</strong>
           <br>
           <button class="btn btn-primary" style="margin-top:0.4rem;" disabled={aiConfirmBusy[t.id]}
                   onclick={() => confirmAutoPreview(t.id, s)}>
@@ -453,11 +452,10 @@
           </button>
         </div>
         {#if aiConfirmError[t.id]}
-          <div class="ld-banner fail" style="margin-top:0.4rem;">❌ {aiConfirmError[t.id]}</div>
+          <div class="ld-banner fail" style="margin-top:0.4rem;">{aiConfirmError[t.id]}</div>
         {/if}
       {:else if aiAutoPreview[t.id] && !aiAutoPreview[t.id].ok}
-        <div class="ld-banner warn" style="margin-top:0.5rem;">
-          🤖⚡ Automatische Auflösung nicht möglich: {aiAutoPreview[t.id].error} — bitte im Runbook manuell ausrollen.
+        <div class="ld-banner warn" style="margin-top:0.5rem;">Automatische Auflösung nicht möglich: {aiAutoPreview[t.id].error} — bitte im Runbook manuell ausrollen.
         </div>
       {/if}
     {/if}
@@ -465,17 +463,17 @@
 {/snippet}
 
 <section class="settings-section">
-  <h2>🎫 Tickets — SDP-Ticket-Copilot</h2>
+  <h2>Tickets — SDP-Ticket-Copilot</h2>
   <div class="alert alert-info">
     <strong>ℹ️ So funktioniert es:</strong> Ticket-ID aus ServiceDesk Plus eingeben → kompletter Verlauf inkl.
     Notizen und Anhänge. Der API-Key bleibt im Backend (<code>SDP_API_KEY</code>) — landet nie im Browser.
   </div>
 
   {#if !$session.online}
-    <div class="alert alert-warning"><strong>⚠️ Backend nicht erreichbar.</strong></div>
+    <div class="alert alert-warning"><strong>Backend nicht erreichbar.</strong></div>
   {:else if !$session.loggedIn}
     <div class="alert alert-warning">
-      <strong>🔒 Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.
+      <strong>Nicht angemeldet.</strong> Oben rechts im Header auf <strong>Anmelden</strong> klicken.
     </div>
   {:else}
     <div class="dl-subtabs">
@@ -496,11 +494,11 @@
       {#if singleLoading}
         <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Ticket…</div></div>
       {:else if singleError}
-        <div class="ld-job"><div class="ld-banner fail">❌ {singleError}</div></div>
+        <div class="ld-job"><div class="ld-banner fail">{singleError}</div></div>
       {:else if singleTicket}
         {@const t = singleTicket}
         <div class="ld-job">
-          <div class="ld-job-head"><strong>🎫 #{t.id} — {t.subject}</strong>
+          <div class="ld-job-head"><strong>#{t.id} — {t.subject}</strong>
             <span class="ld-job-meta">
               <span class="tbadge {statusClass(t.status)}">{t.status}</span>
               <span class="tbadge">{t.priority}</span>
@@ -523,7 +521,7 @@
       {#if batchLoading}
         <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Tickets…</div></div>
       {:else if batchError}
-        <div class="ld-job"><div class="ld-banner fail">❌ {batchError}</div></div>
+        <div class="ld-job"><div class="ld-banner fail">{batchError}</div></div>
       {:else if batchResults.length}
         <table class="da-table">
           <thead>
@@ -563,14 +561,14 @@
         (Tenant-Auswahl bei „KI-Vorschlag anfordern"), wird hier automatisch gesammelt — inkl. Kennzeichnung,
         ob die KI die Aktion als potenziell automatisierbar einschaetzt.
       </div>
-      <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadRunbooks}>🔄 Neu laden</button>
+      <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadRunbooks}>Neu laden</button>
 
       {#if runbooksLoading}
         <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade Runbooks…</div></div>
       {:else if runbooksError}
-        <div class="ld-job"><div class="ld-banner fail">❌ {runbooksError}</div></div>
+        <div class="ld-job"><div class="ld-banner fail">{runbooksError}</div></div>
       {:else if !runbooks.length}
-        <div class="ld-job"><div class="ld-banner warn">⚠️ Noch keine Runbooks gespeichert.</div></div>
+        <div class="ld-job"><div class="ld-banner warn">Noch keine Runbooks gespeichert.</div></div>
       {:else}
         <table class="da-table">
           <thead>
@@ -603,12 +601,10 @@
                       <div class="ld-step">{rb.suggestion.rootCause}</div>
                     </div>
                     {#if deployResult[rb.id]}
-                      <div class="ld-banner ok">
-                        ✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).
+                      <div class="ld-banner ok">„{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).
                       </div>
                     {:else if rb.autoPreview?.ok}
-                      <div class="ld-banner ok">
-                        🤖⚡ Automatisch gefunden: „{rb.autoPreview.preview.settingDisplayName}" → wird gesetzt auf
+                      <div class="ld-banner ok">Automatisch gefunden: „{rb.autoPreview.preview.settingDisplayName}" → wird gesetzt auf
                         <strong>{rb.autoPreview.preview.resolvedOptionLabel}</strong>
                         <br>
                         <button class="btn btn-primary" style="margin-top:0.4rem;" disabled={deployBusy[rb.id]}
@@ -617,10 +613,10 @@
                         </button>
                       </div>
                       {#if deployError[rb.id]}
-                        <div class="ld-banner fail">❌ {deployError[rb.id]}</div>
+                        <div class="ld-banner fail">{deployError[rb.id]}</div>
                       {/if}
                     {:else if rb.autoPreview && !rb.autoPreview.ok}
-                      <div class="ld-banner warn">🤖⚡ Automatische Auflösung fehlgeschlagen: {rb.autoPreview.error} — unten manuell ausrollen.</div>
+                      <div class="ld-banner warn">Automatische Auflösung fehlgeschlagen: {rb.autoPreview.error} — unten manuell ausrollen.</div>
                     {/if}
                     {#if rb.suggestion.assumptions?.length}
                       <div class="settings-group">
@@ -644,12 +640,11 @@
                     <div class="ld-step"><small>{rb.suggestion.automatable ? '🤖' : 'ℹ️'} {rb.suggestion.automatableReason}</small></div>
 
                     <div class="settings-group">
-                      <h4>🚀 Policy ausrollen</h4>
+                      <h4>Policy ausrollen</h4>
                       {#if !rbTenant}
-                        <div class="ld-banner warn">⚠️ Tenant nicht mehr im Tool vorhanden.</div>
+                        <div class="ld-banner warn">Tenant nicht mehr im Tool vorhanden.</div>
                       {:else if !permOk}
-                        <div class="ld-banner warn">
-                          ⚠️ Für „{rbTenant.name}" nicht freigeschaltet.
+                        <div class="ld-banner warn">Für „{rbTenant.name}" nicht freigeschaltet.
                           <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;"
                                   onclick={() => goToTab('tenants')}>Im Tenants-Tab freischalten →</button>
                         </div>
@@ -687,11 +682,10 @@
                           </button>
 
                           {#if autoPreviewError[rb.id]}
-                            <div class="ld-banner fail" style="margin-top:0.5rem;">❌ {autoPreviewError[rb.id]}</div>
+                            <div class="ld-banner fail" style="margin-top:0.5rem;">{autoPreviewError[rb.id]}</div>
                           {:else if autoPreview[rb.id]}
                             {@const pv = autoPreview[rb.id]}
-                            <div class="ld-banner ok" style="margin-top:0.5rem;">
-                              ✓ Gefunden: <strong>{pv.settingDisplayName}</strong> → wird gesetzt auf <strong>{pv.resolvedOptionLabel}</strong>
+                            <div class="ld-banner ok" style="margin-top:0.5rem;">Gefunden: <strong>{pv.settingDisplayName}</strong> → wird gesetzt auf <strong>{pv.resolvedOptionLabel}</strong>
                               {#if pv.settingDescription}<br><small>{pv.settingDescription}</small>{/if}
                             </div>
                             <div class="ld-oib-target" style="margin-top:0.5rem;">
@@ -728,16 +722,16 @@
                         {/if}
 
                         {#if deployError[rb.id]}
-                          <div class="ld-banner fail" style="margin-top:0.5rem;">❌ {deployError[rb.id]}</div>
+                          <div class="ld-banner fail" style="margin-top:0.5rem;">{deployError[rb.id]}</div>
                         {:else if deployResult[rb.id]}
-                          <div class="ld-banner ok" style="margin-top:0.5rem;">✅ „{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).</div>
+                          <div class="ld-banner ok" style="margin-top:0.5rem;">„{deployResult[rb.id].policyName}" angelegt und zugewiesen ({deployResult[rb.id].assignStatus}).</div>
                         {/if}
                       {/if}
                     </div>
 
                     {#if rbTenant && (rbTenant.aiWritePermissions?.resetMfa || rbTenant.aiWritePermissions?.resetPassword || rbTenant.aiWritePermissions?.revokeSessions || rbTenant.aiWritePermissions?.groupMembership)}
                       <div class="settings-group">
-                        <h4>🔧 Nutzer-Aktionen</h4>
+                        <h4>Nutzer-Aktionen</h4>
                         <div class="input-group" style="max-width:420px; position:relative; margin-bottom:0.6rem;">
                           <label for="actionUser-{rb.id}">Ziel-Nutzer suchen</label>
                           <input id="actionUser-{rb.id}" type="text" autocomplete="off"
@@ -798,15 +792,15 @@
                         {/if}
 
                         {#if actionError[rb.id]}
-                          <div class="ld-banner fail">❌ {actionError[rb.id]}</div>
+                          <div class="ld-banner fail">{actionError[rb.id]}</div>
                         {:else if actionResult[rb.id]}
                           {@const ar = actionResult[rb.id]}
                           {#if ar.capKey === 'resetPassword'}
-                            <div class="ld-banner ok">✅ Neues temporäres Passwort: <code>{ar.result.tempPassword}</code> (wird nur hier einmalig angezeigt).</div>
+                            <div class="ld-banner ok">Neues temporäres Passwort: <code>{ar.result.tempPassword}</code> (wird nur hier einmalig angezeigt).</div>
                           {:else if ar.capKey === 'resetMfa'}
-                            <div class="ld-banner ok">✅ {ar.result.removed.length} MFA-Methode(n) entfernt{ar.result.skipped.length ? `, ${ar.result.skipped.length} übersprungen` : ''}.</div>
+                            <div class="ld-banner ok">{ar.result.removed.length} MFA-Methode(n) entfernt{ar.result.skipped.length ? `, ${ar.result.skipped.length} übersprungen` : ''}.</div>
                           {:else}
-                            <div class="ld-banner ok">✅ Aktion ausgeführt.</div>
+                            <div class="ld-banner ok">Aktion ausgeführt.</div>
                           {/if}
                         {/if}
                       </div>

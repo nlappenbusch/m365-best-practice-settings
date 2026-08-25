@@ -90,6 +90,13 @@ body {
 
 a { color: var(--accent); }
 
+:root {
+    /* Strichicons als Data-URI fuer CSS-Masken (Lucide, ISC). */
+    --ico-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m20 6-11 11-5-5'/%3E%3C/svg%3E");
+    --ico-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z'/%3E%3Cpath d='M12 9v4'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+    --ico-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m15 9-6 6'/%3E%3Cpath d='m9 9 6 6'/%3E%3C/svg%3E");
+}
+
 /* ---------------- Icons ----------------
    Strichicons als Inline-SVG (siehe lib/Icon.svelte). currentColor sorgt
    dafuer, dass sie Textfarbe und Theme ohne Sonderregeln mitnehmen.
@@ -325,6 +332,15 @@ a { color: var(--accent); }
 .ca-btn-go:hover { color: var(--ok); border-color: var(--ok); }
 .ca-btn-del:hover { color: var(--crit); border-color: var(--crit); }
 .ca-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- Nummerierte Schritte (statt Ziffern-Emoji) ---- */
+.step-h { display: flex; align-items: center; gap: 0.55rem; }
+.step-n {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 1.45rem; height: 1.45rem; border-radius: 50%;
+    background: var(--accent-wash); color: var(--accent-strong);
+    font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
 
 /* ---- Administrative Rollen ---- */
 .ar-summary { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
@@ -817,7 +833,33 @@ a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .ld-spinner { animation-duration: 1.6s; } }
 @keyframes ld-spin { to { transform: rotate(360deg); } }
 
-.ld-banner { border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; margin: 0.5rem 0 0.75rem; font-size: 0.92rem; }
+/* Statusbanner tragen ihr Zeichen im CSS statt als Emoji im Text: eine
+   Quelle statt hundert Fundstellen, und es faerbt sich mit der Statusfarbe.
+   mask-image + currentColor haelt die Icons theme-tauglich. */
+.ld-banner {
+    border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; margin: 0.5rem 0 0.75rem;
+    font-size: 0.92rem;
+    display: flex; align-items: flex-start; gap: 0.55rem;
+}
+.ld-banner::before {
+    content: ''; flex-shrink: 0; width: 1.05rem; height: 1.05rem; margin-top: 0.1rem;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-size: contain; mask-size: contain;
+}
+.ld-banner.ok::before {
+    color: var(--ok);
+    -webkit-mask-image: var(--ico-check); mask-image: var(--ico-check);
+}
+.ld-banner.warn::before {
+    color: var(--warn);
+    -webkit-mask-image: var(--ico-alert); mask-image: var(--ico-alert);
+}
+.ld-banner.fail::before {
+    color: var(--crit);
+    -webkit-mask-image: var(--ico-x); mask-image: var(--ico-x);
+}
 .ld-banner.ok { background: var(--ok-wash); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); color: var(--text); }
 .ld-banner.warn { background: var(--warn-wash); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); color: var(--text); }
 .ld-banner.fail { background: var(--crit-wash); border: 1px solid color-mix(in srgb, var(--crit) 40%, transparent); color: var(--text); }
