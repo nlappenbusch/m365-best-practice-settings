@@ -447,9 +447,20 @@ function wrap(fn) {
     // "fetch failed" allein ist wertlos — bei Netzfehlern steckt der Grund
     // (ENOTFOUND, ECONNREFUSED, ETIMEDOUT, Zertifikat) in e.cause.
     const cause = causeOf(e);
-    const msg = cause ? `${e.message} (${cause})` : e.message;
-    console.error(`${req.method} ${req.originalUrl} -> ${e.status || 500}: ${msg}`);
-    res.status(e.status || 500).json({ error: msg });
+    const raw = cause ? `${e.message} (${cause})` : e.message;
+
+    // Fehler der Intune-Dienste reicht Graph als JSON-Block durch
+    // ({_version, Message, Url, HttpHeaders, ...}). Das gehoert zentral
+    // aufbereitet und nicht in einzelnen Endpunkten -- sonst rutscht der
+    // Rohtext ueberall dort durch, wo niemand daran gedacht hat.
+    const human = humanizeGraphError(raw);
+
+    // Vollstaendige Meldung ins Log, lesbare Fassung ins Frontend.
+    console.error(`${req.method} ${req.originalUrl} -> ${e.status || 500}: ${raw}`);
+    res.status(e.status || 500).json({
+      error: human.text,
+      detail: human.detail || e.hint || null
+    });
   });
 }
 

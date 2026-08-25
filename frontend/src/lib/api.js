@@ -42,6 +42,10 @@ async function handle(r) {
   if (!r.ok) {
     const e = new Error((data && data.error) || `HTTP ${r.status}`)
     e.status = r.status
+    // Technische Zusatzangaben (Operation-/Activity-ID bei Intune-Störungen,
+    // Hinweise auf fehlende Berechtigungen) mitgeben, statt sie zu verlieren.
+    if (data && data.detail) e.detail = data.detail
+    if (data && data.hint) e.hint = data.hint
     throw e
   }
   return data

@@ -212,7 +212,7 @@
       profileResult = {}
     } catch (e) {
       profilesError = e.message
-      profilesErrorDetail = e.hint || null
+      profilesErrorDetail = e.detail || e.hint || null
     }
     profilesLoading = false
   }
