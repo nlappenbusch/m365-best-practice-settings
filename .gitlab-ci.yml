@@ -41,7 +41,9 @@ deploy-prod:
   # erreicht dl-cdn.alpinelinux.org nicht (zweimal reproduziert am 25.08.2026,
   # "temporary error"), waehrend Images aus der Registry problemlos laden.
   # Ohne Paketinstallation ist der Job davon unabhaengig.
-  image: alpine/git:2.45.2
+  # entrypoint leeren: das Image startet sonst direkt "git", und der Runner
+  # haengt sein "sh -c ..." als Argument an -> "'sh' is not a git command".
+  image: { name: alpine/git:2.45.2, entrypoint: [""] }
   variables: { OVERLAY: igeeks-prod }
   before_script: [ "git --version" ]
   script:
