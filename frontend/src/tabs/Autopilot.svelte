@@ -123,6 +123,44 @@
     groupId: ''
   })
 
+  // ---------- Gerätename-Vorlage: Baukasten ----------
+  // Intune-Regeln: max. 15 Zeichen, nur Buchstaben/Ziffern/Bindestrich, nicht nur
+  // Ziffern. %SERIAL% → Seriennummer (Überlänge wird am Ende abgeschnitten),
+  // %RAND:x% → x Zufallsziffern. Pro Vorlage ist nur ein Platzhalter sinnvoll.
+  const TPL_MAX = 15
+  let tplRandDigits = $state(4)
+
+  function tplInsert(token) {
+    const prefix = (newProfile.deviceNameTemplate || '').replace(/%SERIAL%|%RAND:\d+%/gi, '')
+    newProfile.deviceNameTemplate = prefix + token
+  }
+
+  const tplCheck = $derived.by(() => {
+    const t = (newProfile.deviceNameTemplate || '').trim()
+    if (!t) return { text: '💡 Leer — Windows vergibt den Namen automatisch. Empfehlung: Präfix + Seriennummer, z. B. IG-%SERIAL%', error: false }
+    const rand = t.match(/%RAND:(\d+)%/i)
+    const hasSerial = /%SERIAL%/i.test(t)
+    const fixed = t.replace(/%SERIAL%|%RAND:\d+%/gi, '')
+    const placeholders = (t.match(/%SERIAL%|%RAND:\d+%/gi) || []).length
+    if (placeholders > 1) return { text: '⛔ Nur ein Platzhalter pro Vorlage — %SERIAL% oder %RAND:x%, nicht beides.', error: true }
+    if (/[^A-Za-z0-9-]/.test(fixed)) return { text: '⛔ Nur Buchstaben, Ziffern und Bindestrich erlaubt — keine Leer- oder Sonderzeichen.', error: true }
+    if (rand) {
+      const n = Number(rand[1])
+      const len = fixed.length + n
+      if (len > TPL_MAX) return { text: `⛔ Zu lang: Präfix ${fixed.length} + ${n} Zufallsziffern = ${len} von max. ${TPL_MAX} Zeichen.`, error: true }
+      return { text: `✅ ${len} von ${TPL_MAX} Zeichen. Beispiel: ${t.replace(/%RAND:\d+%/i, '83052914'.slice(0, n))}`, error: false }
+    }
+    if (hasSerial) {
+      const rest = TPL_MAX - fixed.length
+      if (rest < 1) return { text: `⛔ Präfix füllt alle ${TPL_MAX} Zeichen — von der Seriennummer bliebe nichts übrig, alle Geräte hiessen gleich.`, error: true }
+      const sample = t.replace(/%SERIAL%/i, '5CD045L29H').slice(0, TPL_MAX)
+      return { text: `${rest < 4 ? '⚠️' : '✅'} Präfix ${fixed.length} Zeichen — ${rest} bleiben für die Seriennummer (längere werden abgeschnitten${rest < 4 ? ', Namenskollisionen möglich' : ''}). Beispiel: ${sample}`, error: false }
+    }
+    if (t.length > TPL_MAX) return { text: `⛔ Zu lang: ${t.length} von max. ${TPL_MAX} Zeichen.`, error: true }
+    if (/^\d+$/.test(t)) return { text: '⛔ Der Name darf nicht nur aus Ziffern bestehen.', error: true }
+    return { text: `⚠️ Fester Name (${t.length} von ${TPL_MAX} Zeichen) — jedes Gerät bekäme denselben Namen. Besser %SERIAL% oder Zufallsziffern anhängen.`, error: false }
+  })
+
   async function createProfile() {
     if (!$activeTenant || !newProfile.displayName.trim()) return
     const gname = newProfile.groupId
@@ -377,7 +415,7 @@
     {:else if profilesError}
       <div class="ld-job">
         <div class="ld-banner fail">{profilesError}</div>
-        {#if /internal server error/i.test(profilesError)}
+        {#if /internal server error|an error has occurred/i.test(profilesError)}
           <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Dienst antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
         {:else}
           <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
@@ -419,6 +457,15 @@
             <div class="input-group">
               <label for="np-tpl">Gerätename-Vorlage <small>(max. 15 Zeichen, leer = automatisch)</small></label>
               <input id="np-tpl" type="text" bind:value={newProfile.deviceNameTemplate} placeholder="IG-%SERIAL%" />
+              <div style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center; margin-top:0.35rem; font-size:0.78rem">
+                <span><small>Präfix tippen, dann:</small></span>
+                <button type="button" class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.75rem;" onclick={() => tplInsert('%SERIAL%')}>+ Seriennummer</button>
+                <button type="button" class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.75rem;" onclick={() => tplInsert(`%RAND:${tplRandDigits}%`)}>+ Zufallsziffern</button>
+                <select bind:value={tplRandDigits} title="Anzahl Zufallsziffern" style="padding:0.1rem 0.25rem; font-size:0.75rem; width:auto">
+                  {#each [2, 3, 4, 5, 6] as n}<option value={n}>{n}</option>{/each}
+                </select>
+              </div>
+              <small style={tplCheck.error ? 'color:#c0392b' : ''}>{tplCheck.text}</small>
             </div>
             <div class="input-group">
               <label for="np-user">Kontotyp des Anwenders</label>
@@ -442,7 +489,7 @@
             <label><input type="checkbox" bind:checked={newProfile.allowWhiteGlove} /> Pre-Provisioning (White Glove) erlauben</label>
           </div>
           <div style="margin-top:0.75rem">
-            <button class="btn btn-primary" disabled={newProfileBusy || !newProfile.displayName.trim()} onclick={createProfile}>
+            <button class="btn btn-primary" disabled={newProfileBusy || !newProfile.displayName.trim() || tplCheck.error} onclick={createProfile}>
               {newProfileBusy ? 'Lege an…' : '✅ Profil anlegen'}
             </button>
             <small class="ld-section-hint">User-driven mit Entra-Join. Self-deploying wird bewusst nicht angeboten —
