@@ -42,11 +42,21 @@ CDN, muss das Redirect-Ziel ebenfalls erreichbar sein.
 - **`learn.microsoft.com`, `tech.nicolonsky.ch`, `intunedrivemapping.azurewebsites.net`** —
   reine Quellenangaben in Kommentaren und Doku-Texten.
 
-## Build-Zeit (nur CI-Runner, nicht der laufende Pod)
+## Build-Zeit (CI-Runner, nicht der laufende Pod)
 
-Der Kaniko-Build zieht: `packages.microsoft.com` (PowerShell 7 via apt),
-PowerShell Gallery (`ExchangeOnlineManagement`), die npm-Registry und
-`registry.igeeks.ch`. Betrifft den Runner, nicht `igeeks-prod`.
+| Ziel | Wofür | Job |
+|---|---|---|
+| `gcr.io` | Kaniko-Executor-Image | build-website, build-api |
+| `registry.igeeks.ch` | Ziel-Registry für die gebauten Images | build-* , deploy-prod |
+| `packages.microsoft.com` | PowerShell 7 via apt im api-Image | build-api |
+| PowerShell Gallery (`psg-prod-*.azureedge.net`, `www.powershellgallery.com`) | `ExchangeOnlineManagement` | build-api |
+| `registry.npmjs.org` | `npm ci` für Frontend und API | build-* |
+| Docker Hub (`registry-1.docker.io`, `auth.docker.io`) | Basis-Images `node`, `alpine/git` | build-*, deploy-prod |
+
+**Nicht mehr nötig:** `dl-cdn.alpinelinux.org` (Alpine-Paketrepository). Der
+`deploy-prod`-Job installierte sich früher `git` per `apk add` und scheiterte
+daran — der Runner erreicht diesen CDN nicht. Seit 25.08.2026 nutzt der Job ein
+Image mit vorinstalliertem git und braucht keinen Paket-CDN mehr.
 
 ## Prüfen
 
@@ -62,10 +72,20 @@ kubectl -n igeeks-prod run egresstest --rm -it --image=curlimages/curl --restart
   https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration
 ```
 
-## Bekanntes Problem (Stand 2026-08-19)
+## Egress im Cluster ist selektiv (Stand 2026-08-25)
 
-Im Cluster `igeeks-k8s-201` laufen alle Microsoft-Ziele in einen Timeout, während anderer
-Egress funktioniert (Let's Encrypt antwortet). Kein DNS-Fehler, kein «connection refused»,
-sondern Timeout beim Verbindungsaufbau — deutet auf eine Firewall- oder Routing-Regel für
-Microsoft-Ziele aus dem Cluster-Netz. Damit sind Onboarding und alle Deploy-Funktionen in
-`igeeks-prod` unbenutzbar.
+Der Cluster `igeeks-k8s-201` erreicht manche Ziele, andere nicht — und zwar nicht
+zufällig, sondern reproduzierbar:
+
+| | |
+|---|---|
+| erreichbar | Let's Encrypt, gcr.io, Docker Hub, registry.igeeks.ch |
+| **nicht** erreichbar | `dl-cdn.alpinelinux.org` (zweimal reproduziert, Job 1077 + 1078) |
+| war nicht erreichbar, inzwischen freigegeben | die Microsoft-Endpunkte (19.08.2026, Timeout beim Verbindungsaufbau) |
+
+Das Muster ist immer dasselbe: kein DNS-Fehler, kein «connection refused», sondern
+Timeout — also eine Firewall- oder Routing-Regel, keine Namensauflösung. Die
+Microsoft-Freigabe hat den Egress nicht generell geöffnet. Wer hier aufräumt, sollte
+das Cluster-Netz als Ganzes betrachten und nicht Ziel für Ziel freischalten.
+
+Im Tool lässt sich der Zustand jederzeit prüfen: **Diagnose → Test starten**.

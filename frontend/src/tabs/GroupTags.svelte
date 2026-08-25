@@ -19,9 +19,10 @@
   let notice = $state(null)
 
   // Für den fremden Tenant müssen die Zugangsdaten bei jedem Aufruf mit —
-  // serverseitig wird dafür nichts zwischengespeichert.
+  // serverseitig wird dafür nichts zwischengespeichert. Beim aktiven Tenant
+  // geht die Id mit: diese Endpunkte liegen nicht unter /api/tenants/:id.
   function creds() {
-    if (mode !== 'foreign') return {}
+    if (mode !== 'foreign') return { tenantId: $activeTenant ? $activeTenant.id : '' }
     return { tenantName: foreign.tenantName.trim(), clientId: foreign.clientId.trim(), clientSecret: foreign.clientSecret }
   }
 

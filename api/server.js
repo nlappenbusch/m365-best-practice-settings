@@ -2990,7 +2990,19 @@ async function groupTagAccess(req) {
     const accessToken = await GROUPTAGS.tokenFromSecret(tenantName, clientId, clientSecret);
     return { kind: "token", accessToken, label: tenantName };
   }
-  const t = requireTenant(req);
+  // Diese Endpunkte liegen NICHT unter /api/tenants/:id, deshalb kommt die
+  // Tenant-Id im Body statt aus dem Pfad -- requireTenant() sucht in
+  // req.params.id und griffe hier ins Leere ("Tenant nicht gefunden").
+  // Die Pruefungen bleiben dieselben wie dort.
+  const tenantId = String(b.tenantId || q.tenantId || "").trim();
+  if (!tenantId) { const e = new Error("Kein Tenant gewaehlt."); e.status = 400; throw e; }
+
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === tenantId);
+  if (!t) { const e = new Error("Tenant nicht gefunden"); e.status = 404; throw e; }
+  if (!t.organization) { const e = new Error("Keine onmicrosoft-Domain hinterlegt — bitte neu onboarden."); e.status = 412; throw e; }
+  if (!fs.existsSync(certPemPath(t.tenantId))) { const e = new Error("Kein Zertifikat hinterlegt — Tenant neu onboarden."); e.status = 412; throw e; }
+
   return { kind: "cert", tenant: t, certPemPath: certPemPath(t.tenantId), label: t.name };
 }
 
