@@ -37,9 +37,13 @@ build-api:
 
 deploy-prod:
   stage: deploy-prod
-  image: alpine:3.20
+  # Image mit vorinstalliertem git statt alpine + "apk add git": der Runner
+  # erreicht dl-cdn.alpinelinux.org nicht (zweimal reproduziert am 25.08.2026,
+  # "temporary error"), waehrend Images aus der Registry problemlos laden.
+  # Ohne Paketinstallation ist der Job davon unabhaengig.
+  image: alpine/git:2.45.2
   variables: { OVERLAY: igeeks-prod }
-  before_script: [ "apk add --no-cache git" ]
+  before_script: [ "git --version" ]
   script:
     - 'git config user.email "ci@igeeks.ch" && git config user.name "m365-configurator-ci"'
     - 'git config http.sslVerify false'
