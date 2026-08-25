@@ -155,11 +155,13 @@
   let checkData = $state(null)       // { summary, results }
   let checkOnlyIssues = $state(true)
 
+  // Befundarten: Farbe statt Emoji. "broadAll" ist neutral -- eine breite
+  // Zuweisung ist eine bewusste Entscheidung, kein Fehler.
   const ISSUE_META = {
-    unassigned: { label: 'Ohne Zuweisung', icon: '🚫', hint: 'Policy/App ist niemandem zugewiesen — wirkt nirgends.' },
-    emptyGroup: { label: 'Leere Gruppe', icon: '🕳️', hint: 'Zuweisung zeigt auf eine Gruppe mit 0 Mitgliedern.' },
-    missingGroup: { label: 'Gruppe fehlt', icon: '❓', hint: 'Zugewiesene Gruppe existiert nicht mehr (gelöscht).' },
-    broadAll: { label: 'Alle Benutzer/Geräte', icon: '🌐', hint: 'Breite Zuweisung — bewusst prüfen, kein Fehler per se.' }
+    unassigned:   { label: 'Ohne Zuweisung', tone: 'warn', hint: 'Policy/App ist niemandem zugewiesen — wirkt nirgends.' },
+    emptyGroup:   { label: 'Leere Gruppe', tone: 'warn', hint: 'Zuweisung zeigt auf eine Gruppe mit 0 Mitgliedern.' },
+    missingGroup: { label: 'Gruppe fehlt', tone: 'crit', hint: 'Zugewiesene Gruppe existiert nicht mehr (gelöscht).' },
+    broadAll:     { label: 'Alle Benutzer/Geräte', tone: 'info', hint: 'Breite Zuweisung — bewusst prüfen, kein Fehler per se.' }
   }
 
   $effect(() => {
@@ -572,11 +574,25 @@
       {:else if checkError}
         <div class="ld-banner fail">{checkError}</div>
       {:else if checkData}
-        <div class="ld-setup-list" style="margin-bottom:0.6rem;">
-          <span class="ld-badge {checkData.summary.unassigned ? 'warn' : 'ok'}">{ISSUE_META.unassigned.icon} {checkData.summary.unassigned} ohne Zuweisung</span>
-          <span class="ld-badge {checkData.summary.emptyGroup ? 'warn' : 'ok'}">{ISSUE_META.emptyGroup.icon} {checkData.summary.emptyGroup} auf leere Gruppen</span>
-          <span class="ld-badge {checkData.summary.missingGroup ? 'warn' : 'ok'}">{ISSUE_META.missingGroup.icon} {checkData.summary.missingGroup} auf gelöschte Gruppen</span>
-          <span class="ld-badge ok">{ISSUE_META.broadAll.icon} {checkData.summary.broadAll} auf Alle Benutzer/Geräte</span>
+        <div class="rep-metrics" style="margin-bottom:0.7rem;">
+          <div class="rep-metric {checkData.summary.unassigned ? 'warn' : ''}">
+            <div class="rep-metric-value">{checkData.summary.unassigned}</div>
+            <div class="rep-metric-label">ohne Zuweisung</div>
+            <div class="rep-metric-detail">wirken nirgends</div>
+          </div>
+          <div class="rep-metric {checkData.summary.emptyGroup ? 'warn' : ''}">
+            <div class="rep-metric-value">{checkData.summary.emptyGroup}</div>
+            <div class="rep-metric-label">auf leere Gruppen</div>
+          </div>
+          <div class="rep-metric {checkData.summary.missingGroup ? 'crit' : ''}">
+            <div class="rep-metric-value">{checkData.summary.missingGroup}</div>
+            <div class="rep-metric-label">auf gelöschte Gruppen</div>
+          </div>
+          <div class="rep-metric">
+            <div class="rep-metric-value">{checkData.summary.broadAll}</div>
+            <div class="rep-metric-label">auf Alle Benutzer/Geräte</div>
+            <div class="rep-metric-detail">bewusst prüfen</div>
+          </div>
         </div>
         <div class="ld-oib-toolbar">
           <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem; cursor:pointer;">
@@ -587,23 +603,35 @@
         {#if !checkVisible.length}
           <div class="ld-banner ok">{checkOnlyIssues ? 'Keine Auffälligkeiten — alle Zuweisungen sehen sauber aus.' : 'Keine Objekte gefunden.'}</div>
         {/if}
-        {#each checkVisible as r}
-          <div class="ld-phase {r.issues.length ? '' : 'complete'}" class:active={r.issues.length > 0}>
-            <div class="ld-phase-title">{r.name} <small style="font-weight:400; color:var(--text-dim);">· {r.type}</small></div>
-            {#if r.issues.length}
-              <div class="ld-step"><small>
-                {#each r.issues as iss, i}{i > 0 ? ' · ' : ''}<span title={ISSUE_META[iss]?.hint}>{ISSUE_META[iss]?.icon} {ISSUE_META[iss]?.label}</span>{/each}
-              </small></div>
-            {/if}
-            <div class="ld-step"><small>
-              {#if r.assignments.length}
-                → {r.assignments.map(a => (a.exclude ? '⛔ ' : '') + a.label + (a.memberCount !== null && a.kind === 'group' ? ` (${a.memberCount})` : '')).join(', ')}
-              {:else}
-                → keine Zuweisung
-              {/if}
-            </small></div>
+        {#if checkVisible.length}
+          <div class="gt-table-wrap">
+            <table class="gt-table">
+              <thead><tr><th>Objekt</th><th>Typ</th><th>Befund</th><th>Zugewiesen an</th></tr></thead>
+              <tbody>
+                {#each checkVisible as r}
+                  <tr class:ac-issue={r.issues.some(i => ISSUE_META[i]?.tone !== 'info')}>
+                    <td>{r.name}</td>
+                    <td><small>{r.type}</small></td>
+                    <td>
+                      {#each r.issues as iss}
+                        <span class="tbadge {ISSUE_META[iss]?.tone === 'crit' ? 'crit' : ISSUE_META[iss]?.tone === 'warn' ? 'warn' : ''}"
+                              title={ISSUE_META[iss]?.hint}>{ISSUE_META[iss]?.label}</span>
+                      {/each}
+                      {#if !r.issues.length}<span class="tbadge ok">ok</span>{/if}
+                    </td>
+                    <td><small>
+                      {#if r.assignments.length}
+                        {r.assignments.map(a => (a.exclude ? 'ausgeschlossen: ' : '') + a.label + (a.memberCount !== null && a.kind === 'group' ? ` (${a.memberCount})` : '')).join(', ')}
+                      {:else}
+                        <em>keine</em>
+                      {/if}
+                    </small></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
           </div>
-        {/each}
+        {/if}
       {/if}
     </div>
   {/if}

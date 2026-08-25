@@ -355,6 +355,9 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
     font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
+/* ---- Assignment-Check: auffaellige Zeilen markieren ---- */
+.gt-table tr.ac-issue td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
 /* ---- Administrative Rollen ---- */
 .ar-summary { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
 .ar-admin {
@@ -734,6 +737,7 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .tbadge { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; }
 .tbadge.ok { background: var(--ok-wash); color: var(--ok); }
 .tbadge.warn { background: var(--warn-wash); color: var(--warn); }
+.tbadge.crit { background: var(--crit-wash); color: var(--crit); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
 /* Mehrfach-Lizenzierung (Lizenzen-Tab) */
