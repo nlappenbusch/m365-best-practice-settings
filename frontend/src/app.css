@@ -333,6 +333,19 @@ a { color: var(--accent); }
 .ca-btn-del:hover { color: var(--crit); border-color: var(--crit); }
 .ca-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ---- Textknopf ----
+   .linklike war nur innerhalb des Tenant-Umschalters gestylt; ueberall sonst
+   (Rollen, Conditional Access, Reports) blieben es rohe Browser-Knoepfe mit
+   grauem Rahmen. Hier die allgemeine Fassung. */
+button.linklike {
+    background: none; border: 0; padding: 0.1rem 0;
+    font: inherit; font-size: 0.82rem; color: var(--accent);
+    cursor: pointer; text-align: left;
+}
+button.linklike:hover { color: var(--accent-strong); text-decoration: underline; }
+button.linklike:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+button.linklike + button.linklike { margin-left: 0.85rem; }
+
 /* ---- Nummerierte Schritte (statt Ziffern-Emoji) ---- */
 .step-h { display: flex; align-items: center; gap: 0.55rem; }
 .step-n {

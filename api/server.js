@@ -2302,11 +2302,22 @@ app.get("/api/tenants/:id/autopilot/devices", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeAutopilotDevices() });
   try {
-    const devices = await AUTOPILOT.loadAutopilotDevices(t, certPemPath(t.tenantId));
+    // Zeitgrenze: der Graph-Aufruf wiederholt bei transienten Fehlern und kann
+    // dabei minutenlang laufen. Ohne Grenze bleibt das Frontend im Ladezustand
+    // haengen, ohne dass jemand erfaehrt, woran es liegt.
+    const devices = await Promise.race([
+      AUTOPILOT.loadAutopilotDevices(t, certPemPath(t.tenantId)),
+      new Promise((_, reject) => setTimeout(
+        () => reject(Object.assign(new Error("Zeitüberschreitung nach 90 s — Microsoft Graph antwortet nicht."), { timedOut: true })),
+        90000))
+    ]);
     writeAutopilotCache(t.tenantId, devices);
     res.json({ ok: true, devices });
   } catch (e) {
-    const cached = /internal server error/i.test(String(e.message || "")) ? readAutopilotCache(t.tenantId) : null;
+    // Bei Timeout und bei Graph-500ern den letzten bekannten Stand ausliefern,
+    // deutlich als veraltet markiert -- besser als eine leere Seite.
+    const useCache = e.timedOut || /internal server error/i.test(String(e.message || ""));
+    const cached = useCache ? readAutopilotCache(t.tenantId) : null;
     if (!cached) throw e;
     res.json({ ok: true, devices: cached.devices, stale: true, cachedAt: cached.cachedAt, warning: e.message });
   }
