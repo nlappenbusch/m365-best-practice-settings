@@ -425,6 +425,64 @@
   onDestroy(() => { if (jobTimer) clearTimeout(jobTimer); if (memberSearchTimer) clearTimeout(memberSearchTimer) })
 
   const breakGlassEmpty = $derived(supportGroups.find(g => g.key === 'breakGlass' && g.memberCount === 0))
+
+  // ---------- Aufbereitung der Policy-Liste ----------
+  // 30 bis 53 Policies als flache Kartenliste sind nicht lesbar. Die Namen der
+  // Vorlage folgen dem Schema "<Nr> - [PILOT -] <Kategorie> - <Rest>", daraus
+  // entsteht die Gruppierung. Was nicht passt (fremde Policies), landet in
+  // einer eigenen Gruppe statt stillschweigend durchzurutschen.
+  const NAME_RE = /^\s*(\d+)\s*-\s*(?:PILOT\s*-\s*)?([^-]+?)\s*-\s*(.*)$/
+
+  function splitName(name) {
+    const m = NAME_RE.exec(String(name || ''))
+    if (!m) return { number: null, category: 'Weitere Policies', rest: String(name || '') }
+    return { number: m[1], category: m[2].trim(), rest: m[3].trim() }
+  }
+
+  let caFilter = $state('')
+  let caStateFilter = $state('all')   // all | enabled | reportOnly | disabled
+  let openCats = $state({})
+  let expandedRow = $state({})
+
+  const filteredPolicies = $derived(
+    policies.filter(p => {
+      if (caStateFilter === 'enabled' && p.state !== 'enabled') return false
+      if (caStateFilter === 'reportOnly' && p.state !== 'enabledForReportingButNotEnforced') return false
+      if (caStateFilter === 'disabled' && p.state !== 'disabled') return false
+      const f = caFilter.trim().toLowerCase()
+      if (!f) return true
+      return (p.displayName + ' ' + (p.scope || '')).toLowerCase().includes(f)
+    })
+  )
+
+  const categories = $derived.by(() => {
+    const map = new Map()
+    for (const p of filteredPolicies) {
+      const parts = splitName(p.displayName)
+      const key = p.managed ? parts.category : 'Nicht vom Tool angelegt'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push({ ...p, _parts: parts })
+    }
+    return [...map.entries()]
+      .map(([name, items]) => ({
+        name,
+        items: items.sort((a, b) => String(a._parts.number || '').localeCompare(String(b._parts.number || ''))),
+        active: items.filter(i => i.state === 'enabled').length
+      }))
+      .sort((a, b) => {
+        if (a.name === 'Nicht vom Tool angelegt') return 1
+        if (b.name === 'Nicht vom Tool angelegt') return -1
+        return String(a.items[0]?._parts.number || '').localeCompare(String(b.items[0]?._parts.number || ''))
+      })
+  })
+
+  function toggleCat(name) { openCats[name] = !openCats[name] }
+  function selectCategory(cat, on) {
+    const next = { ...selectedPolicies }
+    for (const p of cat.items) next[p.id] = on
+    selectedPolicies = next
+  }
+
   const managedCount = $derived(policies.filter(p => p.managed).length)
   const foreignCount = $derived(policies.length - managedCount)
   const activeCount = $derived(policies.filter(p => p.state === 'enabled').length)
@@ -634,32 +692,79 @@
           <div class="ld-step running"><span class="ld-spinner"></span> {batchProgress.done}/{batchProgress.total} verarbeitet…</div>
         {/if}
       {/if}
-      {#each policies as p (p.id)}
-        {@const st = STATE_META[p.state] || { label: p.state, cls: '' }}
-        <div class="ld-phase complete">
-          <div class="ld-phase-title">
-            <input type="checkbox" checked={!!selectedPolicies[p.id]}
-                   onchange={(e) => (selectedPolicies = { ...selectedPolicies, [p.id]: e.target.checked })} />
-            {p.displayName}
-            <span class="tbadge {p.managed ? '' : 'warn'}" style="margin-left:0.4rem;">{p.managed ? '🔧 Tool' : '🌐 Fremd'}</span>
-          </div>
-          <div class="ld-step"><small>Scope: {p.scope} · <span class="tbadge {st.cls}">{st.label}</span></small></div>
-          <div class="ld-oib-target">
-            <select bind:value={pilotChoice[p.id]}>
-              <option value="">— Alle (kein Pilot) —</option>
-              {#each groups as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
-            </select>
-            <button class="btn btn-secondary" onclick={() => applyScope(p)} disabled={actionBusy[p.id]}>Scope anwenden</button>
-            {#if p.state === 'enabled'}
-              <button class="btn btn-secondary" onclick={() => deactivate(p)} disabled={actionBusy[p.id]}>⏸ Auf Report-only zurück</button>
-            {:else}
-              <button class="btn btn-primary" onclick={() => activate(p)} disabled={actionBusy[p.id]}
-                      title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
-                {breakGlassEmpty ? '🚨' : '🔓'} Aktivieren
-              </button>
-            {/if}
-            <button class="btn btn-secondary" onclick={() => deleteOne(p)} disabled={actionBusy[p.id]} title="Unwiderruflich löschen">🗑️ Löschen</button>
-          </div>
+      <!-- Filter: bei 30 bis 53 Policies der schnellste Weg zur gesuchten -->
+      <div class="ca-filterbar">
+        <input type="text" bind:value={caFilter} placeholder="Name oder Scope filtern…" />
+        <select bind:value={caStateFilter}>
+          <option value="all">Alle Zustände</option>
+          <option value="enabled">Nur aktive</option>
+          <option value="reportOnly">Nur Report-only</option>
+          <option value="disabled">Nur deaktivierte</option>
+        </select>
+        <span class="ld-section-hint" style="margin:0">{filteredPolicies.length} von {policies.length}</span>
+      </div>
+
+      {#each categories as cat (cat.name)}
+        <div class="ca-cat">
+          <button class="ca-cat-head" onclick={() => toggleCat(cat.name)}>
+            <span class="ca-cat-chevron">{openCats[cat.name] === false ? '▸' : '▾'}</span>
+            <strong>{cat.name}</strong>
+            <span class="ca-cat-meta">{cat.items.length} Policies{cat.active ? ` · ${cat.active} aktiv` : ''}</span>
+          </button>
+
+          {#if openCats[cat.name] !== false}
+            <div class="ca-cat-actions">
+              <button class="linklike" onclick={() => selectCategory(cat, true)}>alle wählen</button>
+              <button class="linklike" onclick={() => selectCategory(cat, false)}>Auswahl aufheben</button>
+            </div>
+            <table class="ca-table">
+              <tbody>
+                {#each cat.items as p (p.id)}
+                  {@const st = STATE_META[p.state] || { label: p.state, cls: '' }}
+                  <tr class:ca-active={p.state === 'enabled'}>
+                    <td class="ca-c-check">
+                      <input type="checkbox" checked={!!selectedPolicies[p.id]}
+                             onchange={(e) => (selectedPolicies = { ...selectedPolicies, [p.id]: e.target.checked })} />
+                    </td>
+                    <td class="ca-c-num">{p._parts.number || ''}</td>
+                    <td class="ca-c-name">
+                      <button class="ca-name" onclick={() => (expandedRow[p.id] = !expandedRow[p.id])} title="Details und Scope ändern">
+                        {p._parts.rest || p.displayName}
+                      </button>
+                      {#if !p.managed}<span class="tbadge warn">fremd</span>{/if}
+                      {#if expandedRow[p.id]}
+                        <div class="ca-details">
+                          <div class="ca-full">{p.displayName}</div>
+                          <div class="ld-oib-target" style="margin-top:0.4rem">
+                            <select bind:value={pilotChoice[p.id]}>
+                              <option value="">— Alle (kein Pilot) —</option>
+                              {#each groups as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
+                            </select>
+                            <button class="btn btn-secondary" onclick={() => applyScope(p)} disabled={actionBusy[p.id]}>Scope anwenden</button>
+                          </div>
+                        </div>
+                      {/if}
+                    </td>
+                    <td class="ca-c-scope"><small>{p.scope}</small></td>
+                    <td class="ca-c-state"><span class="tbadge {st.cls}">{st.label}</span></td>
+                    <td class="ca-c-act">
+                      {#if p.state === 'enabled'}
+                        <button class="ca-btn" onclick={() => deactivate(p)} disabled={actionBusy[p.id]}
+                                title="Auf Report-only zurücknehmen">⏸</button>
+                      {:else}
+                        <button class="ca-btn ca-btn-go" onclick={() => activate(p)} disabled={actionBusy[p.id]}
+                                title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff!' : 'Scharf schalten'}>
+                          {breakGlassEmpty ? '🚨' : '▶'}
+                        </button>
+                      {/if}
+                      <button class="ca-btn ca-btn-del" onclick={() => deleteOne(p)} disabled={actionBusy[p.id]}
+                              title="Unwiderruflich löschen">✕</button>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
         </div>
       {/each}
     </div>

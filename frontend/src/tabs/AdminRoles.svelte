@@ -1,7 +1,8 @@
 <script>
-  // Administrative Rollen: wer hat erhöhte Rechte, und wie kam er dazu.
-  // Rein lesend — hier wird nichts verändert.
-  import { apiGet } from '../lib/api.js'
+  // Administrative Rollen — im Vordergrund steht das Handeln: Globale
+  // Administratoren setzen und entziehen, Konten löschen. Die vollständige
+  // Rollenübersicht ist Beiwerk und deshalb eingeklappt.
+  import { apiGet, apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
   import TenantContext from '../lib/TenantContext.svelte'
@@ -9,6 +10,8 @@
   let data = $state(null)
   let busy = $state(false)
   let error = $state(null)
+  let notice = $state(null)
+  let showAllRoles = $state(false)
   let showEmpty = $state(false)
 
   let loadedFor = null
@@ -33,7 +36,92 @@
     busy = false
   }
 
-  // Rollen ohne Mitglieder sind der Normalfall und verstopfen die Ansicht.
+  function tenantPath(suffix) {
+    return `/api/tenants/${encodeURIComponent($activeTenant.id)}${suffix}`
+  }
+
+  // ---------- Rolle entziehen ----------
+  let rowBusy = $state({})
+
+  async function removeGlobalAdmin(admin) {
+    if (!confirm(`Globale Administratorrolle von „${admin.displayName || admin.upn}" entziehen?\n\n`
+      + `Tenant: ${$activeTenant.name}\n`
+      + 'Das Konto bleibt bestehen, verliert aber sofort alle Administratorrechte.')) return
+    rowBusy[admin.id] = true
+    error = null; notice = null
+    try {
+      const r = await apiPost(tenantPath('/adminroles/globaladmin/remove'), { userId: admin.id })
+      notice = `Rolle entzogen. Verbleibende aktive Globale Administratoren: ${r.remainingActive}.`
+      await load()
+    } catch (e) {
+      error = e.message
+    }
+    rowBusy[admin.id] = false
+  }
+
+  // ---------- Benutzer suchen, Rolle geben, Konto löschen ----------
+  let query = $state('')
+  let results = $state([])
+  let searchBusy = $state(false)
+  let searchTimer = null
+
+  function onQueryInput() {
+    if (searchTimer) clearTimeout(searchTimer)
+    const q = query.trim()
+    if (q.length < 2) { results = []; return }
+    searchTimer = setTimeout(async () => {
+      searchBusy = true
+      try {
+        const r = await apiGet(tenantPath(`/users/search?q=${encodeURIComponent(q)}`))
+        results = r.users || []
+      } catch (e) {
+        error = e.message
+      }
+      searchBusy = false
+    }, 350)
+  }
+
+  const isGlobalAdmin = (id) => !!data && data.globalAdmins.some(g => g.id === id)
+
+  async function makeGlobalAdmin(u) {
+    if (!confirm(`„${u.displayName}" (${u.userPrincipalName}) zum Globalen Administrator machen?\n\n`
+      + `Tenant: ${$activeTenant.name}\n`
+      + 'Das Konto bekommt damit volle Rechte auf den gesamten Tenant.')) return
+    rowBusy[u.id] = true
+    error = null; notice = null
+    try {
+      const r = await apiPost(tenantPath('/adminroles/globaladmin/add'), { userId: u.id })
+      notice = r.alreadyMember
+        ? `„${u.displayName}" war bereits Globaler Administrator.`
+        : `„${u.displayName}" ist jetzt Globaler Administrator.`
+      await load()
+    } catch (e) {
+      error = e.message
+    }
+    rowBusy[u.id] = false
+  }
+
+  async function deleteUser(u) {
+    // Der UPN muss abgetippt werden — bei einer Aktion, die 30 Tage später
+    // endgültig ist, darf ein Fehlklick nicht reichen.
+    const typed = prompt(`Konto „${u.displayName}" endgültig löschen?\n\n`
+      + `Tenant: ${$activeTenant.name}\n`
+      + 'Microsoft behält es 30 Tage im Papierkorb, danach ist es weg.\n\n'
+      + `Zum Bestätigen den Anmeldenamen eintippen:\n${u.userPrincipalName}`)
+    if (!typed) return
+    rowBusy[u.id] = true
+    error = null; notice = null
+    try {
+      const r = await apiPost(tenantPath('/users/delete'), { userId: u.id, confirmUpn: typed })
+      notice = `Konto ${r.deleted} gelöscht.`
+      results = results.filter(x => x.id !== u.id)
+      await load()
+    } catch (e) {
+      error = e.message
+    }
+    rowBusy[u.id] = false
+  }
+
   const rolesShown = $derived(
     data ? (showEmpty ? data.roles : data.roles.filter(r => r.members.length > 0)) : []
   )
@@ -47,112 +135,124 @@
     </button>
   </div>
 
-  {#if busy && !data}
-    <p class="ld-section-hint"><span class="ld-spinner"></span> Lese Verzeichnisrollen…</p>
-  {/if}
+  {#if busy && !data}<p class="ld-section-hint"><span class="ld-spinner"></span> Lese Verzeichnisrollen…</p>{/if}
   {#if error}
     <div class="alert alert-warning">❌ {error}
-      <br /><small>Braucht RoleManagement.Read.Directory bzw. Directory.Read.All — im Bereich „Tenants" einmal Reparieren ausführen.</small>
-    </div>
-  {/if}
-
-  {#if data}
-    <div class="ar-summary">
-      <div class="rep-metric"><div class="rep-metric-value">{data.totals.activeGlobalAdmins}</div>
-        <div class="rep-metric-label">aktive Globale Administratoren</div></div>
-      <div class="rep-metric"><div class="rep-metric-value">{data.totals.distinctAccounts}</div>
-        <div class="rep-metric-label">Konten mit einer Rolle</div></div>
-      <div class="rep-metric"><div class="rep-metric-value">{data.totals.rolesInUse}</div>
-        <div class="rep-metric-label">besetzte Rollen</div></div>
-    </div>
-
-    {#if data.findings.length}
-      <div style="margin-top:0.9rem">
-        {#each data.findings as f}
-          <div class="ld-banner {f.state === 'crit' ? 'fail' : 'warn'}">{f.state === 'crit' ? '❌' : '⚠️'} {f.text}</div>
-        {/each}
-      </div>
-    {:else}
-      <div class="ld-banner ok" style="margin-top:0.9rem">✅ Keine Auffälligkeiten bei den privilegierten Rollen.</div>
-    {/if}
-
-    <!-- Globale Administratoren zuerst und ausführlich: das ist die Rolle, die zählt -->
-    <div class="settings-group" style="margin-top:1.25rem">
-      <h4>Globale Administratoren ({data.globalAdmins.length})</h4>
-      {#if data.globalAdmins.length === 0}
-        <p class="ld-section-hint">Keine Mitglieder in dieser Rolle.</p>
-      {:else}
-        {#each data.globalAdmins as g (g.id)}
-          <div class="ar-admin" class:ar-flag={g.synced || g.guest || !g.accountEnabled}>
-            <div class="ar-admin-head">
-              <strong>{g.displayName || g.upn || g.id}</strong>
-              {#if g.type === 'servicePrincipal'}<span class="tbadge warn">Dienstprinzipal</span>{/if}
-              {#if g.guest}<span class="tbadge warn">Gast</span>{/if}
-              {#if g.synced}<span class="tbadge warn">aus lokalem AD</span>{/if}
-              {#if !g.accountEnabled}<span class="tbadge">deaktiviert</span>{/if}
-            </div>
-            {#if g.upn}<div class="ar-upn">{g.upn}</div>{/if}
-
-            {#if g.otherRoles.length}
-              <div class="ar-line"><span class="ar-key">Weitere Rollen</span> {g.otherRoles.join(', ')}</div>
-            {/if}
-
-            <div class="ar-line">
-              <span class="ar-key">Gruppen</span>
-              {#if g.groupsError}
-                <em>nicht lesbar ({g.groupsError})</em>
-              {:else if g.groups.length === 0}
-                <em>keine</em>
-              {:else}
-                <span class="ar-groups">
-                  {#each g.groups as gr}
-                    <span class="gt-tag" title={gr.dynamic ? 'dynamische Gruppe' : 'zugewiesene Gruppe'}>
-                      {gr.displayName}{gr.dynamic ? ' ⟳' : ''}
-                    </span>
-                  {/each}
-                </span>
-              {/if}
-            </div>
-          </div>
-        {/each}
-        <p class="ld-section-hint">⟳ = dynamische Gruppe. Mitgliedschaften darin ändern sich automatisch — ein Konto
-          kann so Rechte bekommen, ohne dass jemand es zuweist.</p>
+      {#if /privile|forbidden|403/i.test(error)}
+        <br /><small>Rollen ändern braucht <code>RoleManagement.ReadWrite.Directory</code> — im Bereich „Tenants" einmal
+          Reparieren ausführen, danach greift die Berechtigung.</small>
       {/if}
     </div>
+  {/if}
+  {#if notice}<div class="ld-banner ok">✅ {notice}</div>{/if}
 
-    <div class="settings-group" style="margin-top:1.25rem">
-      <h4>Alle besetzten Rollen ({rolesShown.length})</h4>
-      <div class="gt-table-wrap">
+  {#if data}
+    <!-- 1. Globale Administratoren: die Liste, um die es geht -->
+    <div class="settings-group">
+      <h4>Globale Administratoren ({data.globalAdmins.length})</h4>
+      {#each data.findings.filter(f => f.state === 'crit') as f}
+        <div class="ld-banner fail">❌ {f.text}</div>
+      {/each}
+      {#each data.findings.filter(f => f.state === 'warn') as f}
+        <div class="ld-banner warn">⚠️ {f.text}</div>
+      {/each}
+
+      <div class="gt-table-wrap" style="margin-top:0.6rem">
         <table class="gt-table">
-          <thead><tr><th>Rolle</th><th>Mitglieder</th><th>Konten</th></tr></thead>
+          <thead><tr><th>Konto</th><th>Anmeldename</th><th>Merkmale</th><th></th></tr></thead>
           <tbody>
-            {#each rolesShown as r (r.id)}
-              <tr class:ar-priv={!!r.privilege}>
+            {#each data.globalAdmins as g (g.id)}
+              <tr>
+                <td><strong>{g.displayName || '—'}</strong></td>
+                <td><code>{g.upn || '—'}</code></td>
                 <td>
-                  <strong>{r.displayName}</strong>
-                  {#if r.privilege}<span class="tbadge warn" title="privilegierte Rolle">privilegiert</span>{/if}
-                  {#if r.error}<br /><small>nicht lesbar: {r.error}</small>{/if}
+                  {#if !g.accountEnabled}<span class="tbadge">deaktiviert</span>{/if}
+                  {#if g.synced}<span class="tbadge warn" title="Aus dem lokalen AD synchronisiert">aus AD</span>{/if}
+                  {#if g.guest}<span class="tbadge warn">Gast</span>{/if}
+                  {#if g.type === 'servicePrincipal'}<span class="tbadge warn">Dienstprinzipal</span>{/if}
+                  {#if g.otherRoles.length}<span class="tbadge" title={g.otherRoles.join(', ')}>+{g.otherRoles.length} Rollen</span>{/if}
+                  {#if g.groups?.length}<span class="tbadge" title={g.groups.map(x => x.displayName).join(', ')}>{g.groups.length} Gruppen</span>{/if}
                 </td>
-                <td>{r.members.length}</td>
-                <td>
-                  {#if r.members.length}
-                    {r.members.map(m => (m.displayName || m.upn || m.id) + (m.accountEnabled ? '' : ' (deaktiviert)')).join(', ')}
-                  {:else}
-                    <em>—</em>
-                  {/if}
+                <td style="text-align:right; white-space:nowrap">
+                  <button class="ca-btn ca-btn-del" disabled={rowBusy[g.id] || g.type !== 'user'}
+                          title={g.type !== 'user' ? 'Nur Benutzerkonten können hier geändert werden' : 'Globale Administratorrolle entziehen'}
+                          onclick={() => removeGlobalAdmin(g)}>
+                    {rowBusy[g.id] ? '…' : 'Rolle entziehen'}
+                  </button>
                 </td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
-      {#if emptyCount}
-        <button class="linklike" style="margin-top:0.5rem" onclick={() => (showEmpty = !showEmpty)}>
-          {showEmpty ? '▾ Unbesetzte Rollen ausblenden' : `▸ ${emptyCount} unbesetzte Rollen einblenden`}
-        </button>
+      <p class="ld-section-hint">Der letzte aktive Globale Administrator lässt sich nicht entziehen — ein Tenant ohne
+        Globalen Administrator kommt nur über den Microsoft-Support zurück.</p>
+    </div>
+
+    <!-- 2. Benutzer suchen: Rolle geben oder Konto löschen -->
+    <div class="settings-group" style="margin-top:1.25rem">
+      <h4>Benutzer suchen</h4>
+      <div class="input-group" style="max-width:26rem">
+        <label for="ar-search">Name oder Anmeldename <small>(ab 2 Zeichen)</small></label>
+        <input id="ar-search" type="text" bind:value={query} oninput={onQueryInput} placeholder="z. B. Muster" />
+      </div>
+
+      {#if searchBusy}<p class="ld-section-hint"><span class="ld-spinner"></span> Suche…</p>{/if}
+
+      {#if results.length}
+        <div class="gt-table-wrap" style="margin-top:0.5rem">
+          <table class="gt-table">
+            <tbody>
+              {#each results as u (u.id)}
+                <tr>
+                  <td><strong>{u.displayName}</strong><br /><code>{u.userPrincipalName}</code></td>
+                  <td style="text-align:right; white-space:nowrap">
+                    {#if isGlobalAdmin(u.id)}
+                      <span class="tbadge">ist Globaler Administrator</span>
+                    {:else}
+                      <button class="ca-btn" disabled={rowBusy[u.id]} onclick={() => makeGlobalAdmin(u)}
+                              title="Globale Administratorrolle zuweisen">zum Globalen Administrator</button>
+                    {/if}
+                    <button class="ca-btn ca-btn-del" disabled={rowBusy[u.id]} onclick={() => deleteUser(u)}
+                            title="Konto löschen">Konto löschen</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else if query.trim().length >= 2 && !searchBusy}
+        <p class="ld-section-hint">Keine Treffer.</p>
       {/if}
-      <p class="ld-section-hint">Microsoft Graph liefert nur aktivierte Verzeichnisrollen. Eine Rolle, die hier fehlt,
-        wurde im Tenant noch nie vergeben.</p>
+    </div>
+
+    <!-- 3. Vollständige Rollenübersicht: eingeklappt, damit sie nicht stört -->
+    <div class="settings-group" style="margin-top:1.25rem">
+      <button class="linklike" onclick={() => (showAllRoles = !showAllRoles)}>
+        {showAllRoles ? '▾' : '▸'} Alle Rollen im Tenant ({data.totals.rolesInUse} besetzt, {data.totals.distinctAccounts} Konten)
+      </button>
+
+      {#if showAllRoles}
+        <div class="gt-table-wrap" style="margin-top:0.6rem">
+          <table class="gt-table">
+            <thead><tr><th>Rolle</th><th>Anzahl</th><th>Konten</th></tr></thead>
+            <tbody>
+              {#each rolesShown as r (r.id)}
+                <tr class:ar-priv={!!r.privilege}>
+                  <td><strong>{r.displayName}</strong>{#if r.privilege}<br /><small>privilegiert</small>{/if}</td>
+                  <td>{r.members.length}</td>
+                  <td>{r.members.map(m => (m.displayName || m.upn || m.id) + (m.accountEnabled ? '' : ' (deaktiviert)')).join(', ') || '—'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if emptyCount}
+          <button class="linklike" style="margin-top:0.5rem" onclick={() => (showEmpty = !showEmpty)}>
+            {showEmpty ? 'Unbesetzte Rollen ausblenden' : `${emptyCount} unbesetzte Rollen einblenden`}
+          </button>
+        {/if}
+      {/if}
     </div>
   {/if}
 </TenantContext>

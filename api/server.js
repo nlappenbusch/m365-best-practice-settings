@@ -84,7 +84,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // bereits ab).
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -3002,6 +3002,43 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
 app.get("/api/tenants/:id/adminroles", wrap(async (req, res) => {
   const t = requireTenant(req);
   res.json({ ok: true, ...(await ADMINROLES.loadAdminRoles(t, certPemPath(t.tenantId))) });
+}));
+
+// Rollen setzen und entziehen, Konten loeschen. Alles schreibende Eingriffe im
+// Kundentenant -- die Bestaetigung passiert im Frontend, die Schutzregeln
+// (letzter Globaler Administrator, UPN-Bestaetigung beim Loeschen) sitzen in
+// lib/adminRoles.js und damit serverseitig.
+// Benutzersuche unter neutralem Pfad -- dieselbe Suche gibt es historisch
+// unter /conditionalaccess/users, was ausserhalb des CA-Bereichs verwirrt.
+app.get("/api/tenants/:id/users/search", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const q = String(req.query.q || "").trim();
+  if (q.length < 2) return res.json({ ok: true, users: [] });
+  res.json({ ok: true, users: await ENTRAUSERS.searchUsers(t, certPemPath(t.tenantId), q) });
+}));
+
+app.post("/api/tenants/:id/adminroles/globaladmin/add", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const userId = String((req.body || {}).userId || "").trim();
+  if (!userId) return res.status(400).json({ error: "userId fehlt." });
+  const r = await ADMINROLES.assignGlobalAdmin(t, certPemPath(t.tenantId), userId);
+  res.json({ ok: true, ...r });
+}));
+
+app.post("/api/tenants/:id/adminroles/globaladmin/remove", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const userId = String((req.body || {}).userId || "").trim();
+  if (!userId) return res.status(400).json({ error: "userId fehlt." });
+  const r = await ADMINROLES.removeGlobalAdmin(t, certPemPath(t.tenantId), userId);
+  res.json({ ok: true, ...r });
+}));
+
+app.post("/api/tenants/:id/users/delete", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (!b.userId) return res.status(400).json({ error: "userId fehlt." });
+  const r = await ADMINROLES.deleteUser(t, certPemPath(t.tenantId), String(b.userId), b.confirmUpn);
+  res.json({ ok: true, ...r });
 }));
 
 // ---------- GroupTags: Gruppen und Geraetezuordnung ----------
