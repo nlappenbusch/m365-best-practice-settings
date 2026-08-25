@@ -2226,8 +2226,32 @@ function fakeProfiles() {
 app.get("/api/tenants/:id/autopilot/profiles", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeProfiles() });
-  const profiles = await AUTOPILOT.loadAutopilotProfiles(t, certPemPath(t.tenantId));
-  res.json({ ok: true, profiles });
+  try {
+    const profiles = await Promise.race([
+      AUTOPILOT.loadAutopilotProfiles(t, certPemPath(t.tenantId)),
+      new Promise((_, reject) => setTimeout(
+        () => reject(Object.assign(new Error("Zeitüberschreitung nach 90 s — der Intune-Dienst antwortet nicht."), { timedOut: true })), 90000))
+    ]);
+    writeProfileCache(t.tenantId, profiles);
+    res.json({ ok: true, profiles });
+  } catch (e) {
+    const human = humanizeGraphError(e.message);
+    // Bei Diensstoerung den letzten bekannten Stand ausliefern statt einer
+    // leeren Seite -- Profile aendern sich selten, der Cache ist brauchbar.
+    const transient = e.timedOut || /internal server error|error has occurred|503|500/i.test(String(e.message || ""));
+    const cached = transient ? readProfileCache(t.tenantId) : null;
+    if (cached) {
+      return res.json({
+        ok: true, profiles: cached.profiles, stale: true, cachedAt: cached.cachedAt,
+        warning: human.text, warningDetail: human.detail
+      });
+    }
+    const err = new Error(human.text);
+    err.status = e.status || 502;
+    err.hint = human.detail;
+    err.serviceOutage = transient;
+    throw err;
+  }
 }));
 
 // Deployment-Profil anlegen -- schreibend im Kundentenant. Ohne Profil bleibt
@@ -2296,6 +2320,50 @@ function readAutopilotCache(tenantId) {
 }
 function writeAutopilotCache(tenantId, devices) {
   try { fs.writeFileSync(autopilotCachePath(tenantId), JSON.stringify({ devices, cachedAt: new Date().toISOString() })); } catch { /* Cache ist best-effort */ }
+}
+
+// Profile werden genauso zwischengespeichert wie die Geraete: der
+// Enrollment-Dienst hinter windowsAutopilotDeploymentProfiles faellt
+// regelmaessig mit 500 aus, und ohne Profilliste ist der ganze Bereich tot.
+function profileCachePath(tenantId) { return path.join(AUTOPILOT_CACHE_DIR, `${tenantId}-profiles.json`); }
+function readProfileCache(tenantId) {
+  try { return JSON.parse(fs.readFileSync(profileCachePath(tenantId), "utf8")); } catch { return null; }
+}
+function writeProfileCache(tenantId, profiles) {
+  try { fs.writeFileSync(profileCachePath(tenantId), JSON.stringify({ profiles, cachedAt: new Date().toISOString() })); } catch { /* best effort */ }
+}
+
+/**
+ * Fehlermeldungen der Intune-Dienste lesbar machen.
+ *
+ * Der Enrollment-Dienst antwortet im Fehlerfall mit einem JSON-Block
+ * ({_version, Message, Operation ID, Url, ...}), den Graph unveraendert
+ * durchreicht. Ungefiltert landet dieser Blob im Frontend und sagt niemandem
+ * etwas. Hier wird daraus ein Satz plus die Kennungen, die Microsoft im
+ * Supportfall wissen will.
+ */
+function humanizeGraphError(message) {
+  const raw = String(message || "");
+  const start = raw.indexOf("{");
+  if (start === -1) return { text: raw, detail: null };
+  let obj;
+  try { obj = JSON.parse(raw.slice(start)); } catch (e) { return { text: raw, detail: null }; }
+  const inner = String(obj.Message || obj.message || "");
+  if (!inner) return { text: raw, detail: null };
+
+  const opId = (inner.match(/Operation ID \(for customer support\):\s*([0-9a-f-]+)/i) || [])[1] || null;
+  const actId = (inner.match(/Activity ID:\s*([0-9a-f-]+)/i) || [])[1] || null;
+  const url = (inner.match(/Url:\s*(\S+)/i) || [])[1] || null;
+  const head = inner.split(" - ")[0].trim() || "Der Dienst meldet einen Fehler.";
+
+  return {
+    text: head,
+    detail: [
+      opId ? "Operation ID: " + opId : null,
+      actId ? "Activity ID: " + actId : null,
+      url ? "Endpunkt: " + url.replace(/^https:\/\/[^/]+/, "") : null
+    ].filter(Boolean).join(" · ") || null
+  };
 }
 
 app.get("/api/tenants/:id/autopilot/devices", wrap(async (req, res) => {

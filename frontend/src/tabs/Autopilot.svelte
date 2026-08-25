@@ -99,6 +99,9 @@
   // ---------- Deployment-Profile ----------
   let profilesLoading = $state(false)
   let profilesError = $state(null)
+  let profilesErrorDetail = $state(null)   // Operation-/Activity-ID für den Microsoft-Support
+  let profilesStale = $state(false)        // Anzeige kommt aus dem Zwischenspeicher
+  let profilesCachedAt = $state(null)
   let profiles = $state([])
   let profileGroups = $state([])
   let selectedGroupByProfile = $state({})  // profileId -> groupId
@@ -197,12 +200,19 @@
       ])
       profiles = pdata.profiles || []
       profileGroups = gdata.groups || []
+      // Der Dienst hinter den Deployment-Profilen faellt regelmaessig mit 500
+      // aus. Dann liefert das Backend den letzten bekannten Stand -- brauchbar,
+      // aber der Anwender muss wissen, dass er alt ist.
+      profilesStale = !!pdata.stale
+      profilesCachedAt = pdata.cachedAt || null
+      profilesErrorDetail = pdata.warningDetail || null
       const nextSel = {}
       for (const p of profiles) nextSel[p.id] = ''
       selectedGroupByProfile = nextSel
       profileResult = {}
     } catch (e) {
       profilesError = e.message
+      profilesErrorDetail = e.hint || null
     }
     profilesLoading = false
   }
@@ -415,10 +425,21 @@
     {:else if profilesError}
       <div class="ld-job">
         <div class="ld-banner fail">{profilesError}</div>
-        {#if /internal server error|an error has occurred/i.test(profilesError)}
-          <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Dienst antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
+        {#if /internal server error|an error has occurred|zeitüberschreitung/i.test(profilesError)}
+          <div class="ld-step"><small>
+            Störung auf Microsoft-Seite: der Enrollment-Dienst antwortet mit einem Fehler, Wiederholungen sind bereits
+            gelaufen. Das ist kein Problem eurer Konfiguration. In ein paar Minuten erneut laden — beim nächsten
+            erfolgreichen Abruf merkt sich das Tool die Profile und zeigt sie bei der nächsten Störung weiter an.
+          </small></div>
         {:else}
-          <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+          <div class="ld-step"><small>
+            Braucht die Berechtigung DeviceManagementServiceConfig — im Bereich „Tenants" einmal Reparieren ausführen.
+          </small></div>
+        {/if}
+        {#if profilesErrorDetail}
+          <details class="ld-step"><summary><small>Technische Angaben für den Microsoft-Support</small></summary>
+            <small><code>{profilesErrorDetail}</code></small>
+          </details>
         {/if}
       </div>
     {:else if !profiles.length}
@@ -496,6 +517,14 @@
               das braucht TPM-Attestation und ist ein anderer Anwendungsfall.</small>
           </div>
         {/if}
+      </div>
+    {/if}
+
+    {#if profilesStale}
+      <div class="ld-banner warn">
+        Der Intune-Dienst antwortet gerade nicht — angezeigt wird der zuletzt bekannte Stand
+        {profilesCachedAt ? ` von ${new Date(profilesCachedAt).toLocaleString('de-CH')}` : ''}.
+        Zuweisen und Anlegen funktionieren in diesem Zustand möglicherweise nicht.
       </div>
     {/if}
 
