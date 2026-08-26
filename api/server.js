@@ -63,6 +63,7 @@ const REGPOLICY = require("./lib/registryPolicy");
 const MAESTER = require("./lib/maester");
 const MAESTER_EXPLAIN = require("./lib/maesterExplain");
 const MAESTER_PDF = require("./lib/maesterPdf");
+const MAESTER_HTML = require("./lib/maesterHtml");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -3867,23 +3868,18 @@ app.post("/api/tenants/:id/maester/runs/:runId/explain", wrap(async (req, res) =
   res.json({ ok: true, explain });
 }));
 
-// Kundenfaehiger PDF-Report (deutsch, serverseitig erzeugt). Nutzt die
-// KI-Erklaerungen, wenn sie fuer den Lauf schon erzeugt wurden.
-app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res) => {
-  const s = loadState();
-  const t = (s.tenants || []).find(x => x.id === req.params.id);
-  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+// Gemeinsame Datensammlung fuer die Kundenreports (PDF + HTML): Zusammenfassung,
+// Findings (mit engl. Details und ggf. deutschen KI-Erklaerungen gemerged) und
+// die Domain-Authentifizierung (live, best effort).
+async function collectMaesterReportData(t, runId) {
   let summary;
-  try { summary = JSON.parse(fs.readFileSync(path.join(maesterRunDir(t.id, req.params.runId), "summary.json"), "utf8")); }
-  catch (e) { return res.status(404).json({ error: "Kein Ergebnis fuer diesen Lauf." }); }
-  const details = maesterRunFailedDetails(t.id, req.params.runId) || [];
-  const explain = loadMaesterExplain(t.id, req.params.runId) || [];
+  try { summary = JSON.parse(fs.readFileSync(path.join(maesterRunDir(t.id, runId), "summary.json"), "utf8")); }
+  catch (e) { return null; }
+  const details = maesterRunFailedDetails(t.id, runId) || [];
+  const explain = loadMaesterExplain(t.id, runId) || [];
   const exMap = new Map(explain.map(x => [x.id, x]));
   const detMap = new Map(details.map(x => [x.id, x]));
   const findings = (summary.failed || []).map(f => ({ ...f, ...(detMap.get(f.id) || {}), ...(exMap.get(f.id) || {}) }));
-  // Domain-Authentifizierung (SPF/DKIM/DMARC) live dazuholen — das prueft das
-  // Tool ohnehin schon (Audit-Tab) und deckt die ORCA-"Custom"-Skips ab.
-  // Best effort: haengt EXO, kommt der PDF trotzdem, nur ohne den Abschnitt.
   let domainAuth = null;
   try {
     const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
@@ -3891,8 +3887,8 @@ app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res)
     if (dr.ok && dr.data && dr.data.ok !== false && (dr.data.domains || []).length) {
       domainAuth = await DOMAINAUTH.checkDomains(dr.data.domains, dr.data.configs || []);
     }
-  } catch (e) { console.log("Domain-Auth fuer den Maester-PDF nicht abrufbar: " + e.message); }
-  const pdf = await MAESTER_PDF.buildPdf({
+  } catch (e) { console.log("Domain-Auth fuer den Kundenreport nicht abrufbar: " + e.message); }
+  return {
     domainAuth,
     tenantName: t.name,
     organization: t.organization || null,
@@ -3903,11 +3899,42 @@ app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res)
     maesterVersion: summary.maesterVersion || null,
     findings,
     skipped: summary.skipped || []
-  });
+  };
+}
+
+function maesterReportFilename(t, data, ext) {
   const safeName = String(t.name || "Tenant").replace(/[^A-Za-z0-9._-]+/g, "-");
+  return `SecurityAudit_${safeName}_${String(data.generatedAt || "").slice(0, 10)}.${ext}`;
+}
+
+// Kundenfaehiger PDF-Report (deutsch, serverseitig erzeugt). Nutzt die
+// KI-Erklaerungen, wenn sie fuer den Lauf schon erzeugt wurden.
+app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const data = await collectMaesterReportData(t, req.params.runId);
+  if (!data) return res.status(404).json({ error: "Kein Ergebnis fuer diesen Lauf." });
+  const pdf = await MAESTER_PDF.buildPdf(data);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="SecurityAudit_${safeName}_${String(summary.generatedAt || "").slice(0, 10)}.pdf"`);
+  res.setHeader("Content-Disposition", `attachment; filename="${maesterReportFilename(t, data, "pdf")}"`);
   res.send(pdf);
+}));
+
+// Kundenfaehiger HTML-Report — eine einzelne, selbsttragende Datei (Inline-CSS,
+// Logo eingebettet, Accordions per <details>) zum Versenden als Mail-Anhang.
+app.get("/api/tenants/:id/maester/runs/:runId/report-kunde.html", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const data = await collectMaesterReportData(t, req.params.runId);
+  if (!data) return res.status(404).json({ error: "Kein Ergebnis fuer diesen Lauf." });
+  const html = MAESTER_HTML.buildHtml(data);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  if (req.query.download !== undefined) {
+    res.setHeader("Content-Disposition", `attachment; filename="${maesterReportFilename(t, data, "html")}"`);
+  }
+  res.send(html);
 }));
 
 // Uebersicht ueber alle Tenants — liest wie /api/reports/overview nur den

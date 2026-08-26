@@ -63,6 +63,11 @@
     window.open(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/runs/${encodeURIComponent(latest.runId)}/report.pdf`, '_blank')
   }
 
+  function openKundenHtml() {
+    if (!$activeTenant || !latest?.runId) return
+    window.open(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/runs/${encodeURIComponent(latest.runId)}/report-kunde.html`, '_blank')
+  }
+
   async function sdpTask(id) {
     if (!$activeTenant || !latest?.runId) return
     sdpState[id] = { busy: true }
@@ -323,6 +328,7 @@
         {/if}
         {#if latest?.runId}
           <button class="btn btn-secondary" onclick={openPdf}>📄 Kunden-PDF (deutsch)</button>
+          <button class="btn btn-secondary" onclick={openKundenHtml} title="Selbsttragende HTML-Datei mit Accordions — zum Versenden als Mail-Anhang">🌐 Kunden-HTML (Mail)</button>
         {/if}
         {#if latest?.counts?.failed > 0 && !exMap.size}
           <button class="btn btn-secondary" onclick={explainNow} disabled={explaining}>

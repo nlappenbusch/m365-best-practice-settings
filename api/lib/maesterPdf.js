@@ -114,7 +114,9 @@ function renderMdBlock(ctx, md) {
   // bleiben farbig im Text, die klickbare URL folgt als eigene Zeile darunter.
   const writeLine = (line, opts) => {
     ensureSpace(16);
-    const o = { size: 9.5, color: COL.text, prefix: "", bold: false, ...(opts || {}) };
+    const o = { size: 9.5, color: COL.text, prefix: "", bold: false, indent: 0, ...(opts || {}) };
+    const lx = x + o.indent;
+    const lw = width - o.indent;
     const links = [];
     let m;
     LINK_RE.lastIndex = 0;
@@ -128,8 +130,8 @@ function renderMdBlock(ctx, md) {
       // EIN text()-Aufruf inkl. Prefix — kein continued, sonst sitzt die
       // Link-Annotation daneben und die Positionsrechnung kippt (verursachte
       // real unklickbare Links und einen Umbruch mitten im Finding).
-      doc.fillColor(ACCENT).text(o.prefix + inlinePlain(links[0].text), x, doc.y, {
-        width, underline: true, link: links[0].url, lineGap: 1.5
+      doc.fillColor(ACCENT).text(o.prefix + inlinePlain(links[0].text), lx, doc.y, {
+        width: lw, underline: true, link: links[0].url, lineGap: 1.5
       });
       doc.x = x;
       return;
@@ -138,7 +140,7 @@ function renderMdBlock(ctx, md) {
     // Gemischte Zeile: Linktexte farbig im Fliesstext, URLs separat klickbar.
     const flat = inlinePlain(line.replace(LINK_RE, "$1"));
     if (flat) {
-      doc.fillColor(o.color).text(o.prefix + flat, x, doc.y, { width, lineGap: 1.5, link: null, underline: false });
+      doc.fillColor(o.color).text(o.prefix + flat, lx, doc.y, { width: lw, lineGap: 1.5, link: null, underline: false });
       doc.x = x;
     }
     for (const l of links) {
@@ -146,8 +148,8 @@ function renderMdBlock(ctx, md) {
       // Kein Pfeil-Symbol: alles ausserhalb von WinAnsi wird zu Muell-Glyphen.
       // Ein einzelner text()-Aufruf — nur so sitzt die Klick-Annotation sicher.
       const shortUrl = l.url.replace(/^https?:\/\//, "").slice(0, 90);
-      doc.font("Helvetica").fontSize(8.5).fillColor(ACCENT).text("Link: " + shortUrl, x + 12, doc.y, {
-        width: width - 12, underline: true, link: l.url, lineGap: 1
+      doc.font("Helvetica").fontSize(8.5).fillColor(ACCENT).text("Link: " + shortUrl, lx + 12, doc.y, {
+        width: lw - 12, underline: true, link: l.url, lineGap: 1
       });
       doc.x = x;
     }
@@ -236,22 +238,44 @@ function renderMdBlock(ctx, md) {
     doc.x = x;
   };
 
+  // Unfenced PowerShell erkennen: Maester schreibt Code teils OHNE ```-Zaeune
+  // ($params = @{ …, New-MgGroup @params). Aufeinanderfolgende Code-Zeilen
+  // werden zu einem Block gesammelt und wie gefenster Code gerendert.
+  const looksLikeCode = (l) =>
+    /^\s*(\$\w|@\{|\}\s*$|["']?\w[\w.]*["']?\s*=\s*)/.test(l) ||
+    /^\s*(New|Set|Get|Connect|Disconnect|Update|Invoke|Remove|Add|Enable|Disable|Import|Install)-[A-Z]/.test(l);
+
   let rendered = 0;
+  let olCounter = 0; // fortlaufende Nummerierung ueber Unterpunkte hinweg
+  let codeBuf = null;
+  const flushCodeBuf = () => { if (codeBuf) { renderCode(codeBuf.join("\n")); codeBuf = null; } };
+
   for (const raw of lines) {
     if (rendered > 120) break; // Ausufernde Befunde kappen — Details stehen im HTML-Report
     const line = raw.trimEnd();
     let m;
-    if ((m = line.match(/^@@MDCODE(\d+)@@$/))) { flushTable(); renderCode(codeBlocks[Number(m[1])] || ""); continue; }
-    if (/^\s*\|.*\|\s*$/.test(line)) { (table ??= []).push(line); continue; }
+    if ((m = line.match(/^@@MDCODE(\d+)@@$/))) { flushTable(); flushCodeBuf(); olCounter = 0; renderCode(codeBlocks[Number(m[1])] || ""); continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) { flushCodeBuf(); (table ??= []).push(line); continue; }
     flushTable();
+    if (looksLikeCode(line)) { (codeBuf ??= []).push(line); continue; }
+    flushCodeBuf();
     if (line.trim() === "") { doc.moveDown(0.18); continue; }
     rendered++;
-    if ((m = line.match(/^#{1,6}\s+(.*)$/))) { doc.moveDown(0.2); writeLine(m[1], { bold: true }); continue; }
-    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { writeLine(m[1], { prefix: "–  " }); continue; }
-    if ((m = line.match(/^\s*>\s?(.*)$/))) { writeLine(m[1], { color: COL.muted }); continue; }
+    if ((m = line.match(/^#{1,6}\s+(.*)$/))) { olCounter = 0; doc.moveDown(0.2); writeLine(m[1], { bold: true }); continue; }
+    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {
+      // Nummerierte Schritte selbst zaehlen — Maesters Markdown faengt nach
+      // Unterpunkten wieder bei "1." an, was gerendert wirr aussieht.
+      olCounter += 1;
+      writeLine(m[1], { prefix: olCounter + ".  " });
+      continue;
+    }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { writeLine(m[1], { prefix: "–  ", indent: 14 }); continue; }
+    if ((m = line.match(/^\s*>\s?(.*)$/))) { olCounter = 0; writeLine(m[1], { color: COL.muted }); continue; }
+    olCounter = 0;
     writeLine(line);
   }
   flushTable();
+  flushCodeBuf();
 }
 
 function fmtDate(iso) {
