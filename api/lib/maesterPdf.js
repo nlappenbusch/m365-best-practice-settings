@@ -15,7 +15,11 @@
  * sonst englische Testbeschreibung + Befund aus results.json (Markdown wird
  * fuer den Druck in Klartext gewandelt).
  */
+const path = require("path");
+const fs = require("fs");
 const PDFDocument = require("pdfkit");
+
+const LOGO_PATH = path.join(__dirname, "..", "assets", "igeeks-logo.png");
 
 const ACCENT = "#0081ad"; // igeeks-Petrol
 const COL = {
@@ -93,12 +97,13 @@ function renderMdBlock(ctx, md) {
 
   const inlinePlain = (s) => sanitizePdf(
     // Markdown-Links auf den Linktext reduzieren (wichtig fuer Tabellenzellen —
-    // dort stand sonst rohes [Sms](https://…)), Bold-/Code-Marker entfernen,
-    // auch einzeln uebrig gebliebene **.
+    // dort stand sonst rohes [Sms](https://…)), auch am Zeilenende abgeschnittene
+    // Links ([Text](htt…) durch die Laengen-Kappung); Bold-/Code-Marker weg.
     String(s)
       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1")
+      .replace(/\[([^\]]*)\]\([^)]*$/g, "$1")
       .replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*\*/g, "")
-      .replace(/`([^`]+)`/g, "$1")
+      .replace(/`([^`]+)`/g, "$1").replace(/`/g, "")
   );
 
   // Eine Zeile mit moeglichen Links ausgeben. pdfkit setzt Link-Annotationen
@@ -138,40 +143,104 @@ function renderMdBlock(ctx, md) {
     }
     for (const l of links) {
       ensureSpace(14);
+      // Kein Pfeil-Symbol: alles ausserhalb von WinAnsi wird zu Muell-Glyphen.
+      // Ein einzelner text()-Aufruf — nur so sitzt die Klick-Annotation sicher.
       const shortUrl = l.url.replace(/^https?:\/\//, "").slice(0, 90);
-      doc.font("Helvetica").fontSize(8.5).fillColor(ACCENT).text("↗ " + shortUrl, x + 12, doc.y, {
+      doc.font("Helvetica").fontSize(8.5).fillColor(ACCENT).text("Link: " + shortUrl, x + 12, doc.y, {
         width: width - 12, underline: true, link: l.url, lineGap: 1
       });
       doc.x = x;
     }
   };
 
-  const lines = String(md == null ? "" : md).replace(/\r\n/g, "\n").replace(/```[a-zA-Z]*\n?/g, "").split("\n");
+  // Codebloecke (```…```) VOR der Zeilenlogik herausziehen und als Monospace-
+  // Block mit grauem Grund rendern — PowerShell-Snippets sahen sonst wie
+  // zerrissener Fliesstext aus.
+  const codeBlocks = [];
+  const src = String(md == null ? "" : md).replace(/\r\n/g, "\n")
+    .replace(/```[a-zA-Z]*\n([\s\S]*?)```/g, (m, code) => {
+      codeBlocks.push(code.replace(/\n+$/, ""));
+      return "\n@@MDCODE" + (codeBlocks.length - 1) + "@@\n";
+    })
+    .replace(/```[a-zA-Z]*\n?/g, ""); // uebrig gebliebene (unpaarige) Fences weg
+  const renderCode = (code) => {
+    const codeLines = sanitizePdf(code).split("\n");
+    doc.moveDown(0.2);
+    for (const cl of codeLines.slice(0, 40)) {
+      ensureSpace(13);
+      const y = doc.y;
+      doc.rect(x, y - 1.5, width, 12.5).fill("#f1f4f6");
+      doc.font("Courier").fontSize(8).fillColor(COL.text)
+        .text(cl.length > 110 ? cl.slice(0, 110) + "…" : cl, x + 8, y, { width: width - 16, lineBreak: false });
+      doc.y = y + 12.5;
+    }
+    doc.moveDown(0.25);
+    doc.x = x;
+  };
+
+  const lines = src.split("\n");
   let table = null;
   const flushTable = () => {
     if (!table) return;
     const rows = table
       .filter(r => !/^[\s|:-]+$/.test(r))
       .map(r => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => inlinePlain(c.trim())));
-    const head = rows[0] || [];
-    for (const row of rows.slice(1)) {
-      ensureSpace(16);
-      const partsTxt = row.map((c, ci) => (ci && head[ci] && c) ? `${head[ci]}: ${c}` : c).filter(Boolean).join("   ·   ");
-      doc.font("Helvetica").fontSize(9).fillColor(COL.text).text("–  " + partsTxt, x + 6, doc.y, { width: width - 6, lineGap: 1 });
-    }
-    doc.x = x;
     table = null;
+    if (rows.length < 2) return;
+    const head = rows[0];
+    const nCols = head.length;
+
+    // Spaltenbreiten am Inhalt bemessen, dann auf die verfuegbare Breite skalieren.
+    doc.fontSize(8.5);
+    const wants = head.map((h, ci) => {
+      let w = doc.font("Helvetica-Bold").widthOfString(String(h).toUpperCase());
+      for (const row of rows.slice(1)) w = Math.max(w, doc.font("Helvetica").widthOfString(String(row[ci] || "")));
+      return Math.min(Math.max(w + 14, 44), width * 0.55);
+    });
+    const totalW = wants.reduce((a, b) => a + b, 0);
+    const colWs = wants.map(w => Math.floor(w / totalW * width));
+    const colXs = colWs.reduce((acc, w) => { acc.push(acc[acc.length - 1] + w); return acc; }, [x]).slice(0, nCols);
+
+    // Kopfzeile
+    ensureSpace(40);
+    doc.moveDown(0.25);
+    const hy = doc.y;
+    doc.rect(x, hy - 2, width, 15).fill("#f0f4f6");
+    head.forEach((h, ci) => {
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor(COL.muted)
+        .text(String(h).toUpperCase(), colXs[ci] + 5, hy + 1, { width: colWs[ci] - 10, lineBreak: false, characterSpacing: 0.3 });
+    });
+    doc.y = hy + 14;
+
+    // Datenzeilen (mit Umbruch in der Zelle, Statusfarben fuer Pass/Fail/Skip)
+    for (const row of rows.slice(1)) {
+      doc.fontSize(8.5).font("Helvetica");
+      const rowH = Math.max(...row.map((c, ci) => doc.heightOfString(String(c || " "), { width: colWs[ci] - 10 }))) + 5;
+      ensureSpace(rowH + 4);
+      const ry = doc.y;
+      row.forEach((c, ci) => {
+        const v = String(c || "").trim();
+        const color = /^(pass|ok|true)$/i.test(v) ? COL.ok : /^fail(ed)?$/i.test(v) ? COL.crit : /^skip(ped)?$/i.test(v) ? COL.medium : COL.text;
+        doc.font(color === COL.text ? "Helvetica" : "Helvetica-Bold").fontSize(8.5).fillColor(color)
+          .text(v, colXs[ci] + 5, ry + 2, { width: colWs[ci] - 10, lineGap: 0.5 });
+      });
+      doc.y = ry + rowH;
+      doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(0.35).strokeColor(COL.line).stroke();
+    }
+    doc.moveDown(0.25);
+    doc.x = x;
   };
 
   let rendered = 0;
   for (const raw of lines) {
-    if (rendered > 60) break; // Ausufernde Befunde kappen — Details stehen im HTML-Report
+    if (rendered > 120) break; // Ausufernde Befunde kappen — Details stehen im HTML-Report
     const line = raw.trimEnd();
+    let m;
+    if ((m = line.match(/^@@MDCODE(\d+)@@$/))) { flushTable(); renderCode(codeBlocks[Number(m[1])] || ""); continue; }
     if (/^\s*\|.*\|\s*$/.test(line)) { (table ??= []).push(line); continue; }
     flushTable();
     if (line.trim() === "") { doc.moveDown(0.18); continue; }
     rendered++;
-    let m;
     if ((m = line.match(/^#{1,6}\s+(.*)$/))) { doc.moveDown(0.2); writeLine(m[1], { bold: true }); continue; }
     if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { writeLine(m[1], { prefix: "–  " }); continue; }
     if ((m = line.match(/^\s*>\s?(.*)$/))) { writeLine(m[1], { color: COL.muted }); continue; }
@@ -233,8 +302,19 @@ function buildPdf(data) {
 
     // ================= Deckblatt =================
     doc.rect(0, 0, pageW, 14).fill(ACCENT);
-    doc.font("Helvetica-Bold").fontSize(12).fillColor(ACCENT).text("igeeks AG", left, 60);
-    doc.font("Helvetica").fontSize(9.5).fillColor(COL.muted).text("Microsoft-365- und Security-Consulting", left);
+    // Logo (PNG mit Transparenz) — falls die Datei fehlt, Text-Fallback.
+    let logoDrawn = false;
+    try {
+      if (fs.existsSync(LOGO_PATH)) {
+        doc.image(LOGO_PATH, left, 52, { width: 150 });
+        logoDrawn = true;
+        doc.y = 52 + 150 * (110 / 300) + 10; // Logo-Seitenverhaeltnis 300x110
+      }
+    } catch (e) { /* Fallback unten */ }
+    if (!logoDrawn) {
+      doc.font("Helvetica-Bold").fontSize(12).fillColor(ACCENT).text("igeeks AG", left, 60);
+      doc.font("Helvetica").fontSize(9.5).fillColor(COL.muted).text("Microsoft-365- und Security-Consulting", left);
+    }
 
     doc.y = 255;
     doc.font("Helvetica-Bold").fontSize(31).fillColor(COL.text).text("Microsoft 365", left);

@@ -3834,8 +3834,10 @@ function maesterRunFailedDetails(tenantRecId, runId) {
         severity: String(pick(t, ["Severity", "severity"]) || ""),
         block: String(pick(t, ["Block", "block"]) || ""),
         helpUrl: String(pick(t, ["HelpUrl", "helpUrl"]) || ""),
-        description: String(pick(rd, ["TestDescription", "testDescription"]) || "").slice(0, 2000),
-        result: String(pick(rd, ["TestResult", "testResult"]) || "").slice(0, 2500)
+        // Grosszuegig kappen — die CIS-Texte mit PowerShell-Snippets sind lang,
+        // und ein mitten im Codeblock abgeschnittener Text sieht kaputt aus.
+        description: String(pick(rd, ["TestDescription", "testDescription"]) || "").slice(0, 4000),
+        result: String(pick(rd, ["TestResult", "testResult"]) || "").slice(0, 3500)
       };
     });
 }
