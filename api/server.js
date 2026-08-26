@@ -1236,7 +1236,7 @@ app.post("/api/mcp/v1/tenants/:id/maester/run", wrap(async (req, res) => {
     }
   }
   const job = createAppJob(t, MAESTER_PHASES);
-  runMaesterJob(job, t);
+  runMaesterJob(job, t, MAESTER.sanitizeTags((req.body || {}).suites));
   logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "maester-run", result: "gestartet (Job " + job.id + ")" });
   res.json({ ok: true, jobId: job.id, hint: "Fortschritt: GET /api/mcp/v1/tenants/" + t.id + "/maester/job/" + job.id });
 }));
@@ -3530,13 +3530,41 @@ function maesterRunDir(tenantRecId, runId) {
   return path.join(MAESTER_DIR, tenantRecId, runId);
 }
 
-async function runMaesterJob(job, t) {
+// Vorpruefung: sind die Maester-Leseberechtigungen wirklich als App-Role-
+// Assignments am Tenant-SP? Ohne sie laeuft Maester zwar durch, markiert aber
+// reihenweise Tests als gefallen — ein falscher Score ist schlimmer als ein
+// klarer Abbruch mit Hinweis auf "Reparieren". Nur Permissions zaehlen, die es
+// im Graph-SP des Tenants ueberhaupt gibt (siehe GRAPH_APP_PERMS_MAESTER).
+// Scheitert die Pruefung selbst (Netz, Token), laeuft der Audit trotzdem —
+// echte Auth-Probleme meldet dann Connect-MgGraph.
+async function maesterMissingPerms(t) {
+  const cert = certPemPath(t.tenantId);
+  const appSp = await GRAPHLIB.graphReq(t, cert, "GET", `/servicePrincipals(appId='${encodeURIComponent(t.clientId)}')?$select=id`);
+  const graphSp = await GRAPHLIB.graphReq(t, cert, "GET", `/servicePrincipals(appId='${GRAPH_APP_ID}')?$select=id,appRoles`);
+  const assigned = new Set((await GRAPHLIB.graphAllPages(t, cert, `/servicePrincipals/${appSp.id}/appRoleAssignments`)).map(a => a.appRoleId));
+  const missing = [];
+  for (const v of GRAPH_APP_PERMS_MAESTER) {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (role && !assigned.has(role.id)) missing.push(v);
+  }
+  return missing;
+}
+
+async function runMaesterJob(job, t, tags) {
   const onProgress = appJobProgress(job);
   try {
+    onProgress("Berechtigungen prüfen");
+    let missing = [];
+    try { missing = await maesterMissingPerms(t); } catch (e) { console.log("Maester-Berechtigungspruefung uebersprungen: " + e.message); }
+    if (missing.length) {
+      return finishAppJob(job, false,
+        "Maester-Leseberechtigungen fehlen (" + missing.slice(0, 6).join(", ") + (missing.length > 6 ? " und " + (missing.length - 6) + " weitere" : "") + ").",
+        "Im Tab 'Tenants' einmal Reparieren ausfuehren, dann erneut starten.");
+    }
     const runId = new Date().toISOString().slice(0, 19).replace(/[:]/g, "-");
     const outDir = path.join(MAESTER_DIR, t.id, runId);
     const r = await MAESTER.runMaester(
-      { tenant: t, certPemPath: certPemPath(t.tenantId), outDir },
+      { tenant: t, certPemPath: certPemPath(t.tenantId), outDir, tags },
       (p) => { if (p && p.label) onProgress(p.label); },
       (child) => { job._child = child; }
     );
@@ -3552,6 +3580,7 @@ async function runMaesterJob(job, t) {
     const summary = {
       runId,
       generatedAt: new Date().toISOString(),
+      suites: MAESTER.sanitizeTags(tags),
       counts: r.data.counts,
       score: MAESTER.score(r.data.counts || {}),
       exoConnected: !!r.data.exoConnected,
@@ -3572,6 +3601,7 @@ async function runMaesterJob(job, t) {
 }
 
 const MAESTER_PHASES = [
+  "Berechtigungen prüfen",
   "Verbindung zu Microsoft Graph",
   "Verbindung zu Exchange Online",
   "Testsuite vorbereiten",
@@ -3586,10 +3616,21 @@ app.post("/api/tenants/:id/maester/run", wrap(async (req, res) => {
       return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
     }
   }
+  const tags = MAESTER.sanitizeTags((req.body || {}).suites);
   const job = createAppJob(t, MAESTER_PHASES);
-  runMaesterJob(job, t);
+  runMaesterJob(job, t, tags);
   res.json({ ok: true, jobId: job.id });
 }));
+
+// Laufender Job des Tenants (falls vorhanden) — damit das Frontend nach einem
+// Reload oder Tenant-Wechsel den Fortschritt wieder aufnehmen kann, statt beim
+// naechsten Klick in den 409 zu laufen.
+app.get("/api/tenants/:id/maester/active", (req, res) => {
+  for (const j of appJobs.values()) {
+    if (j.tenantId === req.params.id && j.status === "running") return res.json({ ok: true, jobId: j.id });
+  }
+  res.json({ ok: true, jobId: null });
+});
 
 app.get("/api/tenants/:id/maester/latest", (req, res) => {
   const s = loadState();

@@ -32,6 +32,20 @@ app-only mit dem vorhandenen Tenant-Zertifikat, **rein lesend**:
   API-Container installiert; die Testsuite wird beim Build nach
   `/opt/maester-tests` eingefroren und aktualisiert sich mit jedem Deploy.
 
+Nachgezogen nach dem ersten Praxistest (gleicher Tag):
+
+- **Suiten-Auswahl**: CISA SCuBA, CIS M365, EIDSCA, ORCA und Maester Community
+  einzeln an-/abwählbar (Tag-Filter, alle an = kompletter Lauf); die gewählten
+  Suiten stehen am Ergebnis. Auch über MCP (`suites` im Run-Body).
+- **Berechtigungs-Vorprüfung**: fehlen die Maester-Leseberechtigungen am
+  Tenant-SP, bricht der Lauf sofort mit klarem Hinweis auf «Reparieren» ab —
+  vorher lief Maester durch und lieferte einen falschen Score, weil reihenweise
+  Tests an 403ern scheiterten.
+- **Job überlebt Reload**: laufende Audits werden beim Öffnen des Tabs wieder
+  aufgenommen (`/maester/active`), ein Klick auf Start hängt sich an einen
+  bereits laufenden Job dran statt mit 409 zu meckern; die Job-Anzeige nennt
+  den Tenant des Jobs, nicht den gerade gewählten.
+
 ## Version 2.5 - Vorlage pro Tenant, Diagnose, zwei handfeste Fehlerquellen (2026-08-20)
 
 ### 💾 Vorlage pro Tenant speicherbar

@@ -23,9 +23,21 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 // die Vollliste steht in results.json auf der Platte.
 const FAILED_CAP = 200;
 
+// Suiten-Filter: nur bekannte Maester-Tags durchlassen — die Werte landen im
+// generierten pwsh-Skript, deshalb strikte Allowlist statt Escaping.
+const ALLOWED_TAGS = ["CISA", "CIS", "EIDSCA", "ORCA", "Maester"];
+function sanitizeTags(tags) {
+  return Array.isArray(tags) ? tags.filter(t => ALLOWED_TAGS.includes(t)) : [];
+}
+function tagsClause(tags) {
+  const clean = sanitizeTags(tags);
+  if (!clean.length || clean.length === ALLOWED_TAGS.length) return ""; // alles = kein Filter
+  return "; $p['Tag'] = @(" + clean.map(t => "'" + t + "'").join(",") + ")";
+}
+
 /**
  * Maester-Lauf starten.
- * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs? }
+ * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs?, tags? }
  * @param {function} onProgress  bekommt Phasen-Labels (BPPROGRESS-Stream)
  * @param {function} onChild     bekommt den pwsh-Kindprozess (Abbruch)
  */
@@ -73,7 +85,7 @@ async function runMaester(opts, onProgress, onChild) {
     "try { Import-Module Maester -ErrorAction Stop } catch { BpFail ('Maester-Modul fehlt: ' + $_.Exception.Message) }",
     "$results = $null; $invokeError = $null",
     "try {",
-    "  $p = @{ Path = $runDir; PassThru = $true }",
+    "  $p = @{ Path = $runDir; PassThru = $true }" + (tagsClause(opts.tags) || ""),
     "  $cmd = Get-Command Invoke-Maester",
     // Optionale Schalter nur setzen, wenn die installierte Maester-Version sie
     // kennt — so bricht ein Modul-Update den Lauf nicht mit ParameterNotFound.
@@ -165,4 +177,4 @@ function pruneRuns(baseDir, tenantRecId, keep) {
   }
 }
 
-module.exports = { runMaester, listRuns, pruneRuns, score };
+module.exports = { runMaester, listRuns, pruneRuns, score, sanitizeTags, ALLOWED_TAGS };

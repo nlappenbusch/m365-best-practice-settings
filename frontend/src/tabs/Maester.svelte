@@ -19,6 +19,17 @@
   let runs = $state([])
   let showAllFailed = $state(false)
 
+  // Suiten-Auswahl: alle an = komplette Testsuite (inkl. nicht getaggter Tests),
+  // Teilmenge = Tag-Filter im Backend. Tags sind die offiziellen Maester-Tags.
+  const SUITES = [
+    { tag: 'CISA', label: 'CISA SCuBA', desc: 'US-Behörden-Baseline (SCuBA) für M365' },
+    { tag: 'CIS', label: 'CIS Microsoft 365', desc: 'CIS-Benchmark' },
+    { tag: 'EIDSCA', label: 'EIDSCA', desc: 'Entra ID Security Config Analyzer' },
+    { tag: 'ORCA', label: 'ORCA', desc: 'Exchange-Online-Mailschutz' },
+    { tag: 'Maester', label: 'Maester Community', desc: 'Community-Tests des Maester-Projekts' }
+  ]
+  let suiteChosen = $state(Object.fromEntries(SUITES.map(s => [s.tag, true])))
+
   async function load() {
     overviewLoading = true
     try {
@@ -33,12 +44,16 @@
     latest = null; runs = []; showAllFailed = false
     if (!tid) return
     try {
-      const [l, r] = await Promise.all([
+      const [l, r, a] = await Promise.all([
         apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/latest`),
-        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/runs`)
+        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/runs`),
+        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/active`)
       ])
       latest = l.maester || null
       runs = r.runs || []
+      // Laeuft fuer diesen Tenant schon ein Job (anderes Fenster, Reload,
+      // MCP-Start), Fortschritt wieder aufnehmen statt spaeter in den 409 zu laufen.
+      if (a.jobId && (!job || job.status !== 'running')) pollJob(a.jobId)
     } catch (e) { /* kein Stand vorhanden */ }
   }
 
@@ -51,10 +66,16 @@
     if (!$activeTenant) return
     jobError = null
     job = null
+    const picked = SUITES.filter(s => suiteChosen[s.tag]).map(s => s.tag)
+    if (!picked.length) { jobError = 'Mindestens eine Testsuite wählen.'; return }
     try {
-      const start = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/run`)
+      const start = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/run`, { suites: picked })
       pollJob(start.jobId)
     } catch (e) {
+      if (e.status === 409) {
+        // Es laeuft schon ein Job fuer diesen Tenant — dranhaengen statt meckern.
+        try { const a = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/active`); if (a.jobId) { pollJob(a.jobId); return } } catch {}
+      }
       jobError = e.message + (e.hint ? ' — ' + e.hint : '')
     }
   }
@@ -142,10 +163,18 @@
     {#if !$activeTenant}
       <p class="ld-section-hint">Oben rechts einen Tenant wählen.</p>
     {:else}
-      <p class="ld-section-hint">Führt die komplette Maester-Testsuite (CISA SCuBA, CIS M365, EIDSCA, ORCA,
-        Community) rein lesend aus — es wird nichts verändert. Dauert je nach Tenant 5–20 Minuten.
-        Voraussetzung: die Maester-Leseberechtigungen (bestehende Tenants einmal im Tab «Tenants» reparieren).</p>
-      <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap">
+      <p class="ld-section-hint">Führt die Maester-Testsuite rein lesend aus — es wird nichts verändert.
+        Dauert je nach Tenant und Auswahl 5–20 Minuten. Voraussetzung: die Maester-Leseberechtigungen
+        (bestehende Tenants einmal im Tab «Tenants» reparieren — fehlt das, bricht der Lauf mit Hinweis ab).</p>
+      <div class="checkbox-grid">
+        {#each SUITES as s (s.tag)}
+          <label class="rep-section">
+            <input type="checkbox" bind:checked={suiteChosen[s.tag]} />
+            <span><strong>{s.label}</strong><br /><small>{s.desc}</small></span>
+          </label>
+        {/each}
+      </div>
+      <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap">
         <button class="btn btn-primary" onclick={runAudit} disabled={job?.status === 'running'}>
           {job?.status === 'running' ? 'Läuft…' : '▶ Maester-Audit starten'}
         </button>
@@ -159,7 +188,7 @@
 
     {#if job}
       <div class="ld-job" style="margin-top:0.75rem">
-        <div class="ld-job-head"><strong>{job.status === 'running' ? '⏳' : ''} Maester-Audit {$activeTenant?.name}</strong>
+        <div class="ld-job-head"><strong>{job.status === 'running' ? '⏳' : ''} Maester-Audit {job.tenantName || $activeTenant?.name}</strong>
           <span class="ld-job-meta">{job.phase}</span></div>
         {#if job.status === 'done'}
           <div class="ld-banner ok">Fertig.{job.hint ? ' ' + job.hint : ''}</div>
@@ -176,7 +205,7 @@
 
     {#if latest}
       <div class="rep-section-result">
-        <div class="rep-section-title">Letztes Ergebnis <small>({age(latest.generatedAt)}{latest.maesterVersion ? ` · Maester ${latest.maesterVersion}` : ''})</small></div>
+        <div class="rep-section-title">Letztes Ergebnis <small>({age(latest.generatedAt)}{latest.maesterVersion ? ` · Maester ${latest.maesterVersion}` : ''}{latest.suites?.length ? ` · Suiten: ${latest.suites.join(', ')}` : ' · alle Suiten'})</small></div>
         <div class="rep-metrics">
           <div class="rep-metric {scoreState(latest.score)}">
             <div class="rep-metric-value">{latest.score != null ? latest.score + '%' : '—'}</div>
