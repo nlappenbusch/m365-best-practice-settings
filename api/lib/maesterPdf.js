@@ -92,9 +92,13 @@ function renderMdBlock(ctx, md) {
   const LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
 
   const inlinePlain = (s) => sanitizePdf(
-    // Auch einzeln uebrig gebliebene **-Marker entfernen (kommen vor, wenn
-    // fettgedruckte Links wie **[Text](url)** zerlegt werden).
-    String(s).replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*\*/g, "").replace(/`([^`]+)`/g, "$1")
+    // Markdown-Links auf den Linktext reduzieren (wichtig fuer Tabellenzellen —
+    // dort stand sonst rohes [Sms](https://…)), Bold-/Code-Marker entfernen,
+    // auch einzeln uebrig gebliebene **.
+    String(s)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*\*/g, "")
+      .replace(/`([^`]+)`/g, "$1")
   );
 
   // Eine Zeile mit moeglichen Links ausgeben. pdfkit setzt Link-Annotationen
@@ -480,9 +484,46 @@ function buildPdf(data) {
       "und dem Entra ID Security Config Analyzer (EIDSCA). Die Testsuiten werden laufend aktualisiert; eine " +
       "Wiederholungsprüfung nach Umsetzung der Massnahmen wird empfohlen."
     );
-    doc.moveDown(0.5);
-    small("Hinweis: Automatisierte Prüfungen ersetzen keine individuelle Risikobeurteilung. Die empfohlenen " +
-      "Massnahmen sollten vor der Umsetzung auf betriebliche Auswirkungen geprüft werden (Pilotgruppe/Report-only zuerst).");
+    // ---- 6 Naechste Schritte (CTA + Einordnung) ----
+    // CTA-Box im igeeks-Look: heller Petrol-Grund, Akzentbalken links.
+    const ctaTitle = "Lassen Sie uns den Report gemeinsam anschauen";
+    const ctaText =
+      "Wir empfehlen, die Ergebnisse dieses Audits in einem gemeinsamen Termin im Detail zu besprechen: " +
+      "die Befunde für Ihre Umgebung einordnen, Prioritäten festlegen und daraus konkrete, aufeinander " +
+      "abgestimmte Massnahmen ableiten — inklusive Aufwandsschätzung und Umsetzungsplanung durch igeeks. " +
+      "Melden Sie sich dazu einfach bei Ihrem igeeks-Ansprechpartner — wir bereiten den Termin auf Basis " +
+      "dieses Reports vor.";
+    const pad = 16;
+    doc.font("Helvetica-Bold").fontSize(12);
+    const titleH = doc.heightOfString(ctaTitle, { width: W - pad * 2 - 6 });
+    doc.font("Helvetica").fontSize(10);
+    const textH = doc.heightOfString(ctaText, { width: W - pad * 2 - 6, lineGap: 1.5 });
+    const ctaBoxH = pad * 2 + titleH + 8 + textH;
+    // Ueberschrift und Box zusammenhalten: erst Platz fuer beides sichern,
+    // DANN die Kapitelueberschrift setzen — sonst bleibt "6 Naechste Schritte"
+    // verwaist am Seitenende stehen.
+    ensureSpace(ctaBoxH + 90);
+    h1("Nächste Schritte");
+    const ctaY = doc.y + 4;
+    doc.roundedRect(left, ctaY, W, ctaBoxH, 6).fill("#e9f4f8");
+    doc.rect(left, ctaY, 4, ctaBoxH).fill(ACCENT);
+    doc.font("Helvetica-Bold").fontSize(12).fillColor(ACCENT)
+      .text(ctaTitle, left + pad + 6, ctaY + pad, { width: W - pad * 2 - 6 });
+    doc.font("Helvetica").fontSize(10).fillColor(COL.text)
+      .text(ctaText, left + pad + 6, ctaY + pad + titleH + 8, { width: W - pad * 2 - 6, lineGap: 1.5 });
+    doc.x = left;
+    doc.y = ctaY + ctaBoxH + 14;
+
+    h2("Wichtig zur Einordnung der Ergebnisse");
+    body(
+      "Dieser Report wurde automatisiert nach technisch festgelegten Prüfmechanismen erstellt. In Ihrer " +
+      "Umgebung können bewusst gewählte Richtlinien gelten, die von den Standard-Baselines abweichen und " +
+      "von der automatischen Prüfung nicht als solche erkannt werden. Der Report zeigt deshalb eine Tendenz " +
+      "und potenzielle Verbesserungsmassnahmen auf — ein als «Handlungsbedarf» markierter Punkt ist nicht " +
+      "zwingend ein tatsächliches Problem. Die verbindliche Beurteilung erfolgt in der gemeinsamen " +
+      "Detailbetrachtung; eingreifende Änderungen setzen wir grundsätzlich erst nach Absprache um " +
+      "(Pilotgruppe bzw. Report-only zuerst)."
+    );
 
     // ================= Fusszeilen (ab Seite 2) =================
     const range = doc.bufferedPageRange();
