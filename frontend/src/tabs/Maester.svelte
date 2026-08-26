@@ -3,7 +3,7 @@
   // rein lesend app-only gegen den Tenant. Die Übersicht liest wie bei den
   // Reports nur gespeicherte Ergebnisse — Läufe dauern mehrere Minuten.
   import { onDestroy } from 'svelte'
-  import { apiGet, apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, apiPut } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
 
@@ -30,6 +30,19 @@
   ]
   let suiteChosen = $state(Object.fromEntries(SUITES.map(s => [s.tag, true])))
 
+  // Zeitplan: serverseitig, Browser muss nicht offen sein.
+  const INTERVALS = [
+    { key: 'daily', label: 'täglich' },
+    { key: 'weekly', label: 'wöchentlich' },
+    { key: 'biweekly', label: 'alle 2 Wochen' },
+    { key: 'monthly', label: 'monatlich' }
+  ]
+  const intervalLabel = (k) => INTERVALS.find(i => i.key === k)?.label || k
+  let schedEnabled = $state(false)
+  let schedInterval = $state('weekly')
+  let schedSaved = $state(null)     // { ok, msg }
+  let schedBusy = $state(false)
+
   async function load() {
     overviewLoading = true
     try {
@@ -42,15 +55,24 @@
 
   async function loadTenant(tid) {
     latest = null; runs = []; showAllFailed = false
+    schedEnabled = false; schedInterval = 'weekly'; schedSaved = null
     if (!tid) return
     try {
-      const [l, r, a] = await Promise.all([
+      const [l, r, a, sc] = await Promise.all([
         apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/latest`),
         apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/runs`),
-        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/active`)
+        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/active`),
+        apiGet(`/api/tenants/${encodeURIComponent(tid)}/maester/schedule`)
       ])
       latest = l.maester || null
       runs = r.runs || []
+      if (sc.schedule) {
+        schedEnabled = !!sc.schedule.enabled
+        schedInterval = sc.schedule.interval || 'weekly'
+        if (sc.schedule.suites?.length) {
+          for (const s of SUITES) suiteChosen[s.tag] = sc.schedule.suites.includes(s.tag)
+        }
+      }
       // Laeuft fuer diesen Tenant schon ein Job (anderes Fenster, Reload,
       // MCP-Start), Fortschritt wieder aufnehmen statt spaeter in den 409 zu laufen.
       if (a.jobId && (!job || job.status !== 'running')) pollJob(a.jobId)
@@ -88,7 +110,21 @@
       job = j
       if (j.status === 'running') { pollJob(jobId); return }
       await Promise.all([load(), loadTenant($activeTenant?.id)])
-    }, 2500)
+    }, 1500)
+  }
+
+  async function saveSchedule() {
+    if (!$activeTenant) return
+    schedBusy = true; schedSaved = null
+    const picked = SUITES.filter(s => suiteChosen[s.tag]).map(s => s.tag)
+    try {
+      await apiPut(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/schedule`, {
+        enabled: schedEnabled, interval: schedInterval, suites: picked
+      })
+      schedSaved = { ok: true, msg: schedEnabled ? `Gespeichert — läuft ${intervalLabel(schedInterval)} automatisch.` : 'Gespeichert — Automatik aus.' }
+      load()
+    } catch (e) { schedSaved = { ok: false, msg: e.message } }
+    schedBusy = false
   }
 
   function openReport(runId) {
@@ -136,6 +172,9 @@
               <strong>{row.name}</strong>
               <span class="rep-age">{row.generatedAt ? age(row.generatedAt) : 'noch kein Audit'}</span>
             </div>
+            {#if row.schedule}
+              <div class="ld-section-hint" style="margin:0.15rem 0 0">⏰ automatisch {intervalLabel(row.schedule.interval)}{row.schedule.lastResult && row.schedule.lastResult !== 'ok' ? ` · ⚠️ letzter Lauf: ${row.schedule.lastResult}` : ''}</div>
+            {/if}
             {#if row.counts}
               <div class="rep-counts">
                 <span class="rep-count {scoreState(row.score)}">{row.score != null ? row.score + '% Score' : '—'}</span>
@@ -182,6 +221,24 @@
           <button class="btn btn-secondary" onclick={() => openReport(latest.runId)}>Interaktiven HTML-Report öffnen</button>
         {/if}
       </div>
+
+      <div class="settings-group" style="margin-top:1rem">
+        <h4>⏰ Automatisch ausführen</h4>
+        <p class="ld-section-hint">Läuft serverseitig — der Browser muss nicht offen sein. Verwendet die oben
+          gewählten Suiten. Es läuft immer nur ein Audit gleichzeitig; sind mehrere Tenants fällig, kommen sie
+          nacheinander dran. Schlägt ein automatischer Lauf fehl, steht das an der Tenant-Karte oben.</p>
+        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap">
+          <label style="display:flex; gap:0.4rem; align-items:center">
+            <input type="checkbox" bind:checked={schedEnabled} />
+            <span>Automatik an</span>
+          </label>
+          <select bind:value={schedInterval} disabled={!schedEnabled}>
+            {#each INTERVALS as i}<option value={i.key}>{i.label}</option>{/each}
+          </select>
+          <button class="btn btn-secondary" onclick={saveSchedule} disabled={schedBusy}>Speichern</button>
+          {#if schedSaved}<span class={schedSaved.ok ? '' : 'ld-banner fail'}>{schedSaved.ok ? '✅ ' : ''}{schedSaved.msg}</span>{/if}
+        </div>
+      </div>
     {/if}
 
     {#if jobError}<div class="ld-banner fail" style="margin-top:0.75rem">{jobError}</div>{/if}
@@ -198,7 +255,17 @@
         {#each job.steps as s}
           <div class="ld-step {s.state === 'failed' ? 'fail' : 'ok'}">
             <span class="ld-ico">{s.state === 'done' ? '✅' : s.state === 'failed' ? '❌' : s.state === 'running' ? '⏳' : '○'}</span> {s.name}
+            {#if s.detail}<small style="opacity:0.75"> — {s.detail}</small>{/if}
           </div>
+          {#if s.state === 'running' && job.live}
+            <div class="ld-step" style="padding-left:1.6rem; opacity:0.85">
+              <small>
+                {#if job.live.block}<strong>{job.live.block}</strong>{/if}
+                {#if job.live.test} · {job.live.test}{/if}
+                <br />✅ {job.live.passed} bestanden · ❌ {job.live.failed} gefallen · ⏭️ {job.live.skipped} übersprungen
+              </small>
+            </div>
+          {/if}
         {/each}
       </div>
     {/if}

@@ -37,7 +37,7 @@ function tagsClause(tags) {
 
 /**
  * Maester-Lauf starten.
- * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs?, tags? }
+ * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs?, tags?, onDetail? (Live-Fortschritt) }
  * @param {function} onProgress  bekommt Phasen-Labels (BPPROGRESS-Stream)
  * @param {function} onChild     bekommt den pwsh-Kindprozess (Abbruch)
  */
@@ -56,9 +56,14 @@ async function runMaester(opts, onProgress, onChild) {
   const htmlPath = path.join(opts.outDir, "report.html");
   const jsonPath = path.join(opts.outDir, "results.json");
 
+  const summaryPath = path.join(opts.outDir, "summary-raw.json");
+
   const script = [
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
+    // Keine ANSI-/Terminal-Sequenzen in den Streams — die Ausgabe wird geparst,
+    // nicht angeschaut. (PSStyle gibt es ab 7.2; defensiv.)
+    "try { $PSStyle.OutputRendering = 'PlainText' } catch {}",
     "function BpPhase($label) { Write-Output ('BPPROGRESS' + (@{ type = 'phase'; label = $label } | ConvertTo-Json -Compress) + 'ENDPROGRESS') }",
     "function BpFail($msg) { Write-Output ('BEGINJSON' + (@{ ok = $false; error = [string]$msg } | ConvertTo-Json -Compress) + 'ENDJSON'); exit 0 }",
     "",
@@ -90,6 +95,9 @@ async function runMaester(opts, onProgress, onChild) {
     // Optionale Schalter nur setzen, wenn die installierte Maester-Version sie
     // kennt — so bricht ein Modul-Update den Lauf nicht mit ParameterNotFound.
     "  foreach ($opt in 'NonInteractive','SkipVersionCheck','DisableTelemetry') { if ($cmd.Parameters.ContainsKey($opt)) { $p[$opt] = $true } }",
+    // Detailed: Pester schreibt pro Test eine Zeile — daraus baut das Backend
+    // die Live-Anzeige (aktueller Block/Test + Zaehler).
+    "  if ($cmd.Parameters.ContainsKey('Verbosity')) { $p['Verbosity'] = 'Detailed' }",
     "  if ($cmd.Parameters.ContainsKey('OutputHtmlFile')) { $p['OutputHtmlFile'] = " + q(htmlPath) + " }",
     "  if ($cmd.Parameters.ContainsKey('OutputJsonFile')) { $p['OutputJsonFile'] = " + q(jsonPath) + " }",
     "  $results = Invoke-Maester @p",
@@ -103,46 +111,102 @@ async function runMaester(opts, onProgress, onChild) {
     "if (-not $results) { BpFail 'Invoke-Maester lieferte kein Ergebnis (keine Tests gelaufen?).' }",
     "",
     "BpPhase 'Auswertung'",
+    // Die Zusammenfassung geht als DATEI raus, nicht ueber stdout: die Konsole
+    // ist nach einem Maester-Lauf voller Terminal-Sequenzen, ein grosser
+    // JSON-Marker darin ist schon einmal verstuemmelt worden. Ueber stdout
+    // kommt nur noch ein Mini-Marker. Und alles in try/catch — stirbt die
+    // Auswertung, soll eine klare Meldung stehen, kein roher Konsolenrest.
+    "try {",
     // Feldnamen defensiv aufloesen — die Ergebnisobjekte haben sich zwischen
     // Maester-Versionen schon umbenannt (Name/Title, Id/Name).
-    "function BpField($o, $names) { foreach ($n in $names) { $pp = $o.PSObject.Properties[$n]; if ($pp -and $null -ne $pp.Value -and '' -ne [string]$pp.Value) { return $pp.Value } } return $null }",
-    "$tests = @($results.Tests)",
-    "$passed = 0; $failedCount = 0; $skipped = 0; $other = 0; $failed = @()",
-    "foreach ($tt in $tests) {",
-    "  $res = [string](BpField $tt @('Result'))",
-    "  if ($res -like 'Passed*') { $passed++ }",
-    "  elseif ($res -like 'Failed*') {",
-    "    $failedCount++",
-    "    if ($failed.Count -lt " + FAILED_CAP + ") {",
-    "      $failed += [pscustomobject]@{",
-    "        id = [string](BpField $tt @('Id','Name'))",
-    "        title = [string](BpField $tt @('Title','Name'))",
-    "        severity = [string](BpField $tt @('Severity'))",
-    "        block = [string](BpField $tt @('Block'))",
-    "        helpUrl = [string](BpField $tt @('HelpUrl'))",
+    "  function BpField($o, $names) { foreach ($n in $names) { $pp = $o.PSObject.Properties[$n]; if ($pp -and $null -ne $pp.Value -and '' -ne [string]$pp.Value) { return $pp.Value } } return $null }",
+    "  $tests = @($results.Tests | Where-Object { $null -ne $_ })",
+    "  $passed = 0; $failedCount = 0; $skipped = 0; $other = 0; $failed = @()",
+    "  foreach ($tt in $tests) {",
+    "    $res = [string](BpField $tt @('Result'))",
+    "    if ($res -like 'Passed*') { $passed++ }",
+    "    elseif ($res -like 'Failed*') {",
+    "      $failedCount++",
+    "      if ($failed.Count -lt " + FAILED_CAP + ") {",
+    "        $failed += [pscustomobject]@{",
+    "          id = [string](BpField $tt @('Id','Name'))",
+    "          title = [string](BpField $tt @('Title','Name'))",
+    "          severity = [string](BpField $tt @('Severity'))",
+    "          block = [string](BpField $tt @('Block'))",
+    "          helpUrl = [string](BpField $tt @('HelpUrl'))",
+    "        }",
     "      }",
     "    }",
+    "    elseif ($res -like 'Skipped*') { $skipped++ }",
+    "    else { $other++ }",
     "  }",
-    "  elseif ($res -like 'Skipped*') { $skipped++ }",
-    "  else { $other++ }",
-    "}",
-    "$summary = @{",
-    "  ok = $true",
-    "  counts = @{ total = $tests.Count; passed = $passed; failed = $failedCount; skipped = $skipped; other = $other }",
-    "  exoConnected = $exoConnected",
-    "  exoError = $exoError",
-    "  failed = @($failed)",
-    "  maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version)",
-    "}",
-    "Write-Output ('BEGINJSON' + ($summary | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
+    "  $summary = @{",
+    "    ok = $true",
+    "    counts = @{ total = $tests.Count; passed = $passed; failed = $failedCount; skipped = $skipped; other = $other }",
+    "    exoConnected = $exoConnected",
+    "    exoError = $exoError",
+    "    failed = @($failed)",
+    "    maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version)",
+    "  }",
+    "  $summary | ConvertTo-Json -Compress -Depth 6 | Set-Content -Path " + q(summaryPath) + " -Encoding utf8",
+    "  Write-Output ('BEGINJSON' + (@{ ok = $true; summaryInFile = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "} catch { BpFail ('Auswertung fehlgeschlagen: ' + $_.Exception.Message) }"
   ].join("\r\n");
 
-  const r = await EXO.runPwsh(script, opts.timeoutMs || DEFAULT_TIMEOUT_MS, onProgress, onChild);
+  const r = await EXO.runPwsh(script, opts.timeoutMs || DEFAULT_TIMEOUT_MS, onProgress, (child) => {
+    attachLiveParser(child, opts.onDetail);
+    if (onChild) onChild(child);
+  });
+  // Zusammenfassung aus der Datei nachladen (siehe Kommentar im Skript).
+  if (r.ok && r.data && r.data.ok && r.data.summaryInFile) {
+    try { r.data = { ...JSON.parse(fs.readFileSync(summaryPath, "utf8")), ok: true }; }
+    catch (e) { return { ok: false, error: "Zusammenfassung nicht lesbar: " + e.message }; }
+  }
   if (r.ok && r.data && r.data.ok) {
     r.data.htmlAvailable = fs.existsSync(htmlPath);
     r.data.jsonAvailable = fs.existsSync(jsonPath);
   }
+  if (!r.ok && r.error) r.error = stripAnsi(r.error);
+  if (r.data && r.data.error) r.data.error = stripAnsi(r.data.error);
   return r;
+}
+
+// Terminal-Steuersequenzen (Farben, [?1h-Modi) aus Texten entfernen, die in
+// der Oberflaeche landen.
+function stripAnsi(s) {
+  return String(s == null ? "" : s).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\[\?[0-9]+[hl]/g, "");
+}
+
+/**
+ * Live-Fortschritt aus dem Pester-Stream (Verbosity Detailed): "Describing X"
+ * = aktueller Block, [+]/[-]/[!] = Test bestanden/gefallen/uebersprungen.
+ * Gedrosselt auf ~2 Updates/Sekunde — der Job wird ohnehin nur gepollt.
+ */
+function attachLiveParser(child, onDetail) {
+  if (!child || !child.stdout || !onDetail) return;
+  let buf = "", block = null, test = null, passed = 0, failed = 0, skipped = 0;
+  let lastEmit = 0, pending = null;
+  const emit = () => { try { onDetail({ block, test, passed, failed, skipped }); } catch (e) { /* Anzeige ist optional */ } };
+  const schedule = () => {
+    const now = Date.now();
+    if (now - lastEmit > 400) { lastEmit = now; emit(); }
+    else if (!pending) { pending = setTimeout(() => { pending = null; lastEmit = Date.now(); emit(); }, 450); }
+  };
+  child.stdout.on("data", (d) => {
+    buf += d.toString();
+    let idx;
+    while ((idx = buf.indexOf("\n")) !== -1) {
+      const line = stripAnsi(buf.slice(0, idx)).trim();
+      buf = buf.slice(idx + 1);
+      let m;
+      if ((m = line.match(/^Describing\s+(.+)$/))) { block = m[1]; test = null; schedule(); }
+      else if ((m = line.match(/^\[\+\]\s+(.+?)(\s+\d[\d.,]*\s*m?s\b.*)?$/))) { passed++; test = m[1]; schedule(); }
+      else if ((m = line.match(/^\[-\]\s+(.+?)(\s+\d[\d.,]*\s*m?s\b.*)?$/))) { failed++; test = m[1]; schedule(); }
+      else if ((m = line.match(/^\[!\]\s+(.+?)(\s+\d[\d.,]*\s*m?s\b.*)?$/))) { skipped++; test = m[1]; schedule(); }
+    }
+    // Puffer nicht unbegrenzt wachsen lassen, falls nie ein \n kommt.
+    if (buf.length > 65536) buf = buf.slice(-8192);
+  });
 }
 
 /** Score in Prozent: bestanden / (bestanden + gefallen). Skips zaehlen nicht. */

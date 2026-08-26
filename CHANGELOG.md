@@ -45,6 +45,18 @@ Nachgezogen nach dem ersten Praxistest (gleicher Tag):
   aufgenommen (`/maester/active`), ein Klick auf Start hängt sich an einen
   bereits laufenden Job dran statt mit 409 zu meckern; die Job-Anzeige nennt
   den Tenant des Jobs, nicht den gerade gewählten.
+- **Zeitplan**: pro Tenant «Automatisch ausführen» (täglich/wöchentlich/
+  14-tägig/monatlich) mit den gewählten Suiten — läuft serverseitig (Interval-
+  Check alle 15 Min., ein Audit gleichzeitig, 6 h Sperre nach Fehlversuch);
+  Ergebnis automatischer Läufe steht an der Tenant-Karte.
+- **Live-Fortschritt**: während des Laufs zeigt der Job den aktuellen Block/
+  Test und laufende Zähler (bestanden/gefallen/übersprungen) — geparst aus dem
+  Pester-Stream (Verbosity Detailed).
+- **Robustere Auswertung**: Zusammenfassung wandert als Datei aus dem
+  pwsh-Lauf (stdout war voller Terminal-Sequenzen und hat den JSON-Marker
+  schon einmal zerlegt), Auswertung in try/catch mit klarer Fehlermeldung,
+  ANSI-Reste werden aus Fehlertexten gefiltert, `/api/appjobs` liefert den
+  pwsh-Prozess-Handle nicht mehr mit aus.
 
 ## Version 2.5 - Vorlage pro Tenant, Diagnose, zwei handfeste Fehlerquellen (2026-08-20)
 

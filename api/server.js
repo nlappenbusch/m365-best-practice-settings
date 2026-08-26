@@ -1246,7 +1246,7 @@ app.get("/api/mcp/v1/tenants/:id/maester/job/:jobId", wrap(async (req, res) => {
   requireMcpPermission(t, "readMaester");
   const job = appJobs.get(req.params.jobId);
   if (!job || job.tenantId !== t.id) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
-  res.json({ ok: true, status: job.status, phase: job.phase, error: job.error, hint: job.hint, maester: job.maester || null });
+  res.json({ ok: true, status: job.status, phase: job.phase, live: job.live || null, error: job.error, hint: job.hint, maester: job.maester || null });
 }));
 
 // Einrichtungs-Assistent: haekt einen Schritt der gefuehrten Onboarding-Checkliste
@@ -2952,7 +2952,9 @@ function finishAppJob(job, ok, error, hint) {
 app.get("/api/appjobs/:id", (req, res) => {
   const job = appJobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
-  res.json(job);
+  // _child ist der laufende pwsh-Prozess (Maester) — gehoert nie in die Antwort.
+  const { _child, ...rest } = job;
+  res.json(rest);
 });
 
 const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet" };
@@ -3551,6 +3553,29 @@ async function maesterMissingPerms(t) {
 }
 
 async function runMaesterJob(job, t, tags) {
+  try {
+    await runMaesterJobInner(job, t, tags);
+  } finally {
+    // Zeitplan-Laeufe: Ergebnis im State verewigen — der Job selbst lebt nur im
+    // Speicher, und bei einem naechtlichen Lauf schaut niemand auf den Fortschritt.
+    if (job.scheduled) {
+      try {
+        const s = loadState();
+        const rec = (s.tenants || []).find(x => x.id === t.id);
+        if (rec) {
+          rec.maesterSchedule = {
+            ...(rec.maesterSchedule || {}),
+            lastResult: job.status === "done" ? "ok" : "Fehler: " + (job.error || "unbekannt"),
+            lastResultAt: new Date().toISOString()
+          };
+          saveState(s);
+        }
+      } catch (e) { /* Protokollierung darf nie den Lauf beschaedigen */ }
+    }
+  }
+}
+
+async function runMaesterJobInner(job, t, tags) {
   const onProgress = appJobProgress(job);
   try {
     onProgress("Berechtigungen prüfen");
@@ -3564,10 +3589,17 @@ async function runMaesterJob(job, t, tags) {
     const runId = new Date().toISOString().slice(0, 19).replace(/[:]/g, "-");
     const outDir = path.join(MAESTER_DIR, t.id, runId);
     const r = await MAESTER.runMaester(
-      { tenant: t, certPemPath: certPemPath(t.tenantId), outDir, tags },
+      {
+        tenant: t, certPemPath: certPemPath(t.tenantId), outDir, tags,
+        // Live-Anzeige: aktueller Block/Test + Zaehler, landet 1:1 im Job und
+        // damit im Poll-Ergebnis des Frontends.
+        onDetail: (live) => { job.live = live; }
+      },
       (p) => { if (p && p.label) onProgress(p.label); },
       (child) => { job._child = child; }
     );
+    job.live = null;
+    job._child = null;
     if (!r.ok || !r.data || !r.data.ok) {
       const msg = (r.data && r.data.error) || r.error || "Maester-Lauf fehlgeschlagen.";
       try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* leer lassen */ }
@@ -3680,11 +3712,88 @@ app.get("/api/maester/overview", (req, res) => {
       runId: m ? m.runId : null,
       score: m ? m.score : null,
       counts: m ? m.counts : null,
-      failedTop: m ? (m.failed || []).slice(0, 5) : []
+      failedTop: m ? (m.failed || []).slice(0, 5) : [],
+      schedule: (t.maesterSchedule && t.maesterSchedule.enabled)
+        ? { interval: t.maesterSchedule.interval || "weekly", lastResult: t.maesterSchedule.lastResult || null, lastResultAt: t.maesterSchedule.lastResultAt || null }
+        : null
     };
   });
   res.json({ ok: true, tenants: rows });
 });
+
+// ---------- Maester-Zeitplan ----------
+// Serverseitige, wiederkehrende Audits pro Tenant. Kein Cron-Daemon: ein
+// Node-Interval prueft alle 15 Minuten, ob ein Tenant faellig ist, und startet
+// dann EINEN Lauf (Maester ist pwsh-lastig — mehrere Tenants parallel wuerden
+// den Container quaelen; der naechste faellige kommt im naechsten Tick dran).
+const MAESTER_SCHEDULE_TICK_MS = 15 * 60 * 1000;
+// Nach einem Fehlversuch (z.B. fehlende Berechtigungen) nicht jeden Tick neu
+// anrennen — fruehestens nach 6 Stunden wieder.
+const MAESTER_RETRY_GAP_MS = 6 * 3600 * 1000;
+const MAESTER_INTERVALS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30 };
+
+app.get("/api/tenants/:id/maester/schedule", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, schedule: t.maesterSchedule || null });
+});
+
+app.put("/api/tenants/:id/maester/schedule", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const b = req.body || {};
+  const interval = Object.prototype.hasOwnProperty.call(MAESTER_INTERVALS, b.interval) ? b.interval : "weekly";
+  t.maesterSchedule = {
+    ...(t.maesterSchedule || {}),
+    enabled: !!b.enabled,
+    interval,
+    suites: MAESTER.sanitizeTags(b.suites)
+  };
+  saveState(s);
+  res.json({ ok: true, schedule: t.maesterSchedule });
+});
+
+async function maesterScheduleTick() {
+  try {
+    // Nur ein Maester-Lauf gleichzeitig — egal ob manuell oder geplant.
+    for (const j of appJobs.values()) {
+      if (j.isMaester && j.status === "running") return;
+    }
+    const s = loadState();
+    const now = Date.now();
+    for (const t of s.tenants || []) {
+      const sch = t.maesterSchedule;
+      if (!sch || !sch.enabled) continue;
+      const days = MAESTER_INTERVALS[sch.interval] || 7;
+      const last = t.maester && t.maester.generatedAt ? new Date(t.maester.generatedAt).getTime() : 0;
+      if (now - last < days * 86400000) continue;
+      if (sch.lastAttemptAt && now - new Date(sch.lastAttemptAt).getTime() < MAESTER_RETRY_GAP_MS) continue;
+      if (!t.organization || !t.clientId || !fs.existsSync(certPemPath(t.tenantId))) continue;
+      let running = false;
+      for (const j of appJobs.values()) { if (j.tenantId === t.id && j.status === "running") { running = true; break; } }
+      if (running) continue;
+
+      // Versuch sofort verbuchen, damit ein haengender/langsamer Lauf im
+      // naechsten Tick nicht doppelt startet.
+      const s2 = loadState();
+      const rec = (s2.tenants || []).find(x => x.id === t.id);
+      if (rec) { rec.maesterSchedule = { ...(rec.maesterSchedule || {}), lastAttemptAt: new Date().toISOString() }; saveState(s2); }
+
+      console.log("Maester-Zeitplan: starte Audit fuer " + t.name + " (" + (sch.interval || "weekly") + ")");
+      const job = createAppJob(t, MAESTER_PHASES);
+      job.isMaester = true;
+      job.scheduled = true;
+      runMaesterJob(job, t, MAESTER.sanitizeTags(sch.suites));
+      return; // ein Lauf pro Tick
+    }
+  } catch (e) { console.log("Maester-Zeitplan-Fehler: " + e.message); }
+}
+setInterval(maesterScheduleTick, MAESTER_SCHEDULE_TICK_MS);
+// Kurz nach dem Start einmal pruefen — faellige Tenants sollen nicht bis zum
+// ersten Tick warten, aber der Container darf erst in Ruhe hochkommen.
+setTimeout(maesterScheduleTick, 90 * 1000);
 
 // ---------- Tenant-zu-Tenant-Geraetemigration ----------
 // Konfigurator fuer das Migrationspaket (igeeks-Fork von
