@@ -262,6 +262,23 @@ function buildHtml(data) {
   ${sevKeys.length ? sevKeys.map(k => `<div class="sevbar"><span class="lbl">${SEV_LABEL[k] || "Ohne Angabe"}</span><span class="bar ${SEV_CLASS[k] || "info"}" style="width:${Math.max(4, Math.round(bySev[k] / maxSev * 55))}%"></span><span class="n">${bySev[k]}</span></div>`).join("") : ""}
   <p>Von ${rated} bewerteten Tests wurden ${c.passed ?? 0} bestanden. ${findings.length} Punkte erfordern Handlungsbedarf${critHigh ? `, davon ${critHigh} mit hoher oder kritischer Einstufung — diese sollten priorisiert angegangen werden` : ""}.${c.skipped ? ` ${c.skipped} Tests waren im Tenant nicht bewertbar (Kapitel weiter unten).` : ""}</p>
 
+  ${(() => {
+    const sr = data.statusReport;
+    if (!sr || !sr.sections) return "";
+    const stateCls = (st) => st === "crit" ? "bad" : st === "warn" ? "warn" : "ok";
+    const stateWord = (st) => st === "crit" ? "Kritisch" : st === "warn" ? "Hinweis" : "OK";
+    const secs = Object.values(sr.sections);
+    return h2("Tenant-Status im Überblick") + `
+  <p class="hint">Kennzahlen aus dem igeeks-Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, Identitäten, Geräte und Intune-Baseline auf einen Blick.</p>
+  ${secs.map(sec => sec.ok
+    ? `<details class="skipgrp"${(sec.metrics || []).some(m => m.state !== "ok") ? " open" : ""}><summary>${esc(sec.label)}${(sec.metrics || []).some(m => m.state === "crit") ? ' <span class="bad">— kritisch</span>' : (sec.metrics || []).some(m => m.state === "warn") ? ' <span class="warn">— Hinweise</span>' : ""}</summary>
+      <table><thead><tr><th>Kennzahl</th><th>Wert</th><th>Bewertung</th><th>Hinweis</th></tr></thead><tbody>
+      ${(sec.metrics || []).map(m => `<tr><td>${esc(m.label)}</td><td><strong>${esc(m.value ?? "—")}</strong></td><td class="${stateCls(m.state)}">${stateWord(m.state)}</td><td class="hint">${esc(m.detail || "")}</td></tr>`).join("")}
+      </tbody></table></details>`
+    : `<details class="skipgrp"><summary>${esc(sec.label)} <span class="warn">— nicht abrufbar</span></summary><ul><li>${esc(sec.error || "Keine Daten")}</li></ul></details>`
+  ).join("\n")}`;
+  })()}
+
   ${h2(`Handlungsbedarf im Detail (${findings.length})`)}
   ${findings.length
     ? `<p class="hint">Kritische und hohe Punkte sind aufgeklappt — alles Weitere per Klick.</p>` + findings.map(findingHtml).join("\n")

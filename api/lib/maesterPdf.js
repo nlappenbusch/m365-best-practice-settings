@@ -430,7 +430,40 @@ function buildPdf(data) {
       if (findings.length > 5) small(`… und ${findings.length - 5} weitere Punkte im Detailteil.`);
     }
 
-    // ---- 2 Handlungsbedarf im Detail ----
+    // ---- Tenant-Status (letzter Statusreport aus dem Reports-Tab) ----
+    const sr = data.statusReport;
+    if (sr && sr.sections) {
+      h1("Tenant-Status im Überblick");
+      small(`Kennzahlen aus dem igeeks-Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, ` +
+        "Identitäten, Geräte und Intune-Baseline auf einen Blick.");
+      const stWord = (st) => st === "crit" ? "Kritisch" : st === "warn" ? "Hinweis" : "OK";
+      const stColor = (st) => st === "crit" ? COL.crit : st === "warn" ? COL.medium : COL.ok;
+      for (const sec of Object.values(sr.sections)) {
+        h2(sec.label + (sec.ok ? "" : " — nicht abrufbar"));
+        if (!sec.ok) { small(sec.error || "Keine Daten."); continue; }
+        for (const mtr of (sec.metrics || [])) {
+          ensureSpace(18);
+          const y = doc.y;
+          doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COL.text)
+            .text(String(mtr.value ?? "—"), left + 6, y, { width: 54, lineBreak: false });
+          doc.font("Helvetica-Bold").fontSize(8).fillColor(stColor(mtr.state))
+            .text(stWord(mtr.state).toUpperCase(), left + 62, y + 1, { width: 48, lineBreak: false });
+          // Bewusst KEIN continued-Textlauf (siehe Link-Debakel weiter oben) —
+          // Detailtext als eigene, eingerueckte Zeile darunter.
+          doc.font("Helvetica").fontSize(9.5).fillColor(COL.text)
+            .text(mtr.label, left + 114, y, { width: W - 114, lineGap: 1 });
+          if (doc.y < y + 14) doc.y = y + 14;
+          if (mtr.detail) {
+            ensureSpace(14);
+            doc.font("Helvetica").fontSize(8.5).fillColor(COL.muted)
+              .text(mtr.detail, left + 114, doc.y, { width: W - 114, lineGap: 1 });
+          }
+          doc.x = left;
+        }
+      }
+    }
+
+    // ---- Handlungsbedarf im Detail ----
     const findingsChapter = h1("Handlungsbedarf im Detail" + (findings.length ? ` (${findings.length})` : ""));
     if (!findings.length) body("Keine Beanstandungen — alle bewerteten Tests wurden bestanden.");
 

@@ -3890,6 +3890,10 @@ async function collectMaesterReportData(t, runId) {
   } catch (e) { console.log("Domain-Auth fuer den Kundenreport nicht abrufbar: " + e.message); }
   return {
     domainAuth,
+    // Letzter Statusreport aus dem Reports-Tab (Lizenzen/CA/Identitaeten/
+    // Geraete/OIB, schlanke Fassung) — macht aus dem Maester-Report den
+    // vollumfaenglichen Kundenreport. Fehlt er, faellt das Kapitel weg.
+    statusReport: t.report || null,
     tenantName: t.name,
     organization: t.organization || null,
     generatedAt: summary.generatedAt,
