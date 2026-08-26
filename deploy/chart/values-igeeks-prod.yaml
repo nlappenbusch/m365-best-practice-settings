@@ -1,4 +1,4 @@
 # igeeks-prod Override — minimal, CI bumpt imageTag hier
 host: m365-configurator.igeeks-prod.igeeks.cloud
 vaultCluster: igeeks-k8s-201
-imageTag: a14037b5
+imageTag: 26ed49b5
