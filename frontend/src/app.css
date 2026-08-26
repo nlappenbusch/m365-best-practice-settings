@@ -823,6 +823,33 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .ld-progress-label { font-size: 0.78rem; color: var(--text-dim); margin: 0.25rem 0 0.75rem; }
 
 /* Einrichtungs-Assistent (Tenants-Tab) */
+/* ---- Schritt-Karten: nummerierte Wizard-Abschnitte als abgesetzte Karten
+   (Migration; gedacht zur Wiederverwendung in Autopilot & Co.) ---- */
+.step-card {
+    border: 1px solid var(--rule); border-radius: var(--radius-md);
+    padding: 0.9rem 1.1rem 1rem; margin-bottom: 0.9rem; background: var(--bg);
+}
+.step-card > h4 { display: flex; align-items: center; gap: 0.55rem; margin: 0 0 0.55rem; font-size: 0.95rem; font-weight: 700; }
+.step-state {
+    margin-left: auto; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 0.18rem 0.6rem; border-radius: 999px; white-space: nowrap;
+}
+.step-state.done { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.step-state.open { color: var(--text-dim); background: var(--bg-inset); }
+.step-pair { display: grid; gap: 0.9rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1000px) { .step-pair { grid-template-columns: 1fr 1fr; } .step-pair > .step-card { margin-bottom: 0; } }
+
+/* Checkbox-Zeile mit Titel + Beschreibung — statt Checkbox-im-Label-Gedraenge */
+.check-row { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.35rem 0; }
+.check-row input[type="checkbox"] { margin-top: 0.2rem; width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+.check-row .cr-title { font-weight: 600; font-size: 0.88rem; cursor: pointer; }
+.check-row .cr-desc { font-size: 0.79rem; color: var(--text-dim); margin-top: 0.1rem; line-height: 1.4; }
+
+/* Bereitschafts-Checkliste vor dem Deploy */
+.ready-list { margin: 0.65rem 0 0.3rem; display: grid; gap: 0.3rem; font-size: 0.85rem; }
+.ready-list .rdy-ok { color: var(--ok); }
+.ready-list .rdy-miss { color: var(--text-dim); }
+
 .wizard-step { display: flex; align-items: flex-start; gap: 0.7rem; padding: 0.6rem 0; border-bottom: 1px solid var(--rule); }
 .wizard-step:last-child { border-bottom: none; }
 .wizard-step-check { flex-shrink: 0; width: 18px; height: 18px; margin-top: 0.15rem; accent-color: var(--accent); cursor: pointer; text-align: center; font-size: 1rem; line-height: 1; }

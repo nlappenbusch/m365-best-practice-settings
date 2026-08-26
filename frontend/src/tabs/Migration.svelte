@@ -193,12 +193,17 @@
     }, 1500)
   }
 
-  const ready = $derived(
-    !!$activeTenant && !!ppkg &&
-    !!form.appName.trim() &&
-    !!form.targetTenant.tenantName.trim() && !!form.targetTenant.clientId.trim() && !!form.targetTenant.clientSecret.trim() &&
-    !!form.sourceTenant.tenantName.trim() && !!form.sourceTenant.clientId.trim() && !!form.sourceTenant.clientSecret.trim()
-  )
+  const srcOk = $derived(!!(form.sourceTenant.tenantName.trim() && form.sourceTenant.clientId.trim() && form.sourceTenant.clientSecret.trim()))
+  const dstOk = $derived(!!(form.targetTenant.tenantName.trim() && form.targetTenant.clientId.trim() && form.targetTenant.clientSecret.trim()))
+  const ready = $derived(!!$activeTenant && !!ppkg && !!form.appName.trim() && srcOk && dstOk)
+
+  // Bereitschafts-Checkliste fuer Schritt 7 — zeigt konkret, was noch fehlt.
+  const readiness = $derived([
+    { ok: !!form.appName.trim(), label: 'App-Name gesetzt (Schritt 1)' },
+    { ok: srcOk, label: 'Quelltenant vollständig — Domain, Client-ID und Secret (Schritt 2)' },
+    { ok: dstOk, label: 'Zieltenant vollständig — Domain, Client-ID und Secret (Schritt 3)' },
+    { ok: !!ppkg, label: 'Provisioning Package hochgeladen (Schritt 4)' }
+  ])
 
   onDestroy(() => {
     if (jobTimer) clearTimeout(jobTimer)
@@ -218,8 +223,12 @@
     <div class="alert alert-warning">❌ App-Registrierung: {appRegError}</div>
   {/if}
 
-  <div class="settings-group">
-    <h4><span class="step-n">1</span> Intune-App</h4>
+  {#snippet stepState(ok, doneText, openText)}
+    <span class="step-state {ok ? 'done' : 'open'}">{ok ? (doneText || '✓ erledigt') : (openText || 'offen')}</span>
+  {/snippet}
+
+  <div class="step-card">
+    <h4><span class="step-n">1</span> Intune-App {@render stepState(!!form.appName.trim())}</h4>
     <div class="input-group" style="max-width:420px">
       <label for="mg-appname">Name der App in Intune</label>
       <input id="mg-appname" type="text" bind:value={form.appName} />
@@ -254,87 +263,84 @@
         <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf die Anmeldung…</div>
       </div>
     {:else}
-      <button class="btn btn-primary" onclick={() => startAppReg(side)}>🔑 App-Registrierung im {SIDE_LABEL[side]} anlegen</button>
+      <button class="btn btn-secondary" onclick={() => startAppReg(side)}>App-Registrierung im {SIDE_LABEL[side]} anlegen</button>
       <p class="ld-section-hint">Legt <code>IG-TenantMigration-{side === 'source' ? 'Source' : 'Target'}</code> an, erteilt den
         Admin-Consent und trägt Client-ID und Secret unten ein. Du brauchst dafür einen Admin-Login im {SIDE_LABEL[side]}.</p>
     {/if}
   {/snippet}
 
-  <div class="settings-group">
-    <h4><span class="step-n">2</span> Quelltenant (hier laufen die Geräte heute)</h4>
-    <p class="ld-section-hint">Die Skripte melden sich damit an, um Intune- und Autopilot-Objekt des Geräts nach der
-      Migration zu entfernen.</p>
-    <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
-      <label for="mg-src-tenant">Tenant (Domain oder ID)</label>
-      <input id="mg-src-tenant" type="text" bind:value={form.sourceTenant.tenantName} placeholder="alt.onmicrosoft.com" />
-    </div>
-    {@render appRegBlock('source')}
+  {#snippet tenantCreds(side)}
+    {@const tform = side === 'source' ? form.sourceTenant : form.targetTenant}
     <details style="margin-top:0.6rem">
       <summary class="ld-section-hint" style="cursor:pointer">Client-ID und Secret von Hand eintragen</summary>
-      <div class="settings-grid" style="margin-top:0.5rem">
+      <div style="margin-top:0.5rem; display:grid; gap:0.5rem">
         <div class="input-group">
-          <label for="mg-src-client">Client-ID</label>
-          <input id="mg-src-client" type="text" bind:value={form.sourceTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
+          <label for="mg-{side}-client">Client-ID</label>
+          <input id="mg-{side}-client" type="text" bind:value={tform.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
         </div>
         <div class="input-group">
-          <label for="mg-src-secret">Client Secret</label>
-          <input id="mg-src-secret" type="password" bind:value={form.sourceTenant.clientSecret} autocomplete="off" />
+          <label for="mg-{side}-secret">Client Secret</label>
+          <input id="mg-{side}-secret" type="password" bind:value={tform.clientSecret} autocomplete="off" />
         </div>
       </div>
     </details>
-  </div>
+  {/snippet}
 
-  <div class="settings-group">
-    <h4><span class="step-n">3</span> Zieltenant (dorthin wandern die Geräte)</h4>
-    <div class="input-group" style="max-width:420px; margin-bottom:0.6rem">
-      <label for="mg-dst-tenant">Tenant (Domain oder ID)</label>
-      <input id="mg-dst-tenant" type="text" bind:value={form.targetTenant.tenantName} placeholder="neu.onmicrosoft.com" />
-    </div>
-    {@render appRegBlock('target')}
-    <details style="margin-top:0.6rem">
-      <summary class="ld-section-hint" style="cursor:pointer">Client-ID und Secret von Hand eintragen</summary>
-      <div class="settings-grid" style="margin-top:0.5rem">
-        <div class="input-group">
-          <label for="mg-dst-client">Client-ID</label>
-          <input id="mg-dst-client" type="text" bind:value={form.targetTenant.clientId} placeholder="00000000-0000-0000-0000-000000000000" />
-        </div>
-        <div class="input-group">
-          <label for="mg-dst-secret">Client Secret</label>
-          <input id="mg-dst-secret" type="password" bind:value={form.targetTenant.clientSecret} autocomplete="off" />
-        </div>
+  <div class="step-pair">
+    <div class="step-card">
+      <h4><span class="step-n">2</span> Quelltenant {@render stepState(srcOk)}</h4>
+      <p class="ld-section-hint">Hier laufen die Geräte heute. Die Skripte melden sich damit an, um Intune- und
+        Autopilot-Objekt des Geräts nach der Migration zu entfernen.</p>
+      <div class="input-group" style="margin-bottom:0.6rem">
+        <label for="mg-src-tenant">Tenant (Domain oder ID)</label>
+        <input id="mg-src-tenant" type="text" bind:value={form.sourceTenant.tenantName} placeholder="alt.onmicrosoft.com" />
       </div>
-    </details>
+      {@render appRegBlock('source')}
+      {@render tenantCreds('source')}
+    </div>
 
-    <div style="margin-top:0.9rem">
-      <label for="mg-grouptag"><strong>GroupTag im Zieltenant</strong> <small>(optional)</small></label>
-      {#if groupTags && groupTags.length}
-        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
-          <select id="mg-grouptag" bind:value={form.groupTag} style="max-width:320px">
-            <option value="">— kein GroupTag —</option>
-            {#each groupTags as g}
-              <option value={g.groupTag}>{g.groupTag} → {g.groupName}</option>
-            {/each}
-          </select>
-          <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy}>↻</button>
-        </div>
-        <small class="ld-section-hint">Aus den dynamischen Gruppen des Zieltenants gelesen ([OrderID]-Regel).</small>
-      {:else}
-        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
-          <input id="mg-grouptag" type="text" bind:value={form.groupTag} placeholder="DEV-STD" style="max-width:220px" />
-          <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy}>
-            {groupTagsBusy ? 'Lade…' : '🔎 Aus dem Zieltenant laden'}
-          </button>
-        </div>
-        {#if groupTags && groupTags.length === 0}
-          <small class="ld-section-hint">Keine dynamischen Gruppen mit [OrderID]-Regel gefunden — Tag von Hand eintragen.</small>
+    <div class="step-card">
+      <h4><span class="step-n">3</span> Zieltenant {@render stepState(dstOk)}</h4>
+      <p class="ld-section-hint">Dorthin wandern die Geräte — braucht kein Deployment, nur App-Registrierung und
+        Provisioning Package.</p>
+      <div class="input-group" style="margin-bottom:0.6rem">
+        <label for="mg-dst-tenant">Tenant (Domain oder ID)</label>
+        <input id="mg-dst-tenant" type="text" bind:value={form.targetTenant.tenantName} placeholder="neu.onmicrosoft.com" />
+      </div>
+      {@render appRegBlock('target')}
+      {@render tenantCreds('target')}
+
+      <div style="margin-top:0.9rem; padding-top:0.7rem; border-top:1px solid var(--rule)">
+        <label for="mg-grouptag"><strong>GroupTag im Zieltenant</strong> <small>(optional)</small></label>
+        {#if groupTags && groupTags.length}
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
+            <select id="mg-grouptag" bind:value={form.groupTag} style="max-width:320px">
+              <option value="">— kein GroupTag —</option>
+              {#each groupTags as g}
+                <option value={g.groupTag}>{g.groupTag} → {g.groupName}</option>
+              {/each}
+            </select>
+            <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy} title="Neu laden">↻</button>
+          </div>
+          <small class="ld-section-hint">Aus den dynamischen Gruppen des Zieltenants gelesen ([OrderID]-Regel).</small>
+        {:else}
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-top:0.3rem">
+            <input id="mg-grouptag" type="text" bind:value={form.groupTag} placeholder="DEV-STD" style="max-width:200px" />
+            <button class="btn btn-secondary" onclick={loadGroupTags} disabled={groupTagsBusy}>
+              {groupTagsBusy ? 'Lade…' : 'Aus dem Zieltenant laden'}
+            </button>
+          </div>
+          {#if groupTags && groupTags.length === 0}
+            <small class="ld-section-hint">Keine dynamischen Gruppen mit [OrderID]-Regel gefunden — Tag von Hand eintragen.</small>
+          {/if}
         {/if}
-      {/if}
-      {#if groupTagsError}<div class="alert alert-warning" style="margin-top:0.5rem">{groupTagsError}</div>{/if}
+        {#if groupTagsError}<div class="alert alert-warning" style="margin-top:0.5rem">{groupTagsError}</div>{/if}
+      </div>
     </div>
   </div>
 
-  <div class="settings-group">
-    <h4><span class="step-n">4</span> Provisioning Package des Zieltenants</h4>
+  <div class="step-card">
+    <h4><span class="step-n">4</span> Provisioning Package des Zieltenants {@render stepState(!!ppkg, '✓ hochgeladen', 'fehlt')}</h4>
     <p class="ld-section-hint">Mit dem Windows Configuration Designer im Zieltenant erzeugen (Bulk-Enrollment-Token).
       Die Datei liegt nur in deiner Sitzung, nicht auf dem Server-Datenträger.</p>
     {#if ppkg}
@@ -352,10 +358,10 @@
     {#if ppkgError}<div class="alert alert-warning" style="margin-top:0.5rem">{ppkgError}</div>{/if}
   </div>
 
-  <div class="settings-group">
-    <h4><span class="step-n">5</span> Verhalten auf dem Gerät</h4>
-    <div class="settings-grid">
-      <div class="input-group">
+  <div class="step-pair">
+    <div class="step-card">
+      <h4><span class="step-n">5</span> Verhalten auf dem Gerät</h4>
+      <div class="input-group" style="max-width:420px; margin-bottom:0.4rem">
         <label for="mg-bitlocker">BitLocker</label>
         <select id="mg-bitlocker" bind:value={form.bitlocker}>
           <option value="migrate">Recovery-Key in den Zieltenant sichern</option>
@@ -363,50 +369,60 @@
         </select>
         <small>Der Recovery-Key im Quelltenant ist danach weg — vorher exportieren.</small>
       </div>
-      <div class="input-group">
-        <label for="mg-sccm"><input id="mg-sccm" type="checkbox" bind:checked={form.sccm} /> SCCM-Client entfernen</label>
+      <div class="check-row">
+        <input id="mg-sccm" type="checkbox" bind:checked={form.sccm} />
+        <div><label class="cr-title" for="mg-sccm">SCCM-Client entfernen</label></div>
       </div>
-      <div class="input-group">
-        <label for="mg-cleanup"><input id="mg-cleanup" type="checkbox" bind:checked={form.cleanupLocalPath} /> Arbeitsverzeichnis nach der Migration löschen</label>
-        <small>Enthält beide Client Secrets — ausschalten nur zur Fehlersuche.</small>
+      <div class="check-row">
+        <input id="mg-cleanup" type="checkbox" bind:checked={form.cleanupLocalPath} />
+        <div>
+          <label class="cr-title" for="mg-cleanup">Arbeitsverzeichnis nach der Migration löschen</label>
+          <div class="cr-desc">Enthält beide Client Secrets — ausschalten nur zur Fehlersuche.</div>
+        </div>
       </div>
+    </div>
+
+    <div class="step-card">
+      <h4><span class="step-n">6</span> Fallback-Admin</h4>
+      <p class="ld-section-hint">Lokales Adminkonto, das vor dem ersten destruktiven Schritt angelegt wird und die
+        Migration überlebt — damit kommst du auf ein Gerät, das unterwegs hängen bleibt.</p>
+      <div class="check-row">
+        <input id="mg-fb-enabled" type="checkbox" bind:checked={form.fallbackAdmin.enabled} />
+        <div><label class="cr-title" for="mg-fb-enabled">Fallback-Admin anlegen</label></div>
+      </div>
+      {#if form.fallbackAdmin.enabled}
+        <div style="display:grid; gap:0.5rem; margin:0.3rem 0 0.2rem 1.6rem">
+          <div class="input-group">
+            <label for="mg-fb-name">Kontoname</label>
+            <input id="mg-fb-name" type="text" bind:value={form.fallbackAdmin.name} />
+          </div>
+          <div class="input-group">
+            <label for="mg-fb-pw">Passwort <small>(leer = zufällig)</small></label>
+            <input id="mg-fb-pw" type="password" bind:value={form.fallbackAdmin.password} autocomplete="off" />
+            <small>Leer heisst: niemand kennt es. Dann nur sinnvoll, wenn der Zieltenant das Konto per Windows LAPS verwaltet.</small>
+          </div>
+          <div class="check-row" style="padding-top:0">
+            <input id="mg-fb-remove" type="checkbox" bind:checked={form.fallbackAdmin.removeAfterMigration} />
+            <div><label class="cr-title" for="mg-fb-remove">Nach erfolgreicher Migration wieder entfernen</label></div>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 
-  <div class="settings-group">
-    <h4><span class="step-n">6</span> Fallback-Admin</h4>
-    <p class="ld-section-hint">Lokales Adminkonto, das vor dem ersten destruktiven Schritt angelegt wird und die
-      Migration überlebt. Damit kommst du auf ein Gerät, das unterwegs hängen bleibt.</p>
-    <div class="settings-grid">
-      <div class="input-group">
-        <label for="mg-fb-enabled"><input id="mg-fb-enabled" type="checkbox" bind:checked={form.fallbackAdmin.enabled} /> Fallback-Admin anlegen</label>
-      </div>
-      <div class="input-group">
-        <label for="mg-fb-name">Kontoname</label>
-        <input id="mg-fb-name" type="text" bind:value={form.fallbackAdmin.name} disabled={!form.fallbackAdmin.enabled} />
-      </div>
-      <div class="input-group">
-        <label for="mg-fb-pw">Passwort <small>(leer = zufällig)</small></label>
-        <input id="mg-fb-pw" type="password" bind:value={form.fallbackAdmin.password} disabled={!form.fallbackAdmin.enabled} autocomplete="off" />
-        <small>Leer heisst: niemand kennt es. Dann nur sinnvoll, wenn der Zieltenant das Konto per Windows LAPS verwaltet.</small>
-      </div>
-      <div class="input-group">
-        <label for="mg-fb-remove"><input id="mg-fb-remove" type="checkbox" bind:checked={form.fallbackAdmin.removeAfterMigration} disabled={!form.fallbackAdmin.enabled} /> Nach erfolgreicher Migration wieder entfernen</label>
-      </div>
+  <div class="step-card">
+    <h4><span class="step-n">7</span> Prüfen und deployen {@render stepState(ready, '✓ bereit', 'noch nicht bereit')}</h4>
+    <div class="ready-list">
+      {#each readiness as r}
+        <div class={r.ok ? 'rdy-ok' : 'rdy-miss'}>{r.ok ? '✓' : '○'} {r.label}</div>
+      {/each}
     </div>
-  </div>
-
-  <div class="settings-group">
-    <h4><span class="step-n">7</span> Prüfen und deployen</h4>
-    <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick={loadPreview} disabled={!$activeTenant}>config.json ansehen</button>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.6rem">
       <button class="btn btn-primary" onclick={() => (confirmOpen = true)} disabled={!ready || job?.status === 'running'}>
-        🚀 Als Intune-App in {$activeTenant?.name ?? '—'} anlegen
+        Als Intune-App in {$activeTenant?.name ?? '—'} anlegen
       </button>
+      <button class="btn btn-secondary" onclick={loadPreview} disabled={!$activeTenant}>config.json ansehen</button>
     </div>
-    {#if !ready}
-      <p class="ld-section-hint">Es fehlen noch Angaben — beide Tenants vollständig, App-Name und Provisioning Package.</p>
-    {/if}
 
     {#if previewError}<div class="alert alert-warning" style="margin-top:0.75rem">{previewError}</div>{/if}
     {#if preview}
