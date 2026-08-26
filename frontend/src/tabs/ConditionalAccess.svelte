@@ -601,47 +601,52 @@
   {:else if policiesError}
     <div class="ld-banner fail">{policiesError}</div>
   {:else if supportGroups.length}
-    <h4 style="margin-bottom:0.5rem;"><span class="step-n">2</span> Schutzgruppen befüllen</h4>
-    <div class="ld-job" style="margin-bottom:1.25rem;">
-      <div class="ld-job-head"><strong>Schutzgruppen</strong></div>
+    <div class="step-card" style="margin-bottom:1.25rem;">
+      <h4><span class="step-n">2</span> Schutzgruppen befüllen
+        <span class="step-state {breakGlassEmpty ? 'open' : 'done'}">{breakGlassEmpty ? 'Break-Glass leer' : '✓ Break-Glass gefüllt'}</span></h4>
       {#if breakGlassEmpty}
         <div class="ld-banner warn"><b>AAD-CA-BreakGlass ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
       {/if}
       {#each supportGroups as g}
-        <div class="ld-step {g.memberCount === 0 && g.key === 'breakGlass' ? 'retry' : 'ok'}">
-          <span class="ld-ico">{g.memberCount === 0 && g.key === 'breakGlass' ? '⚠️' : '✅'}</span>
-          <code>{g.name}</code> <small>({g.memberCount} Mitglied{g.memberCount === 1 ? '' : 'er'})</small>
-        </div>
-        <div class="ld-oib-target" style="margin-top:0; margin-bottom:0.4rem;">
-          <button class="btn btn-secondary" onclick={() => toggleMemberSearch(g.key)}>{memberSearchOpen[g.key] ? '✕ Schließen' : '+ Mitglied hinzufügen'}</button>
-          {#if g.key === 'breakGlass'}
-            <button class="btn btn-secondary" onclick={toggleBgForm}>{bgFormOpen ? '✕ Schließen' : '➕ Notfallzugriff anlegen'}</button>
-          {/if}
+        {@const critical = g.memberCount === 0 && g.key === 'breakGlass'}
+        <div class="obj-row">
+          <code>{g.name}</code>
+          <span class="tbadge {critical ? 'warn' : 'ok'}">{g.memberCount} Mitglied{g.memberCount === 1 ? '' : 'er'}</span>
+          <span class="obj-actions">
+            <button class="btn btn-secondary" onclick={() => toggleMemberSearch(g.key)}>{memberSearchOpen[g.key] ? 'Schliessen' : '+ Mitglied'}</button>
+            {#if g.key === 'breakGlass'}
+              <button class="btn btn-secondary" onclick={toggleBgForm}>{bgFormOpen ? 'Schliessen' : 'Notfallzugriff anlegen'}</button>
+            {/if}
+          </span>
         </div>
         {#if memberSearchOpen[g.key]}
-          <div class="ld-oib-target">
-            <input type="text" placeholder="Name oder E-Mail suchen (min. 2 Zeichen)…"
-                   value={memberQuery[g.key] || ''} oninput={(e) => onMemberQueryInput(g.key, e.target.value)} style="min-width:280px;" />
-            {#if memberSearchBusy[g.key]}<span class="ld-spinner"></span>{/if}
+          <div class="obj-sub">
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+              <input type="text" placeholder="Name oder E-Mail suchen (min. 2 Zeichen)…"
+                     value={memberQuery[g.key] || ''} oninput={(e) => onMemberQueryInput(g.key, e.target.value)} style="min-width:280px;" />
+              {#if memberSearchBusy[g.key]}<span class="ld-spinner"></span>{/if}
+            </div>
+            {#if (memberResults[g.key] || []).length}
+              {#each memberResults[g.key] as u (u.id)}
+                <div class="obj-row" style="border-bottom:none; padding:0.3rem 0;">
+                  <span>{u.displayName} <small style="color:var(--text-dim);">({u.userPrincipalName})</small></span>
+                  <span class="obj-actions"><button class="btn btn-secondary" onclick={() => addMember(g.key, u)} disabled={memberAddBusy[u.id]}>+ hinzufügen</button></span>
+                </div>
+              {/each}
+            {:else if (memberQuery[g.key] || '').trim().length >= 2 && !memberSearchBusy[g.key]}
+              <small class="ld-section-hint">Keine Treffer.</small>
+            {/if}
           </div>
-          {#if (memberResults[g.key] || []).length}
-            {#each memberResults[g.key] as u (u.id)}
-              <div class="ld-oib-target" style="margin-top:0;">
-                <span>👤 {u.displayName} <small style="color:var(--text-dim);">({u.userPrincipalName})</small></span>
-                <button class="btn btn-secondary" onclick={() => addMember(g.key, u)} disabled={memberAddBusy[u.id]}>+ hinzufügen</button>
-              </div>
-            {/each}
-          {:else if (memberQuery[g.key] || '').trim().length >= 2 && !memberSearchBusy[g.key]}
-            <div class="ld-step pending"><small>Keine Treffer.</small></div>
-          {/if}
         {/if}
         {#if g.key === 'breakGlass' && bgFormOpen}
-          <div class="ld-oib-target">
-            <input type="text" placeholder="z.B. breakglass1" bind:value={bgUsername} style="max-width:200px;" />
-            <span><small>@{$activeTenant.organization || $activeTenant.tenantId}</small></span>
-            <button class="btn btn-primary" onclick={createBreakGlass} disabled={bgBusy || !bgUsername.trim()}>{bgBusy ? '…' : 'Anlegen + Passwort generieren'}</button>
+          <div class="obj-sub">
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+              <input type="text" placeholder="z.B. breakglass1" bind:value={bgUsername} style="max-width:200px;" />
+              <span><small>@{$activeTenant.organization || $activeTenant.tenantId}</small></span>
+              <button class="btn btn-primary" onclick={createBreakGlass} disabled={bgBusy || !bgUsername.trim()}>{bgBusy ? '…' : 'Anlegen + Passwort generieren'}</button>
+            </div>
+            {#if bgError}<div class="ld-banner fail" style="margin-top:0.4rem">{bgError}</div>{/if}
           </div>
-          {#if bgError}<div class="ld-banner fail">{bgError}</div>{/if}
         {/if}
       {/each}
     </div>
