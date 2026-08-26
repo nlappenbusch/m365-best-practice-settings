@@ -9,6 +9,7 @@
 - 🦠 **Anti-Malware Policy** Management
 - 🔔 **Alert Policies** für Quarantine Notifications
 - 📦 **Quarantine Policies** mit Self-Service & Admin-Approval
+- 🔍 **Maester Security-Audit** (CISA SCuBA, CIS M365, EIDSCA, ORCA) pro Tenant mit Score, Verlauf und HTML-Report
 - 📜 **PowerShell Script Export** für automatisches Deployment
 - 💾 **JSON Export/Import** für Konfigurationsverwaltung
 - 📄 **Markdown Documentation Export**

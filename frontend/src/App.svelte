@@ -29,6 +29,7 @@
   import GroupTags from './tabs/GroupTags.svelte'
   import Migration from './tabs/Migration.svelte'
   import Reports from './tabs/Reports.svelte'
+  import Maester from './tabs/Maester.svelte'
 
   // Tickets nur fuer den freigeschalteten Nutzer -- die Durchsetzung passiert
   // serverseitig (403 auf /api/sdp, /api/runbooks), das hier ist nur die Sicht.
@@ -128,6 +129,7 @@
         <div class:tab-hidden={$activeTab !== 'grouptags'}><GroupTags /></div>
         <div class:tab-hidden={$activeTab !== 'migration'}><Migration /></div>
         <div class:tab-hidden={$activeTab !== 'reports'}><Reports /></div>
+        <div class:tab-hidden={$activeTab !== 'maester'}><Maester /></div>
         <div class:tab-hidden={$activeTab !== 'diagnose'}><Diagnose /></div>
         <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
       </div>

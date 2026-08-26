@@ -60,6 +60,7 @@ const USERACTIONS = require("./lib/userActions");
 const BULKDELETE = require("./lib/intuneBulkDelete");
 const SPMAP = require("./lib/sharepointMapping");
 const REGPOLICY = require("./lib/registryPolicy");
+const MAESTER = require("./lib/maester");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -85,6 +86,14 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
 const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
+// Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
+// deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
+// Graph-Service-Principal (NetworkAccess = Global Secure Access, Security-
+// Identities = Defender for Identity) — fehlende werden beim Onboarding/
+// Reparieren uebersprungen statt den Vorgang abzubrechen; die betroffenen
+// Maester-Tests fallen dann einfach als "nicht abrufbar" aus.
+// Bestehende Tenants: einmal "Reparieren" im Tab Tenants ausfuehren.
+const GRAPH_APP_PERMS_MAESTER = ["Directory.Read.All", "DirectoryRecommendations.Read.All", "EntitlementManagement.Read.All", "IdentityRiskEvent.Read.All", "NetworkAccess.Read.All", "OnPremDirectorySynchronization.Read.All", "OrgSettings-AppsAndServices.Read.All", "OrgSettings-Forms.Read.All", "Policy.Read.ConditionalAccess", "Reports.Read.All", "ReportSettings.Read.All", "RoleEligibilitySchedule.Read.Directory", "RoleManagement.Read.All", "RoleManagementAlert.Read.Directory", "SecurityIdentitiesHealth.Read.All", "SecurityIdentitiesSensors.Read.All", "SharePointTenantSettings.Read.All", "ThreatHunting.Read.All", "UserAuthenticationMethod.Read.All", "DeviceManagementManagedDevices.Read.All", "DeviceManagementRBAC.Read.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -190,7 +199,17 @@ async function resolvePermissionTargets(token) {
     return role;
   });
 
-  return { exoSp, manageRole, graphSp, graphRoles };
+  // Maester-Permissions tolerant aufloesen: was der Graph-SP des Tenants nicht
+  // kennt, wird uebersprungen (siehe Kommentar an GRAPH_APP_PERMS_MAESTER).
+  const graphRolesMaester = [];
+  const maesterMissing = [];
+  for (const v of GRAPH_APP_PERMS_MAESTER) {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (role) graphRolesMaester.push(role); else maesterMissing.push(v);
+  }
+  if (maesterMissing.length) console.log("Maester-Permissions im Tenant nicht verfuegbar (uebersprungen): " + maesterMissing.join(", "));
+
+  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester };
 }
 
 // Admin-Consent (App-Role-Assignment) idempotent setzen.
@@ -242,10 +261,11 @@ async function ensureTcmSetup(token, exoSp, manageRole) {
  * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
  */
 async function provisionAppReg(token) {
-  const { exoSp, manageRole, graphSp, graphRoles } = await resolvePermissionTargets(token);
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester } = await resolvePermissionTargets(token);
+  const allGraphRoles = [...graphRoles, ...graphRolesMaester];
   const requiredResourceAccess = [
     { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
-    { resourceAppId: GRAPH_APP_ID, resourceAccess: graphRoles.map(r => ({ id: r.id, type: "Role" })) }
+    { resourceAppId: GRAPH_APP_ID, resourceAccess: allGraphRoles.map(r => ({ id: r.id, type: "Role" })) }
   ];
 
   let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(APP_DISPLAY_NAME)}'`)).value[0];
@@ -262,7 +282,7 @@ async function provisionAppReg(token) {
   try {
     const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
     await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing);
-    for (const r of graphRoles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
+    for (const r of allGraphRoles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
   } catch (e) { consentOk = false; consentErr = e.message; }
 
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
@@ -312,8 +332,9 @@ async function repairAppReg(token, rec, opts) {
   }
   push("App-Registrierung", "ok", app.displayName);
 
-  // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB) im Manifest
-  const { exoSp, manageRole, graphSp, graphRoles } = await resolvePermissionTargets(token);
+  // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB + Maester) im Manifest
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester } = await resolvePermissionTargets(token);
+  const allGraphRoles = [...graphRoles, ...graphRolesMaester];
   try {
     const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
     let changed = false;
@@ -328,7 +349,7 @@ async function repairAppReg(token, rec, opts) {
       }
     };
     ensureEntry(EXO_APP_ID, [manageRole.id]);
-    ensureEntry(GRAPH_APP_ID, graphRoles.map(r => r.id));
+    ensureEntry(GRAPH_APP_ID, allGraphRoles.map(r => r.id));
     if (changed) {
       await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess: rra });
       push("API-Permissions (EXO + Graph)", "fixed");
@@ -350,7 +371,7 @@ async function repairAppReg(token, rec, opts) {
     try {
       const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
       const states = [await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing)];
-      for (const r of graphRoles) states.push(await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing));
+      for (const r of allGraphRoles) states.push(await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing));
       push("Admin-Consent (EXO + Graph)", states.includes("fixed") ? "fixed" : "ok");
     } catch (e) { push("Admin-Consent (EXO + Graph)", "failed", e.message); }
   }
@@ -1194,6 +1215,38 @@ app.post("/api/mcp/v1/tenants/:id/deploy/auto-setting", wrap(async (req, res) =>
     logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "deploy-auto-setting", result: "error: " + e.message });
     throw e;
   }
+}));
+
+// Maester-Security-Audit via MCP: Ergebnisse lesen ("readMaester") und Lauf
+// anstossen ("runMaester") — beides rein lesend auf dem Tenant, der Lauf
+// veraendert dort nichts. Job-Fortschritt ueber den maester/job-Endpunkt.
+app.get("/api/mcp/v1/tenants/:id/maester/latest", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "readMaester");
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "maester-latest", result: "ok" });
+  res.json({ ok: true, maester: t.maester || null });
+}));
+
+app.post("/api/mcp/v1/tenants/:id/maester/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "runMaester");
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, MAESTER_PHASES);
+  runMaesterJob(job, t);
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, tenantId: t.id, action: "maester-run", result: "gestartet (Job " + job.id + ")" });
+  res.json({ ok: true, jobId: job.id, hint: "Fortschritt: GET /api/mcp/v1/tenants/" + t.id + "/maester/job/" + job.id });
+}));
+
+app.get("/api/mcp/v1/tenants/:id/maester/job/:jobId", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  requireMcpPermission(t, "readMaester");
+  const job = appJobs.get(req.params.jobId);
+  if (!job || job.tenantId !== t.id) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
+  res.json({ ok: true, status: job.status, phase: job.phase, error: job.error, hint: job.hint, maester: job.maester || null });
 }));
 
 // Einrichtungs-Assistent: haekt einen Schritt der gefuehrten Onboarding-Checkliste
@@ -3449,6 +3502,144 @@ app.get("/api/reports/overview", (req, res) => {
               .map(m => ({ section: sec.label, ...m })))
             .sort((a, b) => (a.state === "crit" ? -1 : 1) - (b.state === "crit" ? -1 : 1))
         : []
+    };
+  });
+  res.json({ ok: true, tenants: rows });
+});
+
+// ---------- Maester-Security-Audit (maester.dev) ----------
+// Rein lesende Testsuite (CISA, CIS, EIDSCA, Community) app-only gegen den
+// Tenant. HTML-Report + Roh-JSON liegen pro Lauf unter state/maester/<recId>/,
+// im state.json steht nur die schlanke Zusammenfassung (analog Reports).
+const MAESTER_DIR = path.join(STATE_DIR, "maester");
+const MAESTER_KEEP_RUNS = 8;
+
+function storeMaesterSummary(tenantRecId, summary) {
+  const s = loadState();
+  const idx = (s.tenants || []).findIndex(x => x.id === tenantRecId);
+  if (idx < 0) return;
+  s.tenants[idx].maester = summary;
+  saveState(s);
+}
+
+function maesterRunDir(tenantRecId, runId) {
+  // runId ist Teil eines Dateipfads — striktes Muster statt Pfad-Sanitizing.
+  if (!/^[A-Za-z0-9-]+$/.test(String(runId || ""))) {
+    throw Object.assign(new Error("Ungueltige Run-Id."), { status: 400 });
+  }
+  return path.join(MAESTER_DIR, tenantRecId, runId);
+}
+
+async function runMaesterJob(job, t) {
+  const onProgress = appJobProgress(job);
+  try {
+    const runId = new Date().toISOString().slice(0, 19).replace(/[:]/g, "-");
+    const outDir = path.join(MAESTER_DIR, t.id, runId);
+    const r = await MAESTER.runMaester(
+      { tenant: t, certPemPath: certPemPath(t.tenantId), outDir },
+      (p) => { if (p && p.label) onProgress(p.label); },
+      (child) => { job._child = child; }
+    );
+    if (!r.ok || !r.data || !r.data.ok) {
+      const msg = (r.data && r.data.error) || r.error || "Maester-Lauf fehlgeschlagen.";
+      try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* leer lassen */ }
+      return finishAppJob(job, false, msg,
+        /fehlt im SP|Berechtigung|Authorization|403/i.test(msg)
+          ? "Im Tab 'Tenants' einmal Reparieren ausfuehren — das setzt die Maester-Leseberechtigungen."
+          : null);
+    }
+    onProgress("Auswertung");
+    const summary = {
+      runId,
+      generatedAt: new Date().toISOString(),
+      counts: r.data.counts,
+      score: MAESTER.score(r.data.counts || {}),
+      exoConnected: !!r.data.exoConnected,
+      exoError: r.data.exoError || null,
+      failed: r.data.failed || [],
+      maesterVersion: r.data.maesterVersion || null,
+      htmlAvailable: !!r.data.htmlAvailable
+    };
+    fs.writeFileSync(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
+    MAESTER.pruneRuns(MAESTER_DIR, t.id, MAESTER_KEEP_RUNS);
+    storeMaesterSummary(t.id, summary);
+    job.maester = summary;
+    finishAppJob(job, true, null, summary.exoConnected ? null
+      : "Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
+  } catch (e) {
+    finishAppJob(job, false, e.message, e.hint || null);
+  }
+}
+
+const MAESTER_PHASES = [
+  "Verbindung zu Microsoft Graph",
+  "Verbindung zu Exchange Online",
+  "Testsuite vorbereiten",
+  "Maester-Tests laufen (dauert mehrere Minuten)",
+  "Auswertung"
+];
+
+app.post("/api/tenants/:id/maester/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const job = createAppJob(t, MAESTER_PHASES);
+  runMaesterJob(job, t);
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.get("/api/tenants/:id/maester/latest", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, maester: t.maester || null });
+});
+
+app.get("/api/tenants/:id/maester/runs", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, runs: MAESTER.listRuns(MAESTER_DIR, t.id) });
+});
+
+// Der interaktive Maester-HTML-Report eines Laufs — session-gated wie alles
+// unter /api, daher unbedenklich direkt auszuliefern.
+app.get("/api/tenants/:id/maester/runs/:runId/report.html", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const file = path.join(maesterRunDir(t.id, req.params.runId), "report.html");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "Kein HTML-Report fuer diesen Lauf." });
+  res.type("html").send(fs.readFileSync(file, "utf8"));
+}));
+
+app.get("/api/tenants/:id/maester/runs/:runId/results.json", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const file = path.join(maesterRunDir(t.id, req.params.runId), "results.json");
+  if (!fs.existsSync(file)) return res.status(404).json({ error: "Keine Rohdaten fuer diesen Lauf." });
+  res.type("json").send(fs.readFileSync(file, "utf8"));
+}));
+
+// Uebersicht ueber alle Tenants — liest wie /api/reports/overview nur den
+// gespeicherten Stand, keine Live-Abfragen.
+app.get("/api/maester/overview", (req, res) => {
+  const s = loadState();
+  const rows = (s.tenants || []).map(t => {
+    const m = t.maester;
+    return {
+      id: t.id,
+      name: t.name,
+      organization: t.organization || null,
+      generatedAt: m ? m.generatedAt : null,
+      runId: m ? m.runId : null,
+      score: m ? m.score : null,
+      counts: m ? m.counts : null,
+      failedTop: m ? (m.failed || []).slice(0, 5) : []
     };
   });
   res.json({ ok: true, tenants: rows });

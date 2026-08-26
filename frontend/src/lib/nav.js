@@ -80,6 +80,8 @@ export const NAV_GROUPS = [
     items: [
       { id: 'reports', icon: 'chart', label: 'Reports', isNew: true,
         desc: 'Statusbericht pro Kunde erzeugen und Übersicht über alle Tenants' },
+      { id: 'maester', icon: 'shieldCheck', label: 'Security-Audit', isNew: true,
+        desc: 'Maester-Testsuite (CISA, CIS, EIDSCA) rein lesend gegen den Tenant — mit interaktivem HTML-Report' },
       { id: 'lizenzen', icon: 'coins', label: 'Lizenzen',
         desc: 'Lizenzbestand, ungenutzte Seats und Lizenzen an inaktiven Konten' },
       { id: 'tickets', icon: 'ticket', label: 'Tickets', gated: 'ticketsAllowed',

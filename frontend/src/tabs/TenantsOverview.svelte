@@ -117,7 +117,9 @@
     { key: 'resetPassword', label: 'Passwort zuruecksetzen', desc: 'Setzt ein zufaelliges temporaeres Passwort.' },
     { key: 'revokeSessions', label: 'Sitzungen widerrufen', desc: 'Erzwingt Neuanmeldung auf allen Geraeten.' },
     { key: 'groupMembership', label: 'Gruppenmitgliedschaft aendern', desc: 'Nutzer zu einer Gruppe hinzufuegen/entfernen.' },
-    { key: 'customPolicyImport', label: 'Settings-Catalog-Policy suchen + ausrollen', desc: 'Wie „Automatisch suchen" im Ticket-Copilot -- Einstellung per Suchbegriff finden, Wert setzen, Pilot-Gruppe zuweisen.' }
+    { key: 'customPolicyImport', label: 'Settings-Catalog-Policy suchen + ausrollen', desc: 'Wie „Automatisch suchen" im Ticket-Copilot -- Einstellung per Suchbegriff finden, Wert setzen, Pilot-Gruppe zuweisen.' },
+    { key: 'readMaester', label: 'Maester-Audit lesen', desc: 'Letztes Security-Audit-Ergebnis (Score, gefallene Tests) abrufen.' },
+    { key: 'runMaester', label: 'Maester-Audit starten', desc: 'Kompletten Maester-Lauf anstossen -- rein lesend auf dem Tenant, dauert mehrere Minuten.' }
   ]
   let mcpPermTargetId = $state(null)
   let mcpPermBusy = $state({})

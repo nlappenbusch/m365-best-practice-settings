@@ -14,6 +14,12 @@ RUN apt-get update \
 
 RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module ExchangeOnlineManagement -Scope AllUsers -Force"
 
+# Maester-Security-Audit (maester.dev): Testframework + Graph-Auth + Pester.
+# Die Testsuite wird beim Build eingefroren (/opt/maester-tests) — aktualisiert
+# sich also mit jedem Deploy, nicht zur Laufzeit.
+RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module Microsoft.Graph.Authentication -Scope AllUsers -Force; Install-Module Pester -Scope AllUsers -Force -SkipPublisherCheck; Install-Module Maester -Scope AllUsers -Force" \
+    && pwsh -NoProfile -Command "New-Item -ItemType Directory -Path /opt/maester-tests -Force | Out-Null; Install-MaesterTests -Path /opt/maester-tests"
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

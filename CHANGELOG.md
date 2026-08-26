@@ -1,5 +1,37 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.6 - Maester-Security-Audit integriert (2026-08-26)
+
+### 🔍 Neuer Bereich „Security-Audit" (Maester)
+
+Die komplette [Maester](https://maester.dev)-Testsuite (360+ Tests: CISA SCuBA,
+CIS Microsoft 365, EIDSCA, ORCA, Community) läuft jetzt direkt aus dem Tool —
+app-only mit dem vorhandenen Tenant-Zertifikat, **rein lesend**:
+
+- **Neuer Tab „Security-Audit"** unter *Betrieb*: Lauf starten (5–20 Min.,
+  Fortschrittsanzeige über die bekannte Job-Mechanik), Security-Score,
+  gefallene Tests nach Schweregrad sortiert mit Doku-Links, Verlauf pro Tenant
+  und Übersicht über alle Tenants (wie bei den Reports: nur gespeicherter
+  Stand, keine Live-Abfragen).
+- **Interaktiver Maester-HTML-Report** pro Lauf abrufbar
+  (`/api/tenants/:id/maester/runs/:runId/report.html`, session-gated); die
+  letzten 8 Läufe bleiben unter `state/maester/` liegen, Rohdaten als JSON.
+- **Verbindungen**: Connect-MgGraph app-only mit dem Tenant-PEM; Exchange
+  Online best effort dazu — scheitert EXO, laufen die Graph-Tests trotzdem und
+  der Hinweis steht am Ergebnis.
+- **Berechtigungen**: Onboarding und „Reparieren" setzen jetzt zusätzlich die
+  Maester-Leseberechtigungen (Directory.Read.All, Reports.Read.All,
+  RoleManagement.Read.All u. a. — vollständige Liste in `GRAPH_APP_PERMS_MAESTER`).
+  Permissions, die es im Tenant nicht gibt (z. B. Global Secure Access,
+  Defender for Identity), werden übersprungen statt den Vorgang abzubrechen.
+  **Bestehende Tenants: einmal „Reparieren" im Tab Tenants ausführen.**
+- **MCP**: zwei neue, pro Tenant freischaltbare Berechtigungen —
+  `readMaester` (letztes Ergebnis lesen) und `runMaester` (Lauf anstossen),
+  inkl. Job-Polling-Endpunkt.
+- **Image**: Maester, Pester und Microsoft.Graph.Authentication sind im
+  API-Container installiert; die Testsuite wird beim Build nach
+  `/opt/maester-tests` eingefroren und aktualisiert sich mit jedem Deploy.
+
 ## Version 2.5 - Vorlage pro Tenant, Diagnose, zwei handfeste Fehlerquellen (2026-08-20)
 
 ### 💾 Vorlage pro Tenant speicherbar
