@@ -6,8 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# Gruppe am 26.08.2026 umbenannt: ein GitHub-seitig kaputter Run (queued ohne
+# Job, weder cancel- noch force-cancelbar) hielt die alte Gruppe besetzt —
+# neue Push-Runs wurden dadurch stillschweigend verworfen.
 concurrency:
-  group: deploy-m365-security
+  group: deploy-m365-security-v2
   cancel-in-progress: false
 
 jobs:

@@ -572,7 +572,10 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 
 .settings-group { margin-bottom: 1.1rem; }
 .settings-group:last-child { margin-bottom: 0; }
-.settings-group h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 0.4rem; }
+.settings-group h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.5rem; }
+/* Akzent-Tick vor jedem Abschnittstitel — gibt allen Bereichen eine ruhige,
+   einheitliche Gliederung, ohne einzelne Tabs anfassen zu muessen. */
+.settings-group h4::before { content: ""; width: 4px; height: 0.95em; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
 .ld-section-hint { font-size: 0.83rem; color: var(--text-dim); margin: 0.1rem 0 0.5rem; line-height: 1.45; }
 
 .settings-section, .policies-section { margin-bottom: 2rem; }
@@ -855,6 +858,31 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .da-col-domain { font-weight: 600; font-family: var(--font-mono); font-size: 0.84rem; }
 .da-col-toggle { width: 1.5rem; text-align: center; color: var(--text-dim); }
 .da-detail-row td { padding: 0.2rem 0.7rem 0.9rem; border-bottom: 1px solid var(--rule); background: var(--bg-inset); }
+
+/* Domain-Auth: Detailkarten je Prüfung (SPF/DMARC/DKIM) — klare Struktur statt
+   der zweckentfremdeten ld-step-Zeilen (Record eigener Block, Issues als Liste). */
+.da-checks { display: grid; gap: 0.5rem; padding: 0.45rem 0 0.1rem; }
+.da-check {
+    border: 1px solid var(--rule); border-left-width: 3px;
+    border-radius: var(--radius-sm); padding: 0.5rem 0.7rem; background: var(--bg);
+}
+.da-check.ok { border-left-color: var(--ok); }
+.da-check.warn { border-left-color: var(--warn); }
+.da-check.bad { border-left-color: var(--crit); }
+.da-check-head { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
+.da-check-head strong { font-size: 0.85rem; }
+.da-check-state { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.da-check.ok .da-check-state { color: var(--ok); }
+.da-check.warn .da-check-state { color: var(--warn); }
+.da-check.bad .da-check-state { color: var(--crit); }
+.da-check-meta { font-size: 0.78rem; color: var(--text-dim); }
+.da-check-record {
+    display: block; margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.78rem;
+    background: var(--bg-inset); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: 0.35rem 0.55rem; word-break: break-all; line-height: 1.4;
+}
+.da-check-issues { margin: 0.45rem 0 0; padding-left: 1.15rem; font-size: 0.8rem; color: var(--text-dim); line-height: 1.45; }
+.da-check-issues li { margin: 0.15rem 0; }
 .ld-phase.manual-phase { border-left-color: var(--accent); opacity: 1; background: var(--accent-wash); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin: 0.5rem 0; }
 .ld-phase.manual-phase.complete { border-left-color: var(--ok); background: var(--ok-wash); }
 

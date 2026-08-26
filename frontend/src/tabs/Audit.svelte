@@ -898,18 +898,28 @@
               {#if isOpen}
                 <tr class="da-detail-row">
                   <td colspan="5">
-                    {#each [['SPF', d.spf], ['DMARC', d.dmarc], ['DKIM', d.dkim]] as [label, r] (label)}
-                      {@const b = daBadge(r.status)}
-                      <div class="ld-step {b.cls === 'ok' ? 'ok' : (b.cls === 'warn' ? 'retry' : 'fail')}">
-                        <span class="ld-ico">{b.icon}</span>
-                        <strong>{label}</strong>
-                        {#if r.record}<small class="da-record">{r.record}</small>{/if}
-                        {#if label === 'DKIM'}<small>M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</small>{/if}
-                        {#if r.issues && r.issues.length}
-                          <div class="da-issues">{#each r.issues as iss}<div>⚠️ {iss}</div>{/each}</div>
-                        {/if}
-                      </div>
-                    {/each}
+                    <div class="da-checks">
+                      {#each [['SPF', d.spf], ['DMARC', d.dmarc], ['DKIM', d.dkim]] as [label, r] (label)}
+                        {@const b = daBadge(r.status)}
+                        <div class="da-check {b.cls}">
+                          <div class="da-check-head">
+                            <span>{b.icon}</span>
+                            <strong>{label}</strong>
+                            <span class="da-check-state">{b.cls === 'ok' ? 'in Ordnung' : b.cls === 'warn' ? 'Warnung' : 'Problem'}</span>
+                            {#if label === 'DKIM'}
+                              <span class="da-check-meta">M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</span>
+                            {/if}
+                            {#if label === 'DMARC' && r.policy}
+                              <span class="da-check-meta">Policy: {r.policy}</span>
+                            {/if}
+                          </div>
+                          {#if r.record}<code class="da-check-record">{r.record}</code>{/if}
+                          {#if r.issues && r.issues.length}
+                            <ul class="da-check-issues">{#each r.issues as iss}<li>{iss}</li>{/each}</ul>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
                   </td>
                 </tr>
               {/if}
