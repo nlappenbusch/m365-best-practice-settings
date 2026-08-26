@@ -11,6 +11,7 @@
     "express": "^4.19.2",
     "express-session": "^1.18.0",
     "fast-xml-parser": "^5.10.1",
+    "pdfkit": "^0.20.1",
     "selfsigned": "^2.4.1"
   }
 }

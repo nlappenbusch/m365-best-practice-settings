@@ -66,6 +66,23 @@ Nachgezogen nach dem ersten Praxistest (gleicher Tag):
 - **Skip-Gründe sichtbar**: aufklappbare Liste «N übersprungene Tests — und
   warum» am Ergebnis (Grund aus Maesters ResultDetail: fehlende Lizenz,
   fehlendes Modul, nicht zutreffend, …).
+- **Deutsche Erklärungen per KI**: «Auf Deutsch erklären» erzeugt pro
+  gefallenem Test einen kundenverständlichen Titel, die Bedeutung/das Risiko
+  und konkrete Umsetzungsschritte inkl. Aufwandsschätzung (Anthropic-API wie
+  im Ticket-Copilot, einmal pro Lauf gecacht als `explain.json`).
+- **Findings-Accordion**: Klick auf einen gefallenen Test klappt Details auf —
+  deutsche Erklärung, sonst Maesters englische Testbeschreibung + Befund.
+- **SDP-Anbindung**: pro Finding «Als SDP-Ticket anlegen» (nur für den
+  freigeschalteten Tickets-Nutzer) — Ticket mit deutscher Erklärung und
+  Umsetzungsschritten, `POST /api/sdp/maester-task` + `SDP.createRequest`.
+- **Kunden-PDF**: serverseitig erzeugter deutscher Report (pdfkit, neue
+  Dependency) mit Score-Kennzahlen, Findings inkl. KI-Erklärungen,
+  Skip-Gründen und Methodik — `GET …/maester/runs/:runId/report.pdf`.
+- **Security & Compliance wird mitverbunden**: best-effort
+  `Connect-IPPSSession` app-only (Compliance-Administrator-Rolle setzt das
+  Onboarding schon) — schaltet die CISA-Tests zu Defender/Spam/DLP/Audit
+  frei, die bisher als `NotConnectedSecurityCompliance` übersprungen wurden.
+  Scheitert der Connect (Linux-Einschränkungen), läuft der Rest unverändert.
 - **Auswertung läuft jetzt in Node statt in pwsh**: Zusammenfassung wird aus
   Maesters `results.json` gerechnet. Grund: der pwsh-Prozess wurde am Ende
   zweier realer Läufe kommentarlos abgeschossen (kein stderr — mutmasslich

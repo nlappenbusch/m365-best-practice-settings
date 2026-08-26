@@ -172,4 +172,24 @@ async function getTicketFull(id) {
   };
 }
 
-module.exports = { config, getTicketDetails, getTicketNotes, getTicketTasks, downloadAttachment, getTicketFull, htmlToText };
+/**
+ * Neues Ticket anlegen (fuer Maester-Findings). SDP v3 erwartet die Nutzdaten
+ * form-urlencoded als input_data-JSON. Beschreibung darf HTML sein.
+ */
+async function createRequest({ subject, description }) {
+  const cfg = config();
+  requireEnabled(cfg);
+  const request = {
+    subject: String(subject || "").slice(0, 250),
+    description: String(description || "")
+  };
+  // Wenn ein Owner konfiguriert ist, direkt als Techniker zuweisen — sonst
+  // landet das Ticket unassigned in der Queue (auch ok).
+  if (cfg.ownerId) request.technician = { id: cfg.ownerId };
+  const body = "input_data=" + encodeURIComponent(JSON.stringify({ request }));
+  const j = await sdpJson("/requests", { method: "POST", body });
+  const created = j.request || {};
+  return { id: String(created.id || ""), subject: created.subject || request.subject };
+}
+
+module.exports = { config, getTicketDetails, getTicketNotes, getTicketTasks, downloadAttachment, getTicketFull, htmlToText, createRequest };

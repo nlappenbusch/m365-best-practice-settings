@@ -61,6 +61,8 @@ const BULKDELETE = require("./lib/intuneBulkDelete");
 const SPMAP = require("./lib/sharepointMapping");
 const REGPOLICY = require("./lib/registryPolicy");
 const MAESTER = require("./lib/maester");
+const MAESTER_EXPLAIN = require("./lib/maesterExplain");
+const MAESTER_PDF = require("./lib/maesterPdf");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -860,6 +862,38 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
     ? saveRunbookEntry({ ticketId: req.params.id, ticketSubject: ticket.subject, tenantId, tenantName, suggestion, autoPreview })
     : null;
   res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null, autoPreview });
+}));
+
+// Maester-Finding als SDP-Ticket anlegen. Liegt unter /api/sdp und ist damit
+// automatisch auf den Tickets-Nutzer beschraenkt (Middleware oben). Nutzt die
+// deutsche KI-Erklaerung des Laufs, falls vorhanden — sonst die englischen
+// Detailtexte aus results.json.
+app.post("/api/sdp/maester-task", wrap(async (req, res) => {
+  const { tenantId, runId, findingId } = req.body || {};
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === String(tenantId || ""));
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const failed = maesterRunFailedDetails(t.id, String(runId || "")) || [];
+  const f = failed.find(x => x.id === String(findingId || ""));
+  if (!f) return res.status(404).json({ error: "Finding nicht (mehr) im Lauf gefunden." });
+  const ex = (loadMaesterExplain(t.id, String(runId)) || []).find(x => x.id === f.id) || null;
+
+  const esc = (x) => String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const subject = `[Security-Audit ${t.name}] ${(ex && ex.titel) || f.title || f.id}`.slice(0, 240);
+  const description =
+    `<b>Maester-Finding aus dem Security-Audit</b><br>` +
+    `Tenant: ${esc(t.name)}<br>Test: ${esc(f.id)} — ${esc(f.title)}<br>` +
+    `Schweregrad: ${esc(f.severity || "—")} · Bereich: ${esc(f.block || "—")}<br><br>` +
+    (ex
+      ? `<b>Bedeutung:</b><br>${esc(ex.bedeutung)}<br><br><b>Umsetzung:</b><ol>` +
+        (ex.umsetzung || []).map(step => `<li>${esc(step)}</li>`).join("") + `</ol>` +
+        (ex.aufwand ? `Gesch&auml;tzter Aufwand: ${esc(ex.aufwand)}<br>` : "")
+      : `${esc(f.description)}<br><br><b>Befund:</b><br>${esc(f.result)}<br>`) +
+    (f.helpUrl ? `<br>Referenz: <a href="${esc(f.helpUrl)}">${esc(f.helpUrl)}</a>` : "");
+
+  const ticket = await SDP.createRequest({ subject, description });
+  console.log(`Maester-Finding als SDP-Ticket angelegt: #${ticket.id} (${t.name}, ${f.id})`);
+  res.json({ ok: true, ticket });
 }));
 
 app.get("/api/runbooks", (req, res) => {
@@ -3622,6 +3656,8 @@ async function runMaesterJobInner(job, t, tags) {
       score: MAESTER.score(r.data.counts || {}),
       exoConnected: !!r.data.exoConnected,
       exoError: r.data.exoError || null,
+      scConnected: !!r.data.scConnected,
+      scError: r.data.scError || null,
       failed: r.data.failed || [],
       skipped: r.data.skipped || [],
       maesterVersion: r.data.maesterVersion || null,
@@ -3634,6 +3670,7 @@ async function runMaesterJobInner(job, t, tags) {
     const hints = [];
     if (r.data.salvaged) hints.push("Der pwsh-Prozess endete unsauber (" + r.data.salvaged + ") — Ergebnis wurde aus results.json gerettet.");
     if (r.data.exoConnected === false) hints.push("Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
+    if (r.data.exoConnected === true && r.data.scConnected === false) hints.push("Security & Compliance nicht verbunden — betroffene CISA-Tests uebersprungen" + (r.data.scError ? " (" + String(r.data.scError).slice(0, 200) + ")" : "") + ".");
     finishAppJob(job, true, null, hints.length ? hints.join(" ") : null);
   } catch (e) {
     finishAppJob(job, false, e.message, e.hint || null);
@@ -3644,6 +3681,7 @@ const MAESTER_PHASES = [
   "Berechtigungen prüfen",
   "Verbindung zu Microsoft Graph",
   "Verbindung zu Exchange Online",
+  "Verbindung zu Security & Compliance",
   "Testsuite vorbereiten",
   "Maester-Tests laufen (dauert mehrere Minuten)",
   "Auswertung"
@@ -3704,6 +3742,97 @@ app.get("/api/tenants/:id/maester/runs/:runId/results.json", wrap(async (req, re
   const file = path.join(maesterRunDir(t.id, req.params.runId), "results.json");
   if (!fs.existsSync(file)) return res.status(404).json({ error: "Keine Rohdaten fuer diesen Lauf." });
   res.type("json").send(fs.readFileSync(file, "utf8"));
+}));
+
+// ---------- Maester: Details, deutsche Erklaerungen, Kunden-PDF ----------
+function maesterExplainPath(tenantRecId, runId) {
+  return path.join(maesterRunDir(tenantRecId, runId), "explain.json");
+}
+
+function loadMaesterExplain(tenantRecId, runId) {
+  try { return JSON.parse(fs.readFileSync(maesterExplainPath(tenantRecId, runId), "utf8")); }
+  catch (e) { return null; }
+}
+
+// Gefallene Tests eines Laufs inkl. der englischen Detailtexte aus results.json
+// (Testbeschreibung + konkreter Befund) — Grundlage fuer Accordion, KI und PDF.
+function maesterRunFailedDetails(tenantRecId, runId) {
+  const file = path.join(maesterRunDir(tenantRecId, runId), "results.json");
+  if (!fs.existsSync(file)) return null;
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return null; }
+  const pick = (o, names) => { for (const n of names) { if (o && o[n] !== null && o[n] !== undefined && o[n] !== "") return o[n]; } return null; };
+  const tests = Array.isArray(doc.Tests) ? doc.Tests : (Array.isArray(doc.tests) ? doc.tests : []);
+  return tests
+    .filter(t => t && /^Failed/i.test(String(pick(t, ["Result", "result"]) || "")))
+    .map(t => {
+      const rd = pick(t, ["ResultDetail", "resultDetail"]) || {};
+      return {
+        id: String(pick(t, ["Id", "id", "Name", "name"]) || ""),
+        title: String(pick(t, ["Title", "title", "Name", "name"]) || ""),
+        severity: String(pick(t, ["Severity", "severity"]) || ""),
+        block: String(pick(t, ["Block", "block"]) || ""),
+        helpUrl: String(pick(t, ["HelpUrl", "helpUrl"]) || ""),
+        description: String(pick(rd, ["TestDescription", "testDescription"]) || "").slice(0, 2000),
+        result: String(pick(rd, ["TestResult", "testResult"]) || "").slice(0, 2500)
+      };
+    });
+}
+
+app.get("/api/tenants/:id/maester/runs/:runId/details", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const failed = maesterRunFailedDetails(t.id, req.params.runId);
+  if (failed === null) return res.status(404).json({ error: "Keine Rohdaten fuer diesen Lauf." });
+  res.json({ ok: true, failed, explain: loadMaesterExplain(t.id, req.params.runId), aiEnabled: MAESTER_EXPLAIN.config().enabled });
+}));
+
+// Deutsche Erklaerungen (Bedeutung + Umsetzungsschritte) per KI erzeugen —
+// einmal pro Lauf, danach aus explain.json.
+app.post("/api/tenants/:id/maester/runs/:runId/explain", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const existing = loadMaesterExplain(t.id, req.params.runId);
+  if (existing && !(req.body && req.body.force)) return res.json({ ok: true, explain: existing });
+  const failed = maesterRunFailedDetails(t.id, req.params.runId);
+  if (failed === null) return res.status(404).json({ error: "Keine Rohdaten fuer diesen Lauf." });
+  if (!failed.length) return res.json({ ok: true, explain: [] });
+  const explain = await MAESTER_EXPLAIN.explainFindings({ tenantName: t.name, findings: failed });
+  fs.writeFileSync(maesterExplainPath(t.id, req.params.runId), JSON.stringify(explain, null, 2), "utf8");
+  res.json({ ok: true, explain });
+}));
+
+// Kundenfaehiger PDF-Report (deutsch, serverseitig erzeugt). Nutzt die
+// KI-Erklaerungen, wenn sie fuer den Lauf schon erzeugt wurden.
+app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  let summary;
+  try { summary = JSON.parse(fs.readFileSync(path.join(maesterRunDir(t.id, req.params.runId), "summary.json"), "utf8")); }
+  catch (e) { return res.status(404).json({ error: "Kein Ergebnis fuer diesen Lauf." }); }
+  const details = maesterRunFailedDetails(t.id, req.params.runId) || [];
+  const explain = loadMaesterExplain(t.id, req.params.runId) || [];
+  const exMap = new Map(explain.map(x => [x.id, x]));
+  const detMap = new Map(details.map(x => [x.id, x]));
+  const findings = (summary.failed || []).map(f => ({ ...f, ...(detMap.get(f.id) || {}), ...(exMap.get(f.id) || {}) }));
+  const pdf = await MAESTER_PDF.buildPdf({
+    tenantName: t.name,
+    organization: t.organization || null,
+    generatedAt: summary.generatedAt,
+    suites: summary.suites || [],
+    counts: summary.counts || {},
+    score: summary.score,
+    maesterVersion: summary.maesterVersion || null,
+    findings,
+    skipped: summary.skipped || []
+  });
+  const safeName = String(t.name || "Tenant").replace(/[^A-Za-z0-9._-]+/g, "-");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="SecurityAudit_${safeName}_${String(summary.generatedAt || "").slice(0, 10)}.pdf"`);
+  res.send(pdf);
 }));
 
 // Uebersicht ueber alle Tenants — liest wie /api/reports/overview nur den

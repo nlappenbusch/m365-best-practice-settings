@@ -135,6 +135,23 @@ async function runMaester(opts, onProgress, onChild) {
     "  $exoConnected = $true",
     "} catch { $exoError = $_.Exception.Message }",
     "",
+    // Security & Compliance (Connect-IPPSSession): schaltet die CISA-Tests zu
+    // Defender/Spam/DLP/Audit frei (Skip-Grund NotConnectedSecurityCompliance).
+    // Die Compliance-Administrator-Rolle vergibt das Onboarding bereits. Best
+    // effort: auf Linux war IPPS historisch wacklig — scheitert der Connect,
+    // laeuft der Rest trotzdem und der Grund steht am Ergebnis.
+    "BpPhase 'Verbindung zu Security & Compliance'",
+    "$scConnected = $false; $scError = $null",
+    "if ($exoConnected) {",
+    "  try {",
+    "    $ipps = Get-Command Connect-IPPSSession -ErrorAction Stop",
+    "    $scp = @{ AppId = " + q(t.clientId) + "; Organization = " + q(t.organization) + "; Certificate = $cert; ErrorAction = 'Stop' }",
+    "    if ($ipps.Parameters.ContainsKey('ShowBanner')) { $scp['ShowBanner'] = $false }",
+    "    Connect-IPPSSession @scp",
+    "    $scConnected = $true",
+    "  } catch { $scError = $_.Exception.Message }",
+    "} else { $scError = 'Uebersprungen — Exchange-Verbindung fehlt.' }",
+    "",
     "BpPhase 'Testsuite vorbereiten'",
     "$runDir = Join-Path ([System.IO.Path]::GetTempPath()) ('maester-' + [guid]::NewGuid().ToString('N'))",
     "try { Copy-Item -Recurse -Path " + q(testsDir) + " -Destination $runDir -ErrorAction Stop } catch { BpFail ('Testsuite nicht kopierbar: ' + $_.Exception.Message) }",
@@ -169,7 +186,7 @@ async function runMaester(opts, onProgress, onChild) {
     // Nur der Mini-Marker mit Verbindungsinfo — die eigentliche Auswertung
     // macht Node aus results.json. Selbst wenn der Prozess ab hier stirbt,
     // kann Node das Ergebnis noch aus der Datei retten.
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; exoConnected = $exoConnected; exoError = $exoError; maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version) } | ConvertTo-Json -Compress) + 'ENDJSON')"
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; exoConnected = $exoConnected; exoError = $exoError; scConnected = $scConnected; scError = $scError; maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version) } | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
 
   const r = await EXO.runPwsh(script, opts.timeoutMs || DEFAULT_TIMEOUT_MS, onProgress, (child) => {
@@ -191,6 +208,8 @@ async function runMaester(opts, onProgress, onChild) {
         ...summary.data,
         exoConnected: !!r.data.exoConnected,
         exoError: r.data.exoError || null,
+        scConnected: !!r.data.scConnected,
+        scError: r.data.scError || null,
         maesterVersion: r.data.maesterVersion || summary.data.resultVersion,
         htmlAvailable: fs.existsSync(htmlPath),
         jsonAvailable: true
@@ -211,6 +230,8 @@ async function runMaester(opts, onProgress, onChild) {
           ...summary.data,
           exoConnected: null,
           exoError: null,
+          scConnected: null,
+          scError: null,
           maesterVersion: summary.data.resultVersion,
           htmlAvailable: fs.existsSync(htmlPath),
           jsonAvailable: true,

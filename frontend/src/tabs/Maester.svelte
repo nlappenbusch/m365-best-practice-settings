@@ -20,6 +20,57 @@
   let showAllFailed = $state(false)
   let showSkipped = $state(false)
 
+  // Accordion-Details + deutsche KI-Erklärungen zum letzten Lauf
+  let details = $state(null)        // { failed: [engl. Details], explain: [dt.]|null, aiEnabled }
+  let detailsLoading = $state(false)
+  let explaining = $state(false)
+  let explainMsg = $state(null)
+  let expandedF = $state({})        // findingId -> bool
+  let sdpState = $state({})         // findingId -> { busy?, ticket?, error? }
+
+  let exMap = $derived(new Map((details?.explain || []).map(x => [x.id, x])))
+  let detMap = $derived(new Map((details?.failed || []).map(x => [x.id, x])))
+
+  async function loadDetails() {
+    if (!$activeTenant || !latest?.runId || detailsLoading) return
+    detailsLoading = true
+    try {
+      details = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/runs/${encodeURIComponent(latest.runId)}/details`)
+    } catch (e) { details = null }
+    detailsLoading = false
+  }
+
+  function toggleFinding(id) {
+    expandedF[id] = !expandedF[id]
+    if (!details && !detailsLoading) loadDetails()
+  }
+
+  async function explainNow() {
+    if (!$activeTenant || !latest?.runId) return
+    explaining = true; explainMsg = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/runs/${encodeURIComponent(latest.runId)}/explain`)
+      if (details) details.explain = r.explain
+      else await loadDetails()
+      explainMsg = { ok: true, msg: 'Deutsche Erklärungen erzeugt — Findings anklicken. Der PDF-Report nutzt sie jetzt auch.' }
+    } catch (e) { explainMsg = { ok: false, msg: e.message } }
+    explaining = false
+  }
+
+  function openPdf() {
+    if (!$activeTenant || !latest?.runId) return
+    window.open(`/api/tenants/${encodeURIComponent($activeTenant.id)}/maester/runs/${encodeURIComponent(latest.runId)}/report.pdf`, '_blank')
+  }
+
+  async function sdpTask(id) {
+    if (!$activeTenant || !latest?.runId) return
+    sdpState[id] = { busy: true }
+    try {
+      const r = await apiPost('/api/sdp/maester-task', { tenantId: $activeTenant.id, runId: latest.runId, findingId: id })
+      sdpState[id] = { ticket: r.ticket?.id || '?' }
+    } catch (e) { sdpState[id] = { error: e.message } }
+  }
+
   // Suiten-Auswahl: alle an = komplette Testsuite (inkl. nicht getaggter Tests),
   // Teilmenge = Tag-Filter im Backend. Tags sind die offiziellen Maester-Tags.
   const SUITES = [
@@ -83,6 +134,7 @@
 
   async function loadTenant(tid) {
     latest = null; runs = []; showAllFailed = false; showSkipped = false
+    details = null; expandedF = {}; sdpState = {}; explainMsg = null
     schedEnabled = false; schedInterval = 'weekly'; schedSaved = null
     if (!tid) return
     try {
@@ -104,6 +156,9 @@
       // Laeuft fuer diesen Tenant schon ein Job (anderes Fenster, Reload,
       // MCP-Start), Fortschritt wieder aufnehmen statt spaeter in den 409 zu laufen.
       if (a.jobId && (!job || job.status !== 'running')) pollJob(a.jobId)
+      // Details (engl. Befunde + ggf. gecachte deutsche Erklärungen) gleich
+      // mitladen — dann stehen deutsche Titel und Accordion ohne Extra-Klick.
+      if (latest?.runId && latest?.counts?.failed) loadDetails()
     } catch (e) { /* kein Stand vorhanden */ }
   }
 
@@ -265,7 +320,18 @@
         {#if latest?.htmlAvailable && latest?.runId}
           <button class="btn btn-secondary" onclick={() => openReport(latest.runId)}>Interaktiven HTML-Report öffnen</button>
         {/if}
+        {#if latest?.runId}
+          <button class="btn btn-secondary" onclick={openPdf}>📄 Kunden-PDF (deutsch)</button>
+        {/if}
+        {#if latest?.counts?.failed > 0 && !exMap.size}
+          <button class="btn btn-secondary" onclick={explainNow} disabled={explaining}>
+            {explaining ? '🇩🇪 KI erklärt… (bis zu 2 Min.)' : '🇩🇪 Auf Deutsch erklären (KI)'}
+          </button>
+        {/if}
       </div>
+      {#if explainMsg}
+        <div class="ld-banner {explainMsg.ok ? 'ok' : 'fail'}" style="margin-top:0.5rem">{explainMsg.msg}</div>
+      {/if}
 
       <div class="settings-group" style="margin-top:1rem">
         <h4>⏰ Automatisch ausführen</h4>
@@ -342,13 +408,55 @@
           <table class="gt-table" style="margin-top:0.75rem">
             <thead><tr><th>Schweregrad</th><th>Test</th><th>Bereich</th><th></th></tr></thead>
             <tbody>
-              {#each failedShown as f}
-                <tr>
-                  <td>{f.severity || '—'}</td>
-                  <td>{f.title || f.id}</td>
+              {#each failedShown as f (f.id)}
+                <tr onclick={() => toggleFinding(f.id)} style="cursor:pointer">
+                  <td>{expandedF[f.id] ? '▾' : '▸'} {f.severity || '—'}</td>
+                  <td>{exMap.get(f.id)?.titel || f.title || f.id}</td>
                   <td>{f.block || '—'}</td>
-                  <td>{#if f.helpUrl}<a href={f.helpUrl} target="_blank" rel="noreferrer">Doku ↗</a>{/if}</td>
+                  <td>{#if f.helpUrl}<a href={f.helpUrl} target="_blank" rel="noreferrer" onclick={(e) => e.stopPropagation()}>Doku ↗</a>{/if}</td>
                 </tr>
+                {#if expandedF[f.id]}
+                  <tr>
+                    <td colspan="4" style="background:var(--accent-wash, rgba(0,0,0,0.03))">
+                      {#if detailsLoading}
+                        <small>Lade Details…</small>
+                      {:else}
+                        {@const ex = exMap.get(f.id)}
+                        {@const det = detMap.get(f.id)}
+                        {#if ex}
+                          <p style="margin:0.3rem 0"><strong>{ex.titel}</strong></p>
+                          <p style="margin:0.3rem 0">{ex.bedeutung}</p>
+                          {#if ex.umsetzung?.length}
+                            <p style="margin:0.4rem 0 0.15rem"><strong>Umsetzung{ex.aufwand ? ` (Aufwand: ${ex.aufwand})` : ''}:</strong></p>
+                            <ol style="margin:0 0 0.4rem 1.2rem">
+                              {#each ex.umsetzung as step}<li>{step}</li>{/each}
+                            </ol>
+                          {/if}
+                        {:else if det}
+                          <p style="margin:0.3rem 0; white-space:pre-wrap">{det.description || det.title}</p>
+                          {#if det.result}<p style="margin:0.3rem 0; white-space:pre-wrap"><strong>Befund:</strong> {det.result}</p>{/if}
+                          {#if details?.aiEnabled}
+                            <small class="ld-section-hint">Für deutsche Erklärung und Umsetzungsschritte oben «Auf Deutsch erklären (KI)» klicken.</small>
+                          {/if}
+                        {:else}
+                          <small>Keine Details verfügbar — Rohdaten des Laufs fehlen (älterer Lauf?).</small>
+                        {/if}
+                        {#if $session.ticketsAllowed}
+                          <div style="margin-top:0.45rem">
+                            {#if sdpState[f.id]?.ticket}
+                              <span>✅ SDP-Ticket #{sdpState[f.id].ticket} angelegt</span>
+                            {:else}
+                              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); sdpTask(f.id) }} disabled={sdpState[f.id]?.busy}>
+                                {sdpState[f.id]?.busy ? 'Lege SDP-Ticket an…' : '🎫 Als SDP-Ticket anlegen'}
+                              </button>
+                              {#if sdpState[f.id]?.error}<span class="ld-banner fail" style="margin-left:0.5rem">{sdpState[f.id].error}</span>{/if}
+                            {/if}
+                          </div>
+                        {/if}
+                      {/if}
+                    </td>
+                  </tr>
+                {/if}
               {/each}
             </tbody>
           </table>
