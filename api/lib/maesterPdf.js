@@ -65,12 +65,16 @@ function skipReasonLabel(reason) {
 // alles andere ausserhalb von Latin-1 (+ ein paar WinAnsi-Sonderzeichen)
 // verwerfen.
 const EMOJI_MAP = [
-  [/✅|✔️|✔/g, "OK"],
-  [/❌|✖️|✖|❎/g, "Fail"],
+  // Maester schreibt Status als "❌ Fail"/"✅ Pass" — Emoji ersatzlos streichen,
+  // das Wort daneben traegt die Information (sonst steht "Fail Fail" im PDF).
+  [/(✅|✔️|✔|❌|✖️|✖|❎|⏭️|⏭|⏩)\s*(?=[A-Za-z])/g, ""],
+  [/✅|✔️|✔|🟢/g, "OK"],
+  [/❌|✖️|✖|❎|🔴/g, "Fail"],
   [/⏭️|⏭|⏩/g, "Skip"],
-  [/⚠️|⚠/g, "Achtung:"],
+  [/(⚠️|⚠)\s*(?=[A-Za-z])/g, ""],
+  [/⚠️|⚠|🟡|🟠/g, "Achtung:"],
+  [/(ℹ️|ℹ)\s*(?=[A-Za-z])/g, ""],
   [/ℹ️|ℹ/g, "Info:"],
-  [/🟢/g, "OK"], [/🔴/g, "Fail"], [/🟡|🟠/g, "Achtung"],
   [/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ""]
 ];
 function sanitizePdf(s) {
@@ -88,38 +92,54 @@ function renderMdBlock(ctx, md) {
   const LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
 
   const inlinePlain = (s) => sanitizePdf(
-    String(s).replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1")
+    // Auch einzeln uebrig gebliebene **-Marker entfernen (kommen vor, wenn
+    // fettgedruckte Links wie **[Text](url)** zerlegt werden).
+    String(s).replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*\*/g, "").replace(/`([^`]+)`/g, "$1")
   );
 
-  // Eine Zeile mit moeglichen Links als Text-Runs ausgeben (Links klickbar).
+  // Eine Zeile mit moeglichen Links ausgeben. pdfkit setzt Link-Annotationen
+  // bei zusammengesetzten continued-Textlaeufen daneben (Farbe sichtbar, aber
+  // nicht klickbar — real passiert). Deshalb: besteht die Zeile im Kern aus
+  // EINEM Link, wird sie als einzelner text()-Aufruf mit link-Option gesetzt
+  // (zuverlaessig klickbar, auch ueber Zeilenumbrueche). Links mitten im Satz
+  // bleiben farbig im Text, die klickbare URL folgt als eigene Zeile darunter.
   const writeLine = (line, opts) => {
     ensureSpace(16);
     const o = { size: 9.5, color: COL.text, prefix: "", bold: false, ...(opts || {}) };
-    const parts = [];
-    let last = 0, m;
+    const links = [];
+    let m;
     LINK_RE.lastIndex = 0;
-    while ((m = LINK_RE.exec(line)) !== null) {
-      if (m.index > last) parts.push({ text: line.slice(last, m.index) });
-      parts.push({ text: m[1], link: m[2] });
-      last = m.index + m[0].length;
-    }
-    if (last < line.length) parts.push({ text: line.slice(last) });
-    if (!parts.length) return;
+    while ((m = LINK_RE.exec(line)) !== null) links.push({ text: m[1], url: m[2] });
+
     doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size);
-    if (o.prefix) doc.fillColor(o.color).text(o.prefix, x, doc.y, { width, continued: true, lineGap: 1.5 });
-    parts.forEach((p, i) => {
-      const isLast = i === parts.length - 1;
-      const txt = inlinePlain(p.text);
-      if (!txt && !isLast) return;
-      if (p.link) {
-        doc.fillColor(ACCENT).text(txt, o.prefix || i > 0 ? undefined : x, undefined,
-          { width, continued: !isLast, underline: true, link: p.link, lineGap: 1.5 });
-      } else {
-        doc.fillColor(o.color).text(txt, o.prefix || i > 0 ? undefined : x, undefined,
-          { width, continued: !isLast, underline: false, link: null, lineGap: 1.5 });
-      }
-    });
-    doc.x = x;
+
+    // Zeile = genau ein Link (plus hoechstens Satzzeichen drumherum)?
+    const stripped = line.replace(LINK_RE, "").replace(/[\s*.,;:()–-]+/g, "");
+    if (links.length === 1 && stripped === "") {
+      // EIN text()-Aufruf inkl. Prefix — kein continued, sonst sitzt die
+      // Link-Annotation daneben und die Positionsrechnung kippt (verursachte
+      // real unklickbare Links und einen Umbruch mitten im Finding).
+      doc.fillColor(ACCENT).text(o.prefix + inlinePlain(links[0].text), x, doc.y, {
+        width, underline: true, link: links[0].url, lineGap: 1.5
+      });
+      doc.x = x;
+      return;
+    }
+
+    // Gemischte Zeile: Linktexte farbig im Fliesstext, URLs separat klickbar.
+    const flat = inlinePlain(line.replace(LINK_RE, "$1"));
+    if (flat) {
+      doc.fillColor(o.color).text(o.prefix + flat, x, doc.y, { width, lineGap: 1.5, link: null, underline: false });
+      doc.x = x;
+    }
+    for (const l of links) {
+      ensureSpace(14);
+      const shortUrl = l.url.replace(/^https?:\/\//, "").slice(0, 90);
+      doc.font("Helvetica").fontSize(8.5).fillColor(ACCENT).text("↗ " + shortUrl, x + 12, doc.y, {
+        width: width - 12, underline: true, link: l.url, lineGap: 1
+      });
+      doc.x = x;
+    }
   };
 
   const lines = String(md == null ? "" : md).replace(/\r\n/g, "\n").replace(/```[a-zA-Z]*\n?/g, "").split("\n");
@@ -360,25 +380,60 @@ function buildPdf(data) {
         warn: { label: "Warnung", color: COL.medium },
         bad: { label: "Problem", color: COL.crit }
       };
-      const daLine = (name, st, extra) => {
-        const s = STAT[st.status] || STAT.warn;
+      const stat = (o) => STAT[(o || {}).status] || STAT.warn;
+
+      // Saubere Statustabelle: Domains als Zeilen, ein farbiger Status je
+      // Pruefung. Die Begruendungen folgen kompakt darunter — in der Zelle
+      // wuerden sie die Tabelle sprengen.
+      const cols = [
+        { label: "Domain", w: Math.round(W * 0.40) },
+        { label: "SPF", w: Math.round(W * 0.20) },
+        { label: "DKIM", w: Math.round(W * 0.20) },
+        { label: "DMARC", w: Math.round(W * 0.20) }
+      ];
+      const colX = [left, left + cols[0].w, left + cols[0].w + cols[1].w, left + cols[0].w + cols[1].w + cols[2].w];
+
+      doc.moveDown(0.5);
+      ensureSpace(60);
+      const headY = doc.y;
+      doc.rect(left, headY - 3, W, 18).fill("#f0f4f6");
+      cols.forEach((c, i) => {
+        doc.font("Helvetica-Bold").fontSize(9).fillColor(COL.muted)
+          .text(c.label.toUpperCase(), colX[i] + 6, headY + 1, { width: c.w - 12, lineBreak: false, characterSpacing: 0.3 });
+      });
+      doc.y = headY + 17;
+      for (const d of da) {
         ensureSpace(20);
         const y = doc.y;
-        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COL.text).text(name, left + 10, y, { width: 52, lineBreak: false });
-        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(s.color).text(s.label, left + 66, y, { width: 58, lineBreak: false });
-        const detail = (st.issues && st.issues[0]) || extra || "";
-        doc.font("Helvetica").fontSize(9).fillColor(COL.muted).text(detail, left + 130, y, { width: W - 130, lineGap: 1 });
-        if (doc.y < y + 13) doc.y = y + 13;
-        doc.x = left;
-      };
+        doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COL.text)
+          .text(d.domain, colX[0] + 6, y + 2, { width: cols[0].w - 12, lineBreak: false });
+        [d.spf, d.dkim, d.dmarc].forEach((o, i) => {
+          const s = stat(o);
+          doc.font("Helvetica-Bold").fontSize(9.5).fillColor(s.color)
+            .text(s.label, colX[i + 1] + 6, y + 2, { width: cols[i + 1].w - 12, lineBreak: false });
+        });
+        doc.y = y + 17;
+        doc.moveTo(left, doc.y - 1).lineTo(left + W, doc.y - 1).lineWidth(0.4).strokeColor(COL.line).stroke();
+      }
+      doc.x = left;
+
+      // Begruendungen nur fuer Auffaelliges — OK braucht keine Fussnote.
+      const issues = [];
       for (const d of da) {
-        ensureSpace(76);
-        doc.moveDown(0.7);
-        doc.font("Helvetica-Bold").fontSize(10.5).fillColor(COL.text).text(d.domain, left);
-        doc.moveDown(0.2);
-        daLine("SPF", d.spf || { status: "warn" }, d.spf && d.spf.record ? "Record vorhanden." : "");
-        daLine("DKIM", d.dkim || { status: "warn" }, d.dkim && d.dkim.status === "ok" ? "Aktiviert und DNS-Records veröffentlicht." : "");
-        daLine("DMARC", d.dmarc || { status: "warn" }, d.dmarc && d.dmarc.policy ? "Policy: " + d.dmarc.policy : "");
+        for (const [name, o] of [["SPF", d.spf], ["DKIM", d.dkim], ["DMARC", d.dmarc]]) {
+          if (o && o.status !== "ok" && o.issues && o.issues.length) {
+            issues.push({ domain: d.domain, name, text: o.issues[0] });
+          }
+        }
+      }
+      if (issues.length) {
+        doc.moveDown(0.5);
+        issues.forEach(it => {
+          ensureSpace(16);
+          doc.font("Helvetica").fontSize(8.5).fillColor(COL.muted)
+            .text(`${it.domain} · ${it.name}: ${sanitizePdf(it.text)}`, left + 6, doc.y, { width: W - 12, lineGap: 1 });
+          doc.x = left;
+        });
       }
     }
 
