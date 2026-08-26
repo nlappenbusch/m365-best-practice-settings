@@ -3602,7 +3602,12 @@ async function runMaesterJobInner(job, t, tags) {
     job._child = null;
     if (!r.ok || !r.data || !r.data.ok) {
       const msg = (r.data && r.data.error) || r.error || "Maester-Lauf fehlgeschlagen.";
-      try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* leer lassen */ }
+      // Rohes Ende des Laufs ins Server-Log (Diagnose-Tab) — die Fehlermeldung
+      // allein hat bei den bisherigen Abbruechen nicht gereicht.
+      if (r.raw) console.log("Maester-Rohausgabe (Ende, " + t.name + "): " + String(r.raw).slice(-1500));
+      // Nur wegputzen, wenn nichts Brauchbares drinliegt (results.json/HTML
+      // eines abgebrochenen Laufs sind fuer die Fehlersuche Gold wert).
+      try { if (!fs.readdirSync(outDir).length) fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* leer lassen */ }
       return finishAppJob(job, false, msg,
         /fehlt im SP|Berechtigung|Authorization|403/i.test(msg)
           ? "Im Tab 'Tenants' einmal Reparieren ausfuehren — das setzt die Maester-Leseberechtigungen."
@@ -3625,8 +3630,10 @@ async function runMaesterJobInner(job, t, tags) {
     MAESTER.pruneRuns(MAESTER_DIR, t.id, MAESTER_KEEP_RUNS);
     storeMaesterSummary(t.id, summary);
     job.maester = summary;
-    finishAppJob(job, true, null, summary.exoConnected ? null
-      : "Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
+    const hints = [];
+    if (r.data.salvaged) hints.push("Der pwsh-Prozess endete unsauber (" + r.data.salvaged + ") — Ergebnis wurde aus results.json gerettet.");
+    if (r.data.exoConnected === false) hints.push("Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
+    finishAppJob(job, true, null, hints.length ? hints.join(" ") : null);
   } catch (e) {
     finishAppJob(job, false, e.message, e.hint || null);
   }
@@ -3755,6 +3762,56 @@ app.put("/api/tenants/:id/maester/schedule", (req, res) => {
   res.json({ ok: true, schedule: t.maesterSchedule });
 });
 
+// ---------- Testsuite aktuell halten ----------
+// Die Testszenarien stecken IM Maester-Modul (Install-MaesterTests kopiert sie
+// nur heraus). Aktualisieren heisst also: neue Modulversion von der PSGallery
+// holen und die Suite neu ins State-Volume extrahieren. Passiert automatisch
+// einmal taeglich (im Zeitplan-Tick) und auf Knopfdruck.
+let maesterSuiteRefreshing = false;
+
+async function refreshMaesterSuite(job) {
+  if (maesterSuiteRefreshing) return;
+  maesterSuiteRefreshing = true;
+  try {
+    const r = await MAESTER.refreshSuite();
+    const s = loadState();
+    s.maesterSuite = {
+      checkedAt: new Date().toISOString(),
+      ok: r.ok,
+      version: r.version || (s.maesterSuite && s.maesterSuite.version) || null,
+      updated: !!r.updated,
+      error: r.ok ? (r.galleryError || null) : r.error
+    };
+    saveState(s);
+    console.log(r.ok
+      ? "Maester-Testsuite: " + (r.updated ? "aktualisiert auf " + r.version : "aktuell (Maester " + r.version + ")")
+      : "Maester-Testsuite-Aktualisierung fehlgeschlagen: " + r.error);
+    if (job) {
+      if (r.ok) finishAppJob(job, true, null, (r.updated ? "Maester auf " + r.version + " aktualisiert." : "Bereits aktuell (Maester " + r.version + ").") + (r.galleryError ? " Hinweis: PSGallery nicht erreichbar (" + r.galleryError + ") — Tests aus der vorhandenen Version extrahiert." : ""));
+      else finishAppJob(job, false, r.error, null);
+    }
+  } catch (e) {
+    console.log("Maester-Testsuite-Aktualisierung fehlgeschlagen: " + e.message);
+    if (job) finishAppJob(job, false, e.message, null);
+  } finally { maesterSuiteRefreshing = false; }
+}
+
+app.get("/api/maester/suite", (req, res) => {
+  const s = loadState();
+  res.json({ ok: true, suite: { ...MAESTER.suiteInfo(), ...(s.maesterSuite || {}), refreshing: maesterSuiteRefreshing } });
+});
+
+app.post("/api/maester/suite/update", (req, res) => {
+  if (maesterSuiteRefreshing) return res.status(409).json({ error: "Aktualisierung laeuft bereits." });
+  for (const j of appJobs.values()) {
+    if (j.isMaester && j.status === "running") return res.status(409).json({ error: "Waehrend eines laufenden Audits nicht aktualisieren — kurz warten." });
+  }
+  const job = createAppJob({ id: "_maester_suite", name: "Maester-Testsuite" }, ["Nach Updates suchen und installieren"]);
+  appJobProgress(job)("Nach Updates suchen und installieren");
+  refreshMaesterSuite(job);
+  res.json({ ok: true, jobId: job.id });
+});
+
 async function maesterScheduleTick() {
   try {
     // Nur ein Maester-Lauf gleichzeitig — egal ob manuell oder geplant.
@@ -3763,6 +3820,12 @@ async function maesterScheduleTick() {
     }
     const s = loadState();
     const now = Date.now();
+    // Testsuite einmal taeglich aktuell halten — Audits kommen im naechsten
+    // Tick dran, nie parallel zur Aktualisierung.
+    if (!maesterSuiteRefreshing && (!s.maesterSuite || !s.maesterSuite.checkedAt || now - new Date(s.maesterSuite.checkedAt).getTime() > 24 * 3600000)) {
+      refreshMaesterSuite(null);
+      return;
+    }
     for (const t of s.tenants || []) {
       const sch = t.maesterSchedule;
       if (!sch || !sch.enabled) continue;

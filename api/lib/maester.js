@@ -17,6 +17,61 @@ const path = require("path");
 const EXO = require("./exorunner");
 
 const DEFAULT_TESTS_DIR = process.env.MAESTER_TESTS_DIR || "/opt/maester-tests";
+// Zur Laufzeit aktualisierte Testsuite (siehe refreshSuite) — liegt im
+// State-Volume und ueberlebt damit Container-Neustarts. Die beim Image-Build
+// eingefrorene Kopie unter /opt bleibt der Fallback.
+const STATE_TESTS_DIR = path.join(process.env.STATE_DIR || path.join(__dirname, "..", "state"), "maester-tests");
+
+/** Aktive Testsuite: die zur Laufzeit aktualisierte, sonst die aus dem Image. */
+function resolveTestsDir() {
+  try {
+    if (fs.existsSync(STATE_TESTS_DIR) && fs.readdirSync(STATE_TESTS_DIR).length) return STATE_TESTS_DIR;
+  } catch (e) { /* Fallback unten */ }
+  return DEFAULT_TESTS_DIR;
+}
+
+/** Stand der aktiven Testsuite (fuer die Anzeige). */
+function suiteInfo() {
+  const dir = resolveTestsDir();
+  let updatedAt = null;
+  try { updatedAt = fs.statSync(dir).mtime.toISOString(); } catch (e) { /* unbekannt */ }
+  return { dir, source: dir === STATE_TESTS_DIR ? "aktualisiert" : "Image-Build", updatedAt };
+}
+
+/**
+ * Testsuite aktualisieren: neue Maester-Version von der PSGallery installieren
+ * (die Tests stecken IM Modul — Install-MaesterTests kopiert sie nur heraus)
+ * und die Suite ins State-Volume extrahieren. Rein additiv: alte Modulversionen
+ * bleiben liegen, ein laufender Audit ist nicht betroffen.
+ */
+async function refreshSuite() {
+  const q = EXO.psQuote;
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$ProgressPreference = 'SilentlyContinue'",
+    "try { $PSStyle.OutputRendering = 'PlainText' } catch {}",
+    "try {",
+    "  $cur = (Get-Module -ListAvailable Maester | Sort-Object Version -Descending | Select-Object -First 1).Version",
+    "  if (-not $cur) { throw 'Maester-Modul nicht installiert.' }",
+    "  $updated = $false",
+    "  try {",
+    "    $latest = (Find-Module Maester -Repository PSGallery -ErrorAction Stop).Version",
+    "    if ([version]$latest -gt [version]$cur) {",
+    "      Install-Module Maester -Scope AllUsers -Force -ErrorAction Stop",
+    "      $cur = $latest; $updated = $true",
+    "    }",
+    "  } catch { $galleryError = $_.Exception.Message }", // PSGallery nicht erreichbar -> Tests trotzdem aus dem vorhandenen Modul extrahieren
+    "  Import-Module Maester -RequiredVersion $cur -Force",
+    "  New-Item -ItemType Directory -Path " + q(STATE_TESTS_DIR) + " -Force | Out-Null",
+    "  Install-MaesterTests -Path " + q(STATE_TESTS_DIR) + " | Out-Null",
+    "  Write-Output ('BEGINJSON' + (@{ ok = $true; version = [string]$cur; updated = $updated; galleryError = $galleryError } | ConvertTo-Json -Compress) + 'ENDJSON')",
+    "} catch { Write-Output ('BEGINJSON' + (@{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress) + 'ENDJSON') }"
+  ].join("\r\n");
+  const r = await EXO.runPwsh(script, 10 * 60 * 1000);
+  if (!r.ok) return { ok: false, error: stripAnsi(r.error || "Aktualisierung fehlgeschlagen.") };
+  if (!r.data || !r.data.ok) return { ok: false, error: stripAnsi((r.data && r.data.error) || "Aktualisierung fehlgeschlagen.") };
+  return { ok: true, version: r.data.version, updated: !!r.data.updated, galleryError: r.data.galleryError || null };
+}
 // Laufzeit: 360+ Tests, Graph-lastig — grosse Tenants brauchen locker 15 Minuten.
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 // Mehr gefallene Tests als das speichern wir nicht in der Zusammenfassung —
@@ -42,7 +97,7 @@ function tagsClause(tags) {
  * @param {function} onChild     bekommt den pwsh-Kindprozess (Abbruch)
  */
 async function runMaester(opts, onProgress, onChild) {
-  const testsDir = opts.testsDir || DEFAULT_TESTS_DIR;
+  const testsDir = opts.testsDir || resolveTestsDir();
   if (!fs.existsSync(testsDir)) {
     return { ok: false, error: "Maester-Testsuite nicht gefunden (" + testsDir + ") — Image ohne Maester gebaut? Neu deployen." };
   }
@@ -55,8 +110,6 @@ async function runMaester(opts, onProgress, onChild) {
   const t = opts.tenant;
   const htmlPath = path.join(opts.outDir, "report.html");
   const jsonPath = path.join(opts.outDir, "results.json");
-
-  const summaryPath = path.join(opts.outDir, "summary-raw.json");
 
   const script = [
     "$ErrorActionPreference = 'Stop'",
@@ -88,9 +141,12 @@ async function runMaester(opts, onProgress, onChild) {
     "",
     "BpPhase 'Maester-Tests laufen (dauert mehrere Minuten)'",
     "try { Import-Module Maester -ErrorAction Stop } catch { BpFail ('Maester-Modul fehlt: ' + $_.Exception.Message) }",
-    "$results = $null; $invokeError = $null",
+    "$invokeError = $null",
     "try {",
-    "  $p = @{ Path = $runDir; PassThru = $true }" + (tagsClause(opts.tags) || ""),
+    // Kein -PassThru: die Auswertung passiert in Node aus results.json — das
+    // haelt den pwsh-Speicherbedarf am Ende klein (der Lauf ist hier schon
+    // zweimal kommentarlos gestorben, mutmasslich am Speicherlimit).
+    "  $p = @{ Path = $runDir }" + (tagsClause(opts.tags) || ""),
     "  $cmd = Get-Command Invoke-Maester",
     // Optionale Schalter nur setzen, wenn die installierte Maester-Version sie
     // kennt — so bricht ein Modul-Update den Lauf nicht mit ParameterNotFound.
@@ -100,7 +156,7 @@ async function runMaester(opts, onProgress, onChild) {
     "  if ($cmd.Parameters.ContainsKey('Verbosity')) { $p['Verbosity'] = 'Detailed' }",
     "  if ($cmd.Parameters.ContainsKey('OutputHtmlFile')) { $p['OutputHtmlFile'] = " + q(htmlPath) + " }",
     "  if ($cmd.Parameters.ContainsKey('OutputJsonFile')) { $p['OutputJsonFile'] = " + q(jsonPath) + " }",
-    "  $results = Invoke-Maester @p",
+    "  Invoke-Maester @p | Out-Null",
     "} catch { $invokeError = $_.Exception.Message }",
     "finally {",
     "  try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch {}",
@@ -108,67 +164,100 @@ async function runMaester(opts, onProgress, onChild) {
     "  try { Remove-Item -Recurse -Force $runDir -ErrorAction SilentlyContinue } catch {}",
     "}",
     "if ($invokeError) { BpFail ('Invoke-Maester fehlgeschlagen: ' + $invokeError) }",
-    "if (-not $results) { BpFail 'Invoke-Maester lieferte kein Ergebnis (keine Tests gelaufen?).' }",
     "",
     "BpPhase 'Auswertung'",
-    // Die Zusammenfassung geht als DATEI raus, nicht ueber stdout: die Konsole
-    // ist nach einem Maester-Lauf voller Terminal-Sequenzen, ein grosser
-    // JSON-Marker darin ist schon einmal verstuemmelt worden. Ueber stdout
-    // kommt nur noch ein Mini-Marker. Und alles in try/catch — stirbt die
-    // Auswertung, soll eine klare Meldung stehen, kein roher Konsolenrest.
-    "try {",
-    // Feldnamen defensiv aufloesen — die Ergebnisobjekte haben sich zwischen
-    // Maester-Versionen schon umbenannt (Name/Title, Id/Name).
-    "  function BpField($o, $names) { foreach ($n in $names) { $pp = $o.PSObject.Properties[$n]; if ($pp -and $null -ne $pp.Value -and '' -ne [string]$pp.Value) { return $pp.Value } } return $null }",
-    "  $tests = @($results.Tests | Where-Object { $null -ne $_ })",
-    "  $passed = 0; $failedCount = 0; $skipped = 0; $other = 0; $failed = @()",
-    "  foreach ($tt in $tests) {",
-    "    $res = [string](BpField $tt @('Result'))",
-    "    if ($res -like 'Passed*') { $passed++ }",
-    "    elseif ($res -like 'Failed*') {",
-    "      $failedCount++",
-    "      if ($failed.Count -lt " + FAILED_CAP + ") {",
-    "        $failed += [pscustomobject]@{",
-    "          id = [string](BpField $tt @('Id','Name'))",
-    "          title = [string](BpField $tt @('Title','Name'))",
-    "          severity = [string](BpField $tt @('Severity'))",
-    "          block = [string](BpField $tt @('Block'))",
-    "          helpUrl = [string](BpField $tt @('HelpUrl'))",
-    "        }",
-    "      }",
-    "    }",
-    "    elseif ($res -like 'Skipped*') { $skipped++ }",
-    "    else { $other++ }",
-    "  }",
-    "  $summary = @{",
-    "    ok = $true",
-    "    counts = @{ total = $tests.Count; passed = $passed; failed = $failedCount; skipped = $skipped; other = $other }",
-    "    exoConnected = $exoConnected",
-    "    exoError = $exoError",
-    "    failed = @($failed)",
-    "    maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version)",
-    "  }",
-    "  $summary | ConvertTo-Json -Compress -Depth 6 | Set-Content -Path " + q(summaryPath) + " -Encoding utf8",
-    "  Write-Output ('BEGINJSON' + (@{ ok = $true; summaryInFile = $true } | ConvertTo-Json -Compress) + 'ENDJSON')",
-    "} catch { BpFail ('Auswertung fehlgeschlagen: ' + $_.Exception.Message) }"
+    // Nur der Mini-Marker mit Verbindungsinfo — die eigentliche Auswertung
+    // macht Node aus results.json. Selbst wenn der Prozess ab hier stirbt,
+    // kann Node das Ergebnis noch aus der Datei retten.
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; exoConnected = $exoConnected; exoError = $exoError; maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version) } | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
 
   const r = await EXO.runPwsh(script, opts.timeoutMs || DEFAULT_TIMEOUT_MS, onProgress, (child) => {
     attachLiveParser(child, opts.onDetail);
     if (onChild) onChild(child);
   });
-  // Zusammenfassung aus der Datei nachladen (siehe Kommentar im Skript).
-  if (r.ok && r.data && r.data.ok && r.data.summaryInFile) {
-    try { r.data = { ...JSON.parse(fs.readFileSync(summaryPath, "utf8")), ok: true }; }
-    catch (e) { return { ok: false, error: "Zusammenfassung nicht lesbar: " + e.message }; }
-  }
-  if (r.ok && r.data && r.data.ok) {
-    r.data.htmlAvailable = fs.existsSync(htmlPath);
-    r.data.jsonAvailable = fs.existsSync(jsonPath);
-  }
   if (!r.ok && r.error) r.error = stripAnsi(r.error);
   if (r.data && r.data.error) r.data.error = stripAnsi(r.data.error);
+
+  const jsonThere = fs.existsSync(jsonPath);
+  if (r.ok && r.data && r.data.ok) {
+    if (!jsonThere) return { ok: false, error: "Maester hat kein results.json geschrieben — keine Tests gelaufen?", raw: r.raw };
+    const summary = summarizeResults(jsonPath);
+    if (!summary.ok) return summary;
+    return {
+      ok: true,
+      data: {
+        ok: true,
+        ...summary.data,
+        exoConnected: !!r.data.exoConnected,
+        exoError: r.data.exoError || null,
+        maesterVersion: r.data.maesterVersion || summary.data.resultVersion,
+        htmlAvailable: fs.existsSync(htmlPath),
+        jsonAvailable: true
+      }
+    };
+  }
+
+  // Prozess ohne Abschluss-Marker gestorben (der Lauf ist hier real schon am
+  // Speicherlimit abgeschossen worden): steht results.json auf der Platte,
+  // war der eigentliche Testlauf durch — Ergebnis retten statt wegwerfen.
+  if (jsonThere) {
+    const summary = summarizeResults(jsonPath);
+    if (summary.ok) {
+      return {
+        ok: true,
+        data: {
+          ok: true,
+          ...summary.data,
+          exoConnected: null,
+          exoError: null,
+          maesterVersion: summary.data.resultVersion,
+          htmlAvailable: fs.existsSync(htmlPath),
+          jsonAvailable: true,
+          salvaged: stripAnsi(r.error || "Prozess endete unsauber")
+        }
+      };
+    }
+  }
   return r;
+}
+
+/** Zusammenfassung aus Maesters results.json rechnen (in Node, nicht in pwsh). */
+function summarizeResults(jsonPath) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(jsonPath, "utf8")); }
+  catch (e) { return { ok: false, error: "results.json nicht lesbar: " + e.message }; }
+  const pick = (o, names) => { for (const n of names) { if (o && o[n] !== null && o[n] !== undefined && o[n] !== "") return o[n]; } return null; };
+  const tests = Array.isArray(doc.Tests) ? doc.Tests : (Array.isArray(doc.tests) ? doc.tests : []);
+  let passed = 0, failedCount = 0, skipped = 0, other = 0;
+  const failed = [];
+  for (const t of tests) {
+    if (!t) continue;
+    const res = String(pick(t, ["Result", "result"]) || "");
+    if (/^Passed/i.test(res)) passed++;
+    else if (/^Failed/i.test(res)) {
+      failedCount++;
+      if (failed.length < FAILED_CAP) {
+        failed.push({
+          id: String(pick(t, ["Id", "id", "Name", "name"]) || ""),
+          title: String(pick(t, ["Title", "title", "Name", "name"]) || ""),
+          severity: String(pick(t, ["Severity", "severity"]) || ""),
+          block: String(pick(t, ["Block", "block"]) || ""),
+          helpUrl: String(pick(t, ["HelpUrl", "helpUrl"]) || "")
+        });
+      }
+    } else if (/^Skipped/i.test(res)) skipped++;
+    else other++;
+  }
+  const version = pick(doc, ["CurrentVersion", "currentVersion"]);
+  return {
+    ok: true,
+    data: {
+      counts: { total: tests.length, passed, failed: failedCount, skipped, other },
+      failed,
+      resultVersion: version === null ? null : String(version)
+    }
+  };
 }
 
 // Terminal-Steuersequenzen (Farben, [?1h-Modi) aus Texten entfernen, die in
@@ -241,4 +330,4 @@ function pruneRuns(baseDir, tenantRecId, keep) {
   }
 }
 
-module.exports = { runMaester, listRuns, pruneRuns, score, sanitizeTags, ALLOWED_TAGS };
+module.exports = { runMaester, listRuns, pruneRuns, score, sanitizeTags, ALLOWED_TAGS, refreshSuite, suiteInfo, resolveTestsDir };

@@ -57,6 +57,19 @@ Nachgezogen nach dem ersten Praxistest (gleicher Tag):
   schon einmal zerlegt), Auswertung in try/catch mit klarer Fehlermeldung,
   ANSI-Reste werden aus Fehlertexten gefiltert, `/api/appjobs` liefert den
   pwsh-Prozess-Handle nicht mehr mit aus.
+- **Testsuite hält sich selbst aktuell**: die Testszenarien stecken im
+  Maester-Modul — das Backend prüft einmal täglich die PSGallery, installiert
+  neue Maester-Versionen und extrahiert die Tests frisch ins State-Volume
+  (`state/maester-tests`, Fallback bleibt die beim Build eingefrorene Kopie);
+  im Tab gibt es dazu eine Testsuite-Box mit Version, Stand und
+  «Jetzt aktualisieren».
+- **Auswertung läuft jetzt in Node statt in pwsh**: Zusammenfassung wird aus
+  Maesters `results.json` gerechnet. Grund: der pwsh-Prozess wurde am Ende
+  zweier realer Läufe kommentarlos abgeschossen (kein stderr — mutmasslich
+  Speicherlimit). Stirbt der Prozess künftig nach dem Testlauf, wird das
+  Ergebnis aus `results.json` gerettet und der Lauf gilt als erfolgreich (mit
+  Hinweis); die Roh-Ausgabe des Laufendes landet im Server-Log (Diagnose),
+  Ergebnisdateien abgebrochener Läufe werden nicht mehr gelöscht.
 
 ## Version 2.5 - Vorlage pro Tenant, Diagnose, zwei handfeste Fehlerquellen (2026-08-20)
 

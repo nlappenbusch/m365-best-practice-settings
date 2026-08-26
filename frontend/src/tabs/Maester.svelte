@@ -43,14 +43,41 @@
   let schedSaved = $state(null)     // { ok, msg }
   let schedBusy = $state(false)
 
+  // Testsuite-Stand (Maester-Version, letzte Aktualisierung)
+  let suite = $state(null)
+  let suiteBusy = $state(false)
+  let suiteMsg = $state(null)
+  let suiteTimer = null
+
   async function load() {
     overviewLoading = true
     try {
-      const o = await apiGet('/api/maester/overview')
+      const [o, su] = await Promise.all([apiGet('/api/maester/overview'), apiGet('/api/maester/suite')])
       overview = o.tenants || []
+      suite = su.suite || null
     } catch (e) { /* Anzeige bleibt leer */ }
     overviewLoading = false
     loaded = true
+  }
+
+  async function updateSuite() {
+    suiteBusy = true; suiteMsg = null
+    try {
+      const start = await apiPost('/api/maester/suite/update')
+      pollSuiteJob(start.jobId)
+    } catch (e) { suiteMsg = { ok: false, msg: e.message }; suiteBusy = false }
+  }
+
+  function pollSuiteJob(id) {
+    suiteTimer = setTimeout(async () => {
+      let j
+      try { j = await apiGet(`/api/appjobs/${encodeURIComponent(id)}`) }
+      catch (e) { suiteMsg = { ok: false, msg: e.message }; suiteBusy = false; return }
+      if (j.status === 'running') { pollSuiteJob(id); return }
+      suiteBusy = false
+      suiteMsg = j.status === 'done' ? { ok: true, msg: j.hint || 'Aktualisiert.' } : { ok: false, msg: j.error || 'Fehlgeschlagen.' }
+      load()
+    }, 2000)
   }
 
   async function loadTenant(tid) {
@@ -149,7 +176,7 @@
     return `vor ${Math.floor(h / 24)} Tagen`
   }
 
-  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer) })
+  onDestroy(() => { if (jobTimer) clearTimeout(jobTimer); if (suiteTimer) clearTimeout(suiteTimer) })
 </script>
 
 {#if !$session.loggedIn}
@@ -195,6 +222,23 @@
         {/each}
       </div>
     {/if}
+  </div>
+
+  <div class="settings-group" style="margin-top:1.25rem">
+    <h4>🧪 Testsuite</h4>
+    <p class="ld-section-hint">Die Testszenarien stecken im Maester-Modul und werden <strong>einmal täglich
+      automatisch aktualisiert</strong> (neue Modulversion von der PSGallery, Tests frisch extrahiert). Hier lässt
+      sich das sofort anstossen.</p>
+    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap">
+      {#if suite}
+        <span>Maester <strong>{suite.version || '—'}</strong> · Tests: {suite.source}{suite.updatedAt ? `, Stand ${suite.updatedAt.slice(0, 16).replace('T', ' ')}` : ''}{suite.checkedAt ? ` · zuletzt geprüft ${age(suite.checkedAt)}` : ''}</span>
+      {/if}
+      <button class="btn btn-secondary" onclick={updateSuite} disabled={suiteBusy || suite?.refreshing}>
+        {suiteBusy || suite?.refreshing ? 'Aktualisiert…' : 'Jetzt aktualisieren'}
+      </button>
+      {#if suiteMsg}<span class={suiteMsg.ok ? '' : 'ld-banner fail'}>{suiteMsg.ok ? '✅ ' : ''}{suiteMsg.msg}</span>{/if}
+      {#if suite?.error && !suiteMsg}<span class="ld-banner fail">Letzte Auto-Prüfung: {suite.error}</span>{/if}
+    </div>
   </div>
 
   <div class="settings-group" style="margin-top:1.25rem">
