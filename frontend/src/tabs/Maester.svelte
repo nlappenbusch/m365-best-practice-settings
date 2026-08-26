@@ -6,6 +6,7 @@
   import { apiGet, apiPost, apiPut } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
+  import { mdLite } from '../lib/markdownLite.js'
 
   let overview = $state([])
   let overviewLoading = $state(false)
@@ -400,6 +401,7 @@
           <div class="rep-metric">
             <div class="rep-metric-value">{latest.counts?.skipped ?? '—'}</div>
             <div class="rep-metric-label">⏭️ Übersprungen</div>
+            {#if latest.counts?.notRun}<div class="rep-metric-detail">+{latest.counts.notRun} nicht ausgeführt (abgewählte Suiten)</div>{/if}
             {#if !latest.exoConnected}<div class="rep-metric-detail">EXO nicht verbunden — EXO-Tests fehlen</div>{/if}
           </div>
         </div>
@@ -433,8 +435,11 @@
                             </ol>
                           {/if}
                         {:else if det}
-                          <p style="margin:0.3rem 0; white-space:pre-wrap">{det.description || det.title}</p>
-                          {#if det.result}<p style="margin:0.3rem 0; white-space:pre-wrap"><strong>Befund:</strong> {det.result}</p>{/if}
+                          <div class="mdl-body">{@html mdLite(det.description || det.title)}</div>
+                          {#if det.result}
+                            <p style="margin:0.5rem 0 0.15rem"><strong>Befund im Tenant:</strong></p>
+                            <div class="mdl-body">{@html mdLite(det.result)}</div>
+                          {/if}
                           {#if details?.aiEnabled}
                             <small class="ld-section-hint">Für deutsche Erklärung und Umsetzungsschritte oben «Auf Deutsch erklären (KI)» klicken.</small>
                           {/if}
@@ -512,3 +517,14 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  .mdl-body { font-size: 0.9rem; line-height: 1.45; }
+  .mdl-body :global(p) { margin: 0.3rem 0; }
+  .mdl-body :global(.mdl-h) { margin: 0.6rem 0 0.2rem; }
+  .mdl-body :global(pre.mdl-code) { background: rgba(127, 127, 127, 0.12); padding: 0.5rem 0.7rem; border-radius: 6px; overflow-x: auto; font-size: 0.85em; }
+  .mdl-body :global(code) { background: rgba(127, 127, 127, 0.12); padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.9em; }
+  .mdl-body :global(.mdl-quote) { border-left: 3px solid currentColor; padding-left: 0.6rem; opacity: 0.8; }
+  .mdl-body :global(table) { margin: 0.4rem 0; }
+  .mdl-body :global(ul), .mdl-body :global(ol) { margin: 0.2rem 0 0.4rem 1.2rem; }
+</style>

@@ -96,6 +96,14 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // Maester-Tests fallen dann einfach als "nicht abrufbar" aus.
 // Bestehende Tenants: einmal "Reparieren" im Tab Tenants ausfuehren.
 const GRAPH_APP_PERMS_MAESTER = ["Directory.Read.All", "DirectoryRecommendations.Read.All", "EntitlementManagement.Read.All", "IdentityRiskEvent.Read.All", "NetworkAccess.Read.All", "OnPremDirectorySynchronization.Read.All", "OrgSettings-AppsAndServices.Read.All", "OrgSettings-Forms.Read.All", "Policy.Read.ConditionalAccess", "Reports.Read.All", "ReportSettings.Read.All", "RoleEligibilitySchedule.Read.Directory", "RoleManagement.Read.All", "RoleManagementAlert.Read.Directory", "SecurityIdentitiesHealth.Read.All", "SecurityIdentitiesSensors.Read.All", "SharePointTenantSettings.Read.All", "ThreatHunting.Read.All", "UserAuthenticationMethod.Read.All", "DeviceManagementManagedDevices.Read.All", "DeviceManagementRBAC.Read.All"];
+// Maester-Zusatzverbindungen (auf Nils' Wunsch, 26.08.2026): Teams-Tests
+// brauchen die Teams-Administrator-Rolle fuer den App-SP, SharePoint-Tests die
+// SharePoint-Application-Permission Sites.FullControl.All (app-only Zugriff
+// auf die Admin-Site — SharePoint kennt kein engeres app-only-Aequivalent;
+// genutzt wird sie ausschliesslich lesend).
+const TEAMS_ADMIN_ROLE_TEMPLATE = "69091246-20e8-4a56-aa4d-066075b2a7a8"; // Teams Administrator
+const SPO_APP_ID = "00000003-0000-0ff1-ce00-000000000000"; // Office 365 SharePoint Online
+const SPO_APP_PERMS_MAESTER = ["Sites.FullControl.All"];
 // Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
 // S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
 const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
@@ -211,7 +219,20 @@ async function resolvePermissionTargets(token) {
   }
   if (maesterMissing.length) console.log("Maester-Permissions im Tenant nicht verfuegbar (uebersprungen): " + maesterMissing.join(", "));
 
-  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester };
+  // SharePoint-Rollen (fuer die Maester-SPO-Tests) — tolerant wie oben.
+  let spoSp = null;
+  const spoRolesMaester = [];
+  try {
+    spoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${SPO_APP_ID}'`)).value[0] || null;
+    if (spoSp) {
+      for (const v of SPO_APP_PERMS_MAESTER) {
+        const role = (spoSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+        if (role) spoRolesMaester.push(role);
+      }
+    }
+  } catch (e) { console.log("SharePoint-SP nicht aufloesbar (uebersprungen): " + e.message); }
+
+  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester };
 }
 
 // Admin-Consent (App-Role-Assignment) idempotent setzen.
@@ -263,12 +284,15 @@ async function ensureTcmSetup(token, exoSp, manageRole) {
  * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
  */
 async function provisionAppReg(token) {
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester } = await resolvePermissionTargets(token);
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
   const allGraphRoles = [...graphRoles, ...graphRolesMaester];
   const requiredResourceAccess = [
     { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
     { resourceAppId: GRAPH_APP_ID, resourceAccess: allGraphRoles.map(r => ({ id: r.id, type: "Role" })) }
   ];
+  if (spoRolesMaester.length) {
+    requiredResourceAccess.push({ resourceAppId: SPO_APP_ID, resourceAccess: spoRolesMaester.map(r => ({ id: r.id, type: "Role" })) });
+  }
 
   let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(APP_DISPLAY_NAME)}'`)).value[0];
   if (app) {
@@ -285,6 +309,7 @@ async function provisionAppReg(token) {
     const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
     await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing);
     for (const r of allGraphRoles) await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing);
+    if (spoSp) for (const r of spoRolesMaester) await ensureAppRoleAssignment(token, appSp.id, spoSp.id, r.id, existing);
   } catch (e) { consentOk = false; consentErr = e.message; }
 
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
@@ -293,6 +318,8 @@ async function provisionAppReg(token) {
   try { await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
   let sccRole = false, sccRoleErr = null;
   try { await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
+  // Teams Administrator: fuer die app-only Teams-Verbindung der Maester-Tests.
+  try { await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE); } catch (e) { console.log("Teams-Admin-Rolle nicht zuweisbar: " + (e.message || e)); }
 
   // TCM einrichten (Alert-Policy-Pruefung im Audit) — best effort
   let tcm = false, tcmErr = null;
@@ -335,7 +362,7 @@ async function repairAppReg(token, rec, opts) {
   push("App-Registrierung", "ok", app.displayName);
 
   // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB + Maester) im Manifest
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester } = await resolvePermissionTargets(token);
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
   const allGraphRoles = [...graphRoles, ...graphRolesMaester];
   try {
     const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
@@ -352,6 +379,7 @@ async function repairAppReg(token, rec, opts) {
     };
     ensureEntry(EXO_APP_ID, [manageRole.id]);
     ensureEntry(GRAPH_APP_ID, allGraphRoles.map(r => r.id));
+    if (spoRolesMaester.length) ensureEntry(SPO_APP_ID, spoRolesMaester.map(r => r.id));
     if (changed) {
       await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess: rra });
       push("API-Permissions (EXO + Graph)", "fixed");
@@ -374,7 +402,8 @@ async function repairAppReg(token, rec, opts) {
       const existing = (await gReq(token, "GET", `/servicePrincipals/${appSp.id}/appRoleAssignments`)).value || [];
       const states = [await ensureAppRoleAssignment(token, appSp.id, exoSp.id, manageRole.id, existing)];
       for (const r of allGraphRoles) states.push(await ensureAppRoleAssignment(token, appSp.id, graphSp.id, r.id, existing));
-      push("Admin-Consent (EXO + Graph)", states.includes("fixed") ? "fixed" : "ok");
+      if (spoSp) for (const r of spoRolesMaester) states.push(await ensureAppRoleAssignment(token, appSp.id, spoSp.id, r.id, existing));
+      push("Admin-Consent (EXO + Graph + SharePoint)", states.includes("fixed") ? "fixed" : "ok");
     } catch (e) { push("Admin-Consent (EXO + Graph)", "failed", e.message); }
   }
 
@@ -385,6 +414,8 @@ async function repairAppReg(token, rec, opts) {
     catch (e) { push("Exchange-Administrator-Rolle", "failed", e.message); }
     try { push("Compliance-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE)); sccRole = true; }
     catch (e) { push("Compliance-Administrator-Rolle", "failed", e.message); }
+    try { push("Teams-Administrator-Rolle (Maester)", await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE)); }
+    catch (e) { push("Teams-Administrator-Rolle (Maester)", "failed", e.message); }
   }
 
   // 6b. TCM-Einrichtung (Alert-Policy-Pruefung im Audit)
@@ -3658,6 +3689,8 @@ async function runMaesterJobInner(job, t, tags) {
       exoError: r.data.exoError || null,
       scConnected: !!r.data.scConnected,
       scError: r.data.scError || null,
+      teamsConnected: !!r.data.teamsConnected,
+      spConnected: !!r.data.spConnected,
       failed: r.data.failed || [],
       skipped: r.data.skipped || [],
       maesterVersion: r.data.maesterVersion || null,
@@ -3671,6 +3704,8 @@ async function runMaesterJobInner(job, t, tags) {
     if (r.data.salvaged) hints.push("Der pwsh-Prozess endete unsauber (" + r.data.salvaged + ") — Ergebnis wurde aus results.json gerettet.");
     if (r.data.exoConnected === false) hints.push("Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
     if (r.data.exoConnected === true && r.data.scConnected === false) hints.push("Security & Compliance nicht verbunden — betroffene CISA-Tests uebersprungen" + (r.data.scError ? " (" + String(r.data.scError).slice(0, 200) + ")" : "") + ".");
+    if (r.data.teamsConnected === false) hints.push("Teams nicht verbunden" + (r.data.teamsError ? " (" + String(r.data.teamsError).slice(0, 150) + ")" : "") + " — ggf. einmal Reparieren (Teams-Admin-Rolle).");
+    if (r.data.spConnected === false) hints.push("SharePoint nicht verbunden" + (r.data.spError ? " (" + String(r.data.spError).slice(0, 150) + ")" : "") + " — ggf. einmal Reparieren (SharePoint-Permission).");
     finishAppJob(job, true, null, hints.length ? hints.join(" ") : null);
   } catch (e) {
     finishAppJob(job, false, e.message, e.hint || null);
@@ -3682,6 +3717,8 @@ const MAESTER_PHASES = [
   "Verbindung zu Microsoft Graph",
   "Verbindung zu Exchange Online",
   "Verbindung zu Security & Compliance",
+  "Verbindung zu Teams",
+  "Verbindung zu SharePoint",
   "Testsuite vorbereiten",
   "Maester-Tests laufen (dauert mehrere Minuten)",
   "Auswertung"
@@ -3818,7 +3855,19 @@ app.get("/api/tenants/:id/maester/runs/:runId/report.pdf", wrap(async (req, res)
   const exMap = new Map(explain.map(x => [x.id, x]));
   const detMap = new Map(details.map(x => [x.id, x]));
   const findings = (summary.failed || []).map(f => ({ ...f, ...(detMap.get(f.id) || {}), ...(exMap.get(f.id) || {}) }));
+  // Domain-Authentifizierung (SPF/DKIM/DMARC) live dazuholen — das prueft das
+  // Tool ohnehin schon (Audit-Tab) und deckt die ORCA-"Custom"-Skips ab.
+  // Best effort: haengt EXO, kommt der PDF trotzdem, nur ohne den Abschnitt.
+  let domainAuth = null;
+  try {
+    const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+    const dr = await EXO.runExo(auth, DOMAINAUTH.buildDomainAuthExoBody(), 60000);
+    if (dr.ok && dr.data && dr.data.ok !== false && (dr.data.domains || []).length) {
+      domainAuth = await DOMAINAUTH.checkDomains(dr.data.domains, dr.data.configs || []);
+    }
+  } catch (e) { console.log("Domain-Auth fuer den Maester-PDF nicht abrufbar: " + e.message); }
   const pdf = await MAESTER_PDF.buildPdf({
+    domainAuth,
     tenantName: t.name,
     organization: t.organization || null,
     generatedAt: summary.generatedAt,

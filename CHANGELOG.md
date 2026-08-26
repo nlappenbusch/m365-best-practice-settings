@@ -78,6 +78,25 @@ Nachgezogen nach dem ersten Praxistest (gleicher Tag):
 - **Kunden-PDF**: serverseitig erzeugter deutscher Report (pdfkit, neue
   Dependency) mit Score-Kennzahlen, Findings inkl. KI-Erklärungen,
   Skip-Gründen und Methodik — `GET …/maester/runs/:runId/report.pdf`.
+- **Kunden-PDF komplett neu gestaltet**: Deckblatt, Management-Zusammenfassung
+  (Score-Kacheln, Schweregrad-Balken, Einordnung, Top-Prioritäten), Findings
+  mit Schweregrad-Markern, **Domain-Authentifizierung (SPF/DKIM/DMARC)** als
+  eigener Abschnitt (live geprüft — deckt die ORCA-«Custom»-Skips ab),
+  nicht bewertbare Tests **nach Grund gruppiert und deutsch erklärt**,
+  Methodik + Disclaimer, saubere Fusszeilen. Ohne KI-Erklärung stehen die
+  englische Testbeschreibung und der Befund im Finding (statt eines
+  Platzhaltersatzes).
+- **Zählerkorrektur**: bei Suiten-Auswahl markiert Maester abgewählte Tests
+  als «NotRun» — die zählen nicht mehr als «übersprungen» (vorher standen
+  700 Skips im Report, wenn nur eine Suite lief).
+- **Markdown-Darstellung**: Testbeschreibung/Befund im Accordion werden als
+  formatiertes Markdown gerendert (eigener Mini-Renderer, HTML-escaped).
+- **Teams- und SharePoint-Verbindung**: der Lauf verbindet zusätzlich
+  MicrosoftTeams (app-only, braucht die Teams-Administrator-Rolle) und
+  SharePoint via PnP (braucht die SharePoint-Permission Sites.FullControl.All
+  — SharePoint kennt kein engeres app-only-Äquivalent; genutzt wird sie rein
+  lesend). Onboarding/«Reparieren» setzen Rolle und Permission;
+  **bestehende Tenants: erneut Reparieren ausführen.**
 - **Security & Compliance wird mitverbunden**: best-effort
   `Connect-IPPSSession` app-only (Compliance-Administrator-Rolle setzt das
   Onboarding schon) — schaltet die CISA-Tests zu Defender/Spam/DLP/Audit

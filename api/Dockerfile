@@ -20,6 +20,9 @@ RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Tru
 RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module Microsoft.Graph.Authentication -Scope AllUsers -Force; Install-Module Pester -Scope AllUsers -Force -SkipPublisherCheck; Install-Module Maester -Scope AllUsers -Force" \
     && pwsh -NoProfile -Command "New-Item -ItemType Directory -Path /opt/maester-tests -Force | Out-Null; Install-MaesterTests -Path /opt/maester-tests"
 
+# Teams- und SharePoint-Verbindung fuer die Maester-Tests (app-only per Cert).
+RUN pwsh -NoProfile -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module MicrosoftTeams -Scope AllUsers -Force; Install-Module PnP.PowerShell -Scope AllUsers -Force"
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./

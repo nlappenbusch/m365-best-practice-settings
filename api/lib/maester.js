@@ -152,6 +152,29 @@ async function runMaester(opts, onProgress, onChild) {
     "  } catch { $scError = $_.Exception.Message }",
     "} else { $scError = 'Uebersprungen — Exchange-Verbindung fehlt.' }",
     "",
+    // Teams: app-only mit Zertifikat — braucht die Teams-Administrator-Rolle
+    // fuer den App-SP (setzt Onboarding/Reparieren). Best effort.
+    "BpPhase 'Verbindung zu Teams'",
+    "$teamsConnected = $false; $teamsError = $null",
+    "try {",
+    "  Import-Module MicrosoftTeams -ErrorAction Stop",
+    "  Connect-MicrosoftTeams -ApplicationId " + q(t.clientId) + " -TenantId " + q(t.tenantId) + " -Certificate $cert -ErrorAction Stop | Out-Null",
+    "  $teamsConnected = $true",
+    "} catch { $teamsError = $_.Exception.Message }",
+    "",
+    // SharePoint: PnP app-only gegen die Admin-Site — braucht die SharePoint-
+    // Application-Permission Sites.FullControl.All (setzt Onboarding/Reparieren).
+    // PnP will ein PFX; das bauen wir aus dem vorhandenen PEM-Cert im Speicher.
+    "BpPhase 'Verbindung zu SharePoint'",
+    "$spConnected = $false; $spError = $null",
+    "try {",
+    "  Import-Module PnP.PowerShell -ErrorAction Stop",
+    "  $spAdminUrl = 'https://' + (" + q(t.organization) + " -split '\\.')[0] + '-admin.sharepoint.com'",
+    "  $pfxB64 = [Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))",
+    "  Connect-PnPOnline -Url $spAdminUrl -ClientId " + q(t.clientId) + " -Tenant " + q(t.organization) + " -CertificateBase64Encoded $pfxB64 -ErrorAction Stop",
+    "  $spConnected = $true",
+    "} catch { $spError = $_.Exception.Message }",
+    "",
     "BpPhase 'Testsuite vorbereiten'",
     "$runDir = Join-Path ([System.IO.Path]::GetTempPath()) ('maester-' + [guid]::NewGuid().ToString('N'))",
     "try { Copy-Item -Recurse -Path " + q(testsDir) + " -Destination $runDir -ErrorAction Stop } catch { BpFail ('Testsuite nicht kopierbar: ' + $_.Exception.Message) }",
@@ -178,6 +201,8 @@ async function runMaester(opts, onProgress, onChild) {
     "finally {",
     "  try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch {}",
     "  if ($exoConnected) { try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {} }",
+    "  if ($teamsConnected) { try { Disconnect-MicrosoftTeams -ErrorAction SilentlyContinue | Out-Null } catch {} }",
+    "  if ($spConnected) { try { Disconnect-PnPOnline -ErrorAction SilentlyContinue | Out-Null } catch {} }",
     "  try { Remove-Item -Recurse -Force $runDir -ErrorAction SilentlyContinue } catch {}",
     "}",
     "if ($invokeError) { BpFail ('Invoke-Maester fehlgeschlagen: ' + $invokeError) }",
@@ -186,7 +211,7 @@ async function runMaester(opts, onProgress, onChild) {
     // Nur der Mini-Marker mit Verbindungsinfo — die eigentliche Auswertung
     // macht Node aus results.json. Selbst wenn der Prozess ab hier stirbt,
     // kann Node das Ergebnis noch aus der Datei retten.
-    "Write-Output ('BEGINJSON' + (@{ ok = $true; exoConnected = $exoConnected; exoError = $exoError; scConnected = $scConnected; scError = $scError; maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version) } | ConvertTo-Json -Compress) + 'ENDJSON')"
+    "Write-Output ('BEGINJSON' + (@{ ok = $true; exoConnected = $exoConnected; exoError = $exoError; scConnected = $scConnected; scError = $scError; teamsConnected = $teamsConnected; teamsError = $teamsError; spConnected = $spConnected; spError = $spError; maesterVersion = [string]((Get-Module Maester | Select-Object -First 1).Version) } | ConvertTo-Json -Compress) + 'ENDJSON')"
   ].join("\r\n");
 
   const r = await EXO.runPwsh(script, opts.timeoutMs || DEFAULT_TIMEOUT_MS, onProgress, (child) => {
@@ -210,6 +235,10 @@ async function runMaester(opts, onProgress, onChild) {
         exoError: r.data.exoError || null,
         scConnected: !!r.data.scConnected,
         scError: r.data.scError || null,
+        teamsConnected: !!r.data.teamsConnected,
+        teamsError: r.data.teamsError || null,
+        spConnected: !!r.data.spConnected,
+        spError: r.data.spError || null,
         maesterVersion: r.data.maesterVersion || summary.data.resultVersion,
         htmlAvailable: fs.existsSync(htmlPath),
         jsonAvailable: true
@@ -232,6 +261,10 @@ async function runMaester(opts, onProgress, onChild) {
           exoError: null,
           scConnected: null,
           scError: null,
+          teamsConnected: null,
+          teamsError: null,
+          spConnected: null,
+          spError: null,
           maesterVersion: summary.data.resultVersion,
           htmlAvailable: fs.existsSync(htmlPath),
           jsonAvailable: true,
@@ -250,7 +283,11 @@ function summarizeResults(jsonPath) {
   catch (e) { return { ok: false, error: "results.json nicht lesbar: " + e.message }; }
   const pick = (o, names) => { for (const n of names) { if (o && o[n] !== null && o[n] !== undefined && o[n] !== "") return o[n]; } return null; };
   const tests = Array.isArray(doc.Tests) ? doc.Tests : (Array.isArray(doc.tests) ? doc.tests : []);
-  let passed = 0, failedCount = 0, skippedCount = 0, other = 0;
+  // notRun = Tests ausserhalb der gewaehlten Suiten (Tag-Filter): Maester
+  // "entdeckt" immer alle Tests und markiert abgewaehlte als NotRun — die
+  // duerfen NICHT als "uebersprungen" auftauchen (sonst stehen 700 Skips im
+  // Report, obwohl nur eine Suite lief).
+  let passed = 0, failedCount = 0, skippedCount = 0, notRun = 0, other = 0;
   const failed = [];
   const skipped = [];
   for (const t of tests) {
@@ -282,13 +319,14 @@ function summarizeResults(jsonPath) {
           reason: reason.slice(0, 300)
         });
       }
-    } else other++;
+    } else if (/^NotRun/i.test(res)) notRun++;
+    else other++;
   }
   const version = pick(doc, ["CurrentVersion", "currentVersion"]);
   return {
     ok: true,
     data: {
-      counts: { total: tests.length, passed, failed: failedCount, skipped: skippedCount, other },
+      counts: { total: passed + failedCount + skippedCount + other, passed, failed: failedCount, skipped: skippedCount, notRun, other },
       failed,
       skipped,
       resultVersion: version === null ? null : String(version)
