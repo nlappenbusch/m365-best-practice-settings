@@ -88,8 +88,18 @@ const SKU_NAMES = {
 const FREE_SKUS = new Set([
   "FLOW_FREE", "POWERAPPS_VIRAL", "POWER_BI_STANDARD", "CCIBOTS_PRIVPREV_VIRAL",
   "TEAMS_EXPLORATORY", "STREAM", "WINDOWS_STORE", "RIGHTSMANAGEMENT_ADHOC",
-  "MICROSOFT_BUSINESS_CENTER", "POWERAPPS_DEV", "Power_Pages_vTrial_for_Makers"
+  "MICROSOFT_BUSINESS_CENTER", "POWERAPPS_DEV", "Power_Pages_vTrial_for_Makers",
+  "RMSBASIC"
 ]);
+
+// Nicht seat-basierte Bestaende: Verbrauchs-SKUs (Communications Credits) und
+// virale Trials kommen mit Pools von 10'000 bis 10'000'000 "Seats" — die als
+// "frei bezahlt" zu zaehlen ergibt Fantasiezahlen (real passiert: 10'020'019
+// freie Seats im Report). Erkennung ueber Poolgroesse + Namensmuster.
+function isConsumptionSku(s) {
+  const prepaid = ((s.prepaidUnits || {}).enabled || 0);
+  return prepaid >= 10000 || /VIRAL|TRIAL|_FREE\b/i.test(String(s.skuPartNumber || ""));
+}
 
 // Suiten (Basis-Plaene) — mehrere davon nebeneinander sind grundsaetzlich pruefenswert.
 const SUITE_SKUS = new Set([
@@ -192,6 +202,7 @@ async function runLicenseReport(tenant, cert) {
       skuPartNumber: s.skuPartNumber,
       name: friendlySku(s.skuPartNumber),
       free: FREE_SKUS.has(s.skuPartNumber),
+      consumption: !FREE_SKUS.has(s.skuPartNumber) && isConsumptionSku(s),
       purchased: (s.prepaidUnits || {}).enabled || 0,
       warning: (s.prepaidUnits || {}).warning || 0,
       suspended: (s.prepaidUnits || {}).suspended || 0,
@@ -242,7 +253,7 @@ async function runLicenseReport(tenant, cert) {
       return rank[a.verdict] - rank[b.verdict];
     });
 
-  const unusedPaidSeats = skus.filter(s => !s.free && s.capabilityStatus === "Enabled" && s.available > 0);
+  const unusedPaidSeats = skus.filter(s => !s.free && !s.consumption && s.capabilityStatus === "Enabled" && s.available > 0);
 
   return {
     generatedAt: new Date().toISOString(),

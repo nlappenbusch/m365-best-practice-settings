@@ -29,7 +29,10 @@
     loading = false
   }
 
-  const paidSkus = $derived((data?.skus || []).filter(s => !s.free))
+  // Verbrauchs-/Trial-SKUs (Communications Credits, virale Trials mit
+  // 10'000er-Pools) getrennt halten — deren "freie Seats" sind keine Kosten.
+  const paidSkus = $derived((data?.skus || []).filter(s => !s.free && !s.consumption))
+  const consumptionSkus = $derived((data?.skus || []).filter(s => !s.free && s.consumption))
   const freeSkus = $derived((data?.skus || []).filter(s => s.free))
 
   // Mehrfach-Lizenzierung: 🔴/🟠 sind handlungsrelevant und stehen immer offen,
@@ -171,13 +174,16 @@
 
     <div class="ld-job" style="margin-bottom:1.25rem;">
       <div class="ld-job-head"><strong>Lizenzbestand</strong>
-        <span class="ld-job-meta">{paidSkus.length} bezahlte SKUs{freeSkus.length ? ` · ${freeSkus.length} kostenlose` : ''}</span></div>
+        <span class="ld-job-meta">{paidSkus.length} bezahlte SKUs{consumptionSkus.length ? ` · ${consumptionSkus.length} verbrauchsbasiert/Trial` : ''}{freeSkus.length ? ` · ${freeSkus.length} kostenlose` : ''}</span></div>
       {#each paidSkus as s (s.skuPartNumber)}
         <div class="ld-step {s.available > 0 ? 'retry' : 'ok'}">
           <span class="ld-ico">{s.available > 0 ? '⚠️' : '✅'}</span>
           <strong>{s.name}</strong>
           <small> — {s.assigned}/{s.purchased} zugewiesen{s.available > 0 ? `, ${s.available} frei bezahlt` : ''}{s.capabilityStatus !== 'Enabled' ? ` · ${s.capabilityStatus}` : ''}</small>
         </div>
+      {/each}
+      {#each consumptionSkus as s (s.skuPartNumber)}
+        <div class="ld-step pending"><span class="ld-ico">○</span> {s.name} <small>(verbrauchsbasiert/Trial — {s.assigned} zugewiesen, Pool zählt nicht als freie Seats)</small></div>
       {/each}
       {#each freeSkus as s (s.skuPartNumber)}
         <div class="ld-step pending"><span class="ld-ico">○</span> {s.name} <small>(kostenlos — {s.assigned} zugewiesen)</small></div>
