@@ -166,13 +166,18 @@ function renderMdBlock(ctx, md) {
   const renderCode = (code) => {
     const codeLines = sanitizePdf(code).split("\n");
     doc.moveDown(0.2);
-    for (const cl of codeLines.slice(0, 40)) {
-      ensureSpace(13);
+    for (const cl of codeLines.slice(0, 60)) {
+      // Lange Befehle UMBRECHEN statt abschneiden — abgeschnittene PowerShell-
+      // Kommandos ("-InternalSen…") kann der Kunde nicht verwenden.
+      const text = cl === "" ? " " : cl;
+      doc.font("Courier").fontSize(8);
+      const h = doc.heightOfString(text, { width: width - 16, lineGap: 1 }) + 4;
+      ensureSpace(h + 2);
       const y = doc.y;
-      doc.rect(x, y - 1.5, width, 12.5).fill("#f1f4f6");
+      doc.rect(x, y - 1.5, width, h).fill("#f1f4f6");
       doc.font("Courier").fontSize(8).fillColor(COL.text)
-        .text(cl.length > 110 ? cl.slice(0, 110) + "…" : cl, x + 8, y, { width: width - 16, lineBreak: false });
-      doc.y = y + 12.5;
+        .text(text, x + 8, y + 1, { width: width - 16, lineGap: 1 });
+      doc.y = y + h;
     }
     doc.moveDown(0.25);
     doc.x = x;
