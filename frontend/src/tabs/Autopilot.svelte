@@ -116,7 +116,7 @@
   // gerade ueberhaupt Aktionen zulaesst.
   const INTUNE_PROFILES_URL = $derived(
     'https://intune.microsoft.com/' + ($activeTenant?.organization || '') +
-    '#view/Microsoft_Intune_Enrollment/AutopilotProfilesBlade'
+    '#view/Microsoft_Intune_Enrollment/AutopilotDeploymentProfiles.ReactView'
   )
 
 
@@ -253,39 +253,44 @@
 </script>
 
 <TenantContext>
-  <div class="settings-group">
-    <h4>Autopilot</h4>
-    <p class="ld-section-hint">Staging-Paket erzeugen (App-Registrierung mit Secret + Zertifikat, GroupTags aus den dynamischen Gruppen, fertiges ZIP) sowie Deployment-Profile einsehen und zuweisen.</p>
-    <p class="ld-section-hint"><small>💡 Empfohlene Reihenfolge: <span class="step-n">1</span> Staging-Paket erstellen → <span class="step-n">2</span> Deployment-Profile der passenden Gruppe zuweisen → <span class="step-n">3</span> Geräte-GroupTags nur bei Bedarf nachträglich korrigieren.</small></p>
-  </div>
+  <p class="ld-section-hint">Empfohlene Reihenfolge: <span class="step-n">1</span> Staging-Paket erstellen →
+    <span class="step-n">2</span> Deployment-Profile der passenden Gruppe zuweisen →
+    <span class="step-n">3</span> Geräte-GroupTags nur bei Bedarf nachträglich korrigieren.</p>
 
   <div class="dl-subtabs">
-    <button type="button" class="dl-subtab" class:active={subTab === 'staging'} onclick={() => selectSubTab('staging')}>📦 Staging-Paket</button>
-    <button type="button" class="dl-subtab" class:active={subTab === 'profiles'} onclick={() => selectSubTab('profiles')}>🎯 Deployment-Profile</button>
-    <button type="button" class="dl-subtab" class:active={subTab === 'devices'} onclick={() => selectSubTab('devices')}>📱 Geräte</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'staging'} onclick={() => selectSubTab('staging')}>Staging-Paket</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'profiles'} onclick={() => selectSubTab('profiles')}>Deployment-Profile</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'devices'} onclick={() => selectSubTab('devices')}>Geräte</button>
   </div>
 
   <div class="dl-panel" class:active={subTab === 'staging'}>
     {#if groupTagsLoading}
       <div class="ld-job"><div class="ld-step running"><span class="ld-spinner"></span> Lade GroupTags aus den dynamischen Gruppen…</div></div>
     {:else if groupTagsError}
-      <div class="ld-job">
+      <div class="step-card">
         <div class="ld-banner fail">{groupTagsError}</div>
-        <div class="ld-step"><small>💡 Braucht die Graph-Permission Group.Read.All — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+        <p class="ld-section-hint" style="margin-top:0.5rem">
+          {#if /zertifikat/i.test(groupTagsError)}
+            Dieser Tenant ist noch nicht (fertig) onboardet — im Tab «Tenants» das Onboarding durchlaufen, dann hier neu laden.
+          {:else}
+            Braucht die Graph-Permission Group.Read.All — im Tab «Tenants» einmal Reparieren ausführen, dann hier neu laden.
+          {/if}
+        </p>
+        <button class="btn btn-secondary" onclick={loadGroupTags}>Neu laden</button>
       </div>
     {:else if !groupTags.length}
-      <div class="ld-job"><div class="ld-banner warn">Keine GroupTags in den dynamischen Security Groups gefunden.
+      <div class="step-card"><div class="ld-banner warn">Keine GroupTags in den dynamischen Security Groups gefunden.
         <br /><small>Die Regeln müssen ein <code>[OrderID]:&lt;GroupTag&gt;</code> enthalten (Nils' GroupTag-Konzept). Zuerst die AAD-DEV-*-Gruppen anlegen.</small></div></div>
     {:else}
-      <div class="ld-job">
-        <div class="ld-job-head"><strong>Autopilot-Staging-Paket: {$activeTenant.name}</strong>
-          <span class="ld-job-meta">{groupTags.length} GroupTags gefunden</span></div>
-        <div class="ld-step"><small>Das Paket enthält eine dedizierte App-Registrierung <code>IG-Autopilot-Staging</code>
-          (Client Secret + Zertifikat, Autopilot-Permissions), das HWID-Import-Skript, den Staging-Wrapper mit
-          Auswahlmenü der gewählten GroupTags, Start-Batch, autounattend.xml und die WIM-Bau-Anleitung.</small></div>
+      {@const pickedCount = Object.values(checkedTags).filter(Boolean).length}
+      <p class="ld-section-hint">Das Paket enthält eine dedizierte App-Registrierung <code>IG-Autopilot-Staging</code>
+        (Client Secret + Zertifikat, Autopilot-Permissions), das HWID-Import-Skript, den Staging-Wrapper mit
+        Auswahlmenü der gewählten GroupTags, Start-Batch, autounattend.xml und die WIM-Bau-Anleitung.</p>
 
-        <div class="settings-group">
-          <h4>GroupTags fürs Paket</h4>
+      <div class="step-pair">
+        <div class="step-card">
+          <h4><span class="step-n">1</span> GroupTags fürs Paket
+            <span class="step-state {pickedCount ? 'done' : 'open'}">{pickedCount} von {groupTags.length} gewählt</span></h4>
           <div class="ld-oib-toolbar">
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={checkAllTags}>Alle</button>
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={checkNoneTags}>Keine</button>
@@ -300,28 +305,40 @@
           {/each}
         </div>
 
-        <div class="settings-group">
-          <h4>Optionen</h4>
-          <label class="checkbox-label"><input type="checkbox" bind:checked={assign} /> <span>Gerät nach Import direkt der Gruppe zuweisen (Assign + Wait)</span></label>
-          <label class="checkbox-label"><input type="checkbox" bind:checked={reboot} /> <span>Nach dem Import neu starten</span></label>
+        <div class="step-card">
+          <h4><span class="step-n">2</span> Optionen</h4>
+          <div class="check-row">
+            <input id="ap-assign" type="checkbox" bind:checked={assign} />
+            <div>
+              <label class="cr-title" for="ap-assign">Gerät nach Import direkt der Gruppe zuweisen</label>
+              <div class="cr-desc">Assign + Wait — das Gerät wartet auf die Profilzuweisung, bevor es weitergeht.</div>
+            </div>
+          </div>
+          <div class="check-row">
+            <input id="ap-reboot" type="checkbox" bind:checked={reboot} />
+            <div><label class="cr-title" for="ap-reboot">Nach dem Import neu starten</label></div>
+          </div>
         </div>
+      </div>
 
-        <div class="settings-group">
-          <h4>WLAN fürs Staging <small>(optional)</small></h4>
-          <p class="ld-section-hint">Die <code>autounattend.xml</code> wird mit <strong>deutscher UI</strong>, Schweizer Locale/Tastatur,
-            automatischer Partitionierung, automatischer EULA und <strong>ohne AutoLogon</strong> erzeugt (Anmeldung mit M365-User via Autopilot).
-            Für WLAN-Zugang während der OOBE ein WLAN-Profil einbetten — bleibt dauerhaft gespeichert.</p>
-          <ol style="margin:0.3rem 0 0.5rem 1.1rem; line-height:1.7; font-size:0.9rem;">
-            <li><a href="/api/autopilot/wlan-helper">⬇️ WLAN-Export-Helper herunterladen</a> (<code>.cmd</code> — doppelklicken, fragt nach <strong>Admin-Rechten</strong> per UAC; das Klartext-Passwort exportiert nur elevated) auf einem Rechner ausführen, der mit dem Kunden-WLAN verbunden ist. Ergebnis liegt in <code>C:\Temp\wlan-export</code>.</li>
-            <li>Die erzeugte <code>*.xml</code> hier hochladen:</li>
-          </ol>
-          <input type="file" accept=".xml" onchange={onWlanChange} />
-          <div style="font-size:0.85rem; margin-top:0.3rem; color:var(--text-dim);">{wlanStatus}</div>
-        </div>
+      <div class="step-card">
+        <h4><span class="step-n">3</span> WLAN fürs Staging
+          <span class="step-state {wlanXml ? 'done' : 'open'}">{wlanXml ? '✓ eingebettet' : 'optional'}</span></h4>
+        <p class="ld-section-hint">Die <code>autounattend.xml</code> wird mit <strong>deutscher UI</strong>, Schweizer Locale/Tastatur,
+          automatischer Partitionierung, automatischer EULA und <strong>ohne AutoLogon</strong> erzeugt (Anmeldung mit M365-User via Autopilot).
+          Für WLAN-Zugang während der OOBE ein WLAN-Profil einbetten — bleibt dauerhaft gespeichert.</p>
+        <ol style="margin:0.3rem 0 0.5rem 1.1rem; line-height:1.7; font-size:0.9rem;">
+          <li><a href="/api/autopilot/wlan-helper">WLAN-Export-Helper herunterladen</a> (<code>.cmd</code> — doppelklicken, fragt nach <strong>Admin-Rechten</strong> per UAC; das Klartext-Passwort exportiert nur elevated) auf einem Rechner ausführen, der mit dem Kunden-WLAN verbunden ist. Ergebnis liegt in <code>C:\Temp\wlan-export</code>.</li>
+          <li>Die erzeugte <code>*.xml</code> hier hochladen:</li>
+        </ol>
+        <input type="file" accept=".xml" onchange={onWlanChange} />
+        <div style="font-size:0.85rem; margin-top:0.3rem; color:var(--text-dim);">{wlanStatus}</div>
+      </div>
 
-        <div class="ld-confirm-actions">
-          <button class="btn btn-primary" onclick={startBuild} disabled={building}>Paket erstellen (Admin-Login nötig)</button>
-        </div>
+      <div class="step-card">
+        <h4><span class="step-n">4</span> Paket erstellen
+          <span class="step-state {pickedCount ? 'done' : 'open'}">{pickedCount ? '✓ bereit' : 'GroupTag wählen'}</span></h4>
+        <button class="btn btn-primary" onclick={startBuild} disabled={building || !pickedCount}>Paket erstellen (Admin-Login nötig)</button>
 
         {#if buildStep}
           <div style="margin-top:0.75rem;">
@@ -342,8 +359,8 @@
             <div class="ld-banner ok">App <code>{buildResult.appId}</code> angelegt, Paket gebaut.
               {#if warn.length}{#each warn as w}<br />⚠️ {w}{/each}{/if}</div>
             <div class="ld-step"><small>GroupTags im Wrapper-Menü: {buildResult.groupTags.join(', ')}{wlanLine}<br />{pfxLine}</small></div>
-            <div class="ld-step"><small>💡 Der Download-Link unten ist einmalig und läuft nach 10 Minuten ab — danach einfach „📦 Paket erstellen" erneut ausführen. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>
-            <div class="ld-confirm-actions"><a class="btn btn-primary" href="/api/autopilot/download/{encodeURIComponent(buildResult.downloadToken)}">⬇️ ZIP herunterladen</a></div>
+            <div class="ld-step"><small>Der Download-Link ist einmalig und läuft nach 10 Minuten ab — danach «Paket erstellen» erneut ausführen. Client Secret &amp; PFX sind nur in dieser ZIP — sicher ablegen.</small></div>
+            <div class="ld-confirm-actions"><a class="btn btn-primary" href="/api/autopilot/download/{encodeURIComponent(buildResult.downloadToken)}">ZIP herunterladen</a></div>
           </div>
         {/if}
       </div>
@@ -413,13 +430,14 @@
           <span class="ld-job-meta">{profiles.length} Profile · {profileGroups.length} Gruppen</span></div>
 
         {#each profiles as p (p.id)}
-          {@const assignedLabel = (p.assignments || []).map(a => a.label).join(', ') || 'nicht zugewiesen'}
+          {@const assignedLabel = (p.assignments || []).map(a => a.label).join(', ')}
           {@const res = profileResult[p.id]}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">🎯 {p.displayName}</div>
+          <div class="step-card">
+            <h4>{p.displayName}
+              <span class="step-state {assignedLabel ? 'done' : 'open'}">{assignedLabel ? '✓ zugewiesen' : 'nicht zugewiesen'}</span></h4>
             <div class="ld-step"><small>{p.description || '(keine Beschreibung)'}</small></div>
             <div class="ld-step"><small>Gerätename-Template: <code>{p.deviceNameTemplate || '—'}</code> · Sprache: {p.language || 'os-default'}</small></div>
-            <div class="ld-step ok"><span class="ld-ico">👥</span> Zugewiesen: <small>{assignedLabel}</small></div>
+            {#if assignedLabel}<div class="ld-step"><small>Zugewiesen an: {assignedLabel}</small></div>{/if}
             <div class="ld-oib-target">
               <select bind:value={selectedGroupByProfile[p.id]}>
                 <option value="">— Gruppe wählen —</option>
@@ -449,9 +467,9 @@
       <div class="ld-job">
         <div class="ld-banner fail">{devicesError}</div>
         {#if /internal server error/i.test(devicesError)}
-          <div class="ld-step"><small>💡 Das ist eine Störung auf Microsoft-Seite (der Geräte-Endpoint antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und oben „🔄" erneut laden.</small></div>
+          <div class="ld-step"><small>Störung auf Microsoft-Seite (der Geräte-Endpoint antwortet mit 500, Wiederholungen liefen bereits automatisch) — kein Konfigurationsfehler. Ein paar Minuten warten und erneut laden.</small></div>
         {:else}
-          <div class="ld-step"><small>💡 Braucht DeviceManagementServiceConfig — ggf. im Tab „🏢 Tenants" einmal 🔧 Reparieren ausführen.</small></div>
+          <div class="ld-step"><small>Braucht DeviceManagementServiceConfig — im Tab «Tenants» einmal Reparieren ausführen.</small></div>
         {/if}
       </div>
     {:else if !devices.length}
@@ -460,7 +478,7 @@
       {#if devicesStale}
         <div class="ld-job">
           <div class="ld-banner warn">Microsoft-Dienst antwortet weiterhin mit 500 — zeige zuletzt erfolgreich geladene Liste{#if devicesCachedAt} vom {new Date(devicesCachedAt).toLocaleString('de-CH')}{/if}.</div>
-          <div class="ld-step"><small>💡 GroupTag-Änderungen unten gehen direkt an einen anderen Endpoint und funktionieren meist trotzdem — die Liste selbst ist nur nicht taggenau aktuell.</small></div>
+          <div class="ld-step"><small>GroupTag-Änderungen unten gehen direkt an einen anderen Endpoint und funktionieren meist trotzdem — die Liste selbst ist nur nicht taggenau aktuell.</small></div>
         </div>
       {/if}
       <datalist id="apKnownGroupTags">
@@ -471,14 +489,15 @@
           <span class="ld-job-meta">{devices.length} Geräte</span>
           <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8rem;" onclick={loadDevices}>Neu laden</button>
         </div>
-        <div class="ld-step"><small>GroupTag hier setzen/ändern wirkt wie ein nachträgliches „Etikett wechseln" — das Gerät rutscht dadurch
-          über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Tab „📖 Wissen → 🏷️ Namenskonventionen").
-          Gleiche GroupTags wie im Tab „📦 Staging-Paket" — Freitextfeld unten schlägt bekannte Tags vor, prüft sie aber nicht.</small></div>
+        <div class="ld-step"><small>GroupTag hier setzen/ändern wirkt wie ein nachträgliches «Etikett wechseln» — das Gerät rutscht dadurch
+          über die dynamische Mitgliedschaftsregel automatisch in die passende Gruppe (siehe Wissen → Namenskonventionen).
+          Gleiche GroupTags wie im Staging-Paket — das Freitextfeld schlägt bekannte Tags vor, prüft sie aber nicht.</small></div>
 
         {#each devices as dev (dev.id)}
           {@const res = deviceResult[dev.id]}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">💻 {dev.model || 'Unbekanntes Modell'} <small style="font-weight:400;">({dev.manufacturer || '—'})</small></div>
+          <div class="step-card">
+            <h4>{dev.model || 'Unbekanntes Modell'} <small style="font-weight:400;">({dev.manufacturer || '—'})</small>
+              {#if dev.groupTag}<span class="step-state done">{dev.groupTag}</span>{:else}<span class="step-state open">kein GroupTag</span>{/if}</h4>
             <div class="ld-step"><small>Seriennummer: <code>{dev.serialNumber || '—'}</code> · Enrollment: {dev.enrollmentState || 'unbekannt'} · Letzter Kontakt: {fmtContact(dev.lastContactedDateTime)}</small></div>
             <div class="ld-oib-target">
               <input type="text" list="apKnownGroupTags" placeholder="z.B. DEV-STD" style="min-width:200px; padding:0.35rem 0.5rem; border:1px solid var(--rule); border-radius:var(--radius-sm); background:var(--bg-raised); color:var(--text);"
