@@ -1650,6 +1650,17 @@ app.post("/api/drivemappings/parse", (req, res) => {
   res.json({ ok: true, config: cfg });
 });
 
+// Vorschau-Endpunkte fuer die Wizard-Schlussschritte: erzeugen dasselbe Skript
+// wie der Deploy (inkl. echter Validierung), aber ohne Tenant-Schreibzugriff.
+app.post("/api/sharepointmappings/generate", (req, res) => {
+  try { res.json({ ok: true, script: SPMAP.buildScript({ mappings: (req.body || {}).mappings }) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/registrypolicy/generate", (req, res) => {
+  try { res.json({ ok: true, script: REGPOLICY.buildScript({ entries: (req.body || {}).entries }) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 app.get("/api/tenants/:id/drivemappings", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") {

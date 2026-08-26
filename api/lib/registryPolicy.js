@@ -57,7 +57,11 @@ function sanitizeEntries(raw) {
     if (!REG_TYPES.has(type)) throw new Error(`Zeile ${i + 1}: Typ muss DWORD, QWORD oder String sein.`);
     const value = String(e.value ?? "").trim();
     if (!value) throw new Error(`Zeile ${i + 1}: Wert fehlt.`);
-    if ((type === "DWORD" || type === "QWORD") && !/^\d+$/.test(value)) throw new Error(`Zeile ${i + 1}: ${type}-Wert muss eine Zahl sein.`);
+    if (type === "DWORD" || type === "QWORD") {
+      if (!/^\d+$/.test(value)) throw new Error(`Zeile ${i + 1}: ${type}-Wert muss eine Zahl sein.`);
+      const max = type === "DWORD" ? 0xFFFFFFFFn : 0xFFFFFFFFFFFFFFFFn;
+      if (BigInt(value) > max) throw new Error(`Zeile ${i + 1}: ${type}-Wert ist zu gross (max. ${max}).`);
+    }
     return { Path: p, Name: name, Type: type, Value: value };
   });
 }
@@ -74,7 +78,9 @@ foreach ($e in $entries) {
     $regPath = "HKLM:\\$($e.Path)"
     if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
     $psType = switch ($e.Type) { "DWORD" { "DWord" } "QWORD" { "QWord" } default { "String" } }
-    $value = if ($psType -eq "String") { $e.Value } else { [int64]$e.Value }
+    # Unsigned-Casts: [int64] wuerde bei DWORD-Werten > 2147483647 (z.B. 0xFFFFFFFF)
+    # in Set-ItemProperty -Type DWord einen Ueberlauf-Fehler ausloesen.
+    $value = switch ($psType) { "DWord" { [uint32]$e.Value } "QWord" { [uint64]$e.Value } default { $e.Value } }
     Set-ItemProperty -Path $regPath -Name $e.Name -Value $value -Type $psType -Force
     Write-Output "Gesetzt: HKLM:\\$($e.Path) [$($e.Name)] = $($e.Value) ($($e.Type))"
 }

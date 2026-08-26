@@ -233,7 +233,7 @@ async function ensureApp(tenant, cert, groupIds) {
     const have = new Set(current.map(a => a && a.target && a.target.groupId).filter(Boolean));
     const merged = current.map(a => ({ "@odata.type": "#microsoft.graph.mobileAppAssignment", intent: a.intent, target: a.target }));
     for (const gid of groupIds) {
-      if (!have.has(gid)) merged.push({ "@odata.type": "#microsoft.graph.mobileAppAssignment", intent: "required", target: { "@odata.type": "microsoft.graph.groupAssignmentTarget", groupId: gid } });
+      if (!have.has(gid)) merged.push({ "@odata.type": "#microsoft.graph.mobileAppAssignment", intent: "required", target: { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId: gid } });
     }
     await graphReq(tenant, cert, "POST", `/deviceAppManagement/mobileApps/${app.id}/assign`, { mobileAppAssignments: merged }, BETA);
   }

@@ -56,9 +56,12 @@ function sanitizeMappings(raw) {
 function buildScript({ mappings, searchRoot, removeStaleDrives }) {
   const template = fs.readFileSync(TEMPLATE_PATH, "utf8");
   const json = JSON.stringify(sanitizeMappings(mappings));
-  let out = template.replace("!INTUNEDRIVEMAPPINGJSON!", json.replace(/'/g, "''"));
+  // Funktions-Replacement: bei String-Replacement wuerde JS $-Sequenzen im
+  // Ersatztext interpretieren ($& = Match, $' = Rest des Templates, $$ = $) --
+  // ein Pfad/Label mit $ (versteckte Shares!) korrumpiert sonst das Skript.
+  let out = template.replace("!INTUNEDRIVEMAPPINGJSON!", () => json.replace(/'/g, "''"));
   if (searchRoot && String(searchRoot).trim()) {
-    out = out.replace('$searchRoot = ""', `$searchRoot = "${String(searchRoot).trim().replace(/"/g, "")}"`);
+    out = out.replace('$searchRoot = ""', () => `$searchRoot = "${String(searchRoot).trim().replace(/"/g, "")}"`);
   }
   if (removeStaleDrives) {
     out = out.replace("$removeStaleDrives = $false", "$removeStaleDrives = $true");
