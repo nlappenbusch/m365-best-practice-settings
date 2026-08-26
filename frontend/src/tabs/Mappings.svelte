@@ -25,6 +25,13 @@
   function selNames(sel) {
     return Object.keys(sel).filter(k => sel[k]).map(id => groups.find(g => g.id === id)?.displayName || id)
   }
+  function groupNames(ids) {
+    return (ids || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)
+  }
+  // Volle SharePoint-URLs machen die Uebersicht unruhig — nur der Pfad (/sites/xyz).
+  function sitePath(url) {
+    try { return new URL(url).pathname || url } catch { return url }
+  }
 
   // ---------- Laufwerk-Mappings (Port: nicolonsky/IntuneDriveMapping) ----------
   let loading = $state(false)
@@ -526,6 +533,10 @@
   </button>
 {/snippet}
 
+{#snippet assignBadge(gnames)}
+  <span class="step-state {gnames.length ? 'done' : 'open'}">{gnames.length ? `${gnames.length} Gruppe${gnames.length === 1 ? '' : 'n'}` : 'nicht zugewiesen'}</span>
+{/snippet}
+
 {#snippet groupPicker(sel, toggle)}
   {#if !groups.length}
     <div class="ld-step pending"><small>Keine Gruppen geladen — Profil wird ohne Zuweisung angelegt.</small></div>
@@ -553,18 +564,10 @@
 
 <TenantContext>
   <div class="dl-subtabs">
-    <button type="button" class="dl-subtab" class:active={subTab === 'drives'} onclick={() => (subTab = 'drives')}>
-      Netzlaufwerke{profiles?.length ? ` (${profiles.length})` : ''}
-    </button>
-    <button type="button" class="dl-subtab" class:active={subTab === 'printers'} onclick={() => (subTab = 'printers')}>
-      Drucker{pmData?.profiles?.length ? ` (${pmData.profiles.length})` : ''}
-    </button>
-    <button type="button" class="dl-subtab" class:active={subTab === 'sharepoint'} onclick={() => (subTab = 'sharepoint')}>
-      SharePoint-Sync{spProfiles?.length ? ` (${spProfiles.length})` : ''}
-    </button>
-    <button type="button" class="dl-subtab" class:active={subTab === 'registry'} onclick={() => (subTab = 'registry')}>
-      Registry{rpProfiles?.length ? ` (${rpProfiles.length})` : ''}
-    </button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'drives'} onclick={() => (subTab = 'drives')}>💾 Netzlaufwerke</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'printers'} onclick={() => (subTab = 'printers')}>🖨️ Drucker</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'sharepoint'} onclick={() => (subTab = 'sharepoint')}>☁️ SharePoint-Sync</button>
+    <button type="button" class="dl-subtab" class:active={subTab === 'registry'} onclick={() => (subTab = 'registry')}>🔑 Registry</button>
   </div>
 
   <!-- ======================= Netzlaufwerke ======================= -->
@@ -597,25 +600,34 @@
         {/if}
       </div>
     {:else if profiles}
-      <div class="ld-job">
-        <div class="ld-job-head"><strong>Deployte Profile</strong>
-          <span class="ld-job-meta">{profiles.length}</span></div>
+      <div class="settings-group">
+        <h4>Deployte Profile <small>({profiles.length})</small></h4>
         {#if !profiles.length}
-          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Profile — oben eines anlegen.</div>
+          <p class="ld-section-hint">Noch keine Profile — oben eines anlegen.</p>
         {/if}
         {#each profiles as p (p.id)}
-          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">🗺️ {p.profileName}</div>
-            {#if p.config}
-              {#each p.config.mappings as m}
-                <div class="ld-step ok"><span class="ld-ico">💾</span> <code>{m.driveLetter}:</code> → <code>{m.path}</code>{m.label ? ` · „${m.label}"` : ''}{m.groupFilter ? ` · 👥 ${m.groupFilter}` : ''}</div>
-              {/each}
-            {:else}
-              <div class="ld-step"><small>⚠️ Konfiguration nicht parsebar (manuell verändertes Skript?) — Bearbeiten überschreibt es.</small></div>
+          {@const gnames = groupNames(p.groupIds)}
+          <div class="step-card">
+            <h4>💾 {p.profileName} {@render assignBadge(gnames)}</h4>
+            <p class="mp-meta">
+              {p.config ? `${p.config.mappings.length} Laufwerk${p.config.mappings.length === 1 ? '' : 'e'}` : '⚠️ Konfiguration nicht parsebar (manuell verändertes Skript?) — Bearbeiten überschreibt es'}{p.config?.removeStaleDrives ? ' · trennt nicht konfigurierte Laufwerke' : ''}{p.config?.searchRoot ? ` · AD: ${p.config.searchRoot}` : ''}{gnames.length ? ` · ${gnames.join(', ')}` : ''}
+            </p>
+            {#if p.config?.mappings.length}
+              <details class="mp-details">
+                <summary>Laufwerke anzeigen</summary>
+                <div class="gt-table-wrap" style="margin-top:0.5rem;">
+                  <table class="gt-table">
+                    <thead><tr><th style="width:80px;">Laufwerk</th><th>Pfad</th><th>Anzeigename</th><th>AD-Filter</th></tr></thead>
+                    <tbody>
+                      {#each p.config.mappings as m}
+                        <tr><td><code>{m.driveLetter}:</code></td><td><code>{m.path}</code></td><td>{m.label || '–'}</td><td>{m.groupFilter || '–'}</td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
             {/if}
-            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
-            <div class="ld-oib-target" style="margin-top:0;">
+            <div class="mp-actions">
               <button class="btn btn-secondary" onclick={() => editProfile(p)}>✏️ Bearbeiten / neu zuweisen</button>
             </div>
           </div>
@@ -680,12 +692,17 @@
                 {#if importError}<div class="ld-banner fail">{importError}</div>{/if}
               </div>
             {/if}
-            <div class="ld-oib-target">
-              <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.84rem;">
-                <input type="checkbox" bind:checked={removeStaleDrives} />
-                Nicht (mehr) konfigurierte Netzlaufwerke automatisch trennen
-              </label>
-              <input type="text" bind:value={searchRoot} placeholder="AD-Domäne überschreiben, z.B. ad.firma.ch (optional)" style="min-width:260px;" />
+            <div class="check-row">
+              <input id="dmStale" type="checkbox" bind:checked={removeStaleDrives} />
+              <div>
+                <label class="cr-title" for="dmStale">Nicht (mehr) konfigurierte Netzlaufwerke automatisch trennen</label>
+                <div class="cr-desc">Entfernt beim Anmelden alle gemappten Laufwerke, die nicht in dieser Liste stehen.</div>
+              </div>
+            </div>
+            <div class="input-group" style="max-width:360px; margin-top:0.4rem;">
+              <label for="dmSearchRoot">AD-Domäne überschreiben (optional)</label>
+              <input id="dmSearchRoot" type="text" bind:value={searchRoot} placeholder="z.B. ad.firma.ch" />
+              <small>Nur nötig, wenn der Gruppenfilter genutzt wird und die Domäne nicht per DHCP verteilt ist.</small>
             </div>
             <div class="ld-confirm-actions">
               <button class="btn btn-primary" disabled={!dmContentOk} onclick={() => dmJump(3)}>Weiter</button>
@@ -776,21 +793,34 @@
     {:else if pmError}
       <div class="ld-job"><div class="ld-banner fail">{pmError}</div></div>
     {:else if pmData}
-      <div class="ld-job">
-        <div class="ld-job-head"><strong>Deployte Drucker-Profile</strong>
-          <span class="ld-job-meta">{pmData.profiles.length}</span></div>
+      <div class="settings-group">
+        <h4>Deployte Drucker-Profile <small>({pmData.profiles.length})</small></h4>
         {#if !pmData.profiles.length}
-          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Drucker-Profile — oben eines anlegen.</div>
+          <p class="ld-section-hint">Noch keine Drucker-Profile — oben eines anlegen.</p>
         {/if}
         {#each pmData.profiles as p (p.id)}
-          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">🖨️ {p.profileName} <small style="font-weight:400; color:var(--text-dim);">· {p.scope === 'machine' ? 'Geräte-Kontext' : 'Benutzer-Kontext'}{p.enabled ? '' : ' · ⚠️ Enable-Schalter fehlt!'}</small></div>
-            {#each p.printers as pr}
-              <div class="ld-step ok"><span class="ld-ico">{pr.operation === 'Delete' ? '🗑️' : '🖨️'}</span> <code>{pr.path}</code>{pr.setDefault ? ' · ⭐ Standard' : ''}{pr.operation === 'Delete' ? ' · wird entfernt' : ''}</div>
-            {/each}
-            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
-            <div class="ld-oib-target" style="margin-top:0;">
+          {@const gnames = groupNames(p.groupIds)}
+          <div class="step-card">
+            <h4>🖨️ {p.profileName} {@render assignBadge(gnames)}</h4>
+            <p class="mp-meta">
+              {p.printers.length} Drucker · {p.scope === 'machine' ? 'Geräte-Kontext' : 'Benutzer-Kontext'}{p.enabled ? '' : ' · ⚠️ Enable-Schalter fehlt!'}{gnames.length ? ` · ${gnames.join(', ')}` : ''}
+            </p>
+            {#if p.printers.length}
+              <details class="mp-details">
+                <summary>Drucker anzeigen</summary>
+                <div class="gt-table-wrap" style="margin-top:0.5rem;">
+                  <table class="gt-table">
+                    <thead><tr><th>Druckerpfad</th><th style="width:120px;">Aktion</th><th style="width:100px;">Standard</th></tr></thead>
+                    <tbody>
+                      {#each p.printers as pr}
+                        <tr><td><code>{pr.path}</code></td><td>{pr.operation === 'Delete' ? '🗑️ entfernen' : 'verbinden'}</td><td>{pr.setDefault ? '⭐ ja' : '–'}</td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            {/if}
+            <div class="mp-actions">
               <button class="btn btn-secondary" onclick={() => pmEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
             </div>
           </div>
@@ -854,10 +884,13 @@
             <div class="ld-oib-toolbar">
               <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={pmAddRow} disabled={pmPrinters.length >= (pmData?.maxPrinters || 15)}>+ Drucker ({pmPrinters.length}/{pmData?.maxPrinters || 15})</button>
             </div>
-            <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.84rem; margin:0.4rem 0;">
-              <input type="checkbox" bind:checked={pmDeployApp} />
-              Store-App „Intune Printer Mapping" automatisch als Required-App mit deployen (an dieselben Gruppen)
-            </label>
+            <div class="check-row">
+              <input id="pmDeployApp" type="checkbox" bind:checked={pmDeployApp} />
+              <div>
+                <label class="cr-title" for="pmDeployApp">Store-App „Intune Printer Mapping" automatisch mit deployen</label>
+                <div class="cr-desc">Als Required-App an dieselben Gruppen — ohne die App mappt die Richtlinie nichts.</div>
+              </div>
+            </div>
             <div class="ld-confirm-actions">
               <button class="btn btn-primary" disabled={!pmContentOk} onclick={() => pmJump(3)}>Weiter</button>
             </div>
@@ -932,21 +965,35 @@
     {:else if spError}
       <div class="ld-job"><div class="ld-banner fail">{spError}</div></div>
     {:else if spProfiles}
-      <div class="ld-job">
-        <div class="ld-job-head"><strong>Deployte Sync-Profile</strong>
-          <span class="ld-job-meta">{spProfiles.length}</span></div>
+      <div class="settings-group">
+        <h4>Deployte Sync-Profile <small>({spProfiles.length})</small></h4>
         {#if !spProfiles.length}
-          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Sync-Profile — oben eines anlegen.</div>
+          <p class="ld-section-hint">Noch keine Sync-Profile — oben eines anlegen.</p>
         {/if}
         {#each spProfiles as p (p.id)}
-          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">☁️ {p.profileName}</div>
-            {#each (p.config?.mappings || []) as m}
-              <div class="ld-step ok"><span class="ld-ico">📁</span> {m.libraryName} <small>({m.webUrl})</small></div>
-            {/each}
-            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
-            <div class="ld-oib-target" style="margin-top:0;">
+          {@const gnames = groupNames(p.groupIds)}
+          {@const libs = p.config?.mappings || []}
+          <div class="step-card">
+            <h4>☁️ {p.profileName} {@render assignBadge(gnames)}</h4>
+            <p class="mp-meta">
+              {libs.length ? `${libs.length} Bibliothek${libs.length === 1 ? '' : 'en'}` : '⚠️ Konfiguration nicht parsebar — Bearbeiten überschreibt sie'}{gnames.length ? ` · ${gnames.join(', ')}` : ''}
+            </p>
+            {#if libs.length}
+              <details class="mp-details">
+                <summary>Bibliotheken anzeigen</summary>
+                <div class="gt-table-wrap" style="margin-top:0.5rem;">
+                  <table class="gt-table">
+                    <thead><tr><th>Bezeichnung</th><th>Site</th></tr></thead>
+                    <tbody>
+                      {#each libs as m}
+                        <tr><td>📁 {m.libraryName}</td><td><a href={m.webUrl} target="_blank" rel="noopener" title={m.webUrl}>{sitePath(m.webUrl)}</a></td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            {/if}
+            <div class="mp-actions">
               <button class="btn btn-secondary" onclick={() => spEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
             </div>
           </div>
@@ -1104,21 +1151,35 @@
     {:else if rpError}
       <div class="ld-job"><div class="ld-banner fail">{rpError}</div></div>
     {:else if rpProfiles}
-      <div class="ld-job">
-        <div class="ld-job-head"><strong>Deployte Registry-Profile</strong>
-          <span class="ld-job-meta">{rpProfiles.length}</span></div>
+      <div class="settings-group">
+        <h4>Deployte Registry-Profile <small>({rpProfiles.length})</small></h4>
         {#if !rpProfiles.length}
-          <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Registry-Profile — oben eines anlegen.</div>
+          <p class="ld-section-hint">Noch keine Registry-Profile — oben eines anlegen.</p>
         {/if}
         {#each rpProfiles as p (p.id)}
-          {@const gnames = (p.groupIds || []).map(gid => groups.find(g => g.id === gid)?.displayName || gid)}
-          <div class="ld-phase complete">
-            <div class="ld-phase-title">🖥️ {p.profileName}</div>
-            {#each (p.config?.entries || []) as e}
-              <div class="ld-step ok"><span class="ld-ico">🔑</span> {e.name} <small>(HKLM:\{e.path} = {e.value}, {e.type})</small></div>
-            {/each}
-            <div class="ld-step"><small>Zugewiesen: {gnames.length ? gnames.join(', ') : 'nicht zugewiesen'}</small></div>
-            <div class="ld-oib-target" style="margin-top:0;">
+          {@const gnames = groupNames(p.groupIds)}
+          {@const entries = p.config?.entries || []}
+          <div class="step-card">
+            <h4>🔑 {p.profileName} {@render assignBadge(gnames)}</h4>
+            <p class="mp-meta">
+              {entries.length ? `${entries.length} Registry-Wert${entries.length === 1 ? '' : 'e'}` : '⚠️ Konfiguration nicht parsebar — Bearbeiten überschreibt sie'}{gnames.length ? ` · ${gnames.join(', ')}` : ''}
+            </p>
+            {#if entries.length}
+              <details class="mp-details">
+                <summary>Werte anzeigen</summary>
+                <div class="gt-table-wrap" style="margin-top:0.5rem;">
+                  <table class="gt-table">
+                    <thead><tr><th>Pfad (HKLM:\)</th><th>Name</th><th style="width:90px;">Typ</th><th style="width:120px;">Wert</th></tr></thead>
+                    <tbody>
+                      {#each entries as e}
+                        <tr><td><code>{e.path}</code></td><td>{e.name}</td><td>{e.type}</td><td><code>{e.value}</code></td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            {/if}
+            <div class="mp-actions">
               <button class="btn btn-secondary" onclick={() => rpEdit(p)}>✏️ Bearbeiten / neu zuweisen</button>
             </div>
           </div>
@@ -1244,6 +1305,12 @@
   .wizard-step.on .wiz-head { cursor: default; }
   .wizard-step.on .wiz-head .wizard-step-title { color: var(--accent); }
   .wiz-summary { color: var(--text-dim); }
+  /* Profil-Karten in den Uebersichten (step-card kommt aus app.css) */
+  .mp-meta { font-size: 0.8rem; color: var(--text-dim); margin: -0.2rem 0 0.35rem; line-height: 1.45; }
+  .mp-details > summary { cursor: pointer; font-size: 0.8rem; color: var(--accent); }
+  .mp-details > summary:hover { color: var(--accent-strong); }
+  .mp-actions { margin-top: 0.6rem; }
+  .mp-actions .btn { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
   .wiz-body { margin-top: 0.6rem; padding-left: 2rem; }
   .wiz-script {
     max-height: 320px; overflow: auto; margin-top: 0.5rem;
