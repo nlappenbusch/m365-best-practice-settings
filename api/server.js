@@ -3483,7 +3483,21 @@ app.get("/api/reports/sections", (req, res) => res.json({ ok: true, sections: RE
 
 // Im State landet NUR die Auswertung (Kennzahlen, Zusammenfassung), nicht die
 // Rohdaten: der Lizenzbaustein liefert alle Benutzer mit, das wuerde state.json
-// bei einem Dutzend Tenants unnoetig aufblaehen.
+// bei einem Dutzend Tenants unnoetig aufblaehen. Die gekappten DETAIL-LISTEN
+// (welche Konten/Policies/Geraete konkret) landen als eigene Datei pro Tenant
+// unter state/reports/ — abrufbar ueber /report/latest und eingebettet in die
+// Kundenreports.
+const REPORTS_DIR = path.join(STATE_DIR, "reports");
+
+function reportDetailsPath(tenantRecId) {
+  return path.join(REPORTS_DIR, String(tenantRecId).replace(/[^A-Za-z0-9_-]/g, "") + ".json");
+}
+
+function loadReportDetails(tenantRecId) {
+  try { return JSON.parse(fs.readFileSync(reportDetailsPath(tenantRecId), "utf8")); }
+  catch (e) { return null; }
+}
+
 function storeReport(tenantRecId, report) {
   const s = loadState();
   const idx = (s.tenants || []).findIndex(x => x.id === tenantRecId);
@@ -3493,11 +3507,17 @@ function storeReport(tenantRecId, report) {
     summary: report.summary,
     sections: {}
   };
+  const detailed = { generatedAt: report.generatedAt, summary: report.summary, sections: {} };
   for (const [id, sec] of Object.entries(report.sections)) {
     slim.sections[id] = { ok: sec.ok, label: sec.label, metrics: sec.metrics || [], error: sec.error || null };
+    detailed.sections[id] = { ...slim.sections[id], lists: sec.lists || [] };
   }
   s.tenants[idx].report = slim;
   saveState(s);
+  try {
+    fs.mkdirSync(REPORTS_DIR, { recursive: true });
+    fs.writeFileSync(reportDetailsPath(tenantRecId), JSON.stringify(detailed, null, 2), "utf8");
+  } catch (e) { console.log("Report-Details nicht speicherbar: " + e.message); }
 }
 
 async function runReportJob(job, t) {
@@ -3546,7 +3566,9 @@ app.get("/api/tenants/:id/report/latest", (req, res) => {
   const s = loadState();
   const t = (s.tenants || []).find(x => x.id === req.params.id);
   if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
-  res.json({ ok: true, report: t.report || null });
+  // Detaillierte Fassung (inkl. Listen) bevorzugen; aeltere Tenants ohne
+  // Details-Datei bekommen weiter die schlanke aus dem State.
+  res.json({ ok: true, report: loadReportDetails(t.id) || t.report || null });
 });
 
 // Monitoring-Uebersicht ueber ALLE Tenants — liest nur die gespeicherten
@@ -3891,9 +3913,9 @@ async function collectMaesterReportData(t, runId) {
   return {
     domainAuth,
     // Letzter Statusreport aus dem Reports-Tab (Lizenzen/CA/Identitaeten/
-    // Geraete/OIB, schlanke Fassung) — macht aus dem Maester-Report den
-    // vollumfaenglichen Kundenreport. Fehlt er, faellt das Kapitel weg.
-    statusReport: t.report || null,
+    // Geraete/OIB) — macht aus dem Maester-Report den vollumfaenglichen
+    // Kundenreport. Detailfassung (inkl. Listen) bevorzugt, sonst slim.
+    statusReport: loadReportDetails(t.id) || t.report || null,
     tenantName: t.name,
     organization: t.organization || null,
     generatedAt: summary.generatedAt,

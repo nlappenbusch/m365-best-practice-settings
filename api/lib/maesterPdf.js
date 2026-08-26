@@ -460,6 +460,22 @@ function buildPdf(data) {
           }
           doc.x = left;
         }
+        // Detail-Listen der Sektion — kompakt, im PDF auf 15 Zeilen gekappt
+        // (die Vollansicht hat der HTML-Report).
+        for (const lst of (sec.lists || [])) {
+          ensureSpace(36);
+          doc.moveDown(0.4);
+          doc.font("Helvetica-Bold").fontSize(9).fillColor(COL.text).text(lst.label, left + 6, doc.y, { width: W - 12 });
+          const shown = (lst.rows || []).slice(0, 15);
+          for (const row of shown) {
+            ensureSpace(15);
+            doc.font("Helvetica").fontSize(8.5).fillColor(COL.muted)
+              .text("–  " + row.filter(Boolean).join("   ·   "), left + 12, doc.y, { width: W - 18, lineGap: 1 });
+            doc.x = left;
+          }
+          const hidden = (lst.rows || []).length - shown.length + (lst.more || 0);
+          if (hidden > 0) small(`… und ${hidden} weitere (siehe HTML-Report).`);
+        }
       }
     }
 

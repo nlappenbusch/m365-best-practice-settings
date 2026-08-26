@@ -28,6 +28,20 @@ function metric(label, value, state, detail) {
   return { label, value, state: state || "ok", detail: detail || null };
 }
 
+// Detail-Liste zu einer Sektion: generisch (Spalten + Zeilen), damit Tab,
+// Kunden-HTML und Kunden-PDF sie mit EINEM Renderer anzeigen koennen.
+// Immer gekappt — der Report soll Befund zeigen, nicht Datenexport sein.
+const LIST_CAP = 50;
+function list(id, label, columns, rows, state) {
+  const capped = rows.slice(0, LIST_CAP);
+  return {
+    id, label, columns,
+    rows: capped.map(r => r.map(c => (c === null || c === undefined) ? "—" : String(c))),
+    more: Math.max(0, rows.length - capped.length),
+    state: state || null
+  };
+}
+
 async function sectionLicenses(tenant, cert) {
   const r = await LICENSES.runLicenseReport(tenant, cert);
   const t = r.totals || {};
@@ -42,7 +56,21 @@ async function sectionLicenses(tenant, cert) {
     metrics.push(metric(`Inaktiv >${r.inactiveDays} Tage`, t.inactiveWithLicense,
       t.inactiveWithLicense > 0 ? "warn" : "ok"));
   }
-  return { metrics, data: r };
+
+  const f = r.findings || {};
+  const lists = [];
+  const unused = f.unusedPaidSeats || [];
+  if (unused.length) lists.push(list("freeSeats", "Freie bezahlte Seats", ["Lizenz", "Zugewiesen", "Gekauft", "Frei"],
+    unused.map(s => [s.name, s.assigned, s.purchased, s.available]), "warn"));
+  if ((f.disabledWithLicense || []).length) lists.push(list("disabledLic", "Lizenzen an deaktivierten Konten", ["Konto", "UPN", "Lizenzen"],
+    f.disabledWithLicense.map(u => [u.displayName, u.upn, (u.licenses || []).join(", ")]), "warn"));
+  if ((f.inactiveWithLicense || []).length) lists.push(list("inactiveLic", `Inaktive lizenzierte Konten (>${r.inactiveDays} Tage)`, ["Konto", "UPN", "Letzte Anmeldung", "Lizenzen"],
+    f.inactiveWithLicense.map(u => [u.displayName, u.upn, u.lastSignIn || "nie angemeldet", (u.licenses || []).join(", ")]), "warn"));
+  const multiRelevant = (f.multiSuite || []).filter(m => m.verdict !== "addon");
+  if (multiRelevant.length) lists.push(list("multiSuite", "Mehrfach-Lizenzierung (prüfenswert)", ["Konto", "Lizenzen", "Einordnung"],
+    multiRelevant.map(m => [`${m.displayName} (${m.upn})`, (m.licenses || []).join(", "), m.reason || m.verdict]), "warn"));
+
+  return { metrics, lists, data: r };
 }
 
 async function sectionConditionalAccess(tenant, cert) {
@@ -50,6 +78,9 @@ async function sectionConditionalAccess(tenant, cert) {
   const enabled = all.filter(p => p.state === "enabled").length;
   const reportOnly = all.filter(p => p.state === "enabledForReportingButNotEnforced").length;
   const disabled = all.filter(p => p.state === "disabled").length;
+  const stateDe = (st) => st === "enabled" ? "Aktiv" : st === "enabledForReportingButNotEnforced" ? "Report-only" : st === "disabled" ? "Deaktiviert" : st;
+  // Nicht-aktive zuerst — das ist das, was man in der Liste sucht.
+  const sorted = [...all].sort((a, b) => (a.state === "enabled" ? 1 : 0) - (b.state === "enabled" ? 1 : 0));
   return {
     metrics: [
       metric("Policies gesamt", all.length, all.length === 0 ? "crit" : "ok",
@@ -59,6 +90,9 @@ async function sectionConditionalAccess(tenant, cert) {
         reportOnly > 0 ? "Im Pilotmodus — greift noch nicht" : null),
       metric("Deaktiviert", disabled, disabled > 0 ? "warn" : "ok")
     ],
+    lists: all.length ? [list("caPolicies", "Alle Conditional-Access-Policies", ["Policy", "Status", "Verwaltet"],
+      sorted.map(p => [p.displayName, stateDe(p.state), p.managed ? "igeeks (BP_)" : "kundenseitig"]),
+      (reportOnly + disabled) > 0 ? "warn" : null)] : [],
     data: all.map(p => ({ name: p.displayName, state: p.state, managed: p.managed }))
   };
 }
@@ -69,17 +103,23 @@ async function sectionIdentity(tenant, cert) {
   const guests = users.filter(u => u.userType === "Guest");
   const disabled = users.filter(u => u.accountEnabled === false);
 
-  // Privilegierte Rollen: nur die aktivierten Verzeichnisrollen, das reicht
-  // fuer die Aussage "wie viele Konten haben erhoehte Rechte".
+  // Privilegierte Rollen: nur die aktivierten Verzeichnisrollen — inklusive
+  // WER die Rollen hat (fuer die Detail-Liste im Report).
   let adminCount = null, globalAdmins = null;
+  const adminRoles = new Map(); // memberId -> { name, roles: [] }
   try {
     const roles = await graphAllPages(tenant, cert, "/directoryRoles", { retryTransient: true });
     const seen = new Set();
     let ga = 0;
     for (const role of roles) {
       const members = await graphAllPages(tenant, cert,
-        `/directoryRoles/${encodeURIComponent(role.id)}/members?$select=id`, { retryTransient: true });
-      for (const m of members) seen.add(m.id);
+        `/directoryRoles/${encodeURIComponent(role.id)}/members?$select=id,displayName,userPrincipalName`, { retryTransient: true });
+      for (const m of members) {
+        seen.add(m.id);
+        const rec = adminRoles.get(m.id) || { name: m.displayName || m.userPrincipalName || m.id, upn: m.userPrincipalName || "", roles: [] };
+        rec.roles.push(role.displayName || "?");
+        adminRoles.set(m.id, rec);
+      }
       if (/company administrator|global administrator/i.test(String(role.displayName || ""))) ga = members.length;
     }
     adminCount = seen.size;
@@ -101,7 +141,17 @@ async function sectionIdentity(tenant, cert) {
       globalAdmins > 4 ? "Mehr als 4 — Berechtigungen prüfen"
         : globalAdmins < 2 ? "Weniger als 2 — kein Break-Glass-Konto?" : null));
   }
-  return { metrics, data: { guests: guests.map(g => g.userPrincipalName), globalAdmins } };
+
+  const lists = [];
+  if (adminRoles.size) lists.push(list("admins", "Konten mit Adminrollen", ["Konto", "UPN", "Rollen"],
+    [...adminRoles.values()].sort((a, b) => b.roles.length - a.roles.length)
+      .map(a => [a.name, a.upn, a.roles.join(", ")])));
+  if (guests.length) lists.push(list("guests", "Gastkonten", ["Konto", "UPN"],
+    guests.map(g => [g.displayName || "—", g.userPrincipalName]), "warn"));
+  if (disabled.length) lists.push(list("disabledAccounts", "Deaktivierte Konten", ["Konto", "UPN"],
+    disabled.map(u => [u.displayName || "—", u.userPrincipalName])));
+
+  return { metrics, lists, data: { guests: guests.map(g => g.userPrincipalName), globalAdmins } };
 }
 
 async function sectionDevices(tenant, cert) {
@@ -121,6 +171,15 @@ async function sectionDevices(tenant, cert) {
     byOs[os] = (byOs[os] || 0) + 1;
   }
 
+  const fmtSync = (d) => d.lastSyncDateTime ? String(d.lastSyncDateTime).slice(0, 10) : "nie";
+  const nonCompliantList = devices.filter(d => d.complianceState === "noncompliant");
+  const staleList = devices.filter(d => d.lastSyncDateTime && new Date(d.lastSyncDateTime).getTime() < cutoff);
+  const lists = [];
+  if (nonCompliantList.length) lists.push(list("noncompliant", "Nicht konforme Geräte", ["Gerät", "OS", "Letzter Sync"],
+    nonCompliantList.map(d => [d.deviceName, `${d.operatingSystem || "?"} ${d.osVersion || ""}`.trim(), fmtSync(d)]), "crit"));
+  if (staleList.length) lists.push(list("staleDevices", "Geräte ohne Sync seit 30 Tagen", ["Gerät", "OS", "Letzter Sync"],
+    staleList.map(d => [d.deviceName, `${d.operatingSystem || "?"} ${d.osVersion || ""}`.trim(), fmtSync(d)]), "warn"));
+
   return {
     metrics: [
       metric("Verwaltete Geräte", devices.length),
@@ -128,6 +187,7 @@ async function sectionDevices(tenant, cert) {
       metric("Nicht konform", nonCompliant, nonCompliant > 0 ? "crit" : "ok"),
       metric("Seit 30 Tagen kein Sync", stale, stale > 0 ? "warn" : "ok")
     ],
+    lists,
     data: { byOs }
   };
 }
@@ -135,13 +195,17 @@ async function sectionDevices(tenant, cert) {
 async function sectionIntuneBaseline(tenant, cert) {
   const overview = await OIB.loadOibOverview(tenant, cert);
   const policies = Array.isArray(overview.policies) ? overview.policies : [];
-  const assigned = policies.filter(p => p.assigned || (p.assignments && p.assignments.length)).length;
+  const isAssigned = (p) => p.assigned || (p.assignments && p.assignments.length);
+  const assigned = policies.filter(isAssigned).length;
+  const unassigned = policies.filter(p => !isAssigned(p));
   return {
     metrics: [
       metric("OIB-Policies vorhanden", policies.length, policies.length === 0 ? "warn" : "ok"),
       metric("Davon zugewiesen", assigned, policies.length && assigned === 0 ? "warn" : "ok",
         policies.length && assigned === 0 ? "Angelegt, aber wirkungslos" : null)
     ],
+    lists: unassigned.length ? [list("oibUnassigned", "Vorhandene, aber nicht zugewiesene OIB-Policies", ["Policy"],
+      unassigned.map(p => [p.displayName || p.name || "?"]), "warn")] : [],
     data: { total: policies.length, assigned }
   };
 }
@@ -175,7 +239,7 @@ async function runReport(tenant, cert, sections, onProgress) {
     if (onProgress) onProgress(meta ? meta.label : id);
     try {
       const r = await RUNNERS[id](tenant, cert);
-      result.sections[id] = { ok: true, label: meta.label, metrics: r.metrics, data: r.data };
+      result.sections[id] = { ok: true, label: meta.label, metrics: r.metrics, lists: r.lists || [], data: r.data };
     } catch (e) {
       // Bewusst nicht abbrechen: ein fehlender Baustein ist kein Grund, den
       // ganzen Report zu verlieren -- aber er muss als Luecke sichtbar sein.

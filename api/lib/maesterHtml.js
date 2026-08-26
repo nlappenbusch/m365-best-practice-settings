@@ -274,7 +274,12 @@ function buildHtml(data) {
     ? `<details class="skipgrp"${(sec.metrics || []).some(m => m.state !== "ok") ? " open" : ""}><summary>${esc(sec.label)}${(sec.metrics || []).some(m => m.state === "crit") ? ' <span class="bad">— kritisch</span>' : (sec.metrics || []).some(m => m.state === "warn") ? ' <span class="warn">— Hinweise</span>' : ""}</summary>
       <table><thead><tr><th>Kennzahl</th><th>Wert</th><th>Bewertung</th><th>Hinweis</th></tr></thead><tbody>
       ${(sec.metrics || []).map(m => `<tr><td>${esc(m.label)}</td><td><strong>${esc(m.value ?? "—")}</strong></td><td class="${stateCls(m.state)}">${stateWord(m.state)}</td><td class="hint">${esc(m.detail || "")}</td></tr>`).join("")}
-      </tbody></table></details>`
+      </tbody></table>
+      ${(sec.lists || []).map(l => `<p class="mdh" style="padding:0 16px">${esc(l.label)}${l.more ? ` <span class="hint">(erste ${l.rows.length} von ${l.rows.length + l.more})</span>` : ""}</p>
+        <div style="padding:0 16px 8px"><table><thead><tr>${(l.columns || []).map(cH => `<th>${esc(cH)}</th>`).join("")}</tr></thead><tbody>
+        ${(l.rows || []).map(r => `<tr>${r.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}
+        </tbody></table></div>`).join("")}
+      </details>`
     : `<details class="skipgrp"><summary>${esc(sec.label)} <span class="warn">— nicht abrufbar</span></summary><ul><li>${esc(sec.error || "Keine Daten")}</li></ul></details>`
   ).join("\n")}`;
   })()}

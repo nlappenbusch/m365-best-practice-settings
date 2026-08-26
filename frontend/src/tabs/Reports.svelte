@@ -20,6 +20,21 @@
   let jobError = $state(null)
   let jobTimer = null
   let fullReport = $state(null)
+  let latestReport = $state(null)   // gespeicherter Detailreport (inkl. Listen)
+  let listOpen = $state({})         // "sectionId/listId" -> bool
+
+  // Angezeigt wird der frische Lauf, sonst der gespeicherte Stand.
+  let shownReport = $derived(fullReport || latestReport)
+
+  async function loadLatest(tid) {
+    latestReport = null; listOpen = {}
+    if (!tid) return
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent(tid)}/report/latest`)
+      latestReport = r.report || null
+    } catch (e) { /* kein Stand */ }
+  }
+  $effect(() => { if ($session.loggedIn) { fullReport = null; loadLatest($activeTenant?.id) } })
 
   async function load() {
     overviewLoading = true
@@ -63,6 +78,7 @@
           fullReport = r.report
         } catch (e) { /* Kennzahlen stehen auch ohne Rohdaten in der Übersicht */ }
         await load()
+        loadLatest($activeTenant?.id)
       }
     }, 1500)
   }
@@ -185,8 +201,13 @@
       </div>
     {/if}
 
-    {#if fullReport}
-      {#each Object.entries(fullReport.sections) as [id, sec]}
+    {#if shownReport}
+      {#if !fullReport}
+        <p class="ld-section-hint" style="margin-top:0.75rem">Gespeicherter Stand vom
+          {shownReport.generatedAt ? shownReport.generatedAt.slice(0, 16).replace('T', ' ') : '—'} —
+          für frische Zahlen oben einen Report erzeugen.</p>
+      {/if}
+      {#each Object.entries(shownReport.sections) as [id, sec] (id)}
         <div class="rep-section-result">
           <div class="rep-section-title">{sec.ok ? '' : '⚠️ '}{sec.label}</div>
           {#if !sec.ok}
@@ -201,6 +222,27 @@
                 </div>
               {/each}
             </div>
+            {#each sec.lists || [] as l (l.id)}
+              {@const key = `${id}/${l.id}`}
+              <button class="linklike" style="margin-top:0.5rem; display:block"
+                      onclick={() => (listOpen[key] = !listOpen[key])}>
+                {listOpen[key] ? '▾' : '▸'} {l.label}
+                ({l.rows.length}{l.more ? ` von ${l.rows.length + l.more}` : ''})
+              </button>
+              {#if listOpen[key]}
+                <div class="gt-table-wrap" style="margin-top:0.35rem">
+                  <table class="gt-table">
+                    <thead><tr>{#each l.columns as c}<th>{c}</th>{/each}</tr></thead>
+                    <tbody>
+                      {#each l.rows as r}
+                        <tr>{#each r as cell}<td>{cell}</td>{/each}</tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+                {#if l.more}<p class="ld-section-hint" style="margin-top:0.25rem">… und {l.more} weitere (Liste im Report gekappt).</p>{/if}
+              {/if}
+            {/each}
           {/if}
         </div>
       {/each}

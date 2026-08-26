@@ -1,5 +1,22 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.7 - Detailreports & Kundenreport-Ausbau (2026-08-26)
+
+- **Statusreport mit Detail-Listen**: die Report-Sektionen liefern jetzt
+  konkrete, gekappte Listen statt nur Zähler — welche Konten inaktiv/
+  deaktiviert lizenziert sind, alle CA-Policies mit Status, Konten mit
+  Adminrollen, Gäste, nicht konforme/sync-lose Geräte, nicht zugewiesene
+  OIB-Policies, freie Seats je SKU, Mehrfach-Lizenzierungen. Persistiert als
+  Datei pro Tenant (`state/reports/`), state.json bleibt schlank.
+- **Reports-Tab** zeigt den gespeicherten Detailreport auch ohne frischen
+  Lauf und rendert die Listen aufklappbar als Tabellen.
+- **Kunden-HTML & Kunden-PDF** betten die Detail-Listen im Kapitel
+  «Tenant-Status im Überblick» ein (HTML: volle Tabellen in den Accordions,
+  PDF: kompakt auf 15 Zeilen gekappt mit Verweis auf den HTML-Report).
+- Kunden-HTML-Report (Accordions, Mail-Anhang) und die PDF-Formatierung
+  (Logo, Codeblöcke, echte Tabellen, klickbare Links, durchlaufende
+  Nummerierung) aus den Nachzügen von Version 2.6.
+
 ## Version 2.6 - Maester-Security-Audit integriert (2026-08-26)
 
 ### 🔍 Neuer Bereich „Security-Audit" (Maester)
