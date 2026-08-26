@@ -13,6 +13,13 @@ variables:
     - 'echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json'
   rules: [ { if: '$CI_COMMIT_BRANCH == "main"' } ]
 
+# Layer-Caching (eingefuehrt 26.08.2026, nachdem 13 Builds a 281 MB die
+# Registry-Platte gefuellt hatten): Kaniko legt RUN-Layer als Cache-Eintraege
+# unter <image>/cache ab und verwendet sie wieder, solange Dockerfile-Schritt
+# und Eingaben unveraendert sind. Der fette PowerShell-Modul-Layer der API
+# wird damit EINMAL gebaut statt bei jedem Commit; gepusht werden nur noch
+# geaenderte Layer. --cache-ttl begrenzt das Alter, damit der Cache selbst
+# kein Muelllager wird.
 # Frontend-SPA + nginx (Dockerfile im Repo-Root)
 build-website:
   extends: .kaniko
@@ -22,6 +29,9 @@ build-website:
         --dockerfile "$CI_PROJECT_DIR/Dockerfile"
         --destination "$IMAGE/website:$TAG"
         --destination "$IMAGE/website:latest"
+        --cache=true
+        --cache-repo "$IMAGE/cache"
+        --cache-ttl 336h
         --skip-tls-verify-registry=registry.igeeks.ch'
 
 # Live-Deploy-API (Node + pwsh + ExchangeOnlineManagement; Build dauert einige Minuten)
@@ -33,6 +43,9 @@ build-api:
         --dockerfile "$CI_PROJECT_DIR/api/Dockerfile"
         --destination "$IMAGE/api:$TAG"
         --destination "$IMAGE/api:latest"
+        --cache=true
+        --cache-repo "$IMAGE/cache"
+        --cache-ttl 336h
         --skip-tls-verify-registry=registry.igeeks.ch'
 
 deploy-prod:
