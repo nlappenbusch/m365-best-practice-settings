@@ -18,6 +18,7 @@
   let latest = $state(null)
   let runs = $state([])
   let showAllFailed = $state(false)
+  let showSkipped = $state(false)
 
   // Suiten-Auswahl: alle an = komplette Testsuite (inkl. nicht getaggter Tests),
   // Teilmenge = Tag-Filter im Backend. Tags sind die offiziellen Maester-Tags.
@@ -81,7 +82,7 @@
   }
 
   async function loadTenant(tid) {
-    latest = null; runs = []; showAllFailed = false
+    latest = null; runs = []; showAllFailed = false; showSkipped = false
     schedEnabled = false; schedInterval = 'weekly'; schedSaved = null
     if (!tid) return
     try {
@@ -358,6 +359,26 @@
           {/if}
         {:else}
           <p class="ld-section-hint" style="margin-top:0.5rem">Kein Test gefallen. 🎉</p>
+        {/if}
+
+        {#if latest.skipped?.length}
+          <button class="linklike" style="margin-top:0.6rem; display:block" onclick={() => (showSkipped = !showSkipped)}>
+            {showSkipped ? '▾' : '▸'} {latest.skipped.length} übersprungene Tests — und warum
+          </button>
+          {#if showSkipped}
+            <table class="gt-table" style="margin-top:0.4rem">
+              <thead><tr><th>Test</th><th>Bereich</th><th>Grund</th></tr></thead>
+              <tbody>
+                {#each latest.skipped as s}
+                  <tr>
+                    <td>{s.title || s.id}</td>
+                    <td>{s.block || '—'}</td>
+                    <td>{s.reason || 'kein Grund hinterlegt — Details im HTML-Report'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
         {/if}
       </div>
 

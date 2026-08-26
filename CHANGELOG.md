@@ -63,6 +63,9 @@ Nachgezogen nach dem ersten Praxistest (gleicher Tag):
   (`state/maester-tests`, Fallback bleibt die beim Build eingefrorene Kopie);
   im Tab gibt es dazu eine Testsuite-Box mit Version, Stand und
   «Jetzt aktualisieren».
+- **Skip-Gründe sichtbar**: aufklappbare Liste «N übersprungene Tests — und
+  warum» am Ergebnis (Grund aus Maesters ResultDetail: fehlende Lizenz,
+  fehlendes Modul, nicht zutreffend, …).
 - **Auswertung läuft jetzt in Node statt in pwsh**: Zusammenfassung wird aus
   Maesters `results.json` gerechnet. Grund: der pwsh-Prozess wurde am Ende
   zweier realer Läufe kommentarlos abgeschossen (kein stderr — mutmasslich

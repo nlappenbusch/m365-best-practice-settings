@@ -3623,6 +3623,7 @@ async function runMaesterJobInner(job, t, tags) {
       exoConnected: !!r.data.exoConnected,
       exoError: r.data.exoError || null,
       failed: r.data.failed || [],
+      skipped: r.data.skipped || [],
       maesterVersion: r.data.maesterVersion || null,
       htmlAvailable: !!r.data.htmlAvailable
     };

@@ -229,8 +229,9 @@ function summarizeResults(jsonPath) {
   catch (e) { return { ok: false, error: "results.json nicht lesbar: " + e.message }; }
   const pick = (o, names) => { for (const n of names) { if (o && o[n] !== null && o[n] !== undefined && o[n] !== "") return o[n]; } return null; };
   const tests = Array.isArray(doc.Tests) ? doc.Tests : (Array.isArray(doc.tests) ? doc.tests : []);
-  let passed = 0, failedCount = 0, skipped = 0, other = 0;
+  let passed = 0, failedCount = 0, skippedCount = 0, other = 0;
   const failed = [];
+  const skipped = [];
   for (const t of tests) {
     if (!t) continue;
     const res = String(pick(t, ["Result", "result"]) || "");
@@ -246,15 +247,29 @@ function summarizeResults(jsonPath) {
           helpUrl: String(pick(t, ["HelpUrl", "helpUrl"]) || "")
         });
       }
-    } else if (/^Skipped/i.test(res)) skipped++;
-    else other++;
+    } else if (/^Skipped/i.test(res)) {
+      skippedCount++;
+      if (skipped.length < FAILED_CAP) {
+        // Warum uebersprungen: Maester legt den Grund in ResultDetail ab
+        // (fehlende Lizenz, fehlendes Modul, nicht zutreffend, ...).
+        const rd = pick(t, ["ResultDetail", "resultDetail"]) || {};
+        const reason = String(pick(rd, ["TestSkipped", "testSkipped", "SkippedReason", "skippedReason", "TestResult", "testResult"]) || "").trim();
+        skipped.push({
+          id: String(pick(t, ["Id", "id", "Name", "name"]) || ""),
+          title: String(pick(t, ["Title", "title", "Name", "name"]) || ""),
+          block: String(pick(t, ["Block", "block"]) || ""),
+          reason: reason.slice(0, 300)
+        });
+      }
+    } else other++;
   }
   const version = pick(doc, ["CurrentVersion", "currentVersion"]);
   return {
     ok: true,
     data: {
-      counts: { total: tests.length, passed, failed: failedCount, skipped, other },
+      counts: { total: tests.length, passed, failed: failedCount, skipped: skippedCount, other },
       failed,
+      skipped,
       resultVersion: version === null ? null : String(version)
     }
   };
