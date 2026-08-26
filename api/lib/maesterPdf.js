@@ -59,19 +59,101 @@ function skipReasonLabel(reason) {
   return r || "Ohne Grundangabe";
 }
 
-// Maesters Markdown-Texte fuer den Druck in lesbaren Klartext wandeln.
-function mdToPlain(s, cap) {
-  const out = String(s == null ? "" : s)
-    .replace(/```[a-zA-Z]*\n?/g, "")
-    .replace(/^#+\s*/gm, "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/^\s*>\s?/gm, "")
-    .replace(/^\s*\|[\s:|-]+\|\s*$/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return cap ? out.slice(0, cap) : out;
+// Die Standard-PDF-Fonts (WinAnsi) koennen keine Emoji — Maesters Ergebnis-
+// tabellen sind aber voll davon (✅/❌/⏭️). Ohne Mapping wird daraus
+// Zeichensalat wie "Ø=ÝÄ". Also: bekannte Symbole in Woerter uebersetzen,
+// alles andere ausserhalb von Latin-1 (+ ein paar WinAnsi-Sonderzeichen)
+// verwerfen.
+const EMOJI_MAP = [
+  [/✅|✔️|✔/g, "OK"],
+  [/❌|✖️|✖|❎/g, "Fail"],
+  [/⏭️|⏭|⏩/g, "Skip"],
+  [/⚠️|⚠/g, "Achtung:"],
+  [/ℹ️|ℹ/g, "Info:"],
+  [/🟢/g, "OK"], [/🔴/g, "Fail"], [/🟡|🟠/g, "Achtung"],
+  [/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ""]
+];
+function sanitizePdf(s) {
+  let out = String(s == null ? "" : s);
+  for (const [re, rep] of EMOJI_MAP) out = out.replace(re, rep);
+  // WinAnsi-vertraeglich halten: Latin-1 plus die gaengigen Satzzeichen.
+  return out.replace(/[^\x09\x0A\x20-\x7E\xA0-\xFF€–—‘’‚“”„…·]/g, "").replace(/[ \t]+/g, " ");
+}
+
+// Maester-Markdown strukturiert ins PDF rendern: Ueberschriften fett,
+// |Tabellen| als lesbare Zeilen, [Links](url) als klickbare Links in Akzent-
+// farbe, Codefences als eingerueckter Text. Kein addPage zwischen Bloecken.
+function renderMdBlock(ctx, md) {
+  const { doc, x, width, ensureSpace } = ctx;
+  const LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+
+  const inlinePlain = (s) => sanitizePdf(
+    String(s).replace(/\*\*([^*]+)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1")
+  );
+
+  // Eine Zeile mit moeglichen Links als Text-Runs ausgeben (Links klickbar).
+  const writeLine = (line, opts) => {
+    ensureSpace(16);
+    const o = { size: 9.5, color: COL.text, prefix: "", bold: false, ...(opts || {}) };
+    const parts = [];
+    let last = 0, m;
+    LINK_RE.lastIndex = 0;
+    while ((m = LINK_RE.exec(line)) !== null) {
+      if (m.index > last) parts.push({ text: line.slice(last, m.index) });
+      parts.push({ text: m[1], link: m[2] });
+      last = m.index + m[0].length;
+    }
+    if (last < line.length) parts.push({ text: line.slice(last) });
+    if (!parts.length) return;
+    doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size);
+    if (o.prefix) doc.fillColor(o.color).text(o.prefix, x, doc.y, { width, continued: true, lineGap: 1.5 });
+    parts.forEach((p, i) => {
+      const isLast = i === parts.length - 1;
+      const txt = inlinePlain(p.text);
+      if (!txt && !isLast) return;
+      if (p.link) {
+        doc.fillColor(ACCENT).text(txt, o.prefix || i > 0 ? undefined : x, undefined,
+          { width, continued: !isLast, underline: true, link: p.link, lineGap: 1.5 });
+      } else {
+        doc.fillColor(o.color).text(txt, o.prefix || i > 0 ? undefined : x, undefined,
+          { width, continued: !isLast, underline: false, link: null, lineGap: 1.5 });
+      }
+    });
+    doc.x = x;
+  };
+
+  const lines = String(md == null ? "" : md).replace(/\r\n/g, "\n").replace(/```[a-zA-Z]*\n?/g, "").split("\n");
+  let table = null;
+  const flushTable = () => {
+    if (!table) return;
+    const rows = table
+      .filter(r => !/^[\s|:-]+$/.test(r))
+      .map(r => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => inlinePlain(c.trim())));
+    const head = rows[0] || [];
+    for (const row of rows.slice(1)) {
+      ensureSpace(16);
+      const partsTxt = row.map((c, ci) => (ci && head[ci] && c) ? `${head[ci]}: ${c}` : c).filter(Boolean).join("   ·   ");
+      doc.font("Helvetica").fontSize(9).fillColor(COL.text).text("–  " + partsTxt, x + 6, doc.y, { width: width - 6, lineGap: 1 });
+    }
+    doc.x = x;
+    table = null;
+  };
+
+  let rendered = 0;
+  for (const raw of lines) {
+    if (rendered > 60) break; // Ausufernde Befunde kappen — Details stehen im HTML-Report
+    const line = raw.trimEnd();
+    if (/^\s*\|.*\|\s*$/.test(line)) { (table ??= []).push(line); continue; }
+    flushTable();
+    if (line.trim() === "") { doc.moveDown(0.18); continue; }
+    rendered++;
+    let m;
+    if ((m = line.match(/^#{1,6}\s+(.*)$/))) { doc.moveDown(0.2); writeLine(m[1], { bold: true }); continue; }
+    if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { writeLine(m[1], { prefix: "–  " }); continue; }
+    if ((m = line.match(/^\s*>\s?(.*)$/))) { writeLine(m[1], { color: COL.muted }); continue; }
+    writeLine(line);
+  }
+  flushTable();
 }
 
 function fmtDate(iso) {
@@ -208,7 +290,7 @@ function buildPdf(data) {
       findings.slice(0, 5).forEach((f, i) => {
         ensureSpace(24);
         doc.font("Helvetica").fontSize(10).fillColor(COL.text)
-          .text(`${i + 1}.  ${f.titel || f.title || f.id}`, left + 6, doc.y, { width: W - 12, lineGap: 1 });
+          .text(`${i + 1}.  ${sanitizePdf(f.titel || f.title || f.id)}`, left + 6, doc.y, { width: W - 12, lineGap: 1 });
         doc.y += 2;
         doc.x = left;
       });
@@ -227,7 +309,7 @@ function buildPdf(data) {
       const y = doc.y;
       doc.font("Helvetica-Bold").fontSize(11).fillColor(ACCENT).text(numStr, left, y, { lineBreak: false });
       doc.font("Helvetica-Bold").fontSize(11).fillColor(COL.text)
-        .text(f.titel || f.title || f.id, left + 30, y, { width: W - 30, lineGap: 1 });
+        .text(sanitizePdf(f.titel || f.title || f.id), left + 30, y, { width: W - 30, lineGap: 1 });
       const tags = [`Schweregrad: ${SEV_LABEL[k] || f.severity || "ohne Angabe"}`];
       if (f.aufwand) tags.push(`Aufwand: ${f.aufwand}`);
       if (f.block) tags.push(String(f.block).slice(0, 70));
@@ -237,17 +319,18 @@ function buildPdf(data) {
 
       const indent = { width: W - 30 };
       const at = (fn) => { const keepX = doc.x; doc.x = left + 30; fn(); doc.x = keepX; };
+      const mdCtx = { doc, x: left + 30, width: W - 30, ensureSpace };
       if (f.bedeutung) {
-        at(() => body(f.bedeutung, indent));
+        at(() => body(sanitizePdf(f.bedeutung), indent));
       } else if (f.description) {
-        at(() => doc.font("Helvetica").fontSize(9.5).fillColor(COL.text).text(mdToPlain(f.description, 900), { ...indent, lineGap: 1.5 }));
+        renderMdBlock(mdCtx, f.description);
+        doc.x = left;
       }
       if (!f.bedeutung && f.result) {
         doc.moveDown(0.25);
-        at(() => {
-          doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COL.text).text("Befund im Tenant:", indent);
-          doc.font("Helvetica").fontSize(9.5).fillColor(COL.text).text(mdToPlain(f.result, 700), { ...indent, lineGap: 1.5 });
-        });
+        at(() => doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COL.text).text("Befund im Tenant:", indent));
+        renderMdBlock(mdCtx, f.result);
+        doc.x = left;
       }
       if (Array.isArray(f.umsetzung) && f.umsetzung.length) {
         doc.moveDown(0.25);
@@ -316,7 +399,7 @@ function buildPdf(data) {
         h2(`${label} (${items.length})`);
         items.slice(0, 25).forEach(s => {
           ensureSpace(18);
-          doc.font("Helvetica").fontSize(9).fillColor(COL.muted).text("–  " + (s.title || s.id), left + 6, doc.y, { width: W - 12, lineGap: 1 });
+          doc.font("Helvetica").fontSize(9).fillColor(COL.muted).text("–  " + sanitizePdf(s.title || s.id), left + 6, doc.y, { width: W - 12, lineGap: 1 });
           doc.x = left;
         });
         if (items.length > 25) small(`… und ${items.length - 25} weitere.`);

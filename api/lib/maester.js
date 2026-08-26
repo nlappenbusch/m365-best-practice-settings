@@ -92,7 +92,7 @@ function tagsClause(tags) {
 
 /**
  * Maester-Lauf starten.
- * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs?, tags?, onDetail? (Live-Fortschritt) }
+ * @param {object} opts { tenant (Record aus state.json), certPemPath, outDir, testsDir?, timeoutMs?, tags?, onDetail? (Live-Fortschritt), skip? ({sc,teams,sp} — Connector nach Prozess-Absturz auslassen) }
  * @param {function} onProgress  bekommt Phasen-Labels (BPPROGRESS-Stream)
  * @param {function} onChild     bekommt den pwsh-Kindprozess (Abbruch)
  */
@@ -108,6 +108,7 @@ async function runMaester(opts, onProgress, onChild) {
 
   const q = EXO.psQuote;
   const t = opts.tenant;
+  const skip = opts.skip || {};
   const htmlPath = path.join(opts.outDir, "report.html");
   const jsonPath = path.join(opts.outDir, "results.json");
 
@@ -137,43 +138,57 @@ async function runMaester(opts, onProgress, onChild) {
     "",
     // Security & Compliance (Connect-IPPSSession): schaltet die CISA-Tests zu
     // Defender/Spam/DLP/Audit frei (Skip-Grund NotConnectedSecurityCompliance).
-    // Die Compliance-Administrator-Rolle vergibt das Onboarding bereits. Best
-    // effort: auf Linux war IPPS historisch wacklig — scheitert der Connect,
-    // laeuft der Rest trotzdem und der Grund steht am Ergebnis.
+    // Die Compliance-Administrator-Rolle vergibt das Onboarding bereits.
+    // ACHTUNG: einzelne dieser Connects koennen den pwsh-Prozess unter Linux
+    // HART crashen (kein fangbarer Fehler) — deshalb sind sie per opts.skip
+    // abschaltbar; der Server wiederholt einen abgestuerzten Lauf automatisch
+    // ohne den Connector, in dessen Phase der Prozess starb.
     "BpPhase 'Verbindung zu Security & Compliance'",
-    "$scConnected = $false; $scError = $null",
-    "if ($exoConnected) {",
-    "  try {",
-    "    $ipps = Get-Command Connect-IPPSSession -ErrorAction Stop",
-    "    $scp = @{ AppId = " + q(t.clientId) + "; Organization = " + q(t.organization) + "; Certificate = $cert; ErrorAction = 'Stop' }",
-    "    if ($ipps.Parameters.ContainsKey('ShowBanner')) { $scp['ShowBanner'] = $false }",
-    "    Connect-IPPSSession @scp",
-    "    $scConnected = $true",
-    "  } catch { $scError = $_.Exception.Message }",
-    "} else { $scError = 'Uebersprungen — Exchange-Verbindung fehlt.' }",
+    ...(skip.sc ? [
+      "$scConnected = $false; $scError = 'Deaktiviert — Verbindungsversuch hat den Prozess im vorherigen Lauf beendet.'"
+    ] : [
+      "$scConnected = $false; $scError = $null",
+      "if ($exoConnected) {",
+      "  try {",
+      "    $ipps = Get-Command Connect-IPPSSession -ErrorAction Stop",
+      "    $scp = @{ AppId = " + q(t.clientId) + "; Organization = " + q(t.organization) + "; Certificate = $cert; ErrorAction = 'Stop' }",
+      "    if ($ipps.Parameters.ContainsKey('ShowBanner')) { $scp['ShowBanner'] = $false }",
+      "    Connect-IPPSSession @scp",
+      "    $scConnected = $true",
+      "  } catch { $scError = $_.Exception.Message }",
+      "} else { $scError = 'Uebersprungen — Exchange-Verbindung fehlt.' }"
+    ]),
     "",
     // Teams: app-only mit Zertifikat — braucht die Teams-Administrator-Rolle
     // fuer den App-SP (setzt Onboarding/Reparieren). Best effort.
     "BpPhase 'Verbindung zu Teams'",
-    "$teamsConnected = $false; $teamsError = $null",
-    "try {",
-    "  Import-Module MicrosoftTeams -ErrorAction Stop",
-    "  Connect-MicrosoftTeams -ApplicationId " + q(t.clientId) + " -TenantId " + q(t.tenantId) + " -Certificate $cert -ErrorAction Stop | Out-Null",
-    "  $teamsConnected = $true",
-    "} catch { $teamsError = $_.Exception.Message }",
+    ...(skip.teams ? [
+      "$teamsConnected = $false; $teamsError = 'Deaktiviert — Verbindungsversuch hat den Prozess im vorherigen Lauf beendet.'"
+    ] : [
+      "$teamsConnected = $false; $teamsError = $null",
+      "try {",
+      "  Import-Module MicrosoftTeams -ErrorAction Stop",
+      "  Connect-MicrosoftTeams -ApplicationId " + q(t.clientId) + " -TenantId " + q(t.tenantId) + " -Certificate $cert -ErrorAction Stop | Out-Null",
+      "  $teamsConnected = $true",
+      "} catch { $teamsError = $_.Exception.Message }"
+    ]),
     "",
     // SharePoint: PnP app-only gegen die Admin-Site — braucht die SharePoint-
     // Application-Permission Sites.FullControl.All (setzt Onboarding/Reparieren).
     // PnP will ein PFX; das bauen wir aus dem vorhandenen PEM-Cert im Speicher.
     "BpPhase 'Verbindung zu SharePoint'",
-    "$spConnected = $false; $spError = $null",
-    "try {",
-    "  Import-Module PnP.PowerShell -ErrorAction Stop",
-    "  $spAdminUrl = 'https://' + (" + q(t.organization) + " -split '\\.')[0] + '-admin.sharepoint.com'",
-    "  $pfxB64 = [Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))",
-    "  Connect-PnPOnline -Url $spAdminUrl -ClientId " + q(t.clientId) + " -Tenant " + q(t.organization) + " -CertificateBase64Encoded $pfxB64 -ErrorAction Stop",
-    "  $spConnected = $true",
-    "} catch { $spError = $_.Exception.Message }",
+    ...(skip.sp ? [
+      "$spConnected = $false; $spError = 'Deaktiviert — Verbindungsversuch hat den Prozess im vorherigen Lauf beendet.'"
+    ] : [
+      "$spConnected = $false; $spError = $null",
+      "try {",
+      "  Import-Module PnP.PowerShell -ErrorAction Stop",
+      "  $spAdminUrl = 'https://' + (" + q(t.organization) + " -split '\\.')[0] + '-admin.sharepoint.com'",
+      "  $pfxB64 = [Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx))",
+      "  Connect-PnPOnline -Url $spAdminUrl -ClientId " + q(t.clientId) + " -Tenant " + q(t.organization) + " -CertificateBase64Encoded $pfxB64 -ErrorAction Stop",
+      "  $spConnected = $true",
+      "} catch { $spError = $_.Exception.Message }"
+    ]),
     "",
     "BpPhase 'Testsuite vorbereiten'",
     "$runDir = Join-Path ([System.IO.Path]::GetTempPath()) ('maester-' + [guid]::NewGuid().ToString('N'))",

@@ -3653,16 +3653,39 @@ async function runMaesterJobInner(job, t, tags) {
     }
     const runId = new Date().toISOString().slice(0, 19).replace(/[:]/g, "-");
     const outDir = path.join(MAESTER_DIR, t.id, runId);
-    const r = await MAESTER.runMaester(
-      {
-        tenant: t, certPemPath: certPemPath(t.tenantId), outDir, tags,
-        // Live-Anzeige: aktueller Block/Test + Zaehler, landet 1:1 im Job und
-        // damit im Poll-Ergebnis des Frontends.
-        onDetail: (live) => { job.live = live; }
-      },
-      (p) => { if (p && p.label) onProgress(p.label); },
-      (child) => { job._child = child; }
-    );
+
+    // Einzelne Connects (IPPS/Teams/PnP) koennen den pwsh-Prozess unter Linux
+    // HART beenden — kein catch moeglich. Stirbt der Lauf in einer
+    // Verbindungsphase (job.phase = letzte gemeldete Phase), wird er einmal
+    // pro Connector ohne diesen wiederholt; die betroffenen Tests erscheinen
+    // dann regulaer als uebersprungen.
+    const CONNECTOR_BY_PHASE = {
+      "Verbindung zu Security & Compliance": ["sc", "Security & Compliance"],
+      "Verbindung zu Teams": ["teams", "Teams"],
+      "Verbindung zu SharePoint": ["sp", "SharePoint"]
+    };
+    const skip = {};
+    const disabledConnectors = [];
+    let r;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      r = await MAESTER.runMaester(
+        {
+          tenant: t, certPemPath: certPemPath(t.tenantId), outDir, tags, skip: { ...skip },
+          // Live-Anzeige: aktueller Block/Test + Zaehler, landet 1:1 im Job und
+          // damit im Poll-Ergebnis des Frontends.
+          onDetail: (live) => { job.live = live; }
+        },
+        (p) => { if (p && p.label) onProgress(p.label); },
+        (child) => { job._child = child; }
+      );
+      if (r.ok) break;
+      const conn = CONNECTOR_BY_PHASE[job.phase];
+      if (!conn || skip[conn[0]]) break;
+      skip[conn[0]] = true;
+      disabledConnectors.push(conn[1]);
+      console.log("Maester (" + t.name + "): pwsh-Prozess in Phase '" + job.phase + "' beendet — neuer Versuch ohne " + conn[1] + ".");
+      onProgress("Neuer Versuch ohne " + conn[1]);
+    }
     job.live = null;
     job._child = null;
     if (!r.ok || !r.data || !r.data.ok) {
@@ -3701,6 +3724,7 @@ async function runMaesterJobInner(job, t, tags) {
     storeMaesterSummary(t.id, summary);
     job.maester = summary;
     const hints = [];
+    if (disabledConnectors.length) hints.push("Die Verbindung zu " + disabledConnectors.join(" und ") + " hat den PowerShell-Prozess beendet (bekanntes Linux-Problem) — der Lauf wurde automatisch ohne sie wiederholt; betroffene Tests erscheinen als uebersprungen.");
     if (r.data.salvaged) hints.push("Der pwsh-Prozess endete unsauber (" + r.data.salvaged + ") — Ergebnis wurde aus results.json gerettet.");
     if (r.data.exoConnected === false) hints.push("Exchange Online nicht verbunden — EXO-/ORCA-Tests uebersprungen" + (summary.exoError ? " (" + summary.exoError + ")" : "") + ".");
     if (r.data.exoConnected === true && r.data.scConnected === false) hints.push("Security & Compliance nicht verbunden — betroffene CISA-Tests uebersprungen" + (r.data.scError ? " (" + String(r.data.scError).slice(0, 200) + ")" : "") + ".");
