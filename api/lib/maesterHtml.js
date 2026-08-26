@@ -294,7 +294,15 @@ function buildHtml(data) {
   <table><thead><tr><th>Domain</th><th>SPF</th><th>DKIM</th><th>DMARC</th></tr></thead><tbody>
   ${da.map(d => `<tr><td><strong>${esc(d.domain)}</strong></td>${daStat(d.spf)}${daStat(d.dkim)}${daStat(d.dmarc)}</tr>`).join("")}
   </tbody></table>
-  ${daIssues.length ? `<ul class="hint" style="padding-left:18px">${daIssues.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}` : ""}
+  ${daIssues.length ? `<ul class="hint" style="padding-left:18px">${daIssues.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}
+  ${da.filter(d => d.spf && d.spf.chain && d.spf.chain.length > 1).map(d => `
+  <details class="skipgrp"><summary>SPF-Kette ${esc(d.domain)} aufgelöst (${(d.spf.effective?.ips || []).length} IP-Netze · ${d.spf.lookups}/10 Lookups)</summary>
+    <div style="padding:0 16px 12px">
+    ${d.spf.chain.map(cEl => `<p style="margin:6px 0 2px; padding-left:${(cEl.depth || 0) * 16}px"><strong>${esc(cEl.source)}</strong>${cEl.error ? ` — ${esc(cEl.error)}` : ""}</p>` +
+      (cEl.record ? `<pre style="margin:2px 0 2px ${(cEl.depth || 0) * 16}px">${esc(cEl.record)}</pre>` : "")).join("")}
+    ${(d.spf.effective?.others || []).length ? `<p class="hint">${esc(d.spf.effective.others.join(" · "))}</p>` : ""}
+    </div>
+  </details>`).join("")}` : ""}
 
   ${skipped.length ? h2(`Nicht bewertbare Tests (${skipped.length})`) + `
   <p>Diese Tests konnten im Tenant nicht bewertet werden — üblicherweise, weil das geprüfte Produkt nicht lizenziert ist, die Prüfung nicht zutrifft oder eine Dienstverbindung beim Lauf nicht zur Verfügung stand. Sie sind keine Mängel.</p>

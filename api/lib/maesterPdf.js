@@ -597,6 +597,19 @@ function buildPdf(data) {
           doc.x = left;
         });
       }
+      // Aufgeloeste SPF-Kette als Kurzfassung (die volle Kette zeigt der
+      // HTML-Report bzw. der Audit-Tab).
+      for (const d of da) {
+        if (!d.spf || !d.spf.chain || d.spf.chain.length < 2) continue;
+        ensureSpace(16);
+        doc.moveDown(0.2);
+        doc.font("Helvetica").fontSize(8.5).fillColor(COL.muted).text(
+          `${d.domain} · SPF-Kette aufgelöst: ${(d.spf.effective?.ips || []).length} IP-Netze über ` +
+          `${d.spf.chain.length - 1} Verweis(e) · ${d.spf.lookups}/10 DNS-Lookups` +
+          ((d.spf.effective?.others || []).length ? ` · ${sanitizePdf(d.spf.effective.others.join(" · ")).slice(0, 120)}` : ""),
+          left + 6, doc.y, { width: W - 12, lineGap: 1 });
+        doc.x = left;
+      }
     }
 
     // ---- 4 Nicht bewertbare Tests ----

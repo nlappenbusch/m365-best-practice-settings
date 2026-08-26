@@ -29,6 +29,55 @@ function buildDomainAuthExoBody() {
   ].join("\r\n");
 }
 
+// SPF-Kette rekursiv aufloesen: include:/redirect= nachschlagen, a/mx (die
+// laut RFC ebenfalls Lookups kosten) best effort zu IPs aufloesen. Haelt sich
+// ans 10-Lookup-Limit — was darueber liegt, bleibt unaufgeloest und wird als
+// Problem markiert (strikte Pruefer werten das als permerror).
+const SPF_MAX_LOOKUPS = 10;
+const SPF_MAX_DEPTH = 5;
+
+async function walkSpf(domain, depth, st) {
+  if (depth > SPF_MAX_DEPTH) { st.chain.push({ source: domain, depth, error: "Maximale Verschachtelungstiefe erreicht" }); return; }
+  const key = domain.toLowerCase();
+  if (st.seen.has(key)) { st.chain.push({ source: domain, depth, error: "Schleife — bereits aufgelöst" }); return; }
+  st.seen.add(key);
+
+  let flat;
+  try { flat = (await dns.resolveTxt(domain)).map(p => p.join("")); }
+  catch (e) { st.chain.push({ source: domain, depth, error: "TXT nicht auflösbar" }); return; }
+  const spf = flat.find(r => /^v=spf1\b/i.test(r));
+  if (!spf) { st.chain.push({ source: domain, depth, error: "kein SPF-Record" }); return; }
+  st.chain.push({ source: domain, depth, record: spf });
+
+  for (const raw of spf.split(/\s+/).slice(1)) {
+    const m = raw.replace(/^[+~?-]/, "");
+    if (/^ip[46]:/i.test(m)) { st.ips.push(m); continue; }
+    if (/^(include:|redirect=)/i.test(m)) {
+      const target = m.replace(/^include:/i, "").replace(/^redirect=/i, "");
+      st.lookups++;
+      if (st.lookups > SPF_MAX_LOOKUPS) { st.exceeded = true; st.chain.push({ source: target, depth: depth + 1, error: "über dem 10-Lookup-Limit — nicht weiter aufgelöst" }); continue; }
+      await walkSpf(target, depth + 1, st);
+      continue;
+    }
+    if (/^(a|a:|mx|mx:)/i.test(m) && !/^all$/i.test(m)) {
+      st.lookups++;
+      if (st.lookups > SPF_MAX_LOOKUPS) { st.exceeded = true; st.others.push(m + " (nicht aufgelöst — Lookup-Limit)"); continue; }
+      const host = m.includes(":") ? m.split(":")[1] : domain;
+      try {
+        if (/^mx/i.test(m)) {
+          const mx = await dns.resolveMx(host);
+          st.others.push(m + " → " + (mx.map(x => x.exchange).slice(0, 3).join(", ") || "keine MX"));
+        } else {
+          const a = await dns.resolve4(host).catch(() => []);
+          st.others.push(m + " → " + (a.slice(0, 3).join(", ") || "keine A-Records"));
+        }
+      } catch (e) { st.others.push(m + " (nicht auflösbar)"); }
+      continue;
+    }
+    if (/^exists:/i.test(m)) { st.lookups++; st.others.push(m); if (st.lookups > SPF_MAX_LOOKUPS) st.exceeded = true; continue; }
+  }
+}
+
 async function lookupSpf(domain) {
   let records;
   try { records = await dns.resolveTxt(domain); }
@@ -39,15 +88,32 @@ async function lookupSpf(domain) {
   const issues = [];
   const record = spf[0];
   if (spf.length > 1) issues.push(spf.length + " SPF-Records gefunden — laut RFC ist nur EIN Record pro Domain erlaubt, das Ergebnis ist unbestimmt.");
-  const includeCount = (record.match(/include:/gi) || []).length;
   let status = "ok";
   if (/\+all\b/i.test(record)) { status = "bad"; issues.push('"+all" erlaubt jeden Absender — SPF ist wirkungslos.'); }
   else if (/\?all\b/i.test(record)) { status = "bad"; issues.push('"?all" (Neutral) trifft keine Aussage — praktisch wirkungslos.'); }
   else if (/~all\b/i.test(record)) { status = "warn"; issues.push('"~all" (Soft Fail) markiert nur, blockt aber nicht — "-all" ist strenger.'); }
   else if (!/-all\b/i.test(record)) { status = "warn"; issues.push('Kein "all"-Mechanismus gefunden — unklares Verhalten für nicht gelistete Absender.'); }
-  if (includeCount > 7) issues.push(includeCount + ' include:-Verweise — Risiko, das SPF-DNS-Lookup-Limit (max. 10) zu überschreiten.');
   if (spf.length > 1 && status === "ok") status = "warn";
-  return { status, record, issues };
+
+  // Kette aufloesen (der Root-TXT-Lookup zaehlt nicht ins Limit — nur die
+  // Mechanismen). Best effort: schlaegt die Aufloesung fehl, bleibt der
+  // Basis-Befund trotzdem stehen.
+  const st = { lookups: 0, seen: new Set(), chain: [], ips: [], others: [], exceeded: false };
+  try { await walkSpf(domain, 0, st); } catch (e) { /* Kette optional */ }
+  if (st.exceeded) {
+    status = "bad";
+    issues.push(`SPF überschreitet das 10-DNS-Lookup-Limit (${st.lookups}) — strikte Prüfer werten das als permerror, SPF fällt dann aus.`);
+  } else if (st.lookups >= 8) {
+    issues.push(`${st.lookups}/10 DNS-Lookups belegt — wenig Reserve für weitere include:-Verweise.`);
+  }
+
+  return {
+    status, record, issues,
+    chain: st.chain,
+    effective: { ips: st.ips, others: st.others },
+    lookups: st.lookups,
+    lookupLimitExceeded: st.exceeded
+  };
 }
 
 async function lookupDmarc(domain) {

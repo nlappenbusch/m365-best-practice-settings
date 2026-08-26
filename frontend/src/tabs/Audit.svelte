@@ -914,6 +914,19 @@
                             {/if}
                           </div>
                           {#if r.record}<code class="da-check-record">{r.record}</code>{/if}
+                          {#if label === 'SPF' && r.chain && r.chain.length > 1}
+                            <div style="margin-top:0.4rem">
+                              {#each r.chain.slice(1) as c}
+                                <div style="padding-left:{c.depth * 14}px; margin-top:0.25rem">
+                                  <small><strong>{c.source}</strong>{c.error ? ` — ${c.error}` : ''}</small>
+                                  {#if c.record}<code class="da-check-record" style="margin-top:0.15rem">{c.record}</code>{/if}
+                                </div>
+                              {/each}
+                              <div class="da-check-meta" style="margin-top:0.35rem">
+                                Effektiv erlaubt: {(r.effective?.ips || []).length} IP-Netze{(r.effective?.others || []).length ? ` · ${r.effective.others.join(' · ')}` : ''} · {r.lookups}/10 DNS-Lookups
+                              </div>
+                            </div>
+                          {/if}
                           {#if r.issues && r.issues.length}
                             <ul class="da-check-issues">{#each r.issues as iss}<li>{iss}</li>{/each}</ul>
                           {/if}
