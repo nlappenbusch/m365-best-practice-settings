@@ -40,6 +40,16 @@ const RELEASE_ENTRY = "https://vault.bitwarden.com/download/?app=desktop&platfor
 // konstruiert (nie Benutzereingabe), die Pruefung ist die zweite Schranke gegen
 // einen versehentlich offenen Proxy.
 const ALLOWED_HOSTS = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
+
+// Bezugsquellen in der Reihenfolge, in der sie durchlaufen werden. Wird im Tab
+// angezeigt und vom Erreichbarkeitstest (Diagnose) geprueft -- damit "wo kommt
+// das eigentlich her" und "was muss die Firewall aufmachen" dieselbe Liste sind
+// und nicht auseinanderlaufen.
+const SOURCE_HOSTS = [
+  { host: "vault.bitwarden.com", purpose: "Aufloesung des aktuellen Releases (antwortet mit 302 auf das GitHub-Release)" },
+  { host: "github.com", purpose: "Release-Assets von bitwarden/clients (Installer, latest.yml, Offline-Pakete)" },
+  { host: "release-assets.githubusercontent.com", purpose: "Auslieferung der Dateien selbst — GitHub leitet vom Release-Pfad dorthin um" }
+];
 const RELEASE_URL_RE = /^https:\/\/github\.com\/bitwarden\/clients\/releases\/download\/(desktop-v([0-9][0-9A-Za-z.-]*))\/([A-Za-z0-9._-]+\.exe)$/;
 const PACKAGE_NAME_RE = /^[A-Za-z0-9._-]+\.7z$/;
 
@@ -152,14 +162,22 @@ async function resolveRelease(force) {
   return release;
 }
 
-/** Fuer das Frontend: nur die Felder, die dort angezeigt werden. */
+/**
+ * Fuer das Frontend: die Anzeigefelder plus die konkreten Quell-URLs. Die URLs
+ * sind bewusst dabei -- wer das Paket baut, soll sehen koennen, woher die Bytes
+ * kommen, und bei einem Fehlschlag direkt wissen, welcher Host zu ist.
+ */
 async function releaseInfo(force) {
   const rel = await resolveRelease(force);
   return {
     version: rel.version,
     installerName: rel.installerName,
     installerSize: rel.installerSize,
-    packages: rel.packages.map(p => ({ arch: p.arch, file: p.file, size: p.size }))
+    installerUrl: `${rel.baseUrl}/${rel.installerName}`,
+    baseUrl: rel.baseUrl,
+    entryUrl: RELEASE_ENTRY,
+    sourceHosts: SOURCE_HOSTS,
+    packages: rel.packages.map(p => ({ arch: p.arch, file: p.file, size: p.size, url: `${rel.baseUrl}/${p.file}` }))
   };
 }
 
@@ -252,6 +270,7 @@ async function streamDownload({ what, arch }, res) {
 }
 
 module.exports = {
-  SUPPORTED_ARCHS, resolveRelease, releaseInfo, fetchDesktopFiles, streamDownload,
+  SUPPORTED_ARCHS, RELEASE_ENTRY, SOURCE_HOSTS,
+  resolveRelease, releaseInfo, fetchDesktopFiles, streamDownload,
   normalizeArchs, parsePackages, parseInstallerSha512
 };

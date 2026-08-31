@@ -58,6 +58,20 @@
     egressBusy = false
   }
 
+  // Reihenfolge der Gruppen so lassen, wie das Backend sie liefert — sie ist
+  // nach Wichtigkeit sortiert (Pflicht zuerst).
+  let egressGroups = $derived.by(() => {
+    const out = []
+    for (const r of (egress || [])) {
+      const key = r.group || 'Weitere'
+      let g = out.find(x => x.name === key)
+      if (!g) { g = { name: key, rows: [] }; out.push(g) }
+      g.rows.push(r)
+    }
+    return out
+  })
+  let egressFailed = $derived((egress || []).filter(r => !r.skipped && !r.ok && !r.optional).length)
+
   onDestroy(() => { if (timer) clearInterval(timer) })
 </script>
 
@@ -67,10 +81,12 @@
   <div class="alert alert-warning"><strong>Nicht angemeldet.</strong> Oben rechts anmelden.</div>
 {:else}
   <div class="settings-group">
-    <h4>Erreichbarkeit der Microsoft-Endpunkte</h4>
-    <p class="ld-section-hint">Testet aus dem Container heraus, ob die Gegenstellen erreichbar sind, die Onboarding
-      (Device-Code), Graph-Abfragen und Exchange-Deploys brauchen. Schlägt hier etwas fehl, liegt es an Egress,
-      DNS oder einem TLS-abfangenden Proxy — nicht am Tool.</p>
+    <h4>Erreichbarkeit der Gegenstellen</h4>
+    <p class="ld-section-hint">Testet aus dem Container heraus alle Hosts, die das Tool nach draußen anspricht —
+      Onboarding und Graph, die Quellen für die App-Installer (Bitwarden, Bitdefender, N-sight, FortiClient),
+      die Intune-Baselines und die optionalen Dienste. Schlägt hier etwas fehl, liegt es an Egress, DNS oder einem
+      TLS-abfangenden Proxy — nicht am Tool. <b>Jede HTTP-Antwort zählt als erreichbar</b>, auch 401/403/404:
+      geprüft wird die Netzwerkstrecke, nicht die Berechtigung.</p>
     <button class="btn btn-primary" disabled={egressBusy} onclick={runEgress}>
       {egressBusy ? 'Teste…' : '▶ Test starten'}
     </button>
@@ -80,22 +96,37 @@
     {/if}
 
     {#if egress}
-      <div class="ld-job" style="margin-top:0.75rem;">
-        {#each egress as r}
-          <div class="wizard-step">
-            <div class="wizard-step-body">
-              <div class="wizard-step-title">{r.ok ? '✅' : '❌'} {r.name}</div>
-              <div class="wizard-step-desc">
-                {#if r.ok}
-                  HTTP {r.status} · {r.ms} ms
-                {:else}
-                  {r.error}{#if r.code} · <code>{r.code}</code>{/if} · nach {r.ms} ms
-                {/if}
+      <div class="ld-banner {egressFailed ? 'fail' : 'ok'}" style="margin-top:0.75rem;">
+        {egressFailed
+          ? egressFailed + ' Gegenstelle(n) nicht erreichbar — Details unten.'
+          : 'Alle geprüften Gegenstellen erreichbar.'}
+      </div>
+      {#each egressGroups as g (g.name)}
+        <h5 style="margin:0.9rem 0 0.35rem;">{g.name}</h5>
+        <div class="ld-job">
+          {#each g.rows as r}
+            <div class="wizard-step">
+              <div class="wizard-step-body">
+                <div class="wizard-step-title">
+                  {r.skipped ? 'ℹ️' : r.ok ? '✅' : r.optional ? '⚠️' : '❌'} {r.name}
+                </div>
+                <div class="wizard-step-desc">
+                  {#if r.why}{r.why}<br />{/if}
+                  {#if r.skipped}
+                    <code>{r.host}</code> — nicht testbar
+                  {:else if r.ok}
+                    HTTP {r.status} · {r.ms} ms
+                  {:else}
+                    {r.error}{#if r.code} · <code>{r.code}</code>{/if} · nach {r.ms} ms
+                    {#if r.optional} · nicht konfiguriert, daher unkritisch{/if}
+                  {/if}
+                  {#if r.url}<br /><code style="word-break:break-all;">{r.url}</code>{/if}
+                </div>
               </div>
             </div>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/each}
     {/if}
   </div>
 

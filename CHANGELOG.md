@@ -1,5 +1,61 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.9 - Bitwarden-Region beim Deployen, Erreichbarkeitstest ausgebaut (2026-08-31)
+
+### 🔐 Server-Region direkt beim Bereitstellen mitgeben
+
+Bisher musste man die Region der Bitwarden-Browsererweiterung hinterher von Hand
+unter *Mappings → Registry-Richtlinie* zusammenbauen. Jetzt steht sie als Option
+im Bereitstellen-Dialog: **EU-Cloud**, **US-Cloud** oder **eigene Instanz**
+(mit URL-Feld). Ist sie gesetzt, legt derselbe Lauf zusätzlich das
+Plattformskript `WIN - RegistryPolicy - Bitwarden-Region` an und weist es zu.
+
+- **Ziel ist die dynamische GroupTag-Gerätegruppe**, nicht die genestete
+  `AAD-APP-`-Gruppe: Intune löst verschachtelte Gruppen nur beim App-Assignment
+  auf, bei Plattformskripten nicht — über die App-Gruppe käme das Skript nie an.
+- **Fester Profilname**, ein erneuter Lauf aktualisiert das vorhandene Skript
+  statt ein zweites danebenzulegen.
+- Die Self-Host-URL wird beim Start geprüft, nicht erst nach dem 122-MB-Upload.
+- Die Vorlage `bitwarden-browserext-eu` und der Deploy-Schritt teilen sich jetzt
+  denselben Generator (`bitwardenExtensionEntries`) — die Registry-Pfade stehen
+  nur noch an einer Stelle.
+
+**Klargestellt, wo es vorher missverständlich war:** das gilt ausschließlich für
+die **Browsererweiterung**. Die **Desktop-App** liest ihre Region aus dem
+Benutzerprofil (`data.json`, entsteht erst beim ersten Start) — die setzt weder
+die Win32-App noch das Skript; dort wählt der Benutzer sie beim ersten Login.
+Der Hinweistext im Tab sagt das jetzt so.
+
+### 📡 Bezugsquelle sichtbar
+
+Der Bitwarden-Bereich zeigt eine Tabelle **Bezugsquelle**: welcher Host wofür
+angesprochen wird (`vault.bitwarden.com` → `github.com` →
+`release-assets.githubusercontent.com`) plus die URL des aktuellen Releases.
+Die Liste kommt aus `lib/bitwarden.js` und ist dieselbe, die der
+Erreichbarkeitstest prüft — sie kann also nicht auseinanderlaufen.
+
+### 🩺 Diagnose: Erreichbarkeit statt nur Microsoft
+
+Der Test deckte bisher drei Microsoft-Endpunkte ab. Jetzt alle Gegenstellen, die
+das Tool wirklich anspricht, nach Wichtigkeit gruppiert:
+
+- **Microsoft — Pflicht**: Login, Graph, Exchange Online, PowerShell Gallery
+  (Maester-/Modul-Updates) und der Intune-Content-Upload nach Azure Blob Storage
+  — letzterer als Info-Zeile, weil Intune die Ziel-URL pro Upload als SAS-Link
+  auf ein wechselndes Speicherkonto erzeugt und ein fester Testaufruf geraten
+  statt gemessen wäre.
+- **App-Deployment**: die drei Bitwarden-Hosts, Bitdefender GravityZone,
+  N-sight RMM und der FortiClient-Installer-Host.
+- **Intune-Baselines**: GitHub-API und Rohdateien des OpenIntuneBaseline-Repos.
+- **Optional**: ServiceDesk Plus und die Anthropic-API — ohne passenden Key als
+  „nicht konfiguriert, daher unkritisch" markiert statt als Fehler.
+
+Dazu: Tests laufen **parallel** (vorher nacheinander mit je 8 s Timeout — im
+schlechtesten Fall knapp zwei Minuten Wartezeit), per HEAD statt GET, jede Zeile
+nennt Zweck und URL, und oben steht eine Zusammenfassung. Jede HTTP-Antwort
+zählt als erreichbar, auch 401/403/404 — geprüft wird die Netzwerkstrecke, nicht
+die Berechtigung.
+
 ## Version 2.8 - Bitwarden-Desktop-App per Intune verteilen (2026-08-31)
 
 ### 🔐 Neuer Bereich „Bitwarden" unter *Apps & Agents*
