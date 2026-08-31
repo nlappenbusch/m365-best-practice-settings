@@ -1,5 +1,59 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.8 - Bitwarden-Desktop-App per Intune verteilen (2026-08-31)
+
+### 🔐 Neuer Bereich „Bitwarden" unter *Apps & Agents*
+
+Die Bitwarden-Desktop-App (Windows) lässt sich jetzt genau wie Bitdefender,
+N-sight und FortiClient direkt aus dem Tool als **Intune-Win32-App** ausrollen —
+inklusive Zielgruppe `AAD-APP-<Name>` und genesteter GroupTag-Gerätegruppe.
+
+- **Kein API-Key nötig**: `bitwarden.com/download` verweist auf das jeweils
+  aktuelle GitHub-Release; das Backend löst daraus Version, Installer und
+  Offline-Pakete auf (`api/lib/bitwarden.js`, Ergebnis 30 Min. gecacht).
+- **Offline-Paketierung statt Web-Installer** (Standard): Bitwarden liefert
+  einen electron-builder-*nsis-web*-Stub aus (~0,7 MB) — die eigentlichen
+  ~122 MB lädt er erst *während* der Installation aus dem Internet nach. Auf
+  einem verwalteten Gerät ist das fragil: der SYSTEM-Kontext braucht dafür
+  freien Zugriff auf `github.com`, und schlägt der Download fehl, wartet der
+  Stub auf eine Meldung, die dort niemand wegklicken kann. Das Tool packt
+  deshalb das passende `bitwarden-<ver>-<arch>.nsis.7z` mit ins Intune-Paket —
+  liegt es neben dem Installer, verwendet der Stub es direkt (dokumentiertes
+  electron-builder-Verhalten, Prüfsumme wird geprüft).
+- **Architektur wählbar**: `x64` (Standard), `x64 + ARM64` oder „nur
+  Web-Installer". Zugewiesen wird nur, wofür auch ein Offline-Paket im Paket
+  liegt (`applicableArchitectures`) — sonst wäre eine ARM64-Zuweisung ohne
+  ARM64-Paket eine stille Fehlerquelle.
+- **Prüfsummen**: Installer und Offline-Paket werden serverseitig gegen die
+  `latest.yml` des Releases (SHA-512) geprüft, bevor irgendetwas hochgeladen
+  wird.
+- **Vorbelegte Deploy-Werte** nach Bitwarden-Doku: Install `"{file}" /allusers
+  /S`, Uninstall `"C:\Program Files\Bitwarden\Uninstall Bitwarden.exe"
+  /allusers /S`, Erkennungsregel Datei `C:\Program Files\Bitwarden` →
+  `Bitwarden.exe`. Der Deploy-Dialog übernimmt Erkennungsregeln jetzt
+  allgemein aus den Vendor-Vorgaben, statt sie immer leer zu lassen.
+- **Direkt-Downloads** für Installer und Offline-Pakete im Tab (für den
+  manuellen Fall), Backend-seitig auf die GitHub-Release-Assets von
+  `bitwarden/clients` beschränkt.
+
+### 🧩 Client-Konfiguration (Bitwarden-Cloud, kein Self-Hosting)
+
+Neue Vorlage **`bitwarden-browserext-eu`** unter *Mappings →
+Registry-Richtlinie*: setzt die Server-Region der Bitwarden-Browsererweiterung
+per 3rdparty-Extension-Policy fest auf die EU-Cloud (`vault.bitwarden.eu` +
+`notifications.bitwarden.eu`), für Chrome und Edge (beide Erweiterungs-IDs).
+Auf der US-Cloud braucht es das Profil nicht; für eine selbst gehostete Instanz
+werden einfach die beiden URLs in den Zeilen ersetzt.
+
+### 🛠️ Nebenbei
+
+- **Silent-Schalter case-sensitiv prüfen**: `/S` (NSIS) und MSI-Eigenschaften
+  wie `REBOOT=ReallySuppress` müssen groß geschrieben sein. Bisher hätte ein
+  klein geschriebenes `/s` im Install-Kommando als „ist schon drin" gezählt und
+  einen interaktiven Installer im SYSTEM-Kontext hängen lassen.
+- **ZIP-Encoder**: `store`-Flag pro Eintrag, um bereits gepackte Nutzlasten
+  (das 122-MB-`.nsis.7z`) nicht sinnlos noch einmal durch Deflate zu schicken.
+
 ## Version 2.7 - Detailreports & Kundenreport-Ausbau (2026-08-26)
 
 - **Statusreport mit Detail-Listen**: die Report-Sektionen liefern jetzt

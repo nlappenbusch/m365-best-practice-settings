@@ -22,6 +22,17 @@
       uninstall: 'msiexec /x "{file}" /qn REBOOT=ReallySuppress',
       detectionType: 'registry',
       hint: 'FortiClient (MSI+MST von EMS, site-spezifisch): offizielle Fortinet-Silent-Syntax msiexec /qn + REBOOT=ReallySuppress + DONT_PROMPT_REBOOT=1. Die .mst-Transform-Datei wird automatisch mit hochgeladen. Erkennungsregel und Uninstall-Kommando (ProductCode kann je Version abweichen) bitte nach einer Testinstallation verifizieren.'
+    },
+    // Bitwarden-Desktop-App: Install-/Uninstall-Kommando und Erkennungsregel
+    // stehen so in der Bitwarden-Doku ("Deploy Desktop Apps with Intune",
+    // Reiter "Win32 app") — anders als bei den Agents oben also nicht selbst
+    // zu ermitteln, deshalb hier komplett vorbelegt.
+    bitwarden: {
+      install: '"{file}" /allusers /S',
+      uninstall: '"C:\\Program Files\\Bitwarden\\Uninstall Bitwarden.exe" /allusers /S',
+      detectionType: 'file',
+      detection: { path: 'C:\\Program Files\\Bitwarden', fileOrFolderName: 'Bitwarden.exe' },
+      hint: 'Bitwarden-Desktop-App: /allusers /S installiert maschinenweit und still (offizielle Bitwarden-Doku). Install-/Uninstall-Kommando und Erkennungsregel sind bereits korrekt vorbelegt — normalerweise unverändert lassen.'
     }
   }
 
@@ -55,7 +66,10 @@
       installCommandLine = d.install
       uninstallCommandLine = d.uninstall
       detectionType = d.detectionType
-      detectionKeyPath = ''; detectionValueName = ''; detectionPath = ''; detectionFileOrFolderName = ''
+      detectionKeyPath = d.detection?.keyPath || ''
+      detectionValueName = d.detection?.valueName || ''
+      detectionPath = d.detection?.path || ''
+      detectionFileOrFolderName = d.detection?.fileOrFolderName || ''
       groupTag = ''
       startError = null; jobId = null; job = null
       if (jobTimer) { clearTimeout(jobTimer); jobTimer = null }

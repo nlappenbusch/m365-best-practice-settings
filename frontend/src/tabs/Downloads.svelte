@@ -46,8 +46,13 @@
     if ($session.ready && $session.online && $session.loggedIn && !initTried) {
       initTried = true
       dlApi.config()
-        .then(c => { cfg = c; if (c.bd) loadBd(); else if (c.rmm) { sub = 'rmm'; loadRmm() } })
-        .catch(() => { cfg = { bd: false, rmm: false, error: true } })
+        .then(c => {
+          cfg = c
+          if (c.bd) loadBd()
+          else if (c.rmm) { sub = 'rmm'; loadRmm() }
+          else if (c.bw) { sub = 'bw'; loadBw() }
+        })
+        .catch(() => { cfg = { bd: false, rmm: false, bw: false, error: true } })
     }
     if (!($session.loggedIn && $session.online)) { initTried = false; cfg = null }
   })
@@ -56,6 +61,7 @@
     sub = s
     if (s === 'bd' && cfg?.bd && !bdLoaded) loadBd()
     if (s === 'rmm' && cfg?.rmm && !rmmLoaded) loadRmm()
+    if (s === 'bw' && !bwRel && !bwLoading) loadBw()
   }
 
   async function loadBd() {
@@ -84,6 +90,36 @@
       const r = await dlApi.rmmSites(clientid)
       sites = r.sites || []; sitesStatus = sites.length ? '' : 'Keine Sites.'
     } catch (e) { sitesStatus = 'Fehler: ' + e.message }
+  }
+
+  // Bitwarden-Desktop-App. Kein API-Key noetig: bitwarden.com/download leitet
+  // auf das aktuelle GitHub-Release um, das Backend loest Version, Stub-Installer
+  // und Offline-Pakete daraus auf (siehe api/lib/bitwarden.js).
+  let bwRel = $state(null)
+  let bwLoading = $state(false)
+  let bwStatus = $state('')
+  let bwErr = $state(false)
+  // Paketierung: 'x64' (Standard), 'x64+arm64' oder 'online' (nur der Stub).
+  let bwMode = $state('x64')
+  const BW_MODE_ARCHS = { x64: ['x64'], 'x64+arm64': ['x64', 'arm64'], online: [] }
+  let bwArchs = $derived(BW_MODE_ARCHS[bwMode] || ['x64'])
+  let bwPkg = $derived(Object.fromEntries((bwRel?.packages || []).map(p => [p.arch, p])))
+  let bwUploadSize = $derived(
+    (bwRel?.installerSize || 0) + bwArchs.reduce((n, a) => n + (bwPkg[a]?.size || 0), 0))
+
+  function mb(bytes) {
+    if (!bytes) return '?'
+    return bytes >= 1048576 ? Math.round(bytes / 1048576) + ' MB' : (bytes / 1024).toFixed(0) + ' KB'
+  }
+
+  async function loadBw(refresh) {
+    bwLoading = true; bwErr = false; bwStatus = 'Aktuelles Release ermitteln …'
+    try {
+      const r = await dlApi.bwRelease(refresh)
+      bwRel = r.release
+      bwStatus = ''
+    } catch (e) { bwErr = true; bwStatus = 'Fehler: ' + e.message }
+    bwLoading = false
   }
 
   // FortiClient (EMS bietet keine API — Admin gibt die site-spezifische
@@ -126,11 +162,12 @@
 </script>
 
 <section class="settings-section">
-  <h2>Agent-Downloads — Bitdefender, N-sight RMM &amp; FortiClient</h2>
+  <h2>Apps &amp; Agents — Bitdefender, N-sight RMM, FortiClient &amp; Bitwarden</h2>
   <div class="alert alert-info">
-    <strong>ℹ️ So funktioniert es:</strong> Kunde bzw. Paket suchen → Windows-Agent herunterladen.
-    Die API-Keys liegen im Backend (<code>BD_API_KEY</code> / <code>RMM_API_KEY</code>) und werden
-    serverseitig verwendet — sie landen nie im Browser oder in einer URL.
+    <strong>ℹ️ So funktioniert es:</strong> Kunde bzw. Paket suchen → Windows-Agent herunterladen oder direkt
+    als Win32-App in Intune bereitstellen. Die API-Keys liegen im Backend (<code>BD_API_KEY</code> /
+    <code>RMM_API_KEY</code>) und werden serverseitig verwendet — sie landen nie im Browser oder in einer URL.
+    Bitwarden braucht keinen Key (öffentlicher Download).
   </div>
 
   {#if !$session.online}
@@ -146,6 +183,7 @@
       <button type="button" class="dl-subtab" class:active={sub === 'bd'} onclick={() => switchSub('bd')}>🛡️ Bitdefender</button>
       <button type="button" class="dl-subtab" class:active={sub === 'rmm'} onclick={() => switchSub('rmm')}>🖥️ N-sight RMM</button>
       <button type="button" class="dl-subtab" class:active={sub === 'fc'} onclick={() => switchSub('fc')}>🔴 FortiClient</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'bw'} onclick={() => switchSub('bw')}>🔐 Bitwarden</button>
     </div>
 
     <!-- Bitdefender -->
@@ -284,6 +322,78 @@
               onclick={() => (deployModal = { vendor: 'forticlient', appNameDefault: 'FortiClient', source: { baseUrl: fcUrl.trim() } })}>
         🟦 In Intune bereitstellen
       </button>
+    </div>
+
+    <!-- Bitwarden -->
+    <div class="dl-panel" class:active={sub === 'bw'}>
+      <div class="alert alert-info">
+        <strong>ℹ️ Bitwarden-Cloud, kein Self-Hosting</strong> — für den Installer spielt das keine Rolle, es ist derselbe.
+        Die <b>Server-Region</b> (EU statt US) gibt man den Clients separat vor: im Tab <b>🗂️ Mappings → Registry-Richtlinie</b>
+        gibt es dafür die Vorlage <code>bitwarden-browserext-eu</code>. Kein API-Key nötig — das Backend löst über
+        <code>bitwarden.com/download</code> das jeweils aktuelle Release auf.
+      </div>
+
+      <div class="dl-toolbar">
+        <span class="dl-count">{bwRel ? 'Version ' + bwRel.version : ''}</span>
+        <button class="btn btn-secondary dl-reload" title="Release neu ermitteln" onclick={() => loadBw(true)} disabled={bwLoading}>↻</button>
+      </div>
+      <div class="dl-status" class:err={bwErr}>{bwStatus}</div>
+
+      {#if bwRel}
+        <div class="alert alert-warning">
+          ⚠️ <strong>Der Bitwarden-Installer ist ein Web-Installer.</strong>
+          <code>{bwRel.installerName}</code> ist nur ein Stub von {mb(bwRel.installerSize)} — die eigentlichen
+          ~{mb(bwPkg.x64?.size)} lädt er <b>während der Installation</b> aus dem Internet nach. Auf einem verwalteten Gerät
+          ist das die schlechte Variante: das Gerät braucht im SYSTEM-Kontext freien Zugriff auf
+          <code>github.com</code>, und schlägt der Download fehl, zeigt der Installer eine Meldung an, die dort niemand
+          sieht — die Installation hängt bis zum Intune-Timeout. Deshalb packen wir das Offline-Paket standardmäßig
+          mit ins Intune-Paket: liegt es neben dem Installer, wird es (mit Prüfsummen-Kontrolle) direkt verwendet.
+        </div>
+
+        <div class="settings-group">
+          <h4>Paketierung für Intune</h4>
+          <label class="checkbox-label" style="display:flex; gap:.5rem; margin-bottom:.35rem;">
+            <input type="radio" name="bwMode" value="x64" checked={bwMode === 'x64'} onchange={() => (bwMode = 'x64')} />
+            <span><b>Offline, x64</b> <small>({mb((bwRel.installerSize || 0) + (bwPkg.x64?.size || 0))} Upload)</small> —
+              empfohlen. Zuweisung nur an x64-Geräte.</span>
+          </label>
+          <label class="checkbox-label" style="display:flex; gap:.5rem; margin-bottom:.35rem;">
+            <input type="radio" name="bwMode" value="x64+arm64" checked={bwMode === 'x64+arm64'} onchange={() => (bwMode = 'x64+arm64')} />
+            <span><b>Offline, x64 + ARM64</b> <small>({mb((bwRel.installerSize || 0) + (bwPkg.x64?.size || 0) + (bwPkg.arm64?.size || 0))} Upload)</small> —
+              nur nötig, wenn im Tenant ARM64-Geräte (z.B. Snapdragon-Notebooks) laufen. Verdoppelt Upload und
+              Arbeitsspeicherbedarf des Backends während des Deployments (grob 1,6 GB statt 0,8 GB).</span>
+          </label>
+          <label class="checkbox-label" style="display:flex; gap:.5rem;">
+            <input type="radio" name="bwMode" value="online" checked={bwMode === 'online'} onchange={() => (bwMode = 'online')} />
+            <span><b>Nur Web-Installer</b> <small>({mb(bwRel.installerSize)} Upload)</small> —
+              das Gerät lädt bei der Installation selbst nach. Nur wählen, wenn die Geräte sicher ans Internet kommen.</span>
+          </label>
+        </div>
+
+        <div class="dl-card">
+          <div class="dl-name">{bwRel.installerName} <small>({mb(bwRel.installerSize)})</small></div>
+          <div class="dl-actions">
+            <button class="btn btn-primary"
+                    onclick={() => { dlApi.bwDownload({ what: 'installer' }); bwStatus = 'Download gestartet — Seite offen lassen.' }}>⬇ Installer</button>
+            {#each bwRel.packages as p (p.arch)}
+              <button class="btn btn-secondary" title="Offline-Paket {p.file}"
+                      onclick={() => { dlApi.bwDownload({ what: 'package', arch: p.arch }); bwStatus = 'Download gestartet (' + p.arch + ', ' + mb(p.size) + ') — Seite offen lassen.' }}>
+                ⬇ Paket {p.arch}
+              </button>
+            {/each}
+            <button class="btn btn-secondary" title="Direkt als Win32-App in Intune bereitstellen"
+                    onclick={() => (deployModal = { vendor: 'bitwarden', appNameDefault: 'Bitwarden', source: { architectures: bwArchs } })}>
+              🟦 In Intune
+            </button>
+          </div>
+        </div>
+        <small class="dl-hint">
+          Für den Intune-Upload lädt das Backend {bwArchs.length ? 'Installer + Offline-Paket' : 'nur den Installer'}
+          selbst herunter (~{mb(bwUploadSize)}) und prüft die Prüfsummen gegen Bitwardens <code>latest.yml</code> —
+          die Dateien oben braucht man dafür nicht manuell.
+          {#if bwArchs.length}Der Upload dauert entsprechend ein paar Minuten.{/if}
+        </small>
+      {/if}
     </div>
   {/if}
 </section>

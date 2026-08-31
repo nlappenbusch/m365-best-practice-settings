@@ -29,6 +29,27 @@ const PRESETS = [
     entries: [
       { path: "SOFTWARE\\Policies\\Microsoft\\Windows\\AAD", name: "AutoAcceptSsoPermission", type: "DWORD", value: "1" }
     ]
+  },
+  {
+    key: "bitwarden-browserext-eu",
+    label: "Bitwarden-Browsererweiterung: Server-Region EU vorgeben",
+    description:
+      "Setzt die Server-Umgebung der Bitwarden-Browsererweiterung fest auf die EU-Cloud (vault.bitwarden.eu), damit " +
+      "der Benutzer beim ersten Login nicht selbst die Region umstellen muss (Standard waere die US-Cloud). Wirkt ueber " +
+      "die 3rdparty-Extension-Policy von Chrome und Edge — die Erweiterung selbst wird davon NICHT installiert, das macht " +
+      "die Erweiterungsrichtlinie im Intune-Portal. Auf der US-Cloud braucht es dieses Profil nicht (das ist die Vorgabe); " +
+      "fuer eine selbst gehostete Instanz einfach die beiden URLs unten auf den eigenen Server aendern. " +
+      "Die Edge-Zeilen decken beide Erweiterungs-IDs ab: die aus den Edge-Add-ons und die aus dem Chrome Web Store " +
+      "(bei der Installation aus dem Chrome-Store behaelt die Erweiterung auch in Edge ihre Chrome-ID). " +
+      "Quelle: Bitwarden-Doku \"Connect Managed Devices\".",
+    entries: [
+      { path: "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
+      { path: "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" },
+      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
+      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" },
+      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
+      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" }
+    ]
   }
 ];
 
