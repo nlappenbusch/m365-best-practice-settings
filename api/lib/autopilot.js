@@ -368,12 +368,15 @@ async function assignProfileToGroup(tenant, certPemPath, profileId, groupId) {
  * Rueckgabe: [{ id, serialNumber, model, manufacturer, groupTag, enrollmentState, lastContactedDateTime }]
  */
 async function loadAutopilotDevices(tenant, certPemPath) {
-  // retryTransient 8: dieser Endpoint antwortet in der Praxis auch mal ueber
-  // laengere Zeit mit einem 5xx ("An internal server error has occurred") ohne
-  // Client-Fehler — die Standard-5-Versuche haben real nicht immer gereicht.
+  // retryTransient 3 statt 8: dieser Endpoint antwortet bei Stoerungen mit 5xx
+  // ("An internal server error has occurred"). Acht Versuche mit Backoff sind
+  // ueber eine Minute Wartezeit — vertretbar fuer einen Hintergrundlauf, nicht
+  // fuer eine Liste, auf die jemand gerade wartet. Drei Versuche (1,5 + 3 +
+  // 4,5 s Backoff) fangen den einzelnen Aussetzer ab; haelt die Stoerung an,
+  // ist Bescheidsagen nuetzlicher als weiterwarten.
   const devices = await graphAllPages(tenant, certPemPath,
     "/deviceManagement/windowsAutopilotDeviceIdentities?$select=id,serialNumber,model,manufacturer,groupTag,enrollmentState,lastContactedDateTime,addressableUserName&$top=200",
-    { retryTransient: 8 });
+    { retryTransient: 3 });
   return devices.map(d => ({
     id: d.id,
     serialNumber: d.serialNumber || "",

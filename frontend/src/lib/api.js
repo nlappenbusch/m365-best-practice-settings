@@ -1,8 +1,11 @@
 // Duenner Fetch-Wrapper. Alle Requests gehen an /api (Dev: Vite-Proxy, Prod: nginx).
 // Session laeuft ueber das Cookie (same-origin), deshalb kein Token-Handling.
 
-export async function apiGet(path) {
-  const r = await fetch(path, { credentials: 'same-origin' })
+// opts.signal: AbortController-Signal, damit lange Abrufe (z. B. die
+// Autopilot-Geraeteliste, die serverseitig auf Microsoft wartet) abgebrochen
+// werden koennen, statt den Anwender warten zu lassen.
+export async function apiGet(path, opts) {
+  const r = await fetch(path, { credentials: 'same-origin', signal: opts?.signal })
   return handle(r)
 }
 
