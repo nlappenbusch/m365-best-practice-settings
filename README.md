@@ -284,17 +284,45 @@ Erkennung:  Datei  C:\Program Files\Bitwarden  →  Bitwarden.exe
 `/allusers` installiert maschinenweit (im SYSTEM-Kontext gibt es sonst keinen
 Benutzer), `/S` still — bei NSIS **gross** geschrieben, sonst wirkungslos.
 
-### Server-Region (Bitwarden-Cloud, kein Self-Hosting)
+### Bezugsquelle
 
-Der Installer ist für alle Regionen derselbe; die Region wählt der Benutzer beim
-Login. Soll sie vorgegeben werden, gibt es unter **🗂️ Mappings →
-Registry-Richtlinie** die Vorlage **`bitwarden-browserext-eu`**: sie setzt die
-Umgebung der Bitwarden-Browsererweiterung per 3rdparty-Extension-Policy fest auf
-`vault.bitwarden.eu` (Chrome und Edge, beide Erweiterungs-IDs). Auf der US-Cloud
-braucht es das Profil nicht — das ist die Vorgabe; für eine selbst gehostete
-Instanz werden die beiden URLs in den Zeilen ersetzt. Die Erweiterung selbst
-installiert diese Richtlinie **nicht**, das macht die Erweiterungsrichtlinie im
-Intune-Portal.
+Der Installer ist für alle Regionen und auch für Self-Hosting derselbe. Geholt
+wird er über drei Hosts, die das Backend (nicht die Endgeräte!) erreichen muss:
+
+| Host | Wofür |
+|------|-------|
+| `vault.bitwarden.com` | Auflösung des aktuellen Releases (302 auf das GitHub-Release) |
+| `github.com` | Release-Assets von `bitwarden/clients` (Installer, `latest.yml`, Offline-Pakete) |
+| `release-assets.githubusercontent.com` | Auslieferung der Dateien — GitHub leitet vom Release-Pfad dorthin um |
+
+Die Tabelle steht auch im Tab, und der Erreichbarkeitstest unter **Diagnose**
+prüft genau diese Hosts.
+
+### Server-Region der Browsererweiterung
+
+Im Bereitstellen-Dialog lässt sich die Region **direkt mitgeben** — EU-Cloud,
+US-Cloud oder eigene Instanz mit URL. Derselbe Lauf legt dann zusätzlich das
+Plattformskript `WIN - RegistryPolicy - Bitwarden-Region` an (3rdparty-Extension-
+Policy für Chrome und Edge, beide Erweiterungs-IDs) und weist es **der
+dynamischen GroupTag-Gerätegruppe** zu — nicht der genesteten `AAD-APP-`-Gruppe,
+denn Intune löst verschachtelte Gruppen nur beim App-Assignment auf, bei
+Plattformskripten nicht.
+
+Dasselbe gibt es weiterhin als Vorlage `bitwarden-browserext-eu` unter
+**🗂️ Mappings → Registry-Richtlinie**, falls man es unabhängig vom App-Deployment
+ausrollen will.
+
+**Wichtig, drei getrennte Dinge:**
+
+| | Was es tut |
+|---|---|
+| Win32-App | installiert die **Desktop-App** |
+| Region-Skript | setzt die Serverregion der **Browsererweiterung** |
+| Erweiterungsrichtlinie im Intune-Portal | **installiert** die Browsererweiterung — macht das Tool nicht |
+
+Die Region der **Desktop-App** setzt nichts davon: die liest sie aus einer
+`data.json` im Benutzerprofil, die erst beim ersten Start entsteht. Dort wählt
+sie der Benutzer beim ersten Login.
 
 ## 📖 Verwendete Standards
 

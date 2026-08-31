@@ -46,6 +46,11 @@
   let detectionPath = $state('')
   let detectionFileOrFolderName = $state('')
   let groupTag = $state('')
+  // Bitwarden-Client-Konfiguration: die Server-Region der Browsererweiterung
+  // gleich mitgeben, statt sie hinterher unter Mappings von Hand zu bauen.
+  let bwRegionOn = $state(false)
+  let bwRegion = $state('eu')
+  let bwSelfhostBase = $state('')
   let groupTags = $state([])
   let groupTagsLoading = $state(false)
   let groupTagsError = $state(null)
@@ -71,6 +76,7 @@
       detectionPath = d.detection?.path || ''
       detectionFileOrFolderName = d.detection?.fileOrFolderName || ''
       groupTag = ''
+      bwRegionOn = false; bwRegion = 'eu'; bwSelfhostBase = ''
       startError = null; jobId = null; job = null
       if (jobTimer) { clearTimeout(jobTimer); jobTimer = null }
       loadGroupTags()
@@ -110,12 +116,23 @@
       ? { type: 'registry', keyPath: detectionKeyPath, valueName: detectionValueName }
       : { type: 'file', path: detectionPath, fileOrFolderName: detectionFileOrFolderName }
 
+    let clientConfig = null
+    if (vendor === 'bitwarden' && bwRegionOn) {
+      if (bwRegion === 'selfhost' && !bwSelfhostBase.trim()) {
+        alert('Server-URL der eigenen Bitwarden-Instanz fehlt.')
+        return
+      }
+      clientConfig = bwRegion === 'selfhost'
+        ? { region: 'selfhost', base: bwSelfhostBase.trim() }
+        : { region: bwRegion }
+    }
+
     starting = true
     startError = null
     try {
       const r = await dlApi.appDeployStart(tenantId, {
         vendor, source, appName: appName.trim(), description, installCommandLine, uninstallCommandLine,
-        detection, groupTag
+        detection, groupTag, clientConfig
       })
       jobId = r.jobId
       pollJob()
@@ -157,6 +174,11 @@
               <div class="ld-banner ok">App veröffentlicht und zugewiesen.</div>
               <div class="ld-step"><small>Intune-App-ID: <code>{job.appId}</code><br />
                 Ziel: <code>{job.appGroupName}</code> ({job.deviceGroupName} genestet)</small></div>
+              {#if job.clientConfig}
+                <div class="ld-step"><small>Server-Region: Plattformskript <code>{job.clientConfig.displayName}</code>
+                  {job.clientConfig.updated ? 'aktualisiert' : 'angelegt'} ({job.clientConfig.values} Registry-Werte),
+                  zugewiesen an <code>{job.clientConfig.groupName}</code>.</small></div>
+              {/if}
             {:else if job.status === 'failed'}
               <div class="ld-banner fail">{job.error}</div>
               {#if job.hint}<div class="ld-step"><small>💡 {job.hint}</small></div>{/if}
@@ -230,6 +252,36 @@
               </div>
             {/if}
           </div>
+
+          {#if vendor === 'bitwarden'}
+            <div class="settings-group">
+              <h4>Server-Region vorgeben <small>(optional)</small></h4>
+              <label class="checkbox-label" style="display:flex; gap:.5rem; margin-bottom:.5rem;">
+                <input type="checkbox" bind:checked={bwRegionOn} />
+                <span>Beim Bereitstellen zusätzlich die Server-Region der <b>Browsererweiterung</b> festlegen</span>
+              </label>
+              {#if bwRegionOn}
+                <div class="input-group" style="max-width:380px; margin-bottom:0.5rem;">
+                  <label for="adBwRegion">Region</label>
+                  <select id="adBwRegion" bind:value={bwRegion}>
+                    <option value="eu">EU-Cloud — vault.bitwarden.eu</option>
+                    <option value="us">US-Cloud — vault.bitwarden.com (Bitwarden-Vorgabe)</option>
+                    <option value="selfhost">Eigene Instanz (Self-Hosting)</option>
+                  </select>
+                </div>
+                {#if bwRegion === 'selfhost'}
+                  <div class="input-group" style="max-width:380px; margin-bottom:0.5rem;">
+                    <label for="adBwBase">Server-URL</label>
+                    <input id="adBwBase" type="text" bind:value={bwSelfhostBase} placeholder="https://bitwarden.kunde.ch" />
+                  </div>
+                {/if}
+                <small>Legt zusätzlich das Intune-Plattformskript <code>WIN - RegistryPolicy - Bitwarden-Region</code> an
+                  und weist es <b>derselben GroupTag-Gerätegruppe</b> zu. Wirkt auf die Bitwarden-Erweiterung in Chrome
+                  und Edge. <b>Die Desktop-App ist davon nicht betroffen</b> — die liest ihre Region aus dem
+                  Benutzerprofil, dort wählt sie der Benutzer beim ersten Login.</small>
+              {/if}
+            </div>
+          {/if}
 
           <div class="input-group" style="margin-bottom:0.7rem; max-width:340px;">
             <label for="adGroupTag">Ziel-GroupTag (dynamische Gerätegruppe)</label>

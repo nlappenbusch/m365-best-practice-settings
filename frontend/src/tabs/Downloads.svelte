@@ -327,10 +327,11 @@
     <!-- Bitwarden -->
     <div class="dl-panel" class:active={sub === 'bw'}>
       <div class="alert alert-info">
-        <strong>ℹ️ Bitwarden-Cloud, kein Self-Hosting</strong> — für den Installer spielt das keine Rolle, es ist derselbe.
-        Die <b>Server-Region</b> (EU statt US) gibt man den Clients separat vor: im Tab <b>🗂️ Mappings → Registry-Richtlinie</b>
-        gibt es dafür die Vorlage <code>bitwarden-browserext-eu</code>. Kein API-Key nötig — das Backend löst über
-        <code>bitwarden.com/download</code> das jeweils aktuelle Release auf.
+        <strong>ℹ️ Was hier ausgerollt wird:</strong> die <b>Desktop-App</b> als Win32-App. Die Server-Region der
+        <b>Browsererweiterung</b> (EU statt US) kannst du im Bereitstellen-Dialog <b>direkt mitgeben</b> — sie wird dann
+        als Plattformskript derselben Gerätegruppe zugewiesen. Die Region der <b>Desktop-App</b> setzt weder das eine noch
+        das andere: die liest sie aus dem Benutzerprofil, dort wählt sie der Benutzer beim ersten Login.
+        Für Bitwarden-Cloud <i>und</i> Self-Hosting ist der Installer derselbe. Kein API-Key nötig.
       </div>
 
       <div class="dl-toolbar">
@@ -393,6 +394,24 @@
           die Dateien oben braucht man dafür nicht manuell.
           {#if bwArchs.length}Der Upload dauert entsprechend ein paar Minuten.{/if}
         </small>
+
+        <div class="settings-group" style="margin-top:1rem;">
+          <h4>Bezugsquelle</h4>
+          <p class="ld-section-hint">Woher das Backend die Dateien holt — und damit, was die Firewall für den
+            <b>Server</b> offen haben muss (nicht für die Endgeräte: die installieren aus dem Intune-Paket).</p>
+          <table class="gt-table">
+            <thead><tr><th>Host</th><th>Wofür</th></tr></thead>
+            <tbody>
+              {#each bwRel.sourceHosts || [] as h (h.host)}
+                <tr><td><code>{h.host}</code></td><td>{h.purpose}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+          <small class="dl-hint" style="display:block; margin-top:.5rem;">
+            Aktuelles Release: <code>{bwRel.baseUrl}</code><br />
+            Erreichbarkeit dieser Hosts prüfen: Tab <b>Diagnose → Erreichbarkeit</b>.
+          </small>
+        </div>
       {/if}
     </div>
   {/if}

@@ -20,6 +20,63 @@ const { graphReq, graphAllPages } = require("./graph");
 const BETA = { beta: true, retryTransient: true };
 const SCRIPT_PREFIX = "WIN - RegistryPolicy - ";
 
+// ---------- Bitwarden-Client-Konfiguration ----------
+// Die Bitwarden-Browsererweiterung liest ihre Server-Umgebung aus der
+// 3rdparty-Extension-Policy des Browsers. Drei Pfade, weil es drei reale
+// Installationswege gibt: Chrome, Edge mit der Edge-Add-ons-ID und Edge mit der
+// Chrome-ID (wer die Erweiterung in Edge aus dem Chrome Web Store installiert,
+// behaelt dort die Chrome-ID). Ueberfluessige Pfade schaden nicht -- sie stehen
+// dann einfach in einer Registry-Struktur, die kein Browser liest.
+// Quelle: Bitwarden-Doku "Connect Managed Devices".
+//
+// ACHTUNG, haeufiges Missverstaendnis: das gilt NUR fuer die Browsererweiterung.
+// Die Desktop-App liest ihre Region aus einer data.json im Benutzerprofil, die
+// erst beim ersten Start entsteht -- die ist so nicht vorgebbar.
+const BITWARDEN_EXTENSION_IDS = {
+  chrome: "nngceckbapebfimnlniiiahkandclblb",
+  edge: "jbkfoedolllekgbhcbcoahefnbanhhlh"
+};
+
+const BITWARDEN_POLICY_PATHS = [
+  `SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\${BITWARDEN_EXTENSION_IDS.chrome}\\policy\\environment`,
+  `SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\${BITWARDEN_EXTENSION_IDS.edge}\\policy\\environment`,
+  `SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\${BITWARDEN_EXTENSION_IDS.chrome}\\policy\\environment`
+];
+
+// US ist Bitwardens Vorgabe -- dafuer braucht es kein Profil. Es steht hier
+// trotzdem, damit ein Tenant, der versehentlich auf EU gestellt wurde, ohne
+// Handarbeit zurueckgeholt werden kann.
+const BITWARDEN_REGIONS = {
+  eu: { key: "eu", label: "EU-Cloud (vault.bitwarden.eu)", base: "https://vault.bitwarden.eu", notifications: "https://notifications.bitwarden.eu" },
+  us: { key: "us", label: "US-Cloud (vault.bitwarden.com)", base: "https://vault.bitwarden.com", notifications: "https://notifications.bitwarden.com" }
+};
+
+/** https-URL ohne Pfad-Schnickschnack -- landet als Registry-String auf Geraeten. */
+function cleanBitwardenUrl(raw, label) {
+  const v = String(raw || "").trim().replace(/\/+$/, "");
+  if (!v) throw new Error(`${label} fehlt.`);
+  let u;
+  try { u = new URL(v); } catch (e) { throw new Error(`${label} ist keine gueltige URL.`); }
+  if (u.protocol !== "https:") throw new Error(`${label} muss mit https:// beginnen.`);
+  return v;
+}
+
+/**
+ * Registry-Zeilen fuer die Server-Umgebung der Bitwarden-Browsererweiterung.
+ * region: "eu" | "us" | "selfhost". Bei selfhost kommt base aus der Eingabe,
+ * notifications ist dort optional (Bitwarden faellt sonst auf base zurueck).
+ */
+function bitwardenExtensionEntries({ region, base, notifications }) {
+  const preset = BITWARDEN_REGIONS[region];
+  if (!preset && region !== "selfhost") throw new Error(`Unbekannte Bitwarden-Region '${region}'.`);
+  const b = cleanBitwardenUrl(preset ? preset.base : base, "Server-URL");
+  const n = preset ? preset.notifications : (notifications ? cleanBitwardenUrl(notifications, "Notifications-URL") : null);
+  return BITWARDEN_POLICY_PATHS.flatMap(path => [
+    { path, name: "base", type: "String", value: b },
+    ...(n ? [{ path, name: "notifications", type: "String", value: n }] : [])
+  ]);
+}
+
 const PRESETS = [
   {
     key: "dma-sso-autoaccept",
@@ -42,14 +99,7 @@ const PRESETS = [
       "Die Edge-Zeilen decken beide Erweiterungs-IDs ab: die aus den Edge-Add-ons und die aus dem Chrome Web Store " +
       "(bei der Installation aus dem Chrome-Store behaelt die Erweiterung auch in Edge ihre Chrome-ID). " +
       "Quelle: Bitwarden-Doku \"Connect Managed Devices\".",
-    entries: [
-      { path: "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
-      { path: "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" },
-      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
-      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" },
-      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "base", type: "String", value: "https://vault.bitwarden.eu" },
-      { path: "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment", name: "notifications", type: "String", value: "https://notifications.bitwarden.eu" }
-    ]
+    entries: bitwardenExtensionEntries({ region: "eu" })
   }
 ];
 
@@ -176,4 +226,5 @@ async function deployProfile(tenant, cert, { profileName, entries, groupIds }) {
   return { scriptId, displayName: name, updated: !!match };
 }
 
-module.exports = { PRESETS, buildScript, parseScript, sanitizeEntries, sanitizeProfileName, listProfiles, deployProfile, SCRIPT_PREFIX };
+module.exports = { PRESETS, buildScript, parseScript, sanitizeEntries, sanitizeProfileName, listProfiles, deployProfile, SCRIPT_PREFIX,
+  BITWARDEN_REGIONS, BITWARDEN_POLICY_PATHS, bitwardenExtensionEntries };

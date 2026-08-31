@@ -639,34 +639,90 @@ app.get("/api/serverlog", (req, res) => {
   res.json({ ok: true, max: SERVERLOG.MAX_ENTRIES, entries: SERVERLOG.list(req.query.limit) });
 });
 
-// Erreichbarkeitstest der Gegenstellen, die das Tool zwingend braucht.
+// Erreichbarkeitstest der Gegenstellen, die das Tool nutzt.
 // Beantwortet die Frage "kommt der Container ueberhaupt raus?" ohne Shell im
 // Pod — im Cluster ist fehlender Egress die haeufigste Ursache fuer 500er
 // beim Onboarding (Device-Code-Start laeuft gegen login.microsoftonline.com).
-const EGRESS_TARGETS = [
-  { name: "Microsoft Login (Device-Code)", url: "https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize" },
-  { name: "Microsoft Graph", url: "https://graph.microsoft.com/v1.0/$metadata" },
-  { name: "Exchange Online", url: "https://outlook.office365.com/powershell-liveid" }
-];
+//
+// JEDE HTTP-Antwort zaehlt als erreichbar, auch 401/403/404: getestet wird die
+// Netzwerkstrecke, nicht die Berechtigung. Nur DNS-, TLS- und Timeout-Fehler
+// sind ein echter Fehlschlag.
+//
+// Die Liste wird pro Aufruf gebaut, weil ein Teil der Ziele aus der Konfiguration
+// kommt (Bitdefender-Host, N-sight-Server, SDP-Instanz).
+function egressTargets() {
+  const bd = BD.config();
+  const rmm = NSIGHT.config();
+  const rmmHost = rmm.fixed || (rmm.candidates && rmm.candidates[0]) || "dashboardeurope1.systemmonitor.eu.com";
+  const sdpBase = (process.env.SDP_BASE_URL || "https://sdp.igeeks.ch").trim().replace(/\/+$/, "");
+
+  return [
+    // --- Ohne diese vier laeuft gar nichts ---
+    { group: "Microsoft — Pflicht", name: "Microsoft Login (Device-Code)", why: "Tenant-Onboarding und jedes App-only-Token",
+      url: "https://login.microsoftonline.com/common/discovery/instance?api-version=1.1&authorization_endpoint=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fv2.0%2Fauthorize" },
+    { group: "Microsoft — Pflicht", name: "Microsoft Graph", why: "Intune, Gruppen, Geraete, Lizenzen, Conditional Access",
+      url: "https://graph.microsoft.com/v1.0/$metadata" },
+    { group: "Microsoft — Pflicht", name: "Exchange Online", why: "Mail-Security-Policies (Connect-ExchangeOnline app-only)",
+      url: "https://outlook.office365.com/powershell-liveid" },
+    { group: "Microsoft — Pflicht", name: "PowerShell Gallery", why: "Maester-Testsuite und die PowerShell-Module im Container aktualisieren",
+      url: "https://www.powershellgallery.com/api/v2/" },
+    // Die Upload-URL erzeugt Intune pro Datei als SAS-Link auf ein wechselndes
+    // Speicherkonto — ein fester Testaufruf waere geraten, nicht gemessen.
+    { group: "Microsoft — Pflicht", name: "Intune-Content-Upload (Azure Blob Storage)", url: null,
+      host: "*.blob.core.windows.net",
+      why: "Ziel jedes Win32-App-Uploads. Die URL erzeugt Intune pro Upload neu (SAS) — daher hier nicht testbar, muss aber offen sein." },
+
+    // --- App-Deployment: woher die Installer kommen ---
+    ...BITWARDEN.SOURCE_HOSTS.map(h => ({
+      group: "App-Deployment — Bitwarden", name: h.host, why: h.purpose,
+      url: h.host === "vault.bitwarden.com" ? BITWARDEN.RELEASE_ENTRY : `https://${h.host}/`
+    })),
+    { group: "App-Deployment — Agents", name: "Bitdefender GravityZone", why: "Paketliste und Installer-Download" + (bd.enabled ? "" : " (kein BD_API_KEY gesetzt)"),
+      url: `https://${bd.host}/`, optional: !bd.enabled },
+    { group: "App-Deployment — Agents", name: "N-sight RMM", why: "Kunden-/Site-Liste und Agent-Build" + (rmm.enabled ? "" : " (kein RMM_API_KEY gesetzt)"),
+      url: `https://${rmmHost}/`, optional: !rmm.enabled },
+    { group: "App-Deployment — Agents", name: "FortiClient-Installer", why: "vorkonfiguriertes MSI+MST je EMS-Site",
+      url: "https://forticlient.igeekscloud.ch:10443/" },
+
+    // --- Intune-Baselines ---
+    { group: "Intune-Baselines", name: "OpenIntuneBaseline (GitHub-API)", why: "Baseline-Dateien auflisten",
+      url: "https://api.github.com/repos/SkipToTheEndpoint/OpenIntuneBaseline" },
+    { group: "Intune-Baselines", name: "OpenIntuneBaseline (Rohdateien)", why: "Policy-JSON herunterladen",
+      url: "https://raw.githubusercontent.com/SkipToTheEndpoint/OpenIntuneBaseline/main/README.md" },
+
+    // --- Nur fuer den Tickets-Bereich ---
+    { group: "Optional", name: "ServiceDesk Plus", why: "Ticket-Copilot" + (process.env.SDP_API_KEY ? "" : " (kein SDP_API_KEY gesetzt)"),
+      url: sdpBase + "/", optional: !process.env.SDP_API_KEY },
+    { group: "Optional", name: "Anthropic API", why: "KI-Vorschlag im Ticket-Copilot" + (process.env.ANTHROPIC_API_KEY ? "" : " (kein ANTHROPIC_API_KEY gesetzt)"),
+      url: "https://api.anthropic.com/v1/models", optional: !process.env.ANTHROPIC_API_KEY }
+  ];
+}
+
+async function probeEgress(t) {
+  const base = { group: t.group, name: t.name, why: t.why, optional: !!t.optional, url: t.url, host: t.host || null };
+  if (!t.url) return { ...base, skipped: true };
+  const started = Date.now();
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 8000);
+    // HEAD spart bei den grossen Zielen (GitHub-Assets) den Body; Server, die
+    // HEAD nicht moegen, antworten mit 405 — auch das beweist Erreichbarkeit.
+    const r = await fetch(t.url, { method: "HEAD", redirect: "manual", signal: ctl.signal });
+    clearTimeout(timer);
+    return { ...base, ok: true, status: r.status, ms: Date.now() - started };
+  } catch (e) {
+    return {
+      ...base, ok: false, ms: Date.now() - started,
+      error: e.name === "AbortError" ? "Zeitueberschreitung nach 8s" : e.message,
+      code: causeOf(e)
+    };
+  }
+}
 
 app.get("/api/diag/egress", wrap(async (req, res) => {
-  const results = [];
-  for (const t of EGRESS_TARGETS) {
-    const started = Date.now();
-    try {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 8000);
-      const r = await fetch(t.url, { method: "GET", signal: ctl.signal });
-      clearTimeout(timer);
-      results.push({ name: t.name, ok: true, status: r.status, ms: Date.now() - started });
-    } catch (e) {
-      results.push({
-        name: t.name, ok: false, ms: Date.now() - started,
-        error: e.name === "AbortError" ? "Zeitueberschreitung nach 8s" : e.message,
-        code: causeOf(e)
-      });
-    }
-  }
+  // Parallel: 14 Ziele nacheinander mit je 8s Timeout waeren im schlechtesten
+  // Fall knapp zwei Minuten, in denen der Tab nur wartet.
+  const results = await Promise.all(egressTargets().map(probeEgress));
   res.json({ ok: true, results });
 }));
 
@@ -3063,6 +3119,11 @@ app.get("/api/appjobs/:id", (req, res) => {
 
 const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet", bitwarden: "Bitwarden Inc." };
 
+// Fester Profilname, damit ein erneutes Ausrollen dasselbe Intune-Skript
+// aktualisiert statt ein zweites danebenzulegen (deployProfile ist idempotent
+// ueber den Anzeigenamen).
+const BITWARDEN_REGION_PROFILE = "Bitwarden-Region";
+
 function buildWin32AppPayload(b, fileName) {
   const rules = [b.detection && b.detection.type === "registry"
     ? {
@@ -3154,15 +3215,16 @@ async function runAppDeployJob(job, t, b) {
     }
 
     onProgress("Gruppen vorbereiten");
-    let appGroupId, deviceGroupName;
+    let appGroupId, deviceGroupName, deviceGroupId;
     if (process.env.FAKE_DEPLOY === "1") {
       await new Promise(r => setTimeout(r, 600));
-      appGroupId = "fake-app-group"; deviceGroupName = "AAD-" + (b.groupTag || "DEV-STD");
+      appGroupId = "fake-app-group"; deviceGroupName = "AAD-" + (b.groupTag || "DEV-STD"); deviceGroupId = "fake-device-group";
     } else {
       const tags = await AUTOPILOT.loadGroupTags(t, cert);
       const match = tags.find(g => g.groupTag === b.groupTag);
       if (!match) throw new Error("GroupTag '" + b.groupTag + "' nicht (mehr) unter den dynamischen Gruppen gefunden.");
       deviceGroupName = match.groupName;
+      deviceGroupId = match.groupId;
       const appGroup = await APPGROUPS.ensureAppGroup(t, cert, b.appName);
       appGroupId = appGroup.id;
       await APPGROUPS.nestGroupAsMember(t, cert, appGroupId, match.groupId);
@@ -3227,6 +3289,24 @@ async function runAppDeployJob(job, t, b) {
       await new Promise(r => setTimeout(r, 500));
     }
 
+    // Optionaler Zusatzschritt: die Server-Region der Bitwarden-Browsererweiterung
+    // gleich mit vorgeben. Bewusst NICHT an die genestete AAD-APP-Gruppe, sondern
+    // direkt an die dynamische GroupTag-Gerätegruppe: Intune loest verschachtelte
+    // Gruppen nur beim App-Assignment auf, bei Plattformskripten nicht.
+    if (b.vendor === "bitwarden" && b.clientConfig && b.clientConfig.region) {
+      onProgress("Server-Region der Browsererweiterung ausrollen");
+      const entries = REGPOLICY.bitwardenExtensionEntries(b.clientConfig);
+      if (process.env.FAKE_DEPLOY === "1") {
+        await new Promise(r => setTimeout(r, 500));
+        job.clientConfig = { displayName: REGPOLICY.SCRIPT_PREFIX + BITWARDEN_REGION_PROFILE, updated: false, groupName: deviceGroupName, values: entries.length };
+      } else {
+        const rp = await REGPOLICY.deployProfile(t, cert, {
+          profileName: BITWARDEN_REGION_PROFILE, entries, groupIds: [deviceGroupId]
+        });
+        job.clientConfig = { displayName: rp.displayName, updated: rp.updated, groupName: deviceGroupName, values: entries.length };
+      }
+    }
+
     job.appId = appId;
     job.appGroupName = "AAD-APP-" + APPGROUPS.sanitizeAppNameForGroup(b.appName);
     job.deviceGroupName = deviceGroupName;
@@ -3247,6 +3327,13 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
   const b = req.body || {};
   if (!b.vendor || !b.appName || !b.installCommandLine || !b.uninstallCommandLine || !b.groupTag) {
     return res.status(400).json({ error: "vendor, appName, installCommandLine, uninstallCommandLine und groupTag sind erforderlich." });
+  }
+  // Client-Konfiguration vorab pruefen, solange noch jemand vor dem Bildschirm
+  // sitzt -- ein Tippfehler in der Self-Host-URL soll nicht erst nach dem
+  // 122-MB-Upload als abgebrochener Job auffallen.
+  if (b.clientConfig && b.clientConfig.region) {
+    try { REGPOLICY.bitwardenExtensionEntries(b.clientConfig); }
+    catch (e) { return res.status(400).json({ error: "Client-Konfiguration: " + e.message }); }
   }
   for (const j of appJobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
