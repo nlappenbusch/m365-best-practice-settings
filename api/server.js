@@ -36,6 +36,7 @@ const GRAPHLIB = require("./lib/graph");
 const BD = require("./lib/bitdefender");
 const NSIGHT = require("./lib/nsight");
 const FORTICLIENT = require("./lib/forticlient");
+const BITWARDEN = require("./lib/bitwarden");
 const WIN32APP = require("./lib/win32app");
 const MIGRATION = require("./lib/migrationPackage");
 const REPORT = require("./lib/report");
@@ -689,14 +690,16 @@ app.delete("/api/sso/config", (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- Agent-Downloads (Bitdefender / N-sight RMM) ----------
+// ---------- Agent-Downloads (Bitdefender / N-sight RMM / Bitwarden) ----------
 // Die API-Keys bleiben hier im Backend; das Frontend laedt ueber diesen Proxy.
+// Bitwarden braucht keinen Key -- die Windows-Desktop-App liegt oeffentlich als
+// GitHub-Release-Asset, daher ist der Bereich immer aktiv (bw: true).
 
 app.get("/api/downloads/config", (req, res) => {
   const bd = BD.config();
   const rmm = NSIGHT.config();
-  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, bd: true, rmm: true, bdHost: bd.host, rmmServer: "fake.systemmonitor.eu.com" });
-  res.json({ ok: true, bd: bd.enabled, rmm: rmm.enabled, bdHost: bd.host, rmmServer: rmm.fixed || null });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, bd: true, rmm: true, bw: true, bdHost: bd.host, rmmServer: "fake.systemmonitor.eu.com" });
+  res.json({ ok: true, bd: bd.enabled, rmm: rmm.enabled, bw: true, bdHost: bd.host, rmmServer: rmm.fixed || null });
 });
 
 app.get("/api/downloads/bd/packages", wrap(async (req, res) => {
@@ -728,6 +731,30 @@ app.get("/api/downloads/rmm/download", wrap(async (req, res) => {
     siteid: String(req.query.siteid || "").trim(),
     type: String(req.query.type || "").trim(),
     os: String(req.query.os || "").trim()
+  }, res);
+}));
+
+// Bitwarden-Desktop-App: aktuelles Windows-Release aufloesen (Version, Stub-
+// Installer, Offline-Pakete je Architektur). Bitwarden veroeffentlicht keine
+// "Version X"-API -- bitwarden.com/download leitet auf das aktuelle
+// GitHub-Release um, siehe lib/bitwarden.js.
+app.get("/api/downloads/bw/release", wrap(async (req, res) => {
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, release: {
+      version: "2026.8.0", installerName: "Bitwarden-Installer-2026.8.0.exe", installerSize: 734264,
+      packages: [
+        { arch: "x64", file: "bitwarden-2026.8.0-x64.nsis.7z", size: 127653942 },
+        { arch: "arm64", file: "bitwarden-2026.8.0-arm64.nsis.7z", size: 127433608 }
+      ]
+    } });
+  }
+  res.json({ ok: true, release: await BITWARDEN.releaseInfo(req.query.refresh === "1") });
+}));
+
+app.get("/api/downloads/bw/download", wrap(async (req, res) => {
+  await BITWARDEN.streamDownload({
+    what: String(req.query.what || "installer").trim(),
+    arch: String(req.query.arch || "").trim()
   }, res);
 }));
 
@@ -3034,7 +3061,7 @@ app.get("/api/appjobs/:id", (req, res) => {
   res.json(rest);
 });
 
-const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet" };
+const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet", bitwarden: "Bitwarden Inc." };
 
 function buildWin32AppPayload(b, fileName) {
   const rules = [b.detection && b.detection.type === "registry"
@@ -3064,7 +3091,10 @@ function buildWin32AppPayload(b, fileName) {
     uninstallCommandLine: b.uninstallCommandLine,
     // windowsArchitecture ist ein Flags-Enum (none/x86/x64/arm/neutral) -- RMM-/AV-Agents
     // wie Bitdefender und N-sight liefern real nur x64- und ARM64-Builds aus, nie x86.
-    applicableArchitectures: "x64, arm",
+    // Ueberschreibbar, weil bei Bitwarden die mitgelieferten Offline-Pakete
+    // bestimmen, welche Architektur ohne Internetzugriff installierbar ist --
+    // eine ARM64-Zuweisung ohne ARM64-Paket waere eine stille Fehlerquelle.
+    applicableArchitectures: b.applicableArchitectures || "x64, arm",
     installExperience: { "@odata.type": "microsoft.graph.win32LobAppInstallExperience", runAsAccount: "system", deviceRestartBehavior: "suppress" },
     // Standard-MSI-/Installer-Rueckgabecodes (Quelle: Microsoft Learn win32LobAppReturnCode
     // + gaengige RMM-/AV-Installer-Doku) -- ohne diese wertet Intune z.B. 3010 (Soft Reboot
@@ -3097,8 +3127,19 @@ async function runAppDeployJob(job, t, b) {
     if (process.env.FAKE_DEPLOY === "1") {
       await new Promise(r => setTimeout(r, 800));
       buffer = Buffer.from("Fake-Installer-Bytes fuer UI-Test — kein echtes Graph-Upload.");
-      fileName = b.vendor === "bitdefender" ? "BitdefenderSetup.exe" : b.vendor === "forticlient" ? "forticlient.msi" : "RMM-Agent-Setup.exe";
+      fileName = b.vendor === "bitdefender" ? "BitdefenderSetup.exe" : b.vendor === "forticlient" ? "forticlient.msi"
+        : b.vendor === "bitwarden" ? "Bitwarden-Installer-2026.8.0.exe" : "RMM-Agent-Setup.exe";
       if (b.vendor === "forticlient") extraFiles = [{ name: "forticlient.mst", data: Buffer.from("Fake-MST") }];
+      if (b.vendor === "bitwarden") {
+        extraFiles = BITWARDEN.normalizeArchs((b.source || {}).architectures)
+          .map(a => ({ name: `bitwarden-2026.8.0-${a}.nsis.7z`, data: Buffer.from("Fake-Offline-Paket") }));
+      }
+    } else if (b.vendor === "bitwarden") {
+      // Stub-Installer + (optional) passendes Offline-Paket. Beide landen flach
+      // im selben Zip und damit auf dem Geraet im selben Ordner -- genau das
+      // erwartet der nsis-web-Stub fuer die Installation ohne Internetzugriff.
+      const r = await BITWARDEN.fetchDesktopFiles({ architectures: (b.source || {}).architectures, onProgress });
+      buffer = r.buffer; fileName = r.fileName; extraFiles = r.extraFiles;
     } else if (b.vendor === "bitdefender") {
       ({ buffer, fileName } = await BD.fetchInstallerBuffer(b.source.downloadUrl));
     } else if (b.vendor === "forticlient") {
@@ -3142,17 +3183,36 @@ async function runAppDeployJob(job, t, b) {
       // EXE-Installer von Bitdefender/N-sight — NICHT in denselben Zweig werfen,
       // sonst wuerde z.B. "/norestart" (EXE-Konvention) an msiexec haengen, das
       // dort ohne Wirkung waere (msiexec braucht REBOOT=ReallySuppress).
+      // Bitwarden ist ein NSIS-Installer: "/S" (still) und "/allusers"
+      // (maschinenweit statt nur fuer den gerade angemeldeten Benutzer -- im
+      // SYSTEM-Kontext waere das sonst niemand). Quelle: Bitwarden-Doku
+      // "Deploy Desktop Apps with Intune".
       const REQUIRED_SWITCHES_BY_VENDOR = {
         bitdefender: ["/bdparams", "/silent"],
-        forticlient: ["/qn", "REBOOT=ReallySuppress", "DONT_PROMPT_REBOOT=1"]
+        forticlient: ["/qn", "REBOOT=ReallySuppress", "DONT_PROMPT_REBOOT=1"],
+        bitwarden: ["/allusers", "/S"]
       };
       const requiredSwitches = REQUIRED_SWITCHES_BY_VENDOR[b.vendor] || ["/quiet", "/norestart"];
       if (!installCmd.trim()) installCmd = `"${fileName}"`;
       for (const sw of requiredSwitches) {
-        if (!new RegExp(sw.replace("/", "\\/") + "\\b", "i").test(installCmd)) installCmd += " " + sw;
+        // Enthaelt der Schalter Grossbuchstaben, wird er auch so gesucht: bei
+        // NSIS ist "/S" still, "/s" dagegen wirkungslos, und MSI-Eigenschaften
+        // (REBOOT=...) muessen ebenfalls gross geschrieben sein. Ein
+        // case-insensitiver Treffer wuerde hier faelschlich "ist schon drin"
+        // melden und einen interaktiven Installer im SYSTEM-Kontext haengen lassen.
+        const flags = /[A-Z]/.test(sw) ? "" : "i";
+        const escaped = sw.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+        if (!new RegExp(escaped + "\\b", flags).test(installCmd)) installCmd += " " + sw;
       }
       const subst = { ...b, installCommandLine: installCmd,
         uninstallCommandLine: String(b.uninstallCommandLine || "").replace(/\{file\}/g, fileName) };
+      // Nur die Architekturen zuweisen, fuer die wir auch ein Offline-Paket
+      // mitliefern -- sonst bekaeme z.B. ein ARM64-Geraet die App und der Stub
+      // muesste sein Paket doch wieder aus dem Internet nachladen.
+      if (b.vendor === "bitwarden") {
+        const archs = (extraFiles || []).map(f => (/-arm64\.nsis\.7z$/i.test(f.name) ? "arm" : "x64"));
+        subst.applicableArchitectures = archs.length ? [...new Set(archs)].join(", ") : "x64, arm";
+      }
       const payload = buildWin32AppPayload(subst, fileName);
       const r = await WIN32APP.createWin32AppWithContent(t, cert, {
         appPayload: payload, setupFileName: fileName, installerBuffer: buffer, extraFiles, onProgress

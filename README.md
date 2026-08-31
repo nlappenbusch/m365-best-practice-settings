@@ -10,6 +10,8 @@
 - 🔔 **Alert Policies** für Quarantine Notifications
 - 📦 **Quarantine Policies** mit Self-Service & Admin-Approval
 - 🔍 **Maester Security-Audit** (CISA SCuBA, CIS M365, EIDSCA, ORCA) pro Tenant mit Score, Verlauf und HTML-Report
+- 📦 **App-Deployment nach Intune** (Win32-App) für Bitdefender, N-sight RMM,
+  FortiClient und die **Bitwarden-Desktop-App**
 - 📜 **PowerShell Script Export** für automatisches Deployment
 - 💾 **JSON Export/Import** für Konfigurationsverwaltung
 - 📄 **Markdown Documentation Export**
@@ -234,6 +236,65 @@ Entra-Replikationszeit, bevor der erste Verbindungstest/Deploy klappt. Tenants,
 die vor der Alert-Policy-Erweiterung onboardet wurden, einfach neu onboarden —
 dabei wird die fehlende Compliance-Administrator-Rolle ergänzt (App und
 Zertifikat bleiben erhalten bzw. werden erneuert).
+
+## 🔐 Bitwarden-Desktop-App per Intune verteilen
+
+Tab **📦 Apps & Agents → 🔐 Bitwarden**. Kein API-Key nötig — der Windows-Client
+liegt öffentlich als GitHub-Release-Asset, `bitwarden.com/download` verweist auf
+das jeweils aktuelle Release. Das Backend liest daraus Version, Installer und
+Offline-Pakete (`api/lib/bitwarden.js`).
+
+### Warum das Tool das Offline-Paket mitliefert
+
+Bitwarden liefert den Windows-Client als electron-builder-**nsis-web**-Installer
+aus: `Bitwarden-Installer-<ver>.exe` ist nur ein ~0,7-MB-Stub, die eigentlichen
+~122 MB liegen daneben als `bitwarden-<ver>-<arch>.nsis.7z` und werden erst
+**während** der Installation nachgeladen.
+
+Für ein Intune-Deployment ist das die schlechte Variante: das Gerät bräuchte im
+SYSTEM-Kontext freien Zugriff auf `github.com`, und schlägt der Download fehl,
+zeigt der Stub eine Meldung (Wiederholen/Abbrechen) an, die dort niemand sieht —
+die Installation hängt bis zum Intune-Timeout.
+
+electron-builder dokumentiert dafür den Offline-Weg: liegt die Paketdatei im
+**selben Ordner** wie der Installer, wird sie automatisch erkannt und verwendet
+(Prüfsumme wird geprüft). Genau das baut das Tool — Stub und passendes
+`.nsis.7z` landen zusammen im Intune-Paket.
+
+### Paketierung
+
+| Variante | Upload | Wann |
+|----------|--------|------|
+| **Offline, x64** | ~122 MB | Standard |
+| **Offline, x64 + ARM64** | ~244 MB | nur bei ARM64-Geräten im Tenant (verdoppelt auch den Speicherbedarf des Backends beim Deploy) |
+| **Nur Web-Installer** | ~0,7 MB | nur wenn die Geräte sicher ans Internet kommen |
+
+Zugewiesen wird nur, wofür auch ein Offline-Paket im Paket liegt
+(`applicableArchitectures`). Installer und Paket werden vor dem Upload gegen die
+SHA-512-Summen aus der `latest.yml` des Releases geprüft.
+
+### Vorbelegte Werte (Bitwarden-Doku)
+
+```
+Install:    "Bitwarden-Installer-<ver>.exe" /allusers /S
+Uninstall:  "C:\Program Files\Bitwarden\Uninstall Bitwarden.exe" /allusers /S
+Erkennung:  Datei  C:\Program Files\Bitwarden  →  Bitwarden.exe
+```
+
+`/allusers` installiert maschinenweit (im SYSTEM-Kontext gibt es sonst keinen
+Benutzer), `/S` still — bei NSIS **gross** geschrieben, sonst wirkungslos.
+
+### Server-Region (Bitwarden-Cloud, kein Self-Hosting)
+
+Der Installer ist für alle Regionen derselbe; die Region wählt der Benutzer beim
+Login. Soll sie vorgegeben werden, gibt es unter **🗂️ Mappings →
+Registry-Richtlinie** die Vorlage **`bitwarden-browserext-eu`**: sie setzt die
+Umgebung der Bitwarden-Browsererweiterung per 3rdparty-Extension-Policy fest auf
+`vault.bitwarden.eu` (Chrome und Edge, beide Erweiterungs-IDs). Auf der US-Cloud
+braucht es das Profil nicht — das ist die Vorgabe; für eine selbst gehostete
+Instanz werden die beiden URLs in den Zeilen ersetzt. Die Erweiterung selbst
+installiert diese Richtlinie **nicht**, das macht die Erweiterungsrichtlinie im
+Intune-Portal.
 
 ## 📖 Verwendete Standards
 

@@ -23,13 +23,18 @@ function crc32(buf) {
 }
 
 /**
- * entries: [{ name, data }] — data ist Buffer oder string (utf8).
+ * entries: [{ name, data, store }] — data ist Buffer oder string (utf8).
+ * store: true ueberspringt den Deflate-Versuch. Sinnvoll fuer bereits gepackte
+ * Nutzlasten (z.B. das ~125 MB grosse .nsis.7z der Bitwarden-Desktop-App): dort
+ * kostet Deflate Sekunden und eine zweite Kopie im Speicher und spart am Ende
+ * ohnehin nichts, weil das Ergebnis groesser ist als das Original.
  * Rueckgabe: Buffer mit dem fertigen ZIP.
  */
 function buildZip(entries) {
   const files = entries.map(e => ({
     name: Buffer.from(e.name, "utf8"),
-    data: Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), "utf8")
+    data: Buffer.isBuffer(e.data) ? e.data : Buffer.from(String(e.data), "utf8"),
+    store: !!e.store
   }));
 
   const chunks = [];
@@ -37,9 +42,9 @@ function buildZip(entries) {
   let offset = 0;
 
   for (const f of files) {
-    const comp = zlib.deflateRawSync(f.data);
+    const comp = f.store ? null : zlib.deflateRawSync(f.data);
     const crc = crc32(f.data);
-    const useDeflate = comp.length < f.data.length;
+    const useDeflate = !!comp && comp.length < f.data.length;
     const stored = useDeflate ? comp : f.data;
     const method = useDeflate ? 8 : 0;
 
