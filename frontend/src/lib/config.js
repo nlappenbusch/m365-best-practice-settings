@@ -55,15 +55,20 @@ export const defaultConfig = () => ({
     limitExternalPerHour: 500,
     limitInternalPerHour: 1000,
     limitPerDay: 1000,
-    // CIS empfiehlt BlockUser (Sperre bis zur manuellen Freigabe). Das ist eine
-    // Betriebsentscheidung mit spuerbarer Wirkung auf den Betroffenen und
-    // braucht eine geklaerte Zustaendigkeit — deshalb hier der mildere Default.
-    thresholdAction: 'BlockUserForToday',
+    // CIS-Empfehlung: Sperre bis zur manuellen Freigabe. Bewusst als Vorgabe
+    // gesetzt (Entscheid Nils, 01.09.2026) — ein kompromittiertes Postfach, das
+    // sich nach 24 Stunden von selbst entsperrt, ist kein Schutz. Setzt voraus,
+    // dass geklaert ist, wer im Ereignisfall freigibt.
+    thresholdAction: 'BlockUser',
     externalTagging: true,
-    // Die beiden folgenden koennen laufenden Betrieb unterbrechen und stehen
-    // deshalb aus: erst Bestandsaufnahme im Tenant, dann anhaken.
-    blockAutoForward: false,
-    rejectDirectSend: false
+    // Beide sind Best Practice und stehen deshalb als Vorgabe AN (Entscheid Nils,
+    // 01.09.2026). Sie koennen laufenden Betrieb unterbrechen: gewollte
+    // Weiterleitungen, Multifunktionsdrucker, Scan-to-Mail und Fachanwendungen mit
+    // eigenem Mailversand — bei Direct Send ohne Fehlermeldung an den Absender.
+    // Die Erhebungsbefehle stehen im Konfigurations-Tab und gehoeren vor dem
+    // Ausrollen gelaufen; abwaehlen bleibt pro Tenant jederzeit moeglich.
+    blockAutoForward: true,
+    rejectDirectSend: true
   }
 })
 

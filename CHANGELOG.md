@@ -1,5 +1,32 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.15 - Ausgehend & Organisation: Best Practice als Vorgabe (2026-09-01)
+
+Die drei Organisationsschalter stehen in der Vorlage jetzt **an**, und die
+Sperre bei Überschreitung der Sendelimits ist **bis zur manuellen Freigabe**:
+
+| Einstellung | vorher | jetzt |
+|---|---|---|
+| Externe Absender kennzeichnen | an | an |
+| Automatische Weiterleitung sperren | **aus** | **an** |
+| Direct Send abweisen | **aus** | **an** |
+| Aktion bei Limit-Überschreitung | `BlockUserForToday` | **`BlockUser`** |
+
+Begründung für die Sperre: Ein kompromittiertes Postfach, das sich nach 24 Stunden
+von selbst wieder entsperrt, ist kein Schutz. Setzt voraus, dass geklärt ist, wer
+im Ereignisfall freigibt.
+
+**Die Erhebung vorher bleibt Pflicht** — die Befehle stehen unverändert im
+Konfigurations-Tab. Gewollte Weiterleitungen, Multifunktionsdrucker, Scan-to-Mail
+und Fachanwendungen mit eigenem Mailversand brechen sonst; bei Direct Send *ohne
+Fehlermeldung an den Absender*. Abwählen bleibt pro Tenant jederzeit möglich.
+
+**Der serverseitige Rückfallwert bleibt bewusst `false`.** Er greift nur, wenn
+eine gespeicherte Vorlage das Feld gar nicht kennt — also bei Vorlagen aus der
+Zeit vor 2.13. Dort hat niemand eine Entscheidung getroffen, und eine fehlende
+Angabe darf nicht als «ja, bitte sperren» gelesen werden. Wer die neuen Vorgaben
+für einen bestehenden Kunden will, öffnet die Vorlage einmal und speichert sie.
+
 ## Version 2.14 - Tab «Geheimnisse»: was das Werkzeug hält (2026-09-01)
 
 ### 🔑 Übersicht statt Blindflug
@@ -8,10 +35,19 @@ Neuer Bereich unter *Betrieb → Geheimnisse*. Er beantwortet die Frage, die man
 sich sonst nur über SSH auf den Container beantworten kann: **Welche Schlüssel und
 Zugangsdaten hält dieses Werkzeug, und in welchem Zustand?**
 
-Gelistet werden Zertifikats-Privatschlüssel je Tenant (mit Fingerabdruck,
-Gültigkeit bis, Dateizustand, zugehöriger App-Id), das SSO-Clientgeheimnis, das
-Sitzungsgeheimnis und die drei Umgebungsvariablen `ADMIN_PASSWORD`,
-`ANTHROPIC_API_KEY`, `SDP_API_KEY`.
+Gruppiert in vier Bereiche:
+
+- **Kundentenants** — Zertifikats-Privatschlüssel je Tenant, mit Fingerabdruck,
+  Gültigkeit bis, Dateizustand und zugehöriger App-Id
+- **Dieses Werkzeug** — SSO-Clientgeheimnis, Sitzungsgeheimnis, `ADMIN_PASSWORD`
+- **Angebundene Dienste** — `ANTHROPIC_API_KEY`, `SDP_API_KEY`,
+  `BD_API_KEY` (Bitdefender GravityZone), `RMM_API_KEY` (N-sight). Dazu die
+  Gegenstellen (`BD_HOST`, `RMM_SERVER`, `SDP_BASE_URL` …) offen im Klartext —
+  sie tragen kein Geheimnis, aber ohne sie sagt ein Key wenig. Und ausdrücklich
+  auch die Integrationen, die **keine** Zugangsdaten speichern: FortiClient lädt
+  von einer fest verdrahteten, vertrauenswürdigen URL und weist andere Hosts ab;
+  Bitwarden verpackt nur das öffentliche Installationspaket.
+- **Nicht abrufbar** — MCP-Keys und Admin-Passwort, siehe unten
 
 **Fehlt eine Zertifikatsdatei, steht das da** — mit dem Hinweis, dass «Reparieren»
 im Tab Tenants ein neues anlegt. Das ist die häufigste Ursache für AADSTS700027
