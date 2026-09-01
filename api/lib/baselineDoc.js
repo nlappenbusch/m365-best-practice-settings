@@ -102,6 +102,11 @@ table.bl-t th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;opa
 @media (max-width:820px){.bl-split{grid-template-columns:1fr}.bl-fields{grid-template-columns:1fr}
   .bl-fields dt{padding-top:.4rem}}
 .bl-cis{font-size:.74rem;opacity:.6;font-weight:400;letter-spacing:.04em}
+.bl-chain{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;margin:.7rem 0}
+.bl-chain-i{border:1px solid var(--bl-line);border-radius:8px;padding:.3rem .7rem;font-size:.85rem;background:var(--bl-soft)}
+.bl-chain-a{color:var(--bl-accent);font-weight:700}
+.bl-steps-plain li{padding-left:2.1rem}
+.bl-steps-plain span{opacity:1;font-size:1em}
 @media print{.bl-jump{display:none}.bl-det{border:0}.bl-det-body{padding-left:0}
   .bl-card,.bl-tw,.bl-steps li{break-inside:avoid}}
 `;
@@ -183,15 +188,156 @@ function agentCard(a) {
   return h;
 }
 
+
+function mailSection(mail) {
+  if (!mail) return "";
+  return `
+<section id="bl-mail" class="bl-sec">
+  <h2>Mail-Härtung ohne <code>BP_</code>-Objekt</h2>
+  <div class="bl-note"><strong>Warum kein eigenes Objekt:</strong> ${esc(mail.warumKeinBpObjekt || "")}</div>
+  <h3>Ausgehender Spam <span class="bl-cis">CIS ${esc(mail.ausgehenderSpam ? mail.ausgehenderSpam.cis : "")}</span></h3>
+  ${table(["Einstellung", "Soll", "Hinweis"], ((mail.ausgehenderSpam || {}).werte || []).map(w =>
+    [code(w.einstellung), '<strong class="bl-val">' + esc(w.soll) + "</strong>", '<span class="bl-muted">' + esc(w.hinweis || "") + "</span>"]))}
+  ${list(((mail.ausgehenderSpam || {}).hinweise || []).map(esc))}
+  <h3>Organisationseinstellungen <span class="bl-cis">CIS ${esc(mail.organisation ? mail.organisation.cis : "")}</span></h3>
+  ${table(["Massnahme", "Wie", "Vorher erheben", "Hinweis"], ((mail.organisation || {}).massnahmen || []).map(x =>
+    ["<strong>" + esc(x.was) + "</strong>", code(x.cmdlet), esc(x.vorher), '<span class="bl-muted">' + esc(x.hinweis) + "</span>"]))}
+</section>`;
+}
+
 const JUMPS = [
   ["bl-agents", "Pflichtmodule"],
   ["bl-customapp", "Custom App"],
-  ["bl-oib", "OpenIntuneBaseline"],
-  ["bl-onboarding", "Onboarding"],
+  ["bl-mailsec", "Mail-Security"],
   ["bl-mail", "Mail-Härtung"],
+  ["bl-autopilot", "Autopilot"],
+  ["bl-oib", "OpenIntuneBaseline"],
+  ["bl-ca", "Conditional Access"],
+  ["bl-mappings", "Mappings"],
+  ["bl-remediations", "Remediations"],
+  ["bl-backup", "Intune-Backup"],
+  ["bl-onboarding", "Onboarding"],
   ["bl-regeln", "Entscheidungsregeln"],
   ["bl-namen", "Namensschema"]
 ];
+
+/** Abschnitte, die es nur gibt, wenn die Baseline sie kennt — so bleibt der
+ *  Renderer mit aelteren Baseline-Versionen benutzbar. */
+function mailSecuritySection(ms, ns) {
+  if (!ms) return "";
+  const pfx = (ns && ns.muster && ns.muster.eopPrefix) || "BP_";
+  return `
+<section id="bl-mailsec" class="bl-sec">
+  <h2>Mail-Security <span class="bl-cis">EOP Anti-Threat</span></h2>
+  <p>${esc(ms.ziele || "")}</p>
+  <div class="bl-note">${esc(ms.marker || "")} Aktuelles Präfix: ${code(pfx)}</div>
+  <h3>Was mit welcher Kategorie passiert</h3>
+  ${table(["Kategorie", "Aktion", "Warum"], (ms.kategorien || []).map(k =>
+    ["<strong>" + esc(k.kategorie) + "</strong>", '<span class="bl-val">' + esc(k.aktion) + "</span>", '<span class="bl-muted">' + esc(k.warum) + "</span>"]))}
+  <h3>Objektset</h3>
+  ${table(["Objekt", "Sollzustand"], (ms.objekte || []).map(o =>
+    ["<strong>" + code(pfx + o.objekt) + "</strong>", esc(o.soll)]))}
+  <details class="bl-det"><summary>Blockierte Dateitypen (Common-Attachment-Filter)</summary>
+    <div class="bl-det-body"><pre class="bl-pre">${esc(ms.blockierteDateitypen || "")}</pre></div></details>
+  <details class="bl-det"><summary>Härtung und Betrieb ohne Lizenz-Upgrade</summary>
+    <div class="bl-det-body">${list((ms.haertung || []).map(esc))}</div></details>
+  <details class="bl-det"><summary>Lizenz-Matrix und Admin-Lizenz</summary><div class="bl-det-body">
+    ${table(["Feature", "EOP", "Defender P1", "Defender P2"], (ms.lizenz || []).map(l =>
+      ["<strong>" + esc(l.feature) + "</strong>", esc(l.eop), esc(l.p1), esc(l.p2)]))}
+    <p>${esc(ms.adminLizenz || "")}</p>
+  </div></details>
+  <h3>Ausgehende Authentifizierung je Mail-Domain</h3>
+  ${table(["Mechanismus", "Sollwert", "Wo"], (ms.domainAuth || []).map(d =>
+    ["<strong>" + esc(d.mechanismus) + "</strong>", esc(d.soll), '<span class="bl-muted">' + esc(d.wo) + "</span>"]))}
+  <div class="bl-note">${esc(ms.grenze || "")}</div>
+</section>`;
+}
+
+function autopilotSection(ap) {
+  if (!ap) return "";
+  return `
+<section id="bl-autopilot" class="bl-sec">
+  <h2>Geräteprovisionierung (Autopilot)</h2>
+  <p class="bl-claim">${esc(ap.merksatz || "")}</p>
+  <div class="bl-chain">${(ap.kette || []).map(k => '<span class="bl-chain-i">' + esc(k) + "</span>").join('<span class="bl-chain-a">→</span>')}</div>
+  <h3>Einmal pro Tenant</h3>
+  ${table(["Schritt", "Wie", "Werkzeug"], (ap.einmalSetup || []).map(e =>
+    ["<strong>" + esc(e.schritt) + "</strong>", esc(e.wie),
+     e.automatisiert ? '<span class="bl-risk bl-risk-low">automatisiert</span>' : '<span class="bl-badge">manuell</span>']))}
+  <h3>Am Gerät</h3>
+  <ol class="bl-steps bl-steps-plain">${(ap.feldRunbook || []).map(f => "<li><span>" + esc(f) + "</span></li>").join("")}</ol>
+  <details class="bl-det bl-det-warn"><summary>Wenn es klemmt</summary><div class="bl-det-body">
+    ${table(["Problem", "Ursache", "Lösung"], (ap.stolpersteine || []).map(x =>
+      ["<strong>" + esc(x.problem) + "</strong>", esc(x.ursache), esc(x.loesung)]))}
+  </div></details>
+  <div class="bl-note">${esc(ap.sicherheit || "")}</div>
+</section>`;
+}
+
+function caSection(ca, agents) {
+  if (!ca) return "";
+  return `
+<section id="bl-ca" class="bl-sec">
+  <h2>Conditional Access</h2>
+  <div class="bl-note"><strong>Die wichtigste Regel:</strong> ${esc(ca.wichtigsteRegel || "")}</div>
+  <h3>Rollout-Ringe</h3>
+  ${table(["Ring", "Gruppe", "Wer", "Regel"], (ca.ringe || []).map(r =>
+    ['<strong class="bl-val">' + esc(r.ring) + "</strong>", r.gruppe ? code(r.gruppe) : "—", esc(r.wer), esc(r.regel)]))}
+  <p class="bl-muted">${esc(ca.ringPrinzip || "")}</p>
+  <h3>Schutzgruppen — immer leer angelegt</h3>
+  ${table(["Gruppe", "Zweck"], (ca.schutzgruppen || []).map(g =>
+    [code((g.name || g.kind)), esc(g.zweck)]))}
+  <p class="bl-muted">${esc(ca.schutzgruppenRegel || "")}</p>
+  <details class="bl-det"><summary>Ausbaustufen nach Lizenz</summary><div class="bl-det-body">
+    ${table(["Stufe", "Umfang", "Lizenz"], (ca.ausbaustufen || []).map(a =>
+      ["<strong>" + esc(a.stufe) + "</strong>", esc(a.umfang), esc(a.lizenz)]))}
+  </div></details>
+</section>`;
+}
+
+function mappingsSection(mp) {
+  if (!mp) return "";
+  return `
+<section id="bl-mappings" class="bl-sec">
+  <h2>Mappings — Laufwerke und Drucker</h2>
+  <p>${esc(mp.ausgangslage || "")}</p>
+  ${table(["Kriterium", "Laufwerks-Mapping", "Drucker-Mapping"], (mp.vergleich || []).map(v =>
+    ["<strong>" + esc(v.kriterium) + "</strong>", esc(v.drive), esc(v.printer)]))}
+  <div class="bl-note"><strong>Nesting-Falle:</strong> ${esc(mp.nestingFalle || "")}</div>
+  <details class="bl-det bl-det-warn"><summary>Drucker-Mapping: dokumentierte Abweichung</summary>
+    <div class="bl-det-body"><p>${esc(mp.warnung || "")}</p></div></details>
+  <details class="bl-det"><summary>Voraussetzung: Cloud Kerberos Trust</summary>
+    <div class="bl-det-body"><p>${esc(mp.kerberos || "")}</p></div></details>
+</section>`;
+}
+
+function remediationsSection(rm) {
+  if (!rm) return "";
+  return `
+<section id="bl-remediations" class="bl-sec">
+  <h2>Remediations</h2>
+  <div class="bl-note"><strong>Voraussetzung im Tenant:</strong> ${esc(rm.voraussetzung || "")}</div>
+  ${table(["Teil", "Zweck"], (rm.aufbau || []).map(a => ["<strong>" + esc(a.teil) + "</strong>", esc(a.zweck)]))}
+  <h3>Beim Anlegen</h3>
+  ${list((rm.deployRegeln || []).map(esc), "bl-list bl-list-check")}
+  <p class="bl-muted">${esc(rm.abgrenzung || "")}</p>
+</section>`;
+}
+
+function backupSection(bk) {
+  if (!bk) return "";
+  return `
+<section id="bl-backup" class="bl-sec">
+  <h2>Intune-Backup und -Restore</h2>
+  <p>${esc(bk.grund || "")}</p>
+  <div class="bl-split">
+    <div><h3>Gesichert</h3>${list((bk.gesichert || []).map(esc), "bl-list bl-list-check")}</div>
+    <div><h3>Drei Nie-Regeln</h3>${list((bk.nieRegeln || []).map(esc))}</div>
+  </div>
+  <div class="bl-note"><strong>Bewusst nicht gesichert:</strong> ${esc(bk.nichtGesichert || "")}</div>
+  <p class="bl-muted">${esc(bk.drift || "")}</p>
+</section>`;
+}
 
 /** HTML-Fragment — das, was die Wissensseite im Werkzeug zeigt. */
 function renderSections(b) {
@@ -243,6 +389,10 @@ ${jump}
   </div>
 </section>
 
+${mailSecuritySection(b.mailSecurity, ns)}
+${mailSection(mail)}
+${autopilotSection(b.autopilot)}
+
 <section id="bl-oib" class="bl-sec">
   <h2>OpenIntuneBaseline</h2>
   <p class="bl-claim">${esc(oib.aussage || "")}</p>
@@ -261,24 +411,17 @@ ${jump}
   </div>
 </section>
 
+${caSection(b.conditionalAccess)}
+${mappingsSection(b.mappings)}
+${remediationsSection(b.remediations)}
+${backupSection(b.intuneBackup)}
+
 <section id="bl-onboarding" class="bl-sec">
   <h2>Onboarding-Checkliste</h2>
   <ol class="bl-steps">
     ${(b.onboarding || []).map(o =>
       "<li><strong>" + esc(o.punkt) + "</strong><span>" + esc(o.vorgabe) + "</span></li>").join("")}
   </ol>
-</section>
-
-<section id="bl-mail" class="bl-sec">
-  <h2>Mail-Härtung ohne <code>BP_</code>-Objekt</h2>
-  <div class="bl-note"><strong>Warum kein eigenes Objekt:</strong> ${esc(mail.warumKeinBpObjekt || "")}</div>
-  <h3>Ausgehender Spam <span class="bl-cis">CIS ${esc(mail.ausgehenderSpam ? mail.ausgehenderSpam.cis : "")}</span></h3>
-  ${table(["Einstellung", "Soll", "Hinweis"], ((mail.ausgehenderSpam || {}).werte || []).map(w =>
-    [code(w.einstellung), '<strong class="bl-val">' + esc(w.soll) + "</strong>", '<span class="bl-muted">' + esc(w.hinweis || "") + "</span>"]))}
-  ${list(((mail.ausgehenderSpam || {}).hinweise || []).map(esc))}
-  <h3>Organisationseinstellungen <span class="bl-cis">CIS ${esc(mail.organisation ? mail.organisation.cis : "")}</span></h3>
-  ${table(["Massnahme", "Wie", "Vorher erheben", "Hinweis"], ((mail.organisation || {}).massnahmen || []).map(x =>
-    ["<strong>" + esc(x.was) + "</strong>", code(x.cmdlet), esc(x.vorher), '<span class="bl-muted">' + esc(x.hinweis) + "</span>"]))}
 </section>
 
 <section id="bl-regeln" class="bl-sec">

@@ -49,8 +49,20 @@ function get(tenantId) {
       : null
   }));
 
+  // Die CA-Schutzgruppen tragen wie die Agents nur den Muster-Schluessel —
+  // den echten Gruppennamen rechnet die Baseline aus.
+  const ca = base.conditionalAccess ? Object.assign({}, base.conditionalAccess, {
+    schutzgruppen: (base.conditionalAccess.schutzgruppen || []).map(g => Object.assign({}, g, {
+      name: g.kind ? NAMING.name(g.kind, {}, tenantId) : null
+    })),
+    ringe: (base.conditionalAccess.ringe || []).map(r => Object.assign({}, r, {
+      gruppe: NAMING.name("caRing", { ring: r.ring }, tenantId)
+    }))
+  }) : undefined;
+
   return Object.assign({}, base, {
     agents,
+    ...(ca ? { conditionalAccess: ca } : {}),
     namensschema: {
       profil: conv.profile,
       eigeneMuster: conv.custom,

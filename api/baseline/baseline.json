@@ -1,40 +1,124 @@
 {
   "meta": {
-    "version": "1.0",
+    "version": "1.1",
     "gueltigAb": "2026-09-01",
     "titel": "igeeks Managed-Setup — Baseline",
     "zweck": "Maschinenlesbare Fassung der Betriebsrichtlinien. Werkzeug, Wissensseiten und Dokumentation speisen sich aus dieser Quelle, damit eine Regeländerung überall gleichzeitig wirkt.",
     "hinweis": "Keine Kundendaten, keine Geheimnisse — reine Richtlinien. Das Namensschema steht NICHT hier, sondern kommt live aus lib/naming.js; die API führt beides zusammen.",
     "changelog": [
-      { "version": "1.0", "am": "2026-09-01", "was": "Erste Fassung: Agent-Module, Custom-App-Grundgerüst, OIB-Delta und Break-Risk, Onboarding-Checkliste, Mail-Härtung." }
+      {
+        "version": "1.1",
+        "am": "2026-09-01",
+        "was": "Ergaenzt: BP_-Objektset der Mail-Security, Autopilot-Kette, Conditional-Access-Ringe, Intune-Backup, Mappings und Remediations. Damit stehen die Betriebsrichtlinien vollstaendig in der Quelle statt verteilt in den Wissensseiten."
+      },
+      {
+        "version": "1.0",
+        "am": "2026-09-01",
+        "was": "Erste Fassung: Agent-Module, Custom-App-Grundgerüst, OIB-Delta und Break-Risk, Onboarding-Checkliste, Mail-Härtung."
+      }
     ]
   },
-
   "customApp": {
     "titel": "Grundgerüst für jede Custom App in Patch My PC",
     "beschreibung": "Die Agent-Module unterscheiden sich nur in Installer, Kommandozeile, Erkennung und Zielgruppe. Alles andere ist hier einmal festgelegt; Abweichungen sind begründungspflichtig.",
     "felder": [
-      { "feld": "Connection", "soll": "Intune", "warum": "Kunden-Tenant über die MSP-Customer-Verbindung" },
-      { "feld": "Display Name", "soll": "Produktname ohne Kundennamen", "warum": "Der Tenant ist der Kunde. Ein Kundenname im App-Namen doppelt die Information und bricht den Abgleich über alle Tenants — der Kundenbezug gehört in die Description." },
-      { "feld": "Language", "soll": "German", "warum": "muss zur Sprache des Installer-Pakets passen" },
-      { "feld": "Architecture", "soll": "64-bit", "warum": "keine 32-bit-Clients im Managed-Bestand" },
-      { "feld": "Install Context", "soll": "System", "warum": "Agents installieren geräteweit, nicht im Benutzerkontext" },
-      { "feld": "Installer Type", "soll": ".exe", "warum": "" },
-      { "feld": "Pre-/Post-Install, Pre-/Post-Uninstall", "soll": "leer", "warum": "keine Skript-Klammern um Agent-Installer — was der Installer nicht kann, löst eine Remediation" },
-      { "feld": "Additional Argument", "soll": "leer", "warum": "alle Schalter stehen in der Install Command Line, sonst gibt es zwei Wahrheiten" },
-      { "feld": "Conflicting Process → Policy", "soll": "Perform the installation", "warum": "Agents laufen still durch: kein Abbruch, keine Benutzerabfrage" },
-      { "feld": "Allow Available Uninstall", "soll": "False", "warum": "Pflicht-Agents; greift ohnehin nur bei Intent Available" },
-      { "feld": "OS Architecture Requirements", "soll": "64-bit und ARM, 32-bit aus", "warum": "" },
-      { "feld": "Minimum operating system", "soll": "niedrigster im Tenant unterstützter Build (Regelfall Windows 10 22H2)", "warum": "Ohne Wert versucht Intune die Installation auch auf abgekündigten Builds und produziert Fehler statt «nicht anwendbar»." },
-      { "feld": "App-Icon", "soll": "Pflichtfeld, 512×512 PNG", "warum": "landet als App-Icon in Intune und ist das, was Anwender im Company Portal sehen" },
-      { "feld": "Assignments", "soll": "genau eine Gruppe unter Required; Available, UpdateOnly und Uninstall bleiben leer", "warum": "1:1-Prinzip: Steuerung über Gruppenmitgliedschaft, nicht über Zuweisungen" }
+      {
+        "feld": "Connection",
+        "soll": "Intune",
+        "warum": "Kunden-Tenant über die MSP-Customer-Verbindung"
+      },
+      {
+        "feld": "Display Name",
+        "soll": "Produktname ohne Kundennamen",
+        "warum": "Der Tenant ist der Kunde. Ein Kundenname im App-Namen doppelt die Information und bricht den Abgleich über alle Tenants — der Kundenbezug gehört in die Description."
+      },
+      {
+        "feld": "Language",
+        "soll": "German",
+        "warum": "muss zur Sprache des Installer-Pakets passen"
+      },
+      {
+        "feld": "Architecture",
+        "soll": "64-bit",
+        "warum": "keine 32-bit-Clients im Managed-Bestand"
+      },
+      {
+        "feld": "Install Context",
+        "soll": "System",
+        "warum": "Agents installieren geräteweit, nicht im Benutzerkontext"
+      },
+      {
+        "feld": "Installer Type",
+        "soll": ".exe",
+        "warum": ""
+      },
+      {
+        "feld": "Pre-/Post-Install, Pre-/Post-Uninstall",
+        "soll": "leer",
+        "warum": "keine Skript-Klammern um Agent-Installer — was der Installer nicht kann, löst eine Remediation"
+      },
+      {
+        "feld": "Additional Argument",
+        "soll": "leer",
+        "warum": "alle Schalter stehen in der Install Command Line, sonst gibt es zwei Wahrheiten"
+      },
+      {
+        "feld": "Conflicting Process → Policy",
+        "soll": "Perform the installation",
+        "warum": "Agents laufen still durch: kein Abbruch, keine Benutzerabfrage"
+      },
+      {
+        "feld": "Allow Available Uninstall",
+        "soll": "False",
+        "warum": "Pflicht-Agents; greift ohnehin nur bei Intent Available"
+      },
+      {
+        "feld": "OS Architecture Requirements",
+        "soll": "64-bit und ARM, 32-bit aus",
+        "warum": ""
+      },
+      {
+        "feld": "Minimum operating system",
+        "soll": "niedrigster im Tenant unterstützter Build (Regelfall Windows 10 22H2)",
+        "warum": "Ohne Wert versucht Intune die Installation auch auf abgekündigten Builds und produziert Fehler statt «nicht anwendbar»."
+      },
+      {
+        "feld": "App-Icon",
+        "soll": "Pflichtfeld, 512×512 PNG",
+        "warum": "landet als App-Icon in Intune und ist das, was Anwender im Company Portal sehen"
+      },
+      {
+        "feld": "Assignments",
+        "soll": "genau eine Gruppe unter Required; Available, UpdateOnly und Uninstall bleiben leer",
+        "warum": "1:1-Prinzip: Steuerung über Gruppenmitgliedschaft, nicht über Zuweisungen"
+      }
     ],
     "rueckgabecodes": [
-      { "code": 0, "typ": "Success", "bedeutung": "Installation erfolgreich" },
-      { "code": 1707, "typ": "Success", "bedeutung": "Installation erfolgreich (MSI-Variante)" },
-      { "code": 3010, "typ": "Soft Reboot", "bedeutung": "erfolgreich, Neustart ausstehend — Zeitpunkt wählt der Benutzer" },
-      { "code": 1641, "typ": "Hard Reboot", "bedeutung": "Installer hat den Neustart selbst ausgelöst" },
-      { "code": 1618, "typ": "Retry", "bedeutung": "andere Installation läuft — Intune versucht es erneut" }
+      {
+        "code": 0,
+        "typ": "Success",
+        "bedeutung": "Installation erfolgreich"
+      },
+      {
+        "code": 1707,
+        "typ": "Success",
+        "bedeutung": "Installation erfolgreich (MSI-Variante)"
+      },
+      {
+        "code": 3010,
+        "typ": "Soft Reboot",
+        "bedeutung": "erfolgreich, Neustart ausstehend — Zeitpunkt wählt der Benutzer"
+      },
+      {
+        "code": 1641,
+        "typ": "Hard Reboot",
+        "bedeutung": "Installer hat den Neustart selbst ausgelöst"
+      },
+      {
+        "code": 1618,
+        "typ": "Retry",
+        "bedeutung": "andere Installation läuft — Intune versucht es erneut"
+      }
     ],
     "zuweisung": [
       "Intent immer Required — stiller Zwangsinstall, kein Self-Service im Company Portal.",
@@ -45,7 +129,6 @@
       "Der Dateiname in der Command Line muss exakt der hochgeladenen Setup-Datei entsprechen."
     ]
   },
-
   "agents": [
     {
       "key": "rmm",
@@ -127,13 +210,31 @@
         "warum": "NSIS-Installer; /allusers ist Pflicht, weil im SYSTEM-Kontext sonst kein Benutzer da wäre, für den installiert wird."
       },
       "zweiteiligkeit": [
-        { "teil": "Desktop-App", "weg": "Patch My PC bzw. Agents-Deploy des Werkzeugs", "ziel": "App-Zielgruppe" },
-        { "teil": "Browser-Erweiterung", "weg": "Konfigurationsprofil (Edge: Tab Browser-Erweiterungen; Chrome/Firefox: ADMX-Ingestion)", "ziel": "Gerätegruppe" },
-        { "teil": "Server-Region", "weg": "Registry-Richtlinie (Plattformskript, System-Kontext)", "ziel": "Gerätegruppe" }
+        {
+          "teil": "Desktop-App",
+          "weg": "Patch My PC bzw. Agents-Deploy des Werkzeugs",
+          "ziel": "App-Zielgruppe"
+        },
+        {
+          "teil": "Browser-Erweiterung",
+          "weg": "Konfigurationsprofil (Edge: Tab Browser-Erweiterungen; Chrome/Firefox: ADMX-Ingestion)",
+          "ziel": "Gerätegruppe"
+        },
+        {
+          "teil": "Server-Region",
+          "weg": "Registry-Richtlinie (Plattformskript, System-Kontext)",
+          "ziel": "Gerätegruppe"
+        }
       ],
       "region": {
-        "eu": { "base": "https://vault.bitwarden.eu", "notifications": "https://notifications.bitwarden.eu" },
-        "us": { "base": "https://vault.bitwarden.com", "notifications": "https://notifications.bitwarden.com" },
+        "eu": {
+          "base": "https://vault.bitwarden.eu",
+          "notifications": "https://notifications.bitwarden.eu"
+        },
+        "us": {
+          "base": "https://vault.bitwarden.com",
+          "notifications": "https://notifications.bitwarden.com"
+        },
         "registryPfade": [
           "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment",
           "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment",
@@ -164,24 +265,67 @@
       ]
     }
   ],
-
   "oib": {
     "titel": "OpenIntuneBaseline",
     "aussage": "Abweichungen von CIS sind keine Lücken, sondern dokumentierte Architekturentscheidungen mit Kompensation.",
     "cisDelta": [
-      { "bereich": "Command-Line-/PowerShell-Logging", "warum": "Credentials und Tokens landen im Klartext in Logs", "kompensation": "Defender for Endpoint (EDR, zentral, manipulationssicher)" },
-      { "bereich": "AutoAdminLogon aus, Anmeldetext", "warum": "bricht Autopilot-Pre-Provisioning komplett", "kompensation": "nach Enrollment nicht mehr nötig; Nutzungsrichtlinie rechtlich" },
-      { "bereich": "Passwort-Policies, Strg+Alt+Entf", "warum": "zerstört die Anmeldung mit Windows Hello, redundant bei Cloud-Identity", "kompensation": "Windows Hello + MFA + Conditional Access" },
-      { "bereich": "UAC-Elevation hart ablehnen", "warum": "blockiert Helpdesk, macht LAPS unbrauchbar", "kompensation": "UAC kontrolliert nutzbar + LAPS" },
-      { "bereich": "UNC-Härtung, GPO-Verarbeitung, NTLM-Auditing", "warum": "kein lokales AD, nicht anwendbar", "kompensation": "Entra-only-Architektur" },
-      { "bereich": "starre Update-Deferrals", "warum": "keine Ring-Steuerung möglich", "kompensation": "Autopatch bzw. Update-Ringe" }
+      {
+        "bereich": "Command-Line-/PowerShell-Logging",
+        "warum": "Credentials und Tokens landen im Klartext in Logs",
+        "kompensation": "Defender for Endpoint (EDR, zentral, manipulationssicher)"
+      },
+      {
+        "bereich": "AutoAdminLogon aus, Anmeldetext",
+        "warum": "bricht Autopilot-Pre-Provisioning komplett",
+        "kompensation": "nach Enrollment nicht mehr nötig; Nutzungsrichtlinie rechtlich"
+      },
+      {
+        "bereich": "Passwort-Policies, Strg+Alt+Entf",
+        "warum": "zerstört die Anmeldung mit Windows Hello, redundant bei Cloud-Identity",
+        "kompensation": "Windows Hello + MFA + Conditional Access"
+      },
+      {
+        "bereich": "UAC-Elevation hart ablehnen",
+        "warum": "blockiert Helpdesk, macht LAPS unbrauchbar",
+        "kompensation": "UAC kontrolliert nutzbar + LAPS"
+      },
+      {
+        "bereich": "UNC-Härtung, GPO-Verarbeitung, NTLM-Auditing",
+        "warum": "kein lokales AD, nicht anwendbar",
+        "kompensation": "Entra-only-Architektur"
+      },
+      {
+        "bereich": "starre Update-Deferrals",
+        "warum": "keine Ring-Steuerung möglich",
+        "kompensation": "Autopatch bzw. Update-Ringe"
+      }
     ],
     "breakRisk": [
-      { "policy": "Network Security – Disable NTLM", "brichtPotenziell": "RDP per IP, Legacy-Apps mit NTLM", "risiko": "hoch" },
-      { "policy": "Local Security Policies (24H2+)", "brichtPotenziell": "alte NAS, Drucker, SMBv1, LAN-Manager-Auth", "risiko": "hoch" },
-      { "policy": "Device/Credential Guard und HVCI", "brichtPotenziell": "NTLMv1-SSO, RDP-/VPN-/802.1x-SSO, gespeicherte RDP-Anmeldedaten, Treiber", "risiko": "hoch" },
-      { "policy": "Remote Desktop Services und RPC", "brichtPotenziell": "RDP, Legacy-RPC-Anwendungen", "risiko": "hoch" },
-      { "policy": "Device Security – U – Power and Device Lock", "brichtPotenziell": "Fachanwendungen mit persistenten Datenbankverbindungen — Modern Standby kappt Sessions", "risiko": "mittel" }
+      {
+        "policy": "Network Security – Disable NTLM",
+        "brichtPotenziell": "RDP per IP, Legacy-Apps mit NTLM",
+        "risiko": "hoch"
+      },
+      {
+        "policy": "Local Security Policies (24H2+)",
+        "brichtPotenziell": "alte NAS, Drucker, SMBv1, LAN-Manager-Auth",
+        "risiko": "hoch"
+      },
+      {
+        "policy": "Device/Credential Guard und HVCI",
+        "brichtPotenziell": "NTLMv1-SSO, RDP-/VPN-/802.1x-SSO, gespeicherte RDP-Anmeldedaten, Treiber",
+        "risiko": "hoch"
+      },
+      {
+        "policy": "Remote Desktop Services und RPC",
+        "brichtPotenziell": "RDP, Legacy-RPC-Anwendungen",
+        "risiko": "hoch"
+      },
+      {
+        "policy": "Device Security – U – Power and Device Lock",
+        "brichtPotenziell": "Fachanwendungen mit persistenten Datenbankverbindungen — Modern Standby kappt Sessions",
+        "risiko": "mittel"
+      }
     ],
     "assignmentFilter": {
       "name": "Windows 11 24H2 Device Filter",
@@ -190,28 +334,63 @@
     },
     "zuweisungslogik": "Policies werden nie pro Gerät zugewiesen, sondern an die dynamischen Gerätegruppen aus der GroupTag-Kette. Break-Risk-Policies zuerst an den Pilot-Ring, dann Uat, dann breit."
   },
-
   "onboarding": [
-    { "punkt": "MSP-Admin-Konto", "vorgabe": "Personengebunden und tier-getrennt; MFA verpflichtend, Zugangsdaten und MFA-Token dokumentiert." },
-    { "punkt": "Break-Glass", "vorgabe": "Zwei Konten als Global Admin, Mitglied der Break-Glass-Ausnahmegruppe, von CA und MFA ausgenommen, Anmeldung alarmiert. UPN auf der onmicrosoft.com-Domain, damit der Notfallzugang auch bei DNS-Problemen der Custom Domain nutzbar bleibt." },
-    { "punkt": "Lizenzen für den Betrieb", "vorgabe": "1× Exchange Online und 1× Defender for Office 365 Plan 2 für das Admin-Konto — Threat Explorer und Troubleshooting." },
-    { "punkt": "Mail-Security", "vorgabe": "BP_-Policy-Set ausrollen, Alert Policy manuell setzen; dazu die tenantweiten Punkte ohne BP_-Objekt (ausgehende Spam-Grenzwerte, externe Kennzeichnung, AutoForwarding, Direct Send) je mit Vorab-Erhebung. Vor dem Scharfstellen klären, wer ein gesperrtes Konto wieder freigibt." },
-    { "punkt": "Remediations freischalten", "vorgabe": "Intune → Tenant administration → Connectors and tokens → Windows data: Lizenz-Bestätigung auf On (Default Off)." },
-    { "punkt": "Mail-Authentifizierung", "vorgabe": "SPF, DKIM und DMARC für jede Mail-Domain; Reihenfolge SPF prüfen → DKIM aktivieren → DMARC scharf ziehen." },
-    { "punkt": "Standard-Agents", "vorgabe": "RMM-Agent und Bitdefender als Required-Apps auf jeden Standard-Client, Bitwarden als Passwortmanager; FortiClient zusätzlich bei Fortinet-Infrastruktur." },
-    { "punkt": "Gerätegruppen und GroupTags", "vorgabe": "Pro GroupTag eine dynamische Gerätegruppe. Ohne passende Gruppe läuft ein GroupTag ins Leere — das Gerät bekommt weder Profil noch Policies." }
+    {
+      "punkt": "MSP-Admin-Konto",
+      "vorgabe": "Personengebunden und tier-getrennt; MFA verpflichtend, Zugangsdaten und MFA-Token dokumentiert."
+    },
+    {
+      "punkt": "Break-Glass",
+      "vorgabe": "Zwei Konten als Global Admin, Mitglied der Break-Glass-Ausnahmegruppe, von CA und MFA ausgenommen, Anmeldung alarmiert. UPN auf der onmicrosoft.com-Domain, damit der Notfallzugang auch bei DNS-Problemen der Custom Domain nutzbar bleibt."
+    },
+    {
+      "punkt": "Lizenzen für den Betrieb",
+      "vorgabe": "1× Exchange Online und 1× Defender for Office 365 Plan 2 für das Admin-Konto — Threat Explorer und Troubleshooting."
+    },
+    {
+      "punkt": "Mail-Security",
+      "vorgabe": "BP_-Policy-Set ausrollen, Alert Policy manuell setzen; dazu die tenantweiten Punkte ohne BP_-Objekt (ausgehende Spam-Grenzwerte, externe Kennzeichnung, AutoForwarding, Direct Send) je mit Vorab-Erhebung. Vor dem Scharfstellen klären, wer ein gesperrtes Konto wieder freigibt."
+    },
+    {
+      "punkt": "Remediations freischalten",
+      "vorgabe": "Intune → Tenant administration → Connectors and tokens → Windows data: Lizenz-Bestätigung auf On (Default Off)."
+    },
+    {
+      "punkt": "Mail-Authentifizierung",
+      "vorgabe": "SPF, DKIM und DMARC für jede Mail-Domain; Reihenfolge SPF prüfen → DKIM aktivieren → DMARC scharf ziehen."
+    },
+    {
+      "punkt": "Standard-Agents",
+      "vorgabe": "RMM-Agent und Bitdefender als Required-Apps auf jeden Standard-Client, Bitwarden als Passwortmanager; FortiClient zusätzlich bei Fortinet-Infrastruktur."
+    },
+    {
+      "punkt": "Gerätegruppen und GroupTags",
+      "vorgabe": "Pro GroupTag eine dynamische Gerätegruppe. Ohne passende Gruppe läuft ein GroupTag ins Leere — das Gerät bekommt weder Profil noch Policies."
+    }
   ],
-
   "mailHaertung": {
     "titel": "Tenant-weite Härtung ohne BP_-Objekt",
     "warumKeinBpObjekt": "Diese Punkte sitzen an der Standard-Richtlinie für ausgehenden Spam beziehungsweise direkt am Tenant. Sie gelten ohne Regel-Scope für alle Absender, und sowohl der CIS-Benchmark als auch Maester lesen genau diese Standardobjekte. Ein BP_-Klon daneben würde geprüft, aber nicht wirksam.",
     "ausgehenderSpam": {
       "cis": "2.1.6 / 2.1.15",
       "werte": [
-        { "einstellung": "RecipientLimitExternalPerHour", "soll": 500 },
-        { "einstellung": "RecipientLimitInternalPerHour", "soll": 1000 },
-        { "einstellung": "RecipientLimitPerDay", "soll": 1000 },
-        { "einstellung": "ActionWhenThresholdReached", "soll": "BlockUser", "hinweis": "CIS-Empfehlung, aber eine Betriebsentscheidung: Vorher klären, wer im Ereignisfall freigibt." }
+        {
+          "einstellung": "RecipientLimitExternalPerHour",
+          "soll": 500
+        },
+        {
+          "einstellung": "RecipientLimitInternalPerHour",
+          "soll": 1000
+        },
+        {
+          "einstellung": "RecipientLimitPerDay",
+          "soll": 1000
+        },
+        {
+          "einstellung": "ActionWhenThresholdReached",
+          "soll": "BlockUser",
+          "hinweis": "CIS-Empfehlung, aber eine Betriebsentscheidung: Vorher klären, wer im Ereignisfall freigibt."
+        }
       ],
       "hinweise": [
         "Der Ausgangswert 0 heisst bei dieser Richtlinie nicht «unbegrenzt», sondern Service-Default (500/1000/1000). Der explizite Wert ändert das Verhalten nicht, macht es aber prüfbar.",
@@ -222,23 +401,369 @@
     "organisation": {
       "cis": "6.2.1 / 6.2.3 / 6.5.5",
       "massnahmen": [
-        { "was": "Externe Absender in Outlook kennzeichnen", "cmdlet": "Set-ExternalInOutlook -Enabled $true", "vorher": "nichts", "hinweis": "Wirksamste Einzelmassnahme gegen Phishing; beim Anwender sichtbar mit bis zu 48 Stunden Verzögerung." },
-        { "was": "Automatische Weiterleitung nach aussen sperren", "cmdlet": "AutoForwardingMode = Off plus Transportregel BP_Block-AutoForwarding", "vorher": "Bestehende gewollte Weiterleitungen erheben, sonst brechen sie.", "hinweis": "Die Regel lehnt mit Statuscode 5.7.1 und Begründung ab statt still zu blockieren." },
-        { "was": "Direct Send abweisen", "cmdlet": "Set-OrganizationConfig -RejectDirectSend $true", "vorher": "Mailverkehr über mindestens einen Monatswechsel auswerten.", "hinweis": "Multifunktionsdrucker, Scan-to-Mail, Monitoring und Fachanwendungen werden ohne Fehlermeldung an den Absender abgeschnitten." }
+        {
+          "was": "Externe Absender in Outlook kennzeichnen",
+          "cmdlet": "Set-ExternalInOutlook -Enabled $true",
+          "vorher": "nichts",
+          "hinweis": "Wirksamste Einzelmassnahme gegen Phishing; beim Anwender sichtbar mit bis zu 48 Stunden Verzögerung."
+        },
+        {
+          "was": "Automatische Weiterleitung nach aussen sperren",
+          "cmdlet": "AutoForwardingMode = Off plus Transportregel BP_Block-AutoForwarding",
+          "vorher": "Bestehende gewollte Weiterleitungen erheben, sonst brechen sie.",
+          "hinweis": "Die Regel lehnt mit Statuscode 5.7.1 und Begründung ab statt still zu blockieren."
+        },
+        {
+          "was": "Direct Send abweisen",
+          "cmdlet": "Set-OrganizationConfig -RejectDirectSend $true",
+          "vorher": "Mailverkehr über mindestens einen Monatswechsel auswerten.",
+          "hinweis": "Multifunktionsdrucker, Scan-to-Mail, Monitoring und Fachanwendungen werden ohne Fehlermeldung an den Absender abgeschnitten."
+        }
       ]
     }
   },
-
   "entscheidungsregeln": {
     "tier": [
-      { "frage": "Wirkt das Objekt auf die Authentisierungs- oder Identitätsebene? (CA-Policy oder -Ausnahme, PIM, PAW, Entra Connect, App mit Directory-Schreibrechten)", "ja": "T0" },
-      { "frage": "Betrifft es Server oder deren Verwaltung — auch über Intune oder Arc?", "ja": "T1" },
-      { "frage": "Ist es von Compliance oder Conditional Access ausgenommen, oder steuert es, wer ausgenommen ist?", "ja": "T0", "sonst": "T2" }
+      {
+        "frage": "Wirkt das Objekt auf die Authentisierungs- oder Identitätsebene? (CA-Policy oder -Ausnahme, PIM, PAW, Entra Connect, App mit Directory-Schreibrechten)",
+        "ja": "T0"
+      },
+      {
+        "frage": "Betrifft es Server oder deren Verwaltung — auch über Intune oder Arc?",
+        "ja": "T1"
+      },
+      {
+        "frage": "Ist es von Compliance oder Conditional Access ausgenommen, oder steuert es, wer ausgenommen ist?",
+        "ja": "T0",
+        "sonst": "T2"
+      }
     ],
     "cloudKerberos": [
-      { "frage": "Sind die Benutzer-Identitäten aus dem lokalen AD nach Entra synchronisiert?", "nein": "nicht nötig — cloud-only Identitäten bekommen kein lokales Kerberos-Ticket" },
-      { "frage": "Sind die Geräte rein Entra-joined, also nicht hybrid?", "nein": "nicht nötig — hybrid-joined Geräte sprechen direkt mit dem lokalen AD" },
-      { "frage": "Brauchen diese Geräte lokale Ressourcen mit Kerberos-Anmeldung?", "nein": "nicht nötig", "ja": "Cloud Kerberos Trust einrichten" }
+      {
+        "frage": "Sind die Benutzer-Identitäten aus dem lokalen AD nach Entra synchronisiert?",
+        "nein": "nicht nötig — cloud-only Identitäten bekommen kein lokales Kerberos-Ticket"
+      },
+      {
+        "frage": "Sind die Geräte rein Entra-joined, also nicht hybrid?",
+        "nein": "nicht nötig — hybrid-joined Geräte sprechen direkt mit dem lokalen AD"
+      },
+      {
+        "frage": "Brauchen diese Geräte lokale Ressourcen mit Kerberos-Anmeldung?",
+        "nein": "nicht nötig",
+        "ja": "Cloud Kerberos Trust einrichten"
+      }
     ]
+  },
+  "mailSecurity": {
+    "titel": "Mail-Security (EOP Anti-Threat)",
+    "ziele": "Schutz vor Spoofing, Phishing und Malware, transparente Benutzerführung, kontrollierte Freigabeprozesse, wenig False Positives, nachvollziehbare Admin-Benachrichtigung.",
+    "marker": "Alle vom Werkzeug verwalteten EOP-Objekte tragen das Präfix aus dem Namensschema (eopPrefix). Sie werden idempotent deployt und über ihre *_Rule-Objekte (Priority 0, RecipientDomainIs) auf die Mail-Domains des Tenants eingeschränkt — Nicht-Mail-Domains (Teams, SBC, Telefonie) bleiben aussen vor.",
+    "kategorien": [
+      {
+        "kategorie": "Spam",
+        "aktion": "Quarantine (Self-Release)",
+        "warum": "zentrale Kontrolle statt Junk-Ordner; Benutzer werden benachrichtigt und können Freigabe anfordern"
+      },
+      {
+        "kategorie": "Bulk (Graymail)",
+        "aktion": "Move to Junk",
+        "warum": "Newsletter gehören in Junk — das hält die Quarantäne-Benachrichtigung sauber. Kundenwunsch «nur Inbox und Quarantäne» ist eine dokumentierte Abweichung."
+      },
+      {
+        "kategorie": "Phishing",
+        "aktion": "Quarantine (Self-Release)",
+        "warum": "erhöhtes Risiko, kontrollierte Freigabe"
+      },
+      {
+        "kategorie": "High Confidence Phishing",
+        "aktion": "Quarantine (Request-Release)",
+        "warum": "hohes Risiko, Admin-Kontrolle"
+      },
+      {
+        "kategorie": "Malware",
+        "aktion": "Reject with NDR",
+        "warum": "kritisches Risiko, technische Ablehnung"
+      }
+    ],
+    "objekte": [
+      {
+        "objekt": "Quarantine-SelfReleaseNotification",
+        "soll": "Endnutzer-Quarantäne-Policy, Permissions 59 (Absender erlauben und blockieren, Freigabe anfordern, Vorschau, Löschen), Benachrichtigung aktiv inklusive blockierter Absender"
+      },
+      {
+        "objekt": "Quarantine-RequestReleaseNotification",
+        "soll": "Permissions 26 (Absender blockieren, Freigabe anfordern, Vorschau), Benachrichtigung ohne blockierte Absender — für High-Confidence-Phishing und Malware"
+      },
+      {
+        "objekt": "AntiPhishing + Rule",
+        "soll": "Spoof Intelligence, First Contact Safety Tip, Unauth-Sender-Symbol, Via-Tag, DMARC beachten (p=quarantine → Quarantine, p=reject → Reject), Spoof-Aktion Quarantine mit SelfRelease-Tag (nur per PowerShell setzbar)"
+      },
+      {
+        "objekt": "AntiSpam_Inbound + Rule",
+        "soll": "Bulk-Schwelle 7, Spam/High-Conf-Spam/Phishing/High-Conf-Phishing → Quarantine, Bulk → MoveToJmf, Aufbewahrung 30 Tage, tägliche Benachrichtigung, alle fünf Quarantine-Tags gesetzt, alle neun Legacy-ASF-Filter Off"
+      },
+      {
+        "objekt": "AntiMalware + Rule",
+        "soll": "Common-Attachment-Filter aktiv (47 Dateitypen), ZAP aktiv, Quarantine-Tag RequestRelease, Admin-Benachrichtigung bei internen und externen Absendern"
+      },
+      {
+        "objekt": "UserRequestReleaseStatus",
+        "soll": "Alert Policy für Freigabe-Anfragen an Admin- und MSP-Postfach. Einziges Objekt, das nicht per Web-API deploybar ist: Security-&-Compliance-PowerShell läuft nicht auf Linux, das Backend ist ein Linux-Container. Einmalig pro Tenant von einem Windows-Rechner setzen."
+      }
+    ],
+    "blockierteDateitypen": "ace, apk, app, appx, arj, bat, cab, cmd, com, deb, dex, dll, dmg, elf, exe, hta, img, iso, jar, jnlp, kext, lha, lib, library, lnk, lzh, macho, msc, msi, msix, msp, mst, pif, pkg, prf, ps1, scr, sct, sys, vb, vbe, vbs, vxd, wsc, wsf, wsh, xll",
+    "haertung": [
+      "Legacy-ASF-Optionen aus: SPF Hard Fail, Sensitive Words, JavaScript-in-HTML und Co. übersteuern ARC und Composite Authentication, erzeugen False Positives (etwa hinter SEPPmail) und sind nicht als False Positive meldbar.",
+      "Tenant Allow/Block List regelmässig pflegen, Allow-Einträge minimal halten — jeder Eintrag reduziert den Schutz.",
+      "Custom File Types erweitern (.docm, .xlsm, .pptm).",
+      "Betrieb: Quarantäne täglich auf False Positives prüfen, Admin-Postfach überwachen, Policies quartalsweise reviewen, Allow/Block monatlich aufräumen.",
+      "Typische Fehler: Bulk-Schwelle über 7, Quarantäne ohne Monitoring, Default-Quarantäne-Policy statt eigener."
+    ],
+    "lizenz": [
+      {
+        "feature": "Anti-Phishing, -Spam, -Malware",
+        "eop": "enthalten",
+        "p1": "erweitert",
+        "p2": "erweitert"
+      },
+      {
+        "feature": "Quarantine Policies",
+        "eop": "ja",
+        "p1": "ja",
+        "p2": "ja"
+      },
+      {
+        "feature": "Safe Links",
+        "eop": "—",
+        "p1": "ja",
+        "p2": "ja"
+      },
+      {
+        "feature": "Safe Attachments",
+        "eop": "—",
+        "p1": "ja",
+        "p2": "ja"
+      },
+      {
+        "feature": "Threat Investigation / AIR",
+        "eop": "—",
+        "p1": "—",
+        "p2": "ja"
+      }
+    ],
+    "adminLizenz": "Der Threat Explorer braucht Defender for Office 365 Plan 2, und zwar dem betreuenden Admin-Konto zugewiesen — unabhängig davon, was die Benutzer lizenziert haben. Pro betreutem Tenant deshalb 1× Exchange Online und 1× Defender P2 für das Betriebs-Konto.",
+    "domainAuth": [
+      {
+        "mechanismus": "SPF",
+        "soll": "TXT v=spf1 include:spf.protection.outlook.com -all; weitere legitime Versender explizit einpflegen, -all statt ~all sobald der Versenderkreis vollständig ist. Achtung: 10-DNS-Lookup-Limit.",
+        "wo": "Kunden-DNS, manuell"
+      },
+      {
+        "mechanismus": "DKIM",
+        "soll": "Pro Domain aktivieren (2048 bit): zuerst die zwei CNAMEs selector1/selector2._domainkey, dann Signierung einschalten.",
+        "wo": "DNS manuell, Aktivierung automatisierbar"
+      },
+      {
+        "mechanismus": "DMARC",
+        "soll": "TXT _dmarc: v=DMARC1; p=quarantine; rua=mailto:<report-postfach>. p=none nur als kurze Beobachtungsphase, Ziel ist p=reject.",
+        "wo": "Kunden-DNS, manuell"
+      }
+    ],
+    "grenze": "DMARC schützt nur die eigene Domain vor Spoofing. Impersonation über täuschend ähnliche Fremd-Domains fängt kein DMARC, sondern nur Anti-Phishing und Spoof Intelligence."
+  },
+  "autopilot": {
+    "titel": "Geräteprovisionierung (Autopilot)",
+    "merksatz": "Ein GroupTag = ein komplett fertig eingerichtetes Gerät.",
+    "kette": [
+      "Gerät im OOBE",
+      "GroupTag setzen",
+      "dynamische Gerätegruppe greift",
+      "Autopilot-Profil und ESP",
+      "OIB-Policies und Apps"
+    ],
+    "einmalSetup": [
+      {
+        "schritt": "Staging-Paket erzeugen",
+        "wie": "Tab Autopilot: GroupTags wählen, Paket erstellen. Anmeldung per Device-Code; das Werkzeug legt eine dedizierte, minimal berechtigte App an und baut HWID-Import-Skript, Wrapper mit GroupTag-Menü, autounattend.xml und WIM-Anleitung als ZIP.",
+        "automatisiert": true
+      },
+      {
+        "schritt": "Pro GroupTag eine dynamische Gruppe",
+        "wie": "Typ Sicherheit, dynamisches Gerät, Regel auf devicePhysicalIds. Intunes «Group Tag» heisst intern OrderID — exakt matchen, sonst bleibt die Gruppe leer.",
+        "automatisiert": true
+      },
+      {
+        "schritt": "Autopilot-Profil zuweisen",
+        "wie": "Tab Deployment-Profile; die ESP separat im Portal an dieselbe Gruppe.",
+        "automatisiert": false
+      },
+      {
+        "schritt": "OIB-Policies zuweisen",
+        "wie": "Tab Intune.",
+        "automatisiert": true
+      }
+    ],
+    "feldRunbook": [
+      "Gerät bis zum ersten Setup-Bildschirm starten, nicht weiterklicken.",
+      "Medium mit dem entpackten Paket einstecken.",
+      "Shift + F10 öffnet die Eingabeaufforderung.",
+      "Laufwerk wechseln, in den Autopilot-Ordner, Start-Skript ausführen.",
+      "GroupTag im Menü wählen.",
+      "Auf die Erfolgsmeldung warten (app-only, kein Login-Fenster).",
+      "Neu starten — ab hier läuft alles bis zum fertigen, verwalteten Gerät."
+    ],
+    "stolpersteine": [
+      {
+        "problem": "Fehler beim Import oder Timeout",
+        "ursache": "keine Internetverbindung",
+        "loesung": "Netzwerk prüfen, im OOBE WLAN verbinden, erneut starten"
+      },
+      {
+        "problem": "Konfigurationsdatei nicht gefunden",
+        "ursache": "falscher Ordner",
+        "loesung": "zuerst in den Autopilot-Ordner auf dem Medium wechseln"
+      },
+      {
+        "problem": "Import erfolgreich, Gerät zieht kein Setup",
+        "ursache": "Gruppen-Aufnahme läuft noch",
+        "loesung": "fünf bis zehn Minuten warten, neu starten"
+      },
+      {
+        "problem": "Gerät in keiner Gruppe",
+        "ursache": "GroupTag ohne passende dynamische Gruppe",
+        "loesung": "Gruppe zu diesem Tag anlegen"
+      }
+    ],
+    "sicherheit": "Das Staging-Paket enthält ein Client Secret im Klartext. Die App ist eng gescoped, das Medium ist trotzdem wie ein Geheimnis zu behandeln: nach Gebrauch einziehen, Secret-Laufzeit kurz halten. GroupTag-Liste im Paket, dynamische Gruppen und Zuweisungen als EINE Checkliste pflegen — sonst landet ein Gerät in keiner Gruppe."
+  },
+  "conditionalAccess": {
+    "titel": "Conditional Access",
+    "wichtigsteRegel": "CA kann als einzige Automatisierung den ganzen Tenant aussperren. Jede Policy wird deshalb immer als Report-only angelegt — es gibt keinen Code-Pfad, der direkt scharf anlegt. Aktivieren ist ein getrennter, bewusster Klick, und der Rollout läuft in Wellen.",
+    "ringe": [
+      {
+        "ring": "Pilot",
+        "wer": "wenige Testnutzer",
+        "regel": "Report-only zuerst"
+      },
+      {
+        "ring": "Uat",
+        "wer": "breitere Testgruppe",
+        "regel": "Report-only zuerst"
+      },
+      {
+        "ring": "Broad",
+        "wer": "alle Benutzer",
+        "regel": "erst nach sauberem Uat"
+      }
+    ],
+    "ringPrinzip": "Ring-getargetet heisst: Policies, die auf «Alle Benutzer» zielen würden, zielen auf die Ring-Gruppe. So testet man das komplette Set an der Pilotgruppe, bevor der breite Ring alle erfasst. Ring-Gruppen sind T0 — wer ihre Mitgliedschaft steuert, steuert, für wen CA gilt.",
+    "schutzgruppen": [
+      {
+        "kind": "caBreakGlass",
+        "zweck": "Notfallkonten — vor dem Aktivieren befüllen, sonst droht Aussperrung"
+      },
+      {
+        "kind": "caSyncAccounts",
+        "zweck": "Entra-Connect-Konten — nie interaktiv blockieren"
+      },
+      {
+        "kind": "caExclusionTemp",
+        "zweck": "temporäre Ausnahmen — zeitnah leeren"
+      },
+      {
+        "kind": "caExclusionPerm",
+        "zweck": "dauerhafte, dokumentierte Ausnahmen"
+      }
+    ],
+    "schutzgruppenRegel": "Das Werkzeug legt die Gruppen vor jedem Deploy leer an und trägt sie in jede Policy ein — befüllen muss sie ein Mensch bewusst. Break-Glass: mindestens zwei Konten, von jeder Policy ausgeschlossen. Der Schutz kommt aus starkem Passwort, Monitoring und CA-Ausschluss, nicht aus einem unauffälligen Namen.",
+    "ausbaustufen": [
+      {
+        "stufe": "Bare Minimum",
+        "umfang": "nur Authentication Strength und MFA, keine Geräte-Compliance — funktioniert auch ohne Intune-Verwaltung",
+        "lizenz": "keine Zusatzlizenz"
+      },
+      {
+        "stufe": "AADP1",
+        "umfang": "zusätzlich Geräte-Compliance und Hybrid-Join, App-Protection, mehr ASR",
+        "lizenz": "Entra ID P1"
+      },
+      {
+        "stufe": "AADP1+P2",
+        "umfang": "zusätzlich Sign-in- und User-Risk, Session- und Token-Schutz",
+        "lizenz": "Entra ID P2"
+      }
+    ]
+  },
+  "intuneBackup": {
+    "titel": "Intune-Backup und -Restore",
+    "grund": "Ein gelöschtes oder überschriebenes Intune-Profil hat kein eingebautes Undo.",
+    "gesichert": [
+      "Settings Catalog inklusive aller Einstellungen",
+      "Compliance Policies inklusive Scheduled Actions",
+      "Device Configurations",
+      "Plattform-Skripte inklusive Skript-Inhalt",
+      "Feature-, Quality- und Driver-Updates"
+    ],
+    "nichtGesichert": "Admin Templates (ADMX): Ihr definitionValues-Modell bräuchte eigene Restore-Logik. Ohne die wäre das Backup Schein-Sicherheit — betrifft vor allem das Drucker-Mapping-Profil.",
+    "nieRegeln": [
+      "Nie unter dem Original-Namen wiederherstellen — immer mit [Restored]-Präfix, dann gibt es keinen Konflikt.",
+      "Nie automatisch zuweisen — ein Mensch prüft und weist aktiv zu.",
+      "Nie bestehende Objekte löschen oder ändern."
+    ],
+    "drift": "Zwei Snapshots zeigen pro Kategorie hinzugekommen, entfernt, unverändert — unabhängig davon, ob die Änderung über das Werkzeug oder direkt im Portal passierte."
+  },
+  "mappings": {
+    "titel": "Mappings — Laufwerke und Drucker auf Cloud-only-Geräten",
+    "ausgangslage": "Cloud-only-Geräte haben keinen GPO- oder Login-Skript-Weg zu lokalen Laufwerken und Druckern.",
+    "vergleich": [
+      {
+        "kriterium": "Mechanismus",
+        "drive": "PowerShell-Plattformskript plus Scheduled Task bei Anmeldung",
+        "printer": "Store-App plus ADMX-Ingestion"
+      },
+      {
+        "kriterium": "App-Abhängigkeit",
+        "drive": "keine",
+        "printer": "ja — Store-App als Trägerprozess"
+      },
+      {
+        "kriterium": "Konfiguration",
+        "drive": "zustandslos, die Konfiguration lebt im deployten Skript und wird beim Bearbeiten zurückgelesen",
+        "printer": "Policy «Imported Administrative Templates», maximal 15 Drucker-Slots"
+      },
+      {
+        "kriterium": "Grenzen",
+        "drive": "Laufwerke D bis Z, nur UNC-Pfade",
+        "printer": "manuell bleiben: Autostart-Freigabe der App, Treiber, Druckberechtigungen"
+      }
+    ],
+    "warnung": "Das Printer-Mapping hängt an einer Store-App — und der Store ist in gehärteten Umgebungen oft eingeschränkt. In einem Tenant mit deaktiviertem Store ist der Ansatz zum Scheitern verurteilt. Einsatz nur, wo der Store bewusst offen bleibt, als dokumentierte Abweichung. Alternative für Enterprise-Härtung: Universal Print oder Drucker-Deployment per Plattformskript.",
+    "nestingFalle": "Plattformskripte und Konfigurationsprofile lösen KEIN Gruppen-Nesting auf — das tut Intune nur beim App-Assignment. Sie gehören deshalb direkt an die dynamische Gerätegruppe, nie an eine App-Zielgruppe. Betrifft Drive-, Printer- und SharePoint-Mapping, die Registry-Richtlinie und das Profil für Browser-Erweiterungen.",
+    "kerberos": "Damit Entra-joined Geräte lokale Freigaben und Drucker mit Kerberos-Anmeldung nutzen können, brauchen sie Cloud Kerberos Trust. Voraussetzungen: Entra-Connect-Sync eingerichtet, Ausführung mit Global-Admin-Rechten, Geräte rein Entra-joined. Einmalige T0-Aktion gegen das lokale AD."
+  },
+  "remediations": {
+    "titel": "Remediations (Intune)",
+    "voraussetzung": "Remediation Scripts funktionieren erst, wenn im Intune Admin Center unter Tenant administration → Connectors and tokens → Windows data der Lizenz-Schalter auf On steht (Default Off). Ohne ihn lassen sich keine Remediations anlegen — gehört in die Onboarding-Checkliste.",
+    "aufbau": [
+      {
+        "teil": "Detection Script",
+        "zweck": "prüft den Zustand und meldet über den Exit-Code, ob etwas zu tun ist"
+      },
+      {
+        "teil": "Remediation Script",
+        "zweck": "stellt den Sollzustand her"
+      },
+      {
+        "teil": "Zuweisung",
+        "zweck": "an die dynamische Gerätegruppe, wiederkehrend statt einmalig"
+      }
+    ],
+    "deployRegeln": [
+      "Run using logged-on credentials: No (läuft als SYSTEM).",
+      "Script signature check: No.",
+      "Run in 64-bit PowerShell: Yes.",
+      "Wiederkehrend laufen lassen, nicht einmalig: Windows-Updates setzen manche Änderungen zurück, die Detection erkennt den Rückfall."
+    ],
+    "abgrenzung": "Eine Remediation ist der Weg für alles, was kein Konfigurationsprofil abbilden kann. Was der Installer einer App nicht kann, gehört ebenfalls hierher — nicht in Pre- oder Post-Install-Skripte der App selbst."
   }
 }

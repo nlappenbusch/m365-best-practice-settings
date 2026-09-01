@@ -230,6 +230,11 @@
 <!-- Themenwahl als kompakte Reiterleiste: acht Karten mit Teasertext waren
      eine halbe Bildschirmseite, bevor der eigentliche Inhalt begann. Der
      Teaser steht jetzt im Tooltip. -->
+<p class="ld-section-hint" style="margin:1rem 0 0.3rem">
+  Die Seiten hier erklären das <strong>Warum</strong>. Die verbindlichen Sollwerte — Feldwerte, Grenzwerte,
+  Risikolisten — stehen in der <strong>Baseline</strong> (letzter Reiter): eine Quelle, aus der auch das
+  Werkzeug selbst arbeitet. Wo beides auseinandergeht, gilt die Baseline.
+</p>
 <div class="topic-bar">
   {#each topics as t (t.id)}
     <button type="button" class="topic-chip" class:active={sub === t.id}

@@ -1,5 +1,29 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.20 - Baseline vollstaendig (2026-09-01)
+
+Die Baseline (2.19) hatte die Agent-Module, das Custom-App-Grundgeruest, OIB,
+Onboarding, Mail-Haertung und die Entscheidungsregeln. Alles Weitere stand nur
+als Prosa in den Wissensseiten — und driftete damit weiter. Jetzt vollstaendig,
+Baseline **1.1**:
+
+| Neu in der Quelle | Was drinsteht |
+|---|---|
+| **Mail-Security** | Kategorie-Aktionen (Spam/Bulk/Phishing/Malware), das komplette Objektset mit Sollwerten, die 47 blockierten Dateitypen, Haertungsregeln, Lizenz-Matrix, SPF/DKIM/DMARC |
+| **Autopilot** | GroupTag-Kette, Einmal-Setup je Tenant, Feld-Runbook fuer Techniker, Stolpersteine, Sicherheitshinweis zum Staging-Paket |
+| **Conditional Access** | Ringe mit aufgeloesten Gruppennamen, die vier Schutzgruppen, Ausbaustufen nach Lizenz, die Report-only-Regel |
+| **Mappings** | Drive gegen Printer im Vergleich, die Store-App-Abweichung, Cloud Kerberos Trust — und die Nesting-Falle |
+| **Remediations** | Lizenz-Schalter als Voraussetzung, Aufbau, Deploy-Regeln, Abgrenzung zu Pre-/Post-Install-Skripten |
+| **Intune-Backup** | was gesichert wird, was bewusst nicht, die drei Nie-Regeln beim Restore |
+
+Wie bei den Agents rechnet die Baseline auch hier die **Namen** aus: Die
+CA-Schutzgruppen und Ring-Gruppen tragen in der Quelle nur den
+Muster-Schluessel, ausgeliefert wird der Name nach der Konvention des Tenants.
+
+Die Wissensseiten erklaeren weiterhin das Warum — mit einem Satz darueber, wo
+die verbindlichen Werte stehen: *Wo beides auseinandergeht, gilt die Baseline.*
+
+
 ## Version 2.19 - Baseline als eine Quelle (2026-09-01)
 
 ### 📐 Die Betriebsrichtlinien liegen jetzt an einer Stelle
