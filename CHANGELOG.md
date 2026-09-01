@@ -1,5 +1,43 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.12 - «Gerät statt Standort» als allgemeine Vorlage, Banner-Layout (2026-09-01)
+
+### 🔁 Kundenname raus, Beschreibung rein
+
+Die in 2.10 eingeführte Zusammenstellung hiess «REMONDIS» — ein Kundenname als
+Vorlagenbezeichnung ist in einem Werkzeug, das Kollegen bedienen, eine Falle: Der
+Nächste weiss nicht, ob das ein Muster oder ein Sonderfall ist, und traut sich
+nicht, es woanders zu nehmen. Die Sache selbst ist keine Eigenheit, sondern eine
+Grundlinie. Deshalb zwei benannte Varianten:
+
+- **«Gerät statt Standort»** (`deviceFirst`) — 400 (`mfa`) + 401 (verwaltetes Gerät)
+- **«Gerät statt Standort, phishing-resistent»** (`deviceFirstStrong`) — 409
+  (Authentication Strength) statt 400
+
+Beide ohne Standortbedingung: Der Aufenthaltsort entscheidet nicht mehr über den
+Zugang, eine bestehende Ländersperre wird entbehrlich. Die **Voraussetzung steht
+jetzt in der Lizenzzeile**, nicht im Kleingedruckten — ohne Intune-verwaltete
+Geräte ist 401 keine Grundlinie, sondern eine Aussperrung; ohne ausgerollte
+FIDO2-Anmeldung gilt dasselbe für 409.
+
+Beide werden aus den bestehenden Vorlagen zusammengesetzt (`buildSelectionTier`),
+nicht dupliziert. Weitere Varianten sind ein Eintrag in `SELECTION_DEFS`.
+
+### 🐛 Tier-Liste war fest verdrahtet
+
+`TIER_ORDER` im CA-Tab listete nur die drei Lizenz-Tiers. Neue Zusammenstellungen
+kamen zwar aus der API, wurden aber nie angezeigt. Die Reihenfolge wird jetzt
+abgeleitet: Lizenz-Tiers zuerst, danach alles Weitere.
+
+### 🐛 Hinweisbanner zerfielen in Spalten
+
+`.ld-banner` war ein Flex-Container. Jedes `<code>`, `<strong>` oder `<a>` im
+Bannertext wurde dadurch zu einer eigenen Spalte mit `gap` dazwischen — der Satz
+zerfiel sichtbar in Kolumnen (am deutlichsten im Tab Mail-Security). Jetzt
+normaler Textfluss, das Symbol sitzt absolut im eingerückten Freiraum. Betrifft
+alle Banner mit Inline-Auszeichnung, nicht nur den auffälligen.
+
+
 ## Version 2.11 - Offboarding: App-Registrierung im Kundentenant wird jetzt entfernt (2026-09-01)
 
 ### 🧹 Tenant-Offboarding als Gegenstück zum Onboarding

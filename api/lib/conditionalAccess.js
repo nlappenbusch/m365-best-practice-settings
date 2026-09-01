@@ -43,15 +43,24 @@ const TIER_META = {
       "Session-Kontrollen (Token-Schutz).",
     license: "Braucht Microsoft Entra ID P2 (in M365 E5 enthalten) zusätzlich zu P1."
   },
-  remondis: {
-    label: "REMONDIS — Gerät statt Standort",
-    shortLabel: "REMONDIS",
-    description: "Kundenzusammenstellung aus RE-46191: MFA (400) und verwaltetes Gerät (401) als zwei getrennte " +
-      "Policies, damit beides gilt statt eines von beidem. Beide ohne Standortbedingung — der Aufenthaltsort " +
-      "entscheidet nicht mehr über den Zugang, die Ländersperre wird dadurch entbehrlich. Ohne phishing-resistente " +
-      "Authentication Strength: normale MFA genügt, es sperrt also niemanden ohne FIDO2-Schlüssel aus.",
-    license: "Braucht Microsoft Entra ID P1 (Geräte-Compliance) und Intune-verwaltete Geräte.",
-    customer: true
+  deviceFirst: {
+    label: "Gerät statt Standort (MFA + verwaltetes Gerät)",
+    shortLabel: "Gerät statt Standort",
+    description: "MFA (400) und verwaltetes Gerät (401) als zwei getrennte Policies — innerhalb einer Policy sind " +
+      "Gewährungen mit ODER verknüpft, zwischen Policies gilt UND. Nur so gilt beides statt eines von beidem. " +
+      "Keine der beiden hat eine Standortbedingung: Der Aufenthaltsort entscheidet nicht mehr über den Zugang, " +
+      "eine bestehende Ländersperre wird dadurch entbehrlich. Normale MFA genügt (Authenticator), es sperrt " +
+      "also niemanden ohne FIDO2-Schlüssel aus.",
+    license: "Braucht Entra ID P1. VORAUSSETZUNG: Die Geräte müssen in Intune verwaltet sein — sonst ist 401 " +
+      "keine Grundlinie, sondern eine Aussperrung."
+  },
+  deviceFirstStrong: {
+    label: "Gerät statt Standort, phishing-resistent",
+    shortLabel: "Gerät + Strong Auth",
+    description: "Wie «Gerät statt Standort», aber die MFA-Hälfte verlangt phishing-resistente Authentication " +
+      "Strength (409 statt 400): FIDO2, Windows Hello oder Zertifikat. Der stärkere Endzustand.",
+    license: "Braucht Entra ID P1 und Intune-verwaltete Geräte. VORAUSSETZUNG: FIDO2/Windows Hello muss " +
+      "ausgerollt sein — sonst sperrt das Scharfschalten alle aus."
   }
 };
 

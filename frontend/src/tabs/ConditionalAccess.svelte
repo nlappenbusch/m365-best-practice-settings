@@ -5,9 +5,9 @@
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
-  // Die drei Standard-Tiers zuerst, danach alles Weitere in der Reihenfolge der
-  // API — so erscheinen Kundenzusammenstellungen (z.B. "remondis") automatisch,
-  // ohne dass hier eine Liste nachgezogen werden muss.
+  // Die drei Lizenz-Tiers zuerst, danach alles Weitere in der Reihenfolge der
+  // API — so erscheinen zusätzliche Zusammenstellungen automatisch, ohne dass
+  // hier eine Liste nachgezogen werden muss.
   const BASE_TIER_ORDER = ['bareMinimum', 'aadp1', 'aadp1p2']
   const STATE_META = {
     enabledForReportingButNotEnforced: { label: '🟡 Report-only', cls: 'warn' },

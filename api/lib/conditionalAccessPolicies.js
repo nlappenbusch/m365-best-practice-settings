@@ -6070,10 +6070,21 @@ const CA_POLICY_TEMPLATES = {
 };
 
 /* ---------------------------------------------------------------------------
- *  Kundenzusammenstellung: REMONDIS Schweiz / Chiresa
+ *  Zusammenstellung: "Geraet statt Standort"
  * ---------------------------------------------------------------------------
- * Zielbild aus Ticket RE-46191: Der Zugriff haengt am Geraetezustand, nicht am
- * Aufenthaltsort. Die bestehende Laendersperre wird abgeloest, nicht ergaenzt.
+ * Kein Kundensonderfall, sondern eine allgemeine Grundlinie: Der Zugriff haengt
+ * am Geraetezustand, nicht am Aufenthaltsort. Wo eine Laendersperre existiert,
+ * wird sie dadurch abgeloest statt ergaenzt.
+ *
+ * VORAUSSETZUNG: Die Geraete muessen in Intune verwaltet sein. Ohne das ist 401
+ * keine Grundlinie, sondern eine Aussperrung - dann gehoert bareMinimum genommen.
+ *
+ * Zwei Varianten, die sich nur in der MFA-Haelfte unterscheiden:
+ *   deviceFirst        -> 400, verlangt "mfa" (Authenticator genuegt)
+ *   deviceFirstStrong  -> 409, verlangt phishing-resistente Authentication
+ *                         Strength. Nur sinnvoll, wo FIDO2/Windows Hello
+ *                         tatsaechlich ausgerollt ist - sonst sperrt es beim
+ *                         Scharfschalten alle aus.
  *
  * Warum ZWEI Policies (400 und 401) und nicht eine kombinierte:
  *   Innerhalb einer Policy sind die Gewaehrungen mit OR verknuepft - jedes
@@ -6096,44 +6107,76 @@ const CA_POLICY_TEMPLATES = {
  * includeApplications: ["None"] - ohne den Override unten wuerden sie sich
  * erfolgreich deployen und NICHTS tun.
  */
-const REMONDIS_POLICY_NUMBERS = [109, 201, 300, 301, 306, 400, 401, 500, 501, 504, 505, 508, 509];
+// Gemeinsamer Kern beider Varianten. Die MFA-Haelfte kommt je Variante dazu.
+const DEVICE_FIRST_COMMON = [109, 201, 300, 301, 306, 401, 500, 501, 504, 505, 508, 509];
 
 // Reihenfolge der Quell-Tiers: aadp1 zuerst (P1-Basis mit Geraeteoptionen),
 // aadp1p2 als Rueckfall (dort liegt z.B. 109, ohne P2-Bedingungen zu nutzen).
-const REMONDIS_SOURCE_TIERS = ["aadp1", "aadp1p2", "bareMinimum"];
+const SELECTION_SOURCE_TIERS = ["aadp1", "aadp1p2", "bareMinimum"];
 
-const REMONDIS_EXCLUDED = {
-  100: "Verlangt phishing-resistente Authentication Strength. Bewusst draussen, solange keine FIDO2-/Windows-Hello-Anmeldung ausgerollt ist.",
-  104: "Wie 100 - Authentication Strength ohne Geraete-Alternative.",
-  200: "Verlangt phishing-resistente Authentication Strength ohne Geraete-Alternative. 400 uebernimmt die MFA-Haelfte mit normaler MFA.",
-  208: "\"Strong Auth ODER verwaltetes Geraet\" - der OR-Operator macht das Geraet zum Ersatz fuer MFA statt zur Ergaenzung. Waere schwaecher als der Ist-Zustand.",
-  110: "Verlangt phishing-resistente Auth ausgerechnet fuer die NOTFALLKONTEN. Ohne ausgerollte FIDO2-Schluessel sperrt sich damit genau das Konto aus, das im Notfall noch reinkommen muss. Aufnehmen, sobald Schluessel fuer die Break-Glass-Konten hinterlegt sind - dann ist es der richtige Schutz.",
-  211: "Authentication Strength beim Geraete-Join. Faellt mit dem Entscheid gegen starke Auth weg.",
+// Override fuer die Geraete-Haelfte - in beiden Varianten identisch.
+const OVERRIDE_401 = {
+  note: "Geltungsbereich auf alle Anwendungen; Externe vollstaendig ausgenommen - Gastgeraete sind im Tenant keine Objekte und koennen eine Compliance-Anforderung strukturell nicht erfuellen.",
+  displayName: "401 - <RING> - Application protection - All apps: Require trusted device",
+  applications: { includeApplications: ["All"] },
+  excludeGuestsOrExternalUsers: {
+    guestOrExternalUserTypes:
+      "b2bCollaborationGuest,b2bCollaborationMember,b2bDirectConnectUser,b2bDirectConnectMember,serviceProvider,otherExternalUser",
+    externalTenants: {
+      "@odata.type": "#microsoft.graph.conditionalAccessAllExternalTenants",
+      membershipKind: "all"
+    }
+  }
+};
+
+// Gruende, die in beiden Varianten gelten.
+const EXCLUDED_COMMON = {
+  110: "Verlangt phishing-resistente Auth ausgerechnet fuer die NOTFALLKONTEN. Ohne ausgerollte FIDO2-Schluessel sperrt sich damit genau das Konto aus, das im Notfall noch reinkommen muss. Aufnehmen, sobald Schluessel fuer die Break-Glass-Konten hinterlegt sind.",
+  208: "\"Strong Auth ODER verwaltetes Geraet\" - der OR-Operator macht das Geraet zum Ersatz fuer MFA statt zur Ergaenzung. Waere schwaecher als ein Tenant, der heute schon MFA erzwingt.",
   307: "Sperrt den Device-Code-Fluss, ueber den das Onboarding und Reparieren dieses Tools selbst laeuft.",
   210: "Braucht ein angelegtes Nutzungsbedingungs-Objekt, sonst bleibt keine wirksame Kontrolle uebrig.",
-  502: "Mobilgeraete: offener Entscheid App-Schutzrichtlinien gegen Geraetecompliance.",
+  502: "Mobilgeraete: erst entscheiden, ob App-Schutzrichtlinien oder Geraetecompliance gelten sollen.",
   503: "Mobilgeraete: siehe 502.",
   506: "Mobilgeraete: siehe 502.",
   507: "Mobilgeraete: siehe 502."
 };
 
-const REMONDIS_OVERRIDES = {
-  400: {
-    note: "Geltungsbereich auf alle Anwendungen. Verlangt MFA (Authenticator genuegt) - ueberall, ohne Standortausnahme.",
-    displayName: "400 - <RING> - Application protection - All apps: Require MFA",
-    applications: { includeApplications: ["All"] }
+const SELECTION_DEFS = {
+  deviceFirst: {
+    policies: [...DEVICE_FIRST_COMMON, 400].sort((a, b) => a - b),
+    excluded: Object.assign({}, EXCLUDED_COMMON, {
+      100: "Verlangt phishing-resistente Authentication Strength. In dieser Variante bewusst draussen - dafuer gibt es deviceFirstStrong.",
+      104: "Wie 100 - Authentication Strength ohne Geraete-Alternative.",
+      200: "Verlangt phishing-resistente Authentication Strength ohne Geraete-Alternative. 400 uebernimmt die MFA-Haelfte mit normaler MFA.",
+      211: "Authentication Strength beim Geraete-Join. Faellt mit dem Verzicht auf starke Auth weg.",
+      409: "Die Strong-Auth-Variante derselben Stelle - gehoert zu deviceFirstStrong, nicht hierher."
+    }),
+    overrides: {
+      400: {
+        note: "Geltungsbereich auf alle Anwendungen. Verlangt MFA (Authenticator genuegt) - ueberall, ohne Standortausnahme.",
+        displayName: "400 - <RING> - Application protection - All apps: Require MFA",
+        applications: { includeApplications: ["All"] }
+      },
+      401: OVERRIDE_401
+    }
   },
-  401: {
-    note: "Geltungsbereich auf alle Anwendungen; Externe vollstaendig ausgenommen - Gastgeraete sind im Tenant keine Objekte und koennen eine Compliance-Anforderung strukturell nicht erfuellen.",
-    displayName: "401 - <RING> - Application protection - All apps: Require trusted device",
-    applications: { includeApplications: ["All"] },
-    excludeGuestsOrExternalUsers: {
-      guestOrExternalUserTypes:
-        "b2bCollaborationGuest,b2bCollaborationMember,b2bDirectConnectUser,b2bDirectConnectMember,serviceProvider,otherExternalUser",
-      externalTenants: {
-        "@odata.type": "#microsoft.graph.conditionalAccessAllExternalTenants",
-        membershipKind: "all"
-      }
+
+  deviceFirstStrong: {
+    policies: [...DEVICE_FIRST_COMMON, 409].sort((a, b) => a - b),
+    excluded: Object.assign({}, EXCLUDED_COMMON, {
+      400: "Verlangt nur \"mfa\". In dieser Variante uebernimmt 409 die MFA-Haelfte mit phishing-resistenter Stärke.",
+      100: "Deckungsgleich mit 409 fuer Admin-Rollen - kann ergaenzt werden, sobald die Rollen-Abgrenzung gewuenscht ist.",
+      104: "Privilegierte Systeme separat - erst aufnehmen, wenn der Geltungsbereich bewusst festgelegt ist.",
+      200: "Traegt eine Standortausnahme (AllTrusted). Diese Zusammenstellung soll gerade nicht am Standort haengen.",
+      211: "Authentication Strength beim Geraete-Join - sinnvoll, aber eigener Entscheid; nicht Teil der Grundlinie."
+    }),
+    overrides: {
+      409: {
+        note: "Geltungsbereich auf alle Anwendungen. Verlangt phishing-resistente Authentication Strength - setzt ausgerollte FIDO2-/Windows-Hello-Anmeldung voraus.",
+        displayName: "409 - <RING> - Application protection - All apps: Require Strong Auth",
+        applications: { includeApplications: ["All"] }
+      },
+      401: OVERRIDE_401
     }
   }
 };
@@ -6143,22 +6186,24 @@ function policyNumberOf(policy) {
   return m ? Number(m[1]) : null;
 }
 
-// Baut das Tier aus den bestehenden Vorlagen zusammen, statt sie zu duplizieren -
-// so bleibt es bei einem Upstream-Abgleich automatisch in Sync.
-function buildRemondisTier() {
+// Baut eine Zusammenstellung aus den bestehenden Vorlagen, statt sie zu
+// duplizieren - so bleibt sie bei einem Upstream-Abgleich automatisch in Sync.
+function buildSelectionTier(key) {
+  const def = SELECTION_DEFS[key];
+  if (!def) throw new Error("Unbekannte Zusammenstellung: " + key);
   const pool = new Map();
-  for (const tier of REMONDIS_SOURCE_TIERS) {
+  for (const tier of SELECTION_SOURCE_TIERS) {
     for (const policy of CA_POLICY_TEMPLATES[tier] || []) {
       const n = policyNumberOf(policy);
       if (n != null && !pool.has(n)) pool.set(n, policy);
     }
   }
   const out = [];
-  for (const n of REMONDIS_POLICY_NUMBERS) {
+  for (const n of def.policies) {
     const src = pool.get(n);
-    if (!src) throw new Error("REMONDIS-Zusammenstellung: Vorlage " + n + " nicht gefunden");
+    if (!src) throw new Error("Zusammenstellung " + key + ": Vorlage " + n + " nicht gefunden");
     const p = JSON.parse(JSON.stringify(src));
-    const ov = REMONDIS_OVERRIDES[n];
+    const ov = def.overrides[n];
     if (ov) {
       if (ov.displayName) p.displayName = ov.displayName;
       if (!p.conditions) p.conditions = {};
@@ -6176,12 +6221,14 @@ function buildRemondisTier() {
   return out;
 }
 
-CA_POLICY_TEMPLATES.remondis = buildRemondisTier();
+const SELECTION_META = {};
+for (const key of Object.keys(SELECTION_DEFS)) {
+  CA_POLICY_TEMPLATES[key] = buildSelectionTier(key);
+  SELECTION_META[key] = {
+    policies: SELECTION_DEFS[key].policies,
+    excluded: SELECTION_DEFS[key].excluded,
+    overrides: Object.fromEntries(Object.entries(SELECTION_DEFS[key].overrides).map(([n, o]) => [n, o.note]))
+  };
+}
 
-const REMONDIS_SELECTION_META = {
-  policies: REMONDIS_POLICY_NUMBERS,
-  excluded: REMONDIS_EXCLUDED,
-  overrides: Object.fromEntries(Object.entries(REMONDIS_OVERRIDES).map(([n, o]) => [n, o.note]))
-};
-
-module.exports = { CA_POLICY_TEMPLATES, REMONDIS_SELECTION_META };
+module.exports = { CA_POLICY_TEMPLATES, SELECTION_META };

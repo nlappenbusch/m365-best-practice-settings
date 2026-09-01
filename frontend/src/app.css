@@ -931,13 +931,19 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 /* Statusbanner tragen ihr Zeichen im CSS statt als Emoji im Text: eine
    Quelle statt hundert Fundstellen, und es faerbt sich mit der Statusfarbe.
    mask-image + currentColor haelt die Icons theme-tauglich. */
+/* Kein Flex-Container: Der Bannerinhalt ist Fliesstext, und als Flex-Container
+   wuerde jedes <code>, <strong> oder <a> darin zu einer eigenen Spalte mit
+   gap dazwischen — der Satz zerfaellt dann in Kolumnen. Stattdessen normaler
+   Textfluss, das Symbol sitzt absolut im eingerueckten Freiraum. */
 .ld-banner {
-    border-radius: var(--radius-sm); padding: 0.6rem 0.9rem; margin: 0.5rem 0 0.75rem;
+    border-radius: var(--radius-sm); padding: 0.6rem 0.9rem 0.6rem 2.5rem; margin: 0.5rem 0 0.75rem;
     font-size: 0.92rem;
-    display: flex; align-items: flex-start; gap: 0.55rem;
+    line-height: 1.55;
+    position: relative;
 }
 .ld-banner::before {
-    content: ''; flex-shrink: 0; width: 1.05rem; height: 1.05rem; margin-top: 0.1rem;
+    content: ''; position: absolute; left: 0.9rem; top: 0.78rem;
+    width: 1.05rem; height: 1.05rem;
     background-color: currentColor;
     -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
     -webkit-mask-position: center; mask-position: center;
