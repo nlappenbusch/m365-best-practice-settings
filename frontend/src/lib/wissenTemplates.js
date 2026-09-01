@@ -124,42 +124,7 @@ export function docsHtml() {
     -SpoofQuarantineTag "BP_Quarantine-SelfReleaseNotification"</code></pre>
 
         <h3>📊 Aktionen-Differenzierung</h3>
-        <table class="comparison-table">
-            <thead>
-                <tr>
-                    <th>Kategorie</th>
-                    <th>Aktion</th>
-                    <th>Begründung</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Spam</td>
-                    <td>Quarantine (Self-Release-Policy)</td>
-                    <td>Zentrale Kontrolle statt Junk-Ordner; User werden benachrichtigt und können Freigabe anfordern</td>
-                </tr>
-                <tr>
-                    <td>Bulk (Graymail)</td>
-                    <td>Move to Junk</td>
-                    <td>Newsletter/Werbepost gehört in den Junk-Ordner — hält die Quarantäne-Benachrichtigung sauber. Kundenwunsch "nur Inbox + Quarantäne" → als gewollte Abweichung auf Quarantine</td>
-                </tr>
-                <tr>
-                    <td>Phishing</td>
-                    <td>Quarantine (Self-Release-Policy)</td>
-                    <td>Erhöhtes Risiko, kontrollierte Freigabe</td>
-                </tr>
-                <tr>
-                    <td>High Confidence Phishing</td>
-                    <td>Quarantine (Request-Release)</td>
-                    <td>Hohes Risiko, Admin-Kontrolle</td>
-                </tr>
-                <tr>
-                    <td>Malware</td>
-                    <td>Reject with NDR</td>
-                    <td>Kritisches Risiko, technische Ablehnung</td>
-                </tr>
-            </tbody>
-        </table>
+        <p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Welche Kategorie welche Aktion auslöst, steht unten in der Baseline-Fassung — dort wird es gepflegt, hier stand es bisher als Kopie.</p>
 
         <h3>🛡️ DMARC Honor Policy</h3>
         <p>Die Konfiguration respektiert DMARC-Records der Absender-Domains:</p>
@@ -176,65 +141,10 @@ export function recoHtml(adminEmail) {
             <strong>ℹ️ Aktueller Scope:</strong> Diese Konfiguration basiert auf <strong>Exchange Online Protection (EOP)</strong> - enthalten in allen M365 Business/Enterprise Lizenzen.
         </div>
 
-        <table class="comparison-table">
-            <thead>
-                <tr>
-                    <th>Feature</th>
-                    <th>EOP (Basis)</th>
-                    <th>Defender for Office 365 P1</th>
-                    <th>Defender for Office 365 P2</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Anti-Phishing / Anti-Spam / Anti-Malware</td>
-                    <td>✅ Enthalten</td>
-                    <td>✅ Erweitert</td>
-                    <td>✅ Erweitert</td>
-                </tr>
-                <tr>
-                    <td>Quarantine Policies</td>
-                    <td>✅ Enthalten</td>
-                    <td>✅ Enthalten</td>
-                    <td>✅ Enthalten</td>
-                </tr>
-                <tr>
-                    <td>Safe Links (URL Protection)</td>
-                    <td>❌</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                </tr>
-                <tr>
-                    <td>Safe Attachments (Sandbox)</td>
-                    <td>❌</td>
-                    <td>✅</td>
-                    <td>✅</td>
-                </tr>
-                <tr>
-                    <td>Threat Investigation & Response</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                    <td>✅</td>
-                </tr>
-                <tr>
-                    <td>Automated Investigation (AIR)</td>
-                    <td>❌</td>
-                    <td>❌</td>
-                    <td>✅</td>
-                </tr>
-            </tbody>
-        </table>
+        <p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die Feature-Matrix EOP / Defender P1 / P2 steht unten in der Baseline-Fassung, zusammen mit der Regel zur Admin-Lizenz für den Threat Explorer.</p>
 
         <h3>🔒 Härtungs-Empfehlungen (ohne Lizenz-Upgrade)</h3>
-        <ul>
-            <li><strong>Legacy-ASF-Optionen aus lassen:</strong> Die Advanced-Spam-Filter-Schalter (SPF Hard Fail, Sensitive Words, JavaScript in HTML, …)
-                übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. hinter Verschlüsselungs-Gateways wie SEPPmail)
-                und ASF-Treffer sind nicht als False Positive meldbar. Microsoft-Empfehlung und Tool-Default: <strong>Off</strong></li>
-            <li><strong>Tenant Allow/Block List pflegen:</strong> Regelmäßige Pflege der Allow/Block Listen im Security Portal</li>
-            <li><strong>Custom File Types erweitern:</strong> Zusätzliche gefährliche Dateitypen blockieren (z.B. .docm, .xlsm, .pptm)</li>
-            <li><strong>DMARC für eigene Domains:</strong> DMARC-Records mit p=quarantine oder p=reject implementieren</li>
-            <li><strong>User Awareness Training:</strong> Regelmäßige Schulungen zu Phishing-Erkennung</li>
-        </ul>
+        <p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die Härtungspunkte stehen unten in der Baseline-Fassung.</p>
 
         <h3>📋 Operational Best Practices</h3>
         

@@ -598,18 +598,26 @@ Einträge — z.&nbsp;B. für den eigenen RMM-Agent, der pro Kunde anders benann
 </div>
 
 <h3>🔗 Einordnung ins Gruppenkonzept</h3>
-<p>Jede über Patch My PC verwaltete App bekommt <b>genau eine</b> Zielgruppe nach dem Schema
-<code>AAD-PMP-&lt;APP&gt;</code> (z.&nbsp;B. <code>AAD-PMP-GoogleChrome</code>) — 1:1, keine Sammelgruppen. Diese
-Gruppen sind reine App-Ziele; die Steuerung, <i>welche Geräte</i> die App bekommen, läuft weiterhin über die
-Gerätegruppen (<code>AAD-DEV-&lt;ROLLE&gt;</code>) und deren GroupTag-Zuordnung — siehe Abschnitt
-„🏷️ Namenskonventionen". Für selbst paketierte (nicht über Patch My PC verwaltete) Apps gilt stattdessen das
-Schema <code>AAD-APP-&lt;APP&gt;</code>.</p>
+<p>Jede über Patch My PC verwaltete App bekommt <b>genau eine</b> Zielgruppe — 1:1, keine Sammelgruppen. Diese
+Gruppen sind reine App-Ziele; die Steuerung, <i>welche Geräte</i> die App bekommen, läuft über die Gerätegruppen
+und deren GroupTag-Zuordnung. Selbst paketierte Apps folgen demselben Muster, unterschieden wird nach
+<i>Verwaltung</i>, nicht nach Paketformat:</p>
+<table class="comparison-table">
+  <thead><tr><th>Verwaltung</th><th>Bestand</th><th>v2</th></tr></thead>
+  <tbody>
+    <tr><td>Patch My PC</td><td><code>AAD-PMP-GoogleChrome</code></td><td><code>T2-DG-WIN-PmpGoogleChrome</code></td></tr>
+    <tr><td>selbst paketiert</td><td><code>AAD-APP-ZeiterfassungXY</code></td><td><code>T2-DG-WIN-AppZeiterfassungXY</code></td></tr>
+    <tr><td>Gerätegruppe (das eigentliche Ziel)</td><td><code>AAD-DEV-STD</code></td><td><code>T2-DG-WIN-Std</code></td></tr>
+  </tbody>
+</table>
+<p class="note">📐 Welches Schema in einem Tenant gilt, steht im Tab <b>Namenskonvention</b>. Die Gruppen legt der
+Bereich <b>App-Zielgruppen</b> im Tab GroupTags an — inklusive Verknüpfung mit der Gerätegruppe.</p>
 
 <div class="tool-tie-in">
   <span>🛠️</span>
   <div><b>Bezug zum Tool:</b> Die im Tab <b>📦 Agents</b> gelisteten Bitdefender-/N-sight-Installer sind
-  klassische selbst verteilte Agents (nicht Patch-My-PC-verwaltet) und folgen daher der
-  <code>AAD-APP-&lt;Name&gt;</code>-Konvention, sobald sie direkt nach Intune bereitgestellt werden. Die
+  klassische selbst verteilte Agents (nicht Patch-My-PC-verwaltet) und folgen daher der Konvention für selbst
+  paketierte Apps, sobald sie direkt nach Intune bereitgestellt werden. Die
   Zuweisung läuft dabei immer mit Intent <code>Required</code> (stiller Zwangs-Install, kein Company-Portal-
   Self-Service) — die Silent-Switches und Rückgabecodes dafür sind je Hersteller fest hinterlegt.
   <div style="margin-top:.5rem;display:flex;gap:.5rem;flex-wrap:wrap;">

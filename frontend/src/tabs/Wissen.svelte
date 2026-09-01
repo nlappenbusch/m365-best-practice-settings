@@ -291,6 +291,12 @@
     <h2>Best Practices &amp; Empfehlungen</h2>
     <div class="recommendations-content">{@html reco}</div>
   </section>
+  {#if blParts['mailsec']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Sollwerte und Objektset aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['mailsec']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'autopilot'}>
