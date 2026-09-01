@@ -31,8 +31,11 @@ const BL_CSS = `
 .bl-hero{display:flex;gap:1rem;align-items:flex-start;padding:.2rem 0 1rem}
 .bl-ver{display:inline-block;font-weight:700;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;
         color:var(--bl-accent);border:1px solid var(--bl-accent);border-radius:999px;padding:2px 12px;margin-bottom:.5rem}
-.bl-jump{display:flex;flex-wrap:wrap;gap:.35rem;padding:.6rem 0 .2rem;position:sticky;top:0;z-index:5;
+.bl-jump{display:flex;flex-wrap:wrap;gap:.35rem;padding:.6rem 0 .2rem;
          background:inherit;border-bottom:1px solid var(--bl-line);margin-bottom:.4rem}
+/* Im Werkzeug nicht klebend: Die Seite hat schon eine eigene Kopfzeile, und
+   sechs eingebettete Abschnitte haetten sechs klebende Leisten. Im Export
+   (DOC_CSS) ist sie sticky, dort gibt es keine andere Navigation. */
 .bl-jump a{font-size:.82rem;text-decoration:none;color:inherit;opacity:.75;border:1px solid var(--bl-line);
            border-radius:999px;padding:3px 11px;white-space:nowrap}
 .bl-jump a:hover{opacity:1;border-color:var(--bl-accent);color:var(--bl-accent)}
@@ -474,7 +477,7 @@ code{font-family:"IBM Plex Mono",Consolas,monospace;font-size:.85em;background:v
 pre{font-family:"IBM Plex Mono",Consolas,monospace}
 footer.doc{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);opacity:.65;font-size:.82rem}
 .bl{--bl-line:var(--line);--bl-soft:var(--soft);--bl-accent:var(--accent)}
-.bl-jump{background:var(--bg)}
+.bl-jump{background:var(--bg);position:sticky;top:0;z-index:5}
 `;
 
 /** Eigenständiges Dokument — zum Weitergeben, Drucken, Archivieren. */
