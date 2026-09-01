@@ -10,6 +10,8 @@
   // Bekannte Break-Risiken aus der OIB-Doku: koennen bestehenden Zugriff
   // brechen, wenn ungetestet scharf ausgerollt. Matching auf den vollen
   // Policy-Namen ("Win - OIB - <Typ> - ..."), damit es Prefix-unabhaengig bleibt.
+  // Diese Policies werden bei "Alle auswaehlen" bewusst NICHT mitgenommen —
+  // wer sie ausrollt, soll das einzeln und mit Absicht tun.
   const BREAK_RISK = [
     { match: /disable ntlm/i, risk: 'RDP per IP, Legacy-Apps/-Dienste mit NTLM' },
     { match: /local security policies/i, risk: 'Alte NAS/Drucker/SMBv1, LAN-Manager-/SMB-Signing-Auth' },
@@ -19,6 +21,19 @@
   function breakRiskFor(name) {
     const hit = BREAK_RISK.find(b => b.match.test(name || ''))
     return hit ? hit.risk : null
+  }
+
+  // Drittanbieter-AV: Bei unseren Kunden laeuft grundsaetzlich Bitdefender.
+  // Die Defender-Antivirus-Policies der Baseline (AV Configuration, Security
+  // Experience, die drei Update-Ringe) kollidieren damit oder laufen ins Leere,
+  // sobald Defender in den passiven Modus faellt. Sie werden deshalb behandelt
+  // wie eine veraltete Version: markiert und bei "Alle auswaehlen" bewusst NICHT
+  // mitgenommen. Wer sie fuer einen Defender-Kunden braucht, hakt sie einzeln an.
+  // Absichtlich eng gefasst: Firewall, ASR und SmartScreen sind eigene
+  // Entscheidungen und bleiben in der Sammelauswahl drin.
+  const THIRD_PARTY_AV = /defender antivirus/i
+  function avConflict(name) {
+    return THIRD_PARTY_AV.test(String(name || '')) ? 'Defender-Antivirus-Policy — bei uns läuft Bitdefender' : null
   }
 
   // Policy-Namen enden oft auf "... - v3.7" / "... - v3.8" (OIB-Versionsschema).
@@ -172,9 +187,64 @@
       loadError = null
       assignResult = null
       checked = {}
-      if (id) load()
+      devSettings = null
+      devError = null
+      devNotice = null
+      if (id) { load(); loadDevSettings() }
     }
   })
+
+  // ---------- Entra-Geraeteeinstellungen: LAPS ----------
+  // Der Schalter aus Entra ID > Geraete > Geraeteeinstellungen. Ohne ihn sichert
+  // Windows LAPS das lokale Administratorkennwort nicht nach Entra — die
+  // Intune-Policy allein reicht nicht.
+  let devSettings = $state(null)
+  let devLoading = $state(false)
+  let devBusy = $state(false)
+  let devError = $state(null)
+  let devNotice = $state(null)
+
+  async function loadDevSettings() {
+    if (!$activeTenant) return
+    devLoading = true
+    devError = null
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/entra/devicesettings`)
+      devSettings = r.settings
+    } catch (e) {
+      devError = e.message
+    }
+    devLoading = false
+  }
+
+  async function toggleLaps() {
+    if (!devSettings) return
+    const want = !devSettings.lapsEnabled
+    const s = devSettings
+    const mfa = s.multiFactorAuthConfiguration === 'required' ? 'erforderlich' : 'nicht erforderlich'
+    if (!confirm(`${want ? 'LAPS im Tenant EINSCHALTEN?' : 'LAPS im Tenant AUSSCHALTEN?'}
+
+Tenant: ${$activeTenant.name}
+Entra ID > Geräte > Geräteeinstellungen, Schalter „Lokale Administratorkennwortlösung (LAPS)".
+
+Microsoft kann diese Seite nur komplett schreiben. Alle übrigen Werte gehen unverändert zurück:
+Gerätekontingent ${s.userDeviceQuota}, MFA ${mfa}, Beitritt erlaubt für ${s.joinAllowed}.${want ? '' : `
+
+Aus heisst: bereits gesicherte Kennwörter bleiben in Entra, neue werden nicht mehr hinterlegt.`}`)) return
+    devBusy = true
+    devError = null
+    devNotice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/entra/devicesettings/laps`, { enabled: want })
+      devNotice = r.changed
+        ? (want ? '✅ LAPS ist jetzt aktiviert.' : 'LAPS ist jetzt deaktiviert.')
+        : 'Stand war schon so — nichts geschrieben.'
+      await loadDevSettings()
+    } catch (e) {
+      devError = e.message
+    }
+    devBusy = false
+  }
 
   async function load() {
     if (!$activeTenant) return
@@ -227,13 +297,13 @@
 
   function selectAll() {
     const next = {}
-    for (const p of data.policies) if (!alreadyInSelected(p) && !outdatedInfo(p)) next[p.id] = true
+    for (const p of data.policies) if (!alreadyInSelected(p) && !outdatedInfo(p) && !avConflict(p.name) && !breakRiskFor(p.name)) next[p.id] = true
     checked = next
   }
   function selectNone() { checked = {} }
   function selectTypeAll(type) {
     const next = { ...checked }
-    for (const p of data.policies) if (p.type === type && !alreadyInSelected(p) && !outdatedInfo(p)) next[p.id] = true
+    for (const p of data.policies) if (p.type === type && !alreadyInSelected(p) && !outdatedInfo(p) && !avConflict(p.name) && !breakRiskFor(p.name)) next[p.id] = true
     checked = next
   }
 
@@ -312,6 +382,11 @@
     if (risky.length) {
       const lines = risky.map(x => `• ${x.p.name}\n  → kann brechen: ${x.risk}`).join('\n\n')
       if (!confirm(`⚠️ ${risky.length} ausgewählte Policy/Policies gelten als Break-Risiko — vor scharfem Rollout testen:\n\n${lines}\n\nTrotzdem der Gruppe "${gname}" zuweisen?`)) return
+    }
+    const avHits = selectedPolicies.filter(p => avConflict(p.name))
+    if (avHits.length) {
+      const avLines = avHits.map(p => `• ${p.name}`).join('\n')
+      if (!confirm(`🛡️ ${avHits.length} ausgewählte Policy/Policies konfigurieren Microsoft Defender Antivirus:\n\n${avLines}\n\nBei Bitdefender-Kunden gehört das normalerweise NICHT ausgerollt — Defender läuft dort passiv, die Policy greift nicht oder stört.\n\nTrotzdem der Gruppe "${gname}" zuweisen?`)) return
     }
     if (!confirm(`${selected.length} Policy/Policies der Gruppe "${gname}" zuweisen?\n\nBestehende Assignments bleiben erhalten (Merge).`)) return
     assigning = true
@@ -443,6 +518,43 @@
 </script>
 
 <TenantContext>
+  <div class="settings-group">
+    <h4>Entra-Geräteeinstellungen</h4>
+    <p class="ld-section-hint">Aus <b>Entra ID → Geräte → Geräteeinstellungen</b>. Die Windows-LAPS-Policy in Intune
+      sichert das lokale Administratorkennwort nur dann nach Entra, wenn dieser Schalter an ist — sonst läuft die
+      Policy ins Leere, ohne Fehler.</p>
+
+    {#if devLoading && !devSettings}
+      <div class="ld-step running"><span class="ld-spinner"></span> Lese Geräteeinstellungen…</div>
+    {:else if devError}
+      <div class="alert alert-warning">❌ {devError}
+        {#if /Policy.ReadWrite.DeviceConfiguration/i.test(devError)}
+          <br /><small>Diese Berechtigung ist neu — im Tab „Tenants" einmal 🔧 Reparieren ausführen.</small>
+        {/if}
+      </div>
+    {:else if devSettings}
+      {#if devNotice}<div class="ld-banner ok">{devNotice}</div>{/if}
+      <div class="obj-row">
+        <code>Lokale Administratorkennwortlösung (LAPS)</code>
+        <span class="tbadge {devSettings.lapsEnabled ? 'ok' : 'warn'}">{devSettings.lapsEnabled ? 'Ja' : 'Nein'}</span>
+        <span class="obj-actions">
+          <button class="btn {devSettings.lapsEnabled ? 'btn-secondary' : 'btn-primary'}" onclick={toggleLaps} disabled={devBusy}>
+            {devBusy ? '…' : (devSettings.lapsEnabled ? 'Ausschalten' : 'Einschalten')}
+          </button>
+          <button class="btn btn-secondary" onclick={loadDevSettings} disabled={devLoading || devBusy}>↻</button>
+        </span>
+      </div>
+      <p class="ld-section-hint">Microsoft kann diese Seite nur komplett schreiben. Das Tool liest deshalb zuerst den
+        Ist-Stand und schreibt alles andere unverändert zurück:
+        Gerätekontingent <b>{devSettings.userDeviceQuota}</b> ·
+        MFA bei Registrierung <b>{devSettings.multiFactorAuthConfiguration === 'required' ? 'erforderlich' : 'nicht erforderlich'}</b> ·
+        Beitritt erlaubt für <b>{devSettings.joinAllowed}</b> ·
+        Registrierung erlaubt für <b>{devSettings.registerAllowed}</b> ·
+        lokale Admins: Globale Administratoren <b>{devSettings.localAdminsGlobalAdmins ? 'ja' : 'nein'}</b>,
+        registrierender Benutzer <b>{devSettings.localAdminsRegisteringUsers}</b>.</p>
+    {/if}
+  </div>
+
   <div class="settings-group">
     <h4>Intune-Baseline <small>(OpenIntuneBaseline)</small></h4>
     <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen — oder die Baseline zuerst direkt aus dem OpenIntuneBaseline-Repo importieren.</p>
@@ -727,6 +839,9 @@
           <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={selectAll}>Alle auswählen</button>
           <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={selectNone}>Keine</button>
         </div>
+        <p class="ld-section-hint">„Alle auswählen“ lässt drei Sorten bewusst aus: veraltete Versionen,
+          ⚠ Break-Risiko und 🛡 Defender-Antivirus (wir fahren Bitdefender). Die sind einzeln anhakbar —
+          nur eben nicht versehentlich.</p>
 
         {#each byType as grp (grp.type)}
           <div class="ld-phase complete">
@@ -737,15 +852,19 @@
               {@const already = alreadyInSelected(p)}
               {@const risk = breakRiskFor(p.name)}
               {@const outdated = outdatedInfo(p)}
-              <label class="ld-oib-row" class:already class:breakrisk={!!risk} class:outdated={!!outdated}>
+              {@const avHit = avConflict(p.name)}
+              <label class="ld-oib-row" class:already class:breakrisk={!!risk || !!avHit} class:outdated={!!outdated}>
                 <input type="checkbox" checked={!!checked[p.id]} disabled={already}
                        onchange={(e) => (checked = { ...checked, [p.id]: e.target.checked })} />
                 <span class="ld-oib-name">{p.name}</span>
                 {#if outdated}
                   <span class="ld-oib-outdated-tag" title="Neuere Version verfügbar: v{outdated.latest} — wird bei „Alle auswählen“ bewusst NICHT mit ausgewählt, Haken muss hier explizit gesetzt werden.">🆕 Neuere Version verfügbar (v{outdated.latest})</span>
                 {/if}
+                {#if avHit}
+                  <span class="ld-oib-risk" title="{avHit} — wird bei „Alle auswählen“ bewusst NICHT mit ausgewählt, Haken muss hier explizit gesetzt werden.">🛡 Defender-AV — Bitdefender prüfen</span>
+                {/if}
                 {#if risk}
-                  <span class="ld-oib-risk" title="Break-Risiko: {risk}">⚠ Break-Risiko</span>
+                  <span class="ld-oib-risk" title="Break-Risiko: {risk} — wird bei „Alle auswählen“ bewusst NICHT mit ausgewählt, Haken muss hier explizit gesetzt werden.">⚠ Break-Risiko</span>
                 {/if}
                 <small class="ld-oib-assigned">
                   {already ? '✓ bereits dieser Gruppe zugewiesen · ' : ''}{(p.assignments || []).length ? '→ ' + p.assignments.map(a => a.label).join(', ') : '→ nicht zugewiesen'}

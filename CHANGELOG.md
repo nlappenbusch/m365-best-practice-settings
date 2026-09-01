@@ -1,5 +1,67 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.23 - LAPS-Schalter im Tool, Defender-AV nicht mehr blind mitausgerollt (2026-09-02)
+
+**Entra-Geraeteeinstellungen: LAPS.** Der Schalter aus *Entra ID > Geraete >
+Geraeteeinstellungen* ("Aktivieren der lokalen Microsoft Entra-Administrator-
+kennwortloesung") steht jetzt oben im Tab Intune und laesst sich dort umlegen.
+Ohne ihn sichert die Windows-LAPS-Policy aus Intune das lokale Administrator-
+kennwort nicht nach Entra — sie laeuft ins Leere, ohne Fehlermeldung.
+
+Graph kennt dafuer nur `PUT /policies/deviceRegistrationPolicy`, und dieses PUT
+**ersetzt die ganze Seite**. Fuer `userDeviceQuota` steht in der Doku
+ausdruecklich: fehlt der Wert im Body, setzt Graph ihn auf 0 — dann kann niemand
+mehr ein Geraet joinen, tenantweit. `lib/entraDeviceSettings.js` macht deshalb
+strikt read-modify-write, aendert genau ein Feld und verweigert das Schreiben,
+wenn der gelesene Stand unvollstaendig ist. Die Rueckfrage zeigt vorher, was
+unveraendert zurueckgeschrieben wird (Quota, MFA, Beitrittsberechtigung).
+
+Neue Application-Permission: `Policy.ReadWrite.DeviceConfiguration` — es gibt
+keine engere. **Bestehende Tenants brauchen einmal "Reparieren"** im Tab Tenants.
+Sie haengt bewusst in der neuen, tolerant aufgeloesten Liste `GRAPH_APP_PERMS_OPTIONAL`:
+Die strikte Liste wirft, wenn eine Rolle im Graph-SP des Tenants fehlt — dann waere
+Onboarding und Reparieren komplett blockiert, nur weil eine Zusatzfunktion fehlt.
+
+**Defender-Antivirus-Policies bleiben bei "Alle auswaehlen" aussen vor.** Bei
+unseren Kunden laeuft Bitdefender; die fuenf `Defender Antivirus`-Policies der
+Baseline (AV Configuration, Security Experience, Update-Ringe 1-3) kollidieren
+damit oder laufen ins Leere, sobald Defender passiv wird. Sie sind jetzt in der
+Liste markiert, werden von "Alle auswaehlen" und der Typ-Sammelauswahl nicht
+mitgenommen und loesen vor der Zuweisung eine eigene Rueckfrage aus. Einzeln
+anhaken geht weiterhin — fuer Kunden, die wirklich Defender fahren.
+
+Bewusst eng gefasst: Firewall, ASR und SmartScreen heissen zwar auch "Defender",
+sind aber eigene Entscheidungen und bleiben in der Sammelauswahl.
+
+**Break-Risiko faellt jetzt ebenfalls aus "Alle auswaehlen".** Bisher wurden die
+vier Break-Risiko-Policies mitgenommen und erst beim Zuweisen abgefragt — eine
+Warnung, die man wegklickt, wenn man gerade 40 Policies bestaetigt. Damit lassen
+"Alle auswaehlen" und die Typ-Sammelauswahl drei Sorten aus: veraltete Versionen,
+Break-Risiko und Defender-Antivirus. Alle drei bleiben einzeln anhakbar, und ein
+Hinweis unter der Auswahlleiste sagt das jetzt auch, statt es im Tooltip zu verstecken.
+
+
+## Version 2.22 - Schutzgruppen zeigen wieder Namen und Mitglieder (2026-09-02)
+
+Schritt 2 "Schutzgruppen befuellen" listete vier namenlose Zeilen mit dauerhaft
+"0 Mitglieder" — und schlug deshalb immer Break-Glass-Alarm, auch wenn die
+Gruppe gefuellt war. Ursache war die Zentralisierung der Namenskonvention
+(Version 2.18, gestern): `SUPPORT_GROUPS` traegt seither kein statisches `name` mehr,
+`server.js` las das Feld aber weiter. `g.name` war `undefined`, damit fand der
+Abgleich gegen die Tenant-Gruppen nie etwas.
+
+- Der Name kommt jetzt aus `NAMING`; gesucht wird ueber **alle** Muster
+  (`NAMING.candidates`), also legacy *und* v2 — eine Gruppe nach altem Schema
+  bleibt sichtbar, nachdem der Tenant auf v2 umgestellt hat.
+- Ring-Gruppen werden nicht mehr am festen Praefix `AAD-CA-RING-` erkannt,
+  sondern am Ring-Muster des jeweiligen Profils. Unter v2 hiessen sie
+  `T0-CSG-GOV-CA-Ring<Ring>` und tauchten in der Liste gar nicht auf.
+- Neues Feld `exists`: Eine Schutzgruppe, die im Tenant noch fehlt, ist jetzt
+  als "noch nicht angelegt" markiert statt als leere Gruppe getarnt.
+
+Das Hinzufuegen von Mitgliedern war nie kaputt (der Endpunkt geht ueber
+`ensureSupportGroups`) — es war nur in der Liste danach nicht zu sehen.
+
 ## Version 2.21 - Wissensseiten holen ihre Werte aus der Baseline (2026-09-01)
 
 Die Prosa-Seiten erklaerten das Warum und wiederholten daneben die Werte —

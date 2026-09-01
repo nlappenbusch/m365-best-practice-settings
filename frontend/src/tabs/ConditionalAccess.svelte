@@ -633,6 +633,7 @@
         <div class="obj-row">
           <code>{g.name}</code>
           <span class="tbadge {critical ? 'warn' : 'ok'}">{g.memberCount} Mitglied{g.memberCount === 1 ? '' : 'er'}</span>
+          {#if g.exists === false}<small style="color:var(--text-dim);">noch nicht angelegt — entsteht beim ersten Hinzufügen</small>{/if}
           <span class="obj-actions">
             <button class="btn btn-secondary" onclick={() => toggleMemberSearch(g.key)}>{memberSearchOpen[g.key] ? 'Schliessen' : '+ Mitglied'}</button>
             {#if g.key === 'breakGlass'}

@@ -69,6 +69,7 @@ const MAESTER = require("./lib/maester");
 const MAESTER_EXPLAIN = require("./lib/maesterExplain");
 const MAESTER_PDF = require("./lib/maesterPdf");
 const MAESTER_HTML = require("./lib/maesterHtml");
+const ENTRADEV = require("./lib/entraDeviceSettings");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -94,6 +95,15 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
 const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
+// Optionale Graph-Permission: Policy.ReadWrite.DeviceConfiguration steuert die
+// Entra-Geraeteeinstellungen (LAPS-Schalter). Sie steht bewusst NICHT in
+// GRAPH_APP_PERMS: Die Liste dort wird strikt aufgeloest und wirft, wenn eine
+// Rolle im Graph-Service-Principal des Tenants fehlt — das wuerde Onboarding und
+// Reparieren komplett blockieren, nur weil eine Zusatzfunktion nicht ginge.
+// Tolerant aufgeloest heisst: fehlt sie, laeuft alles andere weiter und nur der
+// LAPS-Abschnitt meldet fehlende Berechtigung.
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration"];
+
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
 // Graph-Service-Principal (NetworkAccess = Global Secure Access, Security-
@@ -228,6 +238,15 @@ async function resolvePermissionTargets(token) {
   }
   if (maesterMissing.length) console.log("Maester-Permissions im Tenant nicht verfuegbar (uebersprungen): " + maesterMissing.join(", "));
 
+  // Optionale Permissions (siehe GRAPH_APP_PERMS_OPTIONAL) ebenso tolerant.
+  const graphRolesOptional = [];
+  const optionalMissing = [];
+  for (const v of GRAPH_APP_PERMS_OPTIONAL) {
+    const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
+    if (role) graphRolesOptional.push(role); else optionalMissing.push(v);
+  }
+  if (optionalMissing.length) console.log("Optionale Graph-Permissions im Tenant nicht verfuegbar (uebersprungen): " + optionalMissing.join(", "));
+
   // SharePoint-Rollen (fuer die Maester-SPO-Tests) — tolerant wie oben.
   let spoSp = null;
   const spoRolesMaester = [];
@@ -241,7 +260,7 @@ async function resolvePermissionTargets(token) {
     }
   } catch (e) { console.log("SharePoint-SP nicht aufloesbar (uebersprungen): " + e.message); }
 
-  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester };
+  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester };
 }
 
 // Admin-Consent (App-Role-Assignment) idempotent setzen.
@@ -293,8 +312,8 @@ async function ensureTcmSetup(token, exoSp, manageRole) {
  * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
  */
 async function provisionAppReg(token) {
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
-  const allGraphRoles = [...graphRoles, ...graphRolesMaester];
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
+  const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
   const requiredResourceAccess = [
     { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
     { resourceAppId: GRAPH_APP_ID, resourceAccess: allGraphRoles.map(r => ({ id: r.id, type: "Role" })) }
@@ -371,8 +390,8 @@ async function repairAppReg(token, rec, opts) {
   push("App-Registrierung", "ok", app.displayName);
 
   // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB + Maester) im Manifest
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
-  const allGraphRoles = [...graphRoles, ...graphRolesMaester];
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
+  const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
   try {
     const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
     let changed = false;
@@ -4787,6 +4806,50 @@ app.post("/api/tenants/:id/migration/deploy", wrap(async (req, res) => {
   res.json({ ok: true, jobId: job.id });
 }));
 
+// ---------- Entra-Geraeteeinstellungen (LAPS) ----------
+// Portal-Aequivalent: Entra ID > Geraete > Geraeteeinstellungen. Interessant ist
+// hier vor allem der LAPS-Schalter: Ohne ihn sichert Windows LAPS das lokale
+// Administratorkennwort nicht nach Entra, egal wie die Intune-Policy aussieht.
+app.get("/api/tenants/:id/entra/devicesettings", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, settings: ENTRADEV.summarize({
+      userDeviceQuota: 50, multiFactorAuthConfiguration: "notRequired",
+      azureADRegistration: { isAdminConfigurable: false, allowedToRegister: { "@odata.type": "#microsoft.graph.allDeviceRegistrationMembership" } },
+      azureADJoin: { isAdminConfigurable: true, allowedToJoin: { "@odata.type": "#microsoft.graph.allDeviceRegistrationMembership" }, localAdmins: { enableGlobalAdmins: true, registeringUsers: { "@odata.type": "#microsoft.graph.noDeviceRegistrationMembership" } } },
+      localAdminPassword: { isEnabled: false }
+    }) });
+  }
+  try {
+    const pol = await ENTRADEV.readPolicy(t, certPemPath(t.tenantId));
+    res.json({ ok: true, settings: ENTRADEV.summarize(pol) });
+  } catch (e) {
+    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+      return res.status(403).json({ error: "Die Geraeteeinstellungen brauchen Policy.ReadWrite.DeviceConfiguration — im Tab 'Tenants' einmal Reparieren ausfuehren." });
+    }
+    throw e;
+  }
+}));
+
+// Schreibender Eingriff im Kundentenant: Die Bestaetigung passiert im Frontend,
+// die Schutzregel (nur read-modify-write, kein PUT auf unvollstaendigem Stand)
+// sitzt serverseitig in lib/entraDeviceSettings.js.
+app.post("/api/tenants/:id/entra/devicesettings/laps", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const enabled = !!(req.body || {}).enabled;
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, settings: { lapsEnabled: enabled } });
+  try {
+    const r = await ENTRADEV.setLapsEnabled(t, certPemPath(t.tenantId), enabled);
+    console.log(`Entra-Geraeteeinstellungen: LAPS ${enabled ? "aktiviert" : "deaktiviert"} in Tenant ${t.name}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.policy });
+  } catch (e) {
+    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+      return res.status(403).json({ error: "LAPS umschalten braucht Policy.ReadWrite.DeviceConfiguration — im Tab 'Tenants' einmal Reparieren ausfuehren." });
+    }
+    throw e;
+  }
+}));
+
 // ---------- Conditional Access ----------
 app.get("/api/conditionalaccess/tiers", (req, res) => {
   const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
@@ -4808,11 +4871,11 @@ app.get("/api/conditionalaccess/tiers", (req, res) => {
 function fakeCaPolicies() {
   return {
     supportGroups: [
-      { key: "breakGlass", name: "AAD-CA-BreakGlass", id: "ca-g1", memberCount: 0 },
-      { key: "syncAccounts", name: "AAD-CA-SyncAccounts", id: "ca-g2", memberCount: 1 },
-      { key: "exclusionTemp", name: "AAD-CA-ExclusionTemp", id: "ca-g3", memberCount: 0 },
-      { key: "exclusionPerm", name: "AAD-CA-ExclusionPermanent", id: "ca-g4", memberCount: 0 },
-      { key: "ring:PILOT", name: "AAD-CA-RING-PILOT", id: "ca-g5", memberCount: 0 }
+      { key: "breakGlass", name: "AAD-CA-BreakGlass", id: "ca-g1", exists: true, memberCount: 0 },
+      { key: "syncAccounts", name: "AAD-CA-SyncAccounts", id: "ca-g2", exists: true, memberCount: 1 },
+      { key: "exclusionTemp", name: "AAD-CA-ExclusionTemp", id: "ca-g3", exists: true, memberCount: 0 },
+      { key: "exclusionPerm", name: "AAD-CA-ExclusionPermanent", id: "ca-g4", exists: true, memberCount: 0 },
+      { key: "ring:PILOT", name: "AAD-CA-RING-PILOT", id: "ca-g5", exists: true, memberCount: 0 }
     ],
     policies: [
       { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins", managed: true },
@@ -4821,6 +4884,25 @@ function fakeCaPolicies() {
       { id: "ca-p4", displayName: "Legacy - Block Legacy Auth (manuell im Portal angelegt)", state: "enabled", scope: "Alle", managed: false }
     ]
   };
+}
+
+// Umkehrung zu NAMING.name("caRing", ...): Ring-Kuerzel aus einem Gruppennamen
+// zurueckgewinnen. Geprueft wird gegen die Muster aller Profile, damit auch
+// Ringe nach altem Schema (AAD-CA-RING-PILOT) weiterhin erkannt werden.
+const RING_SENTINEL = "RingSentinelX9";
+function ringFromGroupName(displayName, tenantId) {
+  const n = String(displayName || "");
+  for (const tpl of NAMING.candidates("caRing", { ring: RING_SENTINEL }, tenantId)) {
+    const i = tpl.toLowerCase().indexOf(RING_SENTINEL.toLowerCase());
+    if (i < 0) continue;
+    const pre = tpl.slice(0, i), post = tpl.slice(i + RING_SENTINEL.length);
+    if (n.length <= pre.length + post.length) continue;
+    if (n.slice(0, pre.length).toLowerCase() !== pre.toLowerCase()) continue;
+    if (post && n.slice(-post.length).toLowerCase() !== post.toLowerCase()) continue;
+    const ring = n.slice(pre.length, post ? n.length - post.length : n.length);
+    if (/^[A-Za-z0-9]{2,12}$/.test(ring)) return ring.toUpperCase();
+  }
+  return null;
 }
 
 app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => {
@@ -4832,21 +4914,33 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
     GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true })
   ]);
   const groupName = new Map(groups.map(g => [g.id, g.displayName]));
+  const countMembers = async (groupId) => {
+    try { return (await GRAPHLIB.graphAllPages(t, cert, `/groups/${groupId}/members?$select=id`, { retryTransient: true })).length; }
+    catch (e) { return 0; /* ein Zaehlfehler darf die Liste nicht kippen */ }
+  };
   const supportGroups = [];
   for (const g of CONDACCESS.SUPPORT_GROUPS) {
-    const match = groups.find(x => x.displayName === g.name);
-    let memberCount = 0;
-    if (match) {
-      try { memberCount = (await GRAPHLIB.graphAllPages(t, cert, `/groups/${match.id}/members?$select=id`, { retryTransient: true })).length; } catch (e) { /* egal */ }
-    }
-    supportGroups.push({ key: g.key, name: g.name, id: match ? match.id : null, memberCount });
+    // Der Name steht nicht mehr in SUPPORT_GROUPS, sondern kommt aus der
+    // Namenskonvention (lib/naming.js). Gesucht wird ueber alle bekannten
+    // Muster — sonst bleibt eine vorhandene Gruppe unsichtbar und die Zeile
+    // meldet dauerhaft "0 Mitglieder", inklusive falschem Break-Glass-Alarm.
+    const cands = NAMING.candidates(g.kind, {}, t.id).map(c => c.toLowerCase());
+    const match = groups.find(x => cands.includes(String(x.displayName || "").toLowerCase())) || null;
+    supportGroups.push({
+      key: g.key,
+      name: match ? match.displayName : CONDACCESS.supportGroupName(g.key, t.id),
+      id: match ? match.id : null,
+      exists: !!match,
+      memberCount: match ? await countMembers(match.id) : 0
+    });
   }
-  // Ring-Zielgruppen (AAD-CA-RING-*) mit anzeigen — sie steuern, WEN ein
-  // ring-getargetetes Deployment trifft, und brauchen dieselbe Mitglieder-Pflege.
-  for (const g of groups.filter(x => /^AAD-CA-RING-[A-Z0-9]{2,12}$/i.test(String(x.displayName || "")))) {
-    let memberCount = 0;
-    try { memberCount = (await GRAPHLIB.graphAllPages(t, cert, `/groups/${g.id}/members?$select=id`, { retryTransient: true })).length; } catch (e) { /* egal */ }
-    supportGroups.push({ key: "ring:" + g.displayName.replace(/^AAD-CA-RING-/i, "").toUpperCase(), name: g.displayName, id: g.id, memberCount });
+  // Ring-Zielgruppen mit anzeigen — sie steuern, WEN ein ring-getargetetes
+  // Deployment trifft, und brauchen dieselbe Mitglieder-Pflege. Erkannt wird
+  // ueber die Ring-Muster aller Profile, nicht ueber einen festen Praefix.
+  for (const g of groups) {
+    const ring = ringFromGroupName(g.displayName, t.id);
+    if (!ring) continue;
+    supportGroups.push({ key: "ring:" + ring, name: g.displayName, id: g.id, exists: true, memberCount: await countMembers(g.id) });
   }
   res.json({
     ok: true,
