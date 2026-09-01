@@ -107,6 +107,8 @@ table.bl-t th{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;opa
 .bl-chain-a{color:var(--bl-accent);font-weight:700}
 .bl-steps-plain li{padding-left:2.1rem}
 .bl-steps-plain span{opacity:1;font-size:1em}
+.bl-embed .bl-sec{border-top:0;padding-top:.4rem}
+.bl-embed .bl-sec h2{font-size:1.1rem}
 @media print{.bl-jump{display:none}.bl-det{border:0}.bl-det-body{padding-left:0}
   .bl-card,.bl-tw,.bl-steps li{break-inside:avoid}}
 `;
@@ -496,4 +498,26 @@ ${renderSections(b)}
 </div></body></html>`;
 }
 
-module.exports = { renderSections, renderDocument, BL_CSS };
+/**
+ * Einen einzelnen Abschnitt ausschneiden — fuer die Prosa-Wissensseiten, die
+ * ihre Werte aus der Baseline beziehen sollen statt eigene Kopien zu pflegen.
+ *
+ * Bewusst aus dem Gesamtfragment geschnitten und nicht als zweite Liste von
+ * Render-Funktionen gefuehrt: So kommt jeder neue Abschnitt automatisch mit,
+ * und es gibt keine Stelle, die man beim Erweitern vergessen kann. Die
+ * Abschnitte sind nicht verschachtelt — Karten sind <article>, nicht <section>.
+ */
+function renderSection(b, id) {
+  const key = "bl-" + String(id || "").replace(/^bl-/, "");
+  const all = renderSections(b);
+  const start = all.indexOf('<section id="' + key + '"');
+  if (start < 0) {
+    const e = new Error("Unbekannter Baseline-Abschnitt: " + id);
+    e.status = 404;
+    throw e;
+  }
+  const end = all.indexOf("</section>", start) + "</section>".length;
+  return "<style>" + BL_CSS + '</style><div class="bl bl-embed">' + all.slice(start, end) + "</div>";
+}
+
+module.exports = { renderSections, renderSection, renderDocument, BL_CSS };

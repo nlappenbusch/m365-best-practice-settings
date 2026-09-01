@@ -3668,7 +3668,10 @@ app.get("/api/baseline", wrap(async (req, res) => {
 // auseinanderlaufen. Fragment fuer die Oberflaeche, Dokument zum Weitergeben.
 app.get("/api/baseline/html", wrap(async (req, res) => {
   const tenantId = String(req.query.tenantId || "").trim() || null;
-  res.json({ ok: true, ...BASELINE.meta(), html: BASELINEDOC.renderSections(BASELINE.get(tenantId)) });
+  const section = String(req.query.section || "").trim();
+  const b = BASELINE.get(tenantId);
+  const html = section ? BASELINEDOC.renderSection(b, section) : BASELINEDOC.renderSections(b);
+  res.json({ ok: true, ...BASELINE.meta(), section: section || null, html });
 }));
 
 app.get("/api/baseline/export.html", wrap(async (req, res) => {

@@ -264,17 +264,7 @@ Benchmark-Umsetzung ab.</p>
 <h3>📋 Das CIS-Delta (Auszug — bewusste Abweichungen)</h3>
 <p>Jede Abweichung erfüllt drei Kriterien: dokumentiert, fachlich begründet, durch alternative Maßnahmen
 kompensiert.</p>
-<table class="comparison-table">
-  <thead><tr><th>Bereich</th><th>Beispiel-Control</th><th>Warum nicht umgesetzt</th><th>Kompensation</th></tr></thead>
-  <tbody>
-    <tr><td>Eigene Risiken vermeiden</td><td>Command-Line-Logging, PowerShell-Transkription</td><td>Credentials/Tokens landen im Klartext in Logs</td><td>Microsoft Defender for Endpoint (EDR, zentral, manipulationssicher)</td></tr>
-    <tr><td>Autopilot-Betriebsfähigkeit</td><td>AutoAdminLogon deaktivieren, Anmeldetext/-titel</td><td>Bricht Pre-Provisioning/Autopilot vollständig ab</td><td>AutoLogon nach Enrollment nicht mehr nötig; Nutzungsrichtlinie rechtlich abgesichert</td></tr>
-    <tr><td>Moderne Identität (WHfB)</td><td>Passwort-Policies (Länge/Alter/Komplexität), „STRG+ALT+ENTF erzwingen"</td><td>Zerstört WHfB-UX, redundant bei Cloud-Identity</td><td>Windows Hello for Business + MFA + Conditional Access</td></tr>
-    <tr><td>IT-Support (BAU)</td><td>UAC: Erhöhung für Standardbenutzer automatisch ablehnen</td><td>Blockiert Helpdesk, LAPS nicht nutzbar</td><td>UAC bleibt kontrolliert nutzbar</td></tr>
-    <tr><td>Irrelevanz Cloud-Architektur</td><td>UNC-Härtung, GPO-Hintergrundverarbeitung, NTLM-/PKU2U-Auditing</td><td>Kein lokales AD, kein SYSVOL, kein GPO-Management</td><td>Technisch nicht anwendbar (Entra-only)</td></tr>
-    <tr><td>Modernes Update-Management</td><td>Feature-/Quality-Update-Deferrals, Neustart-Steuerung</td><td>Starr, keine Ring-Steuerung</td><td>Windows Autopatch / Windows Update for Business Rings</td></tr>
-  </tbody>
-</table>
+<p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die vollständige Liste der Abweichungen mit Begründung und Kompensation steht unten in der Baseline-Fassung — dort wird sie gepflegt, hier stand sie bisher als Kopie.</p>
 <p class="note">CIS plant, die klassischen Passwort-Richtlinien im nächsten Benchmark selbst zu entfernen — sie
 gelten für moderne Cloud-Umgebungen als überholt.</p>
 
@@ -348,15 +338,7 @@ Gerätegruppen — Details siehe „🏷️ Namenskonventionen".</p>
 <p>Folgende Policies können bestehenden Zugriff brechen und sollten vor dem scharfen Ausrollen getestet werden
 (wo möglich zuerst Audit-Mode/Audit-Logs nutzen, Legacy-Abhängigkeiten klären, dann enforcen). Der Tab
 <b>💻 Intune</b> markiert genau diese vier Policies automatisch.</p>
-<table class="comparison-table">
-  <thead><tr><th>Policy</th><th>Bricht potenziell</th><th>Risiko</th></tr></thead>
-  <tbody>
-    <tr><td>Network Security – D – Disable NTLM</td><td>RDP per IP, Legacy-Apps/-Dienste mit NTLM</td><td><span class="risk-badge hoch">Hoch</span></td></tr>
-    <tr><td>Device Security – D – Local Security Policies (24H2+)</td><td>Alte NAS/Drucker/SMBv1, LAN-Manager-/SMB-Signing-Auth</td><td><span class="risk-badge hoch">Hoch</span></td></tr>
-    <tr><td>Device Security – U – Device Guard, Credential Guard &amp; HVCI</td><td>NTLMv1-SSO, RDP/VPN/802.1x mit Passwort-SSO, gespeicherte RDP-Creds, inkompatible Treiber</td><td><span class="risk-badge hoch">Hoch</span></td></tr>
-    <tr><td>Device Security – D – Remote Desktop Services and RPC</td><td>RDP, Legacy-RPC-Apps</td><td><span class="risk-badge hoch">Hoch</span></td></tr>
-  </tbody>
-</table>
+<p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die aktuelle Break-Risk-Liste mit Risikostufen steht unten in der Baseline-Fassung.</p>
 
 <h3>🛠️ Praktische Anwendung: So arbeitet man mit OIB</h3>
 <p>OIB ist eine modulare Sammlung von Intune-Konfigurationen als „known-good"-Baseline. Grundprinzip: in drei
@@ -665,14 +647,7 @@ wird je direkt scharf angelegt, und der Rollout läuft immer in kontrollierten W
 <h3>🎚️ Drei Ausbaustufen</h3>
 <p>Je nach Lizenzierung des Tenants steht eine passende Tier zur Verfügung — von reiner MFA-Erzwingung bis zu
 Risiko-basierten Policies:</p>
-<table class="comparison-table">
-  <thead><tr><th>Tier</th><th>Umfang</th><th>Lizenz</th></tr></thead>
-  <tbody>
-    <tr><td><b>Bare Minimum</b></td><td>Nur Authentication-Strength/MFA — keine Geräte-Compliance-Anforderung. Funktioniert unabhängig davon, ob Geräte Intune-verwaltet sind.</td><td>Keine Zusatzlizenz (Security-Defaults-Niveau, aber granularer)</td></tr>
-    <tr><td><b>AADP1</b></td><td>Zusätzlich Geräte-Compliance/Hybrid-Join als Optionen, App-Protection, mehr Attack-Surface-Reduction-Regeln.</td><td>Entra ID P1 (in Business Premium/E3 enthalten)</td></tr>
-    <tr><td><b>AADP1+P2</b></td><td>Zusätzlich Sign-in-/User-Risk-Policies (Identity Protection), Insider-Risk-Signale, Session-/Token-Schutz.</td><td>Entra ID P2 zusätzlich zu P1 (in E5 enthalten)</td></tr>
-  </tbody>
-</table>
+<p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die Stufen mit Umfang und Lizenzbedarf stehen unten in der Baseline-Fassung.</p>
 
 <h3>🔄 Das Ring-Konzept</h3>
 <p>Ursprünglich waren die Policies fest auf eine einzige Zielgruppe verdrahtet — im Alltag zu grob, wenn man ein
@@ -715,15 +690,7 @@ Tool verwaltet, bestehende Fremd-Policies bleiben unangetastet.</p>
 <h3>🛡️ Vier Schutzgruppen (immer leer angelegt)</h3>
 <p>Vor jedem Deploy stellt das Tool vier Ausschluss-Gruppen sicher und trägt sie in jede Policy ein — sie werden
 aber bewusst <b>leer</b> angelegt, der Admin muss sie selbst befüllen:</p>
-<table class="comparison-table">
-  <thead><tr><th>Gruppe</th><th>Zweck</th></tr></thead>
-  <tbody>
-    <tr><td><code>AAD-CA-BreakGlass</code></td><td>Notfallzugriffskonten — <b>vor dem Aktivieren</b> mit mindestens einem Konto befüllen, sonst droht Aussperrung.</td></tr>
-    <tr><td><code>AAD-CA-SyncAccounts</code></td><td>Entra-Connect-/Sync-Dienstkonten — dürfen nie durch interaktive Auth-Anforderungen blockiert werden.</td></tr>
-    <tr><td><code>AAD-CA-ExclusionTemp</code></td><td>Temporäre Ausnahmen (z.B. Troubleshooting) — zeitnah wieder leeren.</td></tr>
-    <tr><td><code>AAD-CA-ExclusionPermanent</code></td><td>Dauerhafte, dokumentierte Ausnahmen (z.B. Legacy-Systemkonten).</td></tr>
-  </tbody>
-</table>
+<p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die Gruppen stehen unten in der Baseline-Fassung — dort mit den Namen, die in diesem Tenant tatsächlich gelten.</p>
 
 <h3>🚨 Break-Glass-Konten</h3>
 <p>Microsoft empfiehlt mindestens zwei Notfallkonten, ausgeschlossen von jeder Conditional-Access-Policy. Sie
@@ -785,16 +752,7 @@ delegiertes PowerShell-Skript).</p>
 </div>
 
 <h3>📦 Was gesichert wird</h3>
-<table class="comparison-table">
-  <thead><tr><th>Kategorie</th><th>Umfang</th></tr></thead>
-  <tbody>
-    <tr><td>Settings Catalog</td><td>inkl. aller Settings (<code>$expand=settings</code>)</td></tr>
-    <tr><td>Compliance Policies</td><td>inkl. Scheduled Actions for Rule</td></tr>
-    <tr><td>Device Configurations</td><td>klassische Konfigurationsprofile</td></tr>
-    <tr><td>Plattform-Skripte</td><td>inkl. Skript-Inhalt (pro Skript einzeln abgerufen)</td></tr>
-    <tr><td>Feature-/Quality-/Driver-Updates</td><td>alle drei Update-Ring-Profiltypen</td></tr>
-  </tbody>
-</table>
+<p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Der gesicherte Umfang steht unten in der Baseline-Fassung.</p>
 <div class="alert alert-info">
   <strong>ℹ️ Bewusst nicht dabei: Admin Templates (ADMX).</strong> Deren <code>definitionValues</code>-Modell
   bräuchte eine eigene, deutlich komplexere Restore-Logik — ohne die wäre ein „Backup" davon nur Schein-Sicherheit.

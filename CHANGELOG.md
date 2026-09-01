@@ -1,5 +1,31 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.21 - Wissensseiten holen ihre Werte aus der Baseline (2026-09-01)
+
+Die Prosa-Seiten erklaerten das Warum und wiederholten daneben die Werte —
+Break-Risk-Liste, CIS-Delta, CA-Schutzgruppen, Backup-Umfang. Genau dort
+veraltet dann wieder etwas. Jetzt ziehen sie den passenden Baseline-Abschnitt
+nach:  liefert ihn einzeln, gerendert vom
+selben Code wie die Baseline-Seite und der Export.
+
+| Wissensseite | zieht |
+|---|---|
+| Autopilot | Runbook, Einmal-Setup, Stolpersteine |
+| OpenIntuneBaseline | Break-Risk-Liste, CIS-Delta, Assignment-Filter |
+| Conditional Access | Ringe mit aufgeloesten Gruppennamen, Schutzgruppen, Ausbaustufen |
+| Intune-Backup | Umfang, ADMX-Luecke, Nie-Regeln |
+| Mappings | Vergleich Drive gegen Printer, Nesting-Falle, Kerberos |
+| Patch My PC | die vier Agent-Module mit allen Feldwerten |
+
+Die duplizierten Tabellen sind aus der Prosa raus; an ihrer Stelle steht ein
+Verweis. **Die Begruendungen bleiben** — das ist der Teil, den die Baseline
+nicht ersetzen kann, und der Grund, warum es die Prosa-Seiten weiter gibt.
+
+ schneidet den Abschnitt aus dem Gesamtfragment, statt eine
+zweite Liste von Render-Funktionen zu fuehren: So kommt jeder neue Abschnitt
+automatisch mit.
+
+
 ## Version 2.20 - Baseline vollstaendig (2026-09-01)
 
 Die Baseline (2.19) hatte die Agent-Module, das Custom-App-Grundgeruest, OIB,

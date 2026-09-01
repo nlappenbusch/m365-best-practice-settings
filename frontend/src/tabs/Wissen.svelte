@@ -11,6 +11,23 @@
   // auseinanderlaufen.
   let baselineDoc = $state('')
   let baselineVersion = $state('')
+
+  // Die Prosa-Seiten erklaeren das Warum; die Sollwerte holen sie aus der
+  // Baseline, statt eigene Kopien zu pflegen. Ein Abschnitt je Thema, geladen
+  // wenn das Thema geoeffnet wird.
+  const BL_FOR_TOPIC = {
+    oib: 'oib', ca: 'ca', mappings: 'mappings',
+    autopilot: 'autopilot', backup: 'backup', pmp: 'agents', mailsec: 'mailsec'
+  }
+  let blParts = $state({})
+  $effect(() => {
+    const key = BL_FOR_TOPIC[sub]
+    if (!key || blParts[key]) return
+    const t = $activeTenant
+    apiGet('/api/baseline/html?section=' + key + (t ? '&tenantId=' + encodeURIComponent(t.id) : ''))
+      .then(r => { blParts = { ...blParts, [key]: r.html } })
+      .catch(() => {})
+  })
   $effect(() => {
     if (sub !== 'baseline' || baselineDoc) return
     const t = $activeTenant
@@ -284,6 +301,12 @@
     <h2>Blueprint — Geräteprovisionierung (Autopilot)</h2>
     <div class="docs-content">{@html autopilot}</div>
   </section>
+  {#if blParts['autopilot']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Sollwerte und Runbook aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['autopilot']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'oib'}>
@@ -294,6 +317,12 @@
     <h2>OpenIntuneBaseline (OIB) — Management Summary</h2>
     <div class="docs-content">{@html oib}</div>
   </section>
+  {#if blParts['oib']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Break-Risk-Liste und CIS-Delta aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['oib']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'ca'}>
@@ -304,6 +333,12 @@
     <h2>Conditional Access — Ring-Konzept &amp; Sicherheitsleitplanken</h2>
     <div class="docs-content">{@html condAccess}</div>
   </section>
+  {#if blParts['ca']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Ringe, Schutzgruppen und Ausbaustufen aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['ca']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'backup'}>
@@ -314,6 +349,12 @@
     <h2>Intune-Backup &amp; -Restore</h2>
     <div class="docs-content">{@html intuneBackup}</div>
   </section>
+  {#if blParts['backup']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Umfang und Restore-Regeln aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['backup']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'mappings'}>
@@ -324,6 +365,12 @@
     <h2>Mappings — Laufwerke &amp; Drucker auf Cloud-only-Geräten</h2>
     <div class="docs-content">{@html mappings}</div>
   </section>
+  {#if blParts['mappings']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Vergleich und Fallen aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['mappings']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'pmp'}>
@@ -331,6 +378,12 @@
     <h2>Automatisiertes Third-Party-Patch- und App-Management mit Patch My PC</h2>
     <div class="docs-content">{@html patchMyPc}</div>
   </section>
+  {#if blParts['agents']}
+    <section class="docs-section bl-embed-wrap">
+      <h2>Agent-Module und Feldwerte aus der Baseline</h2>
+      <div class="docs-content">{@html blParts['agents']}</div>
+    </section>
+  {/if}
 </div>
 
 <div class="dl-panel" class:active={sub === 'naming'}>
