@@ -519,10 +519,10 @@ Aus heisst: bereits gesicherte Kennwörter bleiben in Entra, neue werden nicht m
 
 <TenantContext>
   <div class="settings-group">
-    <h4>Entra-Geräteeinstellungen</h4>
-    <p class="ld-section-hint">Aus <b>Entra ID → Geräte → Geräteeinstellungen</b>. Die Windows-LAPS-Policy in Intune
-      sichert das lokale Administratorkennwort nur dann nach Entra, wenn dieser Schalter an ist — sonst läuft die
-      Policy ins Leere, ohne Fehler.</p>
+    <h4>Entra-Geräteeinstellungen
+      <button class="btn btn-secondary" style="margin-left:auto; padding:0.15rem 0.55rem; font-size:0.75rem; font-weight:500;"
+              onclick={loadDevSettings} disabled={devLoading || devBusy} title="Ist-Stand neu lesen">↻</button>
+    </h4>
 
     {#if devLoading && !devSettings}
       <div class="ld-step running"><span class="ld-spinner"></span> Lese Geräteeinstellungen…</div>
@@ -534,24 +534,50 @@ Aus heisst: bereits gesicherte Kennwörter bleiben in Entra, neue werden nicht m
       </div>
     {:else if devSettings}
       {#if devNotice}<div class="ld-banner ok">{devNotice}</div>{/if}
-      <div class="obj-row">
-        <code>Lokale Administratorkennwortlösung (LAPS)</code>
-        <span class="tbadge {devSettings.lapsEnabled ? 'ok' : 'warn'}">{devSettings.lapsEnabled ? 'Ja' : 'Nein'}</span>
-        <span class="obj-actions">
-          <button class="btn {devSettings.lapsEnabled ? 'btn-secondary' : 'btn-primary'}" onclick={toggleLaps} disabled={devBusy}>
-            {devBusy ? '…' : (devSettings.lapsEnabled ? 'Ausschalten' : 'Einschalten')}
-          </button>
-          <button class="btn btn-secondary" onclick={loadDevSettings} disabled={devLoading || devBusy}>↻</button>
-        </span>
+
+      <div class="ld-banner {devSettings.lapsEnabled ? 'ok' : 'warn'}"
+           style="display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+        <div style="flex:1 1 22rem;">
+          <b>Lokale Administratorkennwörter (LAPS): {devSettings.lapsEnabled ? 'werden in Entra hinterlegt' : 'werden nicht hinterlegt'}</b>
+          <div><small>
+            {#if devSettings.lapsEnabled}
+              Jedes Gerät bekommt ein eigenes, zufälliges Administratorkennwort, das Entra für dich aufbewahrt.
+              Nachschauen: Entra ID → Geräte → das Gerät → „Lokale Administratorkennwörter".
+            {:else}
+              Entra nimmt keine Kennwörter entgegen. Eine LAPS-Policy in Intune läuft damit ins Leere — ohne Fehlermeldung,
+              und im Notfall gibt es kein Kennwort zum Nachschlagen.
+            {/if}
+          </small></div>
+        </div>
+        <button class="btn {devSettings.lapsEnabled ? 'btn-secondary' : 'btn-primary'}" onclick={toggleLaps} disabled={devBusy}>
+          {devBusy ? '…' : (devSettings.lapsEnabled ? 'Ausschalten' : 'Einschalten')}
+        </button>
       </div>
-      <p class="ld-section-hint">Microsoft kann diese Seite nur komplett schreiben. Das Tool liest deshalb zuerst den
-        Ist-Stand und schreibt alles andere unverändert zurück:
-        Gerätekontingent <b>{devSettings.userDeviceQuota}</b> ·
-        MFA bei Registrierung <b>{devSettings.multiFactorAuthConfiguration === 'required' ? 'erforderlich' : 'nicht erforderlich'}</b> ·
-        Beitritt erlaubt für <b>{devSettings.joinAllowed}</b> ·
-        Registrierung erlaubt für <b>{devSettings.registerAllowed}</b> ·
-        lokale Admins: Globale Administratoren <b>{devSettings.localAdminsGlobalAdmins ? 'ja' : 'nein'}</b>,
-        registrierender Benutzer <b>{devSettings.localAdminsRegisteringUsers}</b>.</p>
+
+      <p class="ld-section-hint">
+        {#if devSettings.lapsEnabled}
+          ✓ Voraussetzung erfüllt. Erzeugt und rotiert werden die Kennwörter von der <b>LAPS-Policy in Intune</b> —
+          ohne die passiert trotz Schalter nichts.
+        {:else}
+          Der Schalter sitzt in <b>Entra ID → Geräte → Geräteeinstellungen</b>. Er ist nur die Erlaubnis; die eigentliche
+          Konfiguration macht danach die <b>LAPS-Policy in Intune</b>.
+        {/if}
+      </p>
+
+      <details class="ld-step">
+        <summary><small>Was beim Umschalten sonst noch mitgeschrieben wird</small></summary>
+        <p class="ld-section-hint" style="margin-top:0.4rem;">Microsoft kann diese Seite nur als Ganzes speichern. Das Tool liest
+          deshalb zuerst den Ist-Stand und schickt diese Werte <b>unverändert</b> zurück:</p>
+        <table class="gt-table" style="margin-top:0.3rem;">
+          <tbody>
+            <tr><td>Geräte je Benutzer (Kontingent)</td><td><b>{devSettings.userDeviceQuota}</b></td></tr>
+            <tr><td>MFA beim Registrieren eines Geräts</td><td><b>{devSettings.multiFactorAuthConfiguration === 'required' ? 'erforderlich' : 'nicht erforderlich'}</b></td></tr>
+            <tr><td>Entra-Beitritt erlaubt für</td><td><b>{devSettings.joinAllowed}</b></td></tr>
+            <tr><td>Geräteregistrierung erlaubt für</td><td><b>{devSettings.registerAllowed}</b></td></tr>
+            <tr><td>Lokale Admins auf neuen Geräten</td><td><b>Globale Administratoren: {devSettings.localAdminsGlobalAdmins ? 'ja' : 'nein'}</b> · registrierender Benutzer: <b>{devSettings.localAdminsRegisteringUsers}</b></td></tr>
+          </tbody>
+        </table>
+      </details>
     {/if}
   </div>
 
