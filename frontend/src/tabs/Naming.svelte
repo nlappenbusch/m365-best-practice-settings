@@ -100,6 +100,12 @@
     load()
   })
 
+  // Nach einem Fehlversuch (etwa 401 kurz vor der Anmeldung) darf es einen
+  // zweiten Anlauf geben — sonst bleibt der Bereich dauerhaft leer.
+  $effect(() => {
+    if (error && !data) loaded = false
+  })
+
   function setScope(v) {
     scope = v
     applyScope()

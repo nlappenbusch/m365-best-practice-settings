@@ -5,6 +5,7 @@
   import { autopilotHtml, oibHtml, namingHtml, patchMyPcHtml, conditionalAccessHtml, intuneBackupHtml, mappingsHtml } from '../lib/wissenIntune.js'
   import { apiGet } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
+  import { session } from '../lib/session.js'
 
   // Die Baseline-Seite zeigt keinen getippten Text, sondern die Sollwerte aus
   // baseline.json — gerendert vom Server, damit Wissensseite und Export nicht
@@ -21,6 +22,10 @@
   }
   let blParts = $state({})
   $effect(() => {
+    // $session muss GELESEN werden, nicht nur geprueft: Sonst laeuft der
+    // Effekt beim Seitenaufbau einmal ohne Sitzung (401) und danach nie wieder,
+    // weil ihn die Anmeldung nicht als Aenderung erreicht.
+    if (!$session.loggedIn) return
     const key = BL_FOR_TOPIC[sub]
     if (!key || blParts[key]) return
     const t = $activeTenant
@@ -29,6 +34,7 @@
       .catch(() => {})
   })
   $effect(() => {
+    if (!$session.loggedIn) return
     if (sub !== 'baseline' || baselineDoc) return
     const t = $activeTenant
     const q = t ? '?tenantId=' + encodeURIComponent(t.id) : ''
@@ -96,7 +102,7 @@
   let nm = $state(null)
   let detailTouched = false
   $effect(() => {
-    if (nm) return
+    if (!$session.loggedIn || nm) return
     loadNaming(null).then(v => {
       nm = v
       // Vorbelegung passend zum aktiven Schema: Im Bestand lautet der GroupTag
