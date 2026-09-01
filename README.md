@@ -237,6 +237,27 @@ die vor der Alert-Policy-Erweiterung onboardet wurden, einfach neu onboarden —
 dabei wird die fehlende Compliance-Administrator-Rolle ergänzt (App und
 Zertifikat bleiben erhalten bzw. werden erneuert).
 
+## 📐 Baseline (Tab Wissen → Baseline)
+
+Die Betriebsrichtlinien als **eine Quelle**: `api/baseline/baseline.json`.
+Darin die Agent-Module mit allen PMP-Feldwerten und Erkennungsregeln, das
+Grundgerüst für Custom Apps, CIS-Delta und Break-Risk-Liste, die
+Onboarding-Checkliste, die Mail-Härtung und die Entscheidungsregeln.
+
+Das Namensschema steht dort **nicht** — es kommt live aus der
+Namenskonvention dazu. Die Agent-Einträge tragen nur den Muster-Schlüssel, den
+fertigen Gruppennamen rechnet die Baseline aus.
+
+| Zugang | Wofür |
+|---|---|
+| Wissensseite **Baseline** | nachschlagen, inkl. der Namen wie sie in diesem Tenant heissen |
+| `GET /api/baseline/export.html` | eigenständiges Dokument zum Weitergeben und Drucken |
+| `GET /api/mcp/v1/baseline` | für KI-Beratung «gemäss Baseline vX.Y» — ohne Tenant-Freigabe, es sind Richtlinien |
+
+Geändert wird die Baseline über einen Commit mit Review, nicht über die
+Oberfläche. Eine Betriebsrichtlinie, die sich zur Laufzeit ändern lässt, ist
+keine.
+
 ## 🏷️ Namenskonvention (Tab Namenskonvention)
 
 Legt fest, wie die Objekte heissen, die dieses Werkzeug anlegt. Zwei Profile,

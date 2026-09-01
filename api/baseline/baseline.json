@@ -1,0 +1,244 @@
+{
+  "meta": {
+    "version": "1.0",
+    "gueltigAb": "2026-09-01",
+    "titel": "igeeks Managed-Setup — Baseline",
+    "zweck": "Maschinenlesbare Fassung der Betriebsrichtlinien. Werkzeug, Wissensseiten und Dokumentation speisen sich aus dieser Quelle, damit eine Regeländerung überall gleichzeitig wirkt.",
+    "hinweis": "Keine Kundendaten, keine Geheimnisse — reine Richtlinien. Das Namensschema steht NICHT hier, sondern kommt live aus lib/naming.js; die API führt beides zusammen.",
+    "changelog": [
+      { "version": "1.0", "am": "2026-09-01", "was": "Erste Fassung: Agent-Module, Custom-App-Grundgerüst, OIB-Delta und Break-Risk, Onboarding-Checkliste, Mail-Härtung." }
+    ]
+  },
+
+  "customApp": {
+    "titel": "Grundgerüst für jede Custom App in Patch My PC",
+    "beschreibung": "Die Agent-Module unterscheiden sich nur in Installer, Kommandozeile, Erkennung und Zielgruppe. Alles andere ist hier einmal festgelegt; Abweichungen sind begründungspflichtig.",
+    "felder": [
+      { "feld": "Connection", "soll": "Intune", "warum": "Kunden-Tenant über die MSP-Customer-Verbindung" },
+      { "feld": "Display Name", "soll": "Produktname ohne Kundennamen", "warum": "Der Tenant ist der Kunde. Ein Kundenname im App-Namen doppelt die Information und bricht den Abgleich über alle Tenants — der Kundenbezug gehört in die Description." },
+      { "feld": "Language", "soll": "German", "warum": "muss zur Sprache des Installer-Pakets passen" },
+      { "feld": "Architecture", "soll": "64-bit", "warum": "keine 32-bit-Clients im Managed-Bestand" },
+      { "feld": "Install Context", "soll": "System", "warum": "Agents installieren geräteweit, nicht im Benutzerkontext" },
+      { "feld": "Installer Type", "soll": ".exe", "warum": "" },
+      { "feld": "Pre-/Post-Install, Pre-/Post-Uninstall", "soll": "leer", "warum": "keine Skript-Klammern um Agent-Installer — was der Installer nicht kann, löst eine Remediation" },
+      { "feld": "Additional Argument", "soll": "leer", "warum": "alle Schalter stehen in der Install Command Line, sonst gibt es zwei Wahrheiten" },
+      { "feld": "Conflicting Process → Policy", "soll": "Perform the installation", "warum": "Agents laufen still durch: kein Abbruch, keine Benutzerabfrage" },
+      { "feld": "Allow Available Uninstall", "soll": "False", "warum": "Pflicht-Agents; greift ohnehin nur bei Intent Available" },
+      { "feld": "OS Architecture Requirements", "soll": "64-bit und ARM, 32-bit aus", "warum": "" },
+      { "feld": "Minimum operating system", "soll": "niedrigster im Tenant unterstützter Build (Regelfall Windows 10 22H2)", "warum": "Ohne Wert versucht Intune die Installation auch auf abgekündigten Builds und produziert Fehler statt «nicht anwendbar»." },
+      { "feld": "App-Icon", "soll": "Pflichtfeld, 512×512 PNG", "warum": "landet als App-Icon in Intune und ist das, was Anwender im Company Portal sehen" },
+      { "feld": "Assignments", "soll": "genau eine Gruppe unter Required; Available, UpdateOnly und Uninstall bleiben leer", "warum": "1:1-Prinzip: Steuerung über Gruppenmitgliedschaft, nicht über Zuweisungen" }
+    ],
+    "rueckgabecodes": [
+      { "code": 0, "typ": "Success", "bedeutung": "Installation erfolgreich" },
+      { "code": 1707, "typ": "Success", "bedeutung": "Installation erfolgreich (MSI-Variante)" },
+      { "code": 3010, "typ": "Soft Reboot", "bedeutung": "erfolgreich, Neustart ausstehend — Zeitpunkt wählt der Benutzer" },
+      { "code": 1641, "typ": "Hard Reboot", "bedeutung": "Installer hat den Neustart selbst ausgelöst" },
+      { "code": 1618, "typ": "Retry", "bedeutung": "andere Installation läuft — Intune versucht es erneut" }
+    ],
+    "zuweisung": [
+      "Intent immer Required — stiller Zwangsinstall, kein Self-Service im Company Portal.",
+      "Genau eine Gruppe je App, befüllt per Nesting der Gerätegruppe — nie einzelne Geräte direkt.",
+      "Keine Ringe: Pilot/Uat/Broad gelten für Baseline- und Update-Rollouts, nicht für Agents.",
+      "Keine Uninstall-Zuweisung — ein Agent wird beim Geräte-Offboarding entfernt, nicht per Gruppenwechsel.",
+      "Kein Paket zwischen Kunden kopieren: Installer-Token und Site-IDs sind mandantengebunden.",
+      "Der Dateiname in der Command Line muss exakt der hochgeladenen Setup-Datei entsprechen."
+    ]
+  },
+
+  "agents": [
+    {
+      "key": "rmm",
+      "pflicht": true,
+      "titel": "RMM-Agent (N-able N-sight)",
+      "displayName": "Advanced Monitoring Agent",
+      "vendor": "N-able Technologies Ltd",
+      "description": "igeeks RMM Client – <Kunde>",
+      "zielgruppeKind": "appGroup",
+      "zielgruppeApp": "AdvancedMonitoringAgent",
+      "herkunft": "Kundenspezifischer Installer aus dem N-sight-Dashboard, Bezug über den Tab Agents mit Kundensuche.",
+      "installCommandLine": "AGENT_<SiteID>_V<Version>_RW.EXE /silent",
+      "silentInstallParameters": "/silent",
+      "installedAppsName": "Advanced Monitoring Agent",
+      "version": "10.15.3",
+      "versionQuelle": "FileVersion von winagent.exe — die Registry liefert keine",
+      "uninstall": "Auto Discovered (QuietUninstallString vorhanden: unins000.exe /SILENT)",
+      "erkennung": {
+        "empfohlen": "file",
+        "pfad": "C:\\Program Files (x86)\\Advanced Monitoring Agent",
+        "datei": "winagent.exe",
+        "vergleich": "Version grösser oder gleich",
+        "warum": "Inno-Setup-Paket (Registry-Key 'Advanced Monitoring Agent_is1') schreibt weder DisplayVersion noch Publisher — eine Registry-Erkennung über die Version läuft ins Leere. N-sight aktualisiert sich zudem über das eigene Dashboard, die Dateiversion wächst mit."
+      },
+      "fallstricke": [
+        "Es existiert ein zweiter Registry-Eintrag 'Advanced Monitoring Agent Network Management' (Version 45.0.0.15). Greift die Erkennung nach «beginnt mit», matcht sie das Zusatzmodul.",
+        "Der Dateiname ist die Konfiguration: Die Site-ID identifiziert den Kunden. Falsche Datei = Geräte melden sich beim falschen Kunden an.",
+        "Bei jedem Versionswechsel ändert sich der Dateiname — Install Command Line und Version-Feld nachziehen.",
+        "Das Version-Feld verlangt Punkte (10.15.3), der Dateiname schreibt Unterstriche (V10_15_3)."
+      ]
+    },
+    {
+      "key": "bitdefender",
+      "pflicht": true,
+      "titel": "Bitdefender Endpoint Security (GravityZone)",
+      "displayName": "Bitdefender Endpoint Security",
+      "vendor": "Bitdefender",
+      "description": "Bitdefender Endpoint Security Agent – <Kunde>",
+      "zielgruppeKind": "appGroup",
+      "zielgruppeApp": "Bitdefender",
+      "herkunft": "Kundenspezifisches Installationspaket aus GravityZone; der Installer ist ein Downloader und lädt die aktuelle Version nach.",
+      "installCommandLine": "setupdownloader_[<Base64-Token>].exe /bdparams /silent",
+      "silentInstallParameters": "/bdparams /silent",
+      "installedAppsName": "Bitdefender Endpoint Security Tools",
+      "version": "8.26.9.664",
+      "versionQuelle": "DisplayVersion aus der Registry (Momentaufnahme — der Downloader holt immer die aktuelle)",
+      "uninstall": "Auto Discovered",
+      "erkennung": {
+        "empfohlen": "registry",
+        "warum": "Bitdefender schreibt Name, Version und Publisher sauber — die PMP-Voreinstellung genügt."
+      },
+      "tokenFormat": {
+        "beschreibung": "Das Token in den eckigen Klammern ist die komplette Paket-URL, Base64-kodiert; Bitdefender ersetzt darin / durch -.",
+        "urlMuster": "https://cloudgz-ecs.gravityzone.bitdefender.com/Packages/BSTWIN/0/<PaketID>/installer.xml?lang=<Sprache>",
+        "pruefen": "[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($t.Replace('-','/')))"
+      },
+      "fallstricke": [
+        "Vorgefundene Command Lines nennen den setupdownloader teils zweimal — der zweite Aufruf ist ein toter Parameter aus einer Vorlage.",
+        "In einem Tenant standen zwei verschiedene Tokens in einer Zeile (de-DE und en-US): Welche Sprache installiert wird, hängt dann allein an der ersten Nennung.",
+        "Die Tokens sind kundenspezifisch und wie ein Geheimnis zu behandeln — wer den Link hat, kann Geräte in den GravityZone-Mandanten einschreiben."
+      ]
+    },
+    {
+      "key": "bitwarden",
+      "pflicht": true,
+      "titel": "Bitwarden (Passwortmanager, Managed EU-Cloud)",
+      "displayName": "Bitwarden",
+      "vendor": "Bitwarden Inc.",
+      "description": "Bitwarden Desktop – <Kunde>",
+      "zielgruppeKind": "pmpGroup",
+      "zielgruppeApp": "Bitwarden",
+      "herkunft": "Managed-Dienst aus der EU-Cloud (bitwarden.eu) — kein eigener Server.",
+      "installCommandLine": "\"<Installer>.exe\" /allusers /S",
+      "silentInstallParameters": "/allusers /S",
+      "erkennung": {
+        "empfohlen": "file",
+        "pfad": "C:\\Program Files\\Bitwarden",
+        "datei": "Bitwarden.exe",
+        "warum": "NSIS-Installer; /allusers ist Pflicht, weil im SYSTEM-Kontext sonst kein Benutzer da wäre, für den installiert wird."
+      },
+      "zweiteiligkeit": [
+        { "teil": "Desktop-App", "weg": "Patch My PC bzw. Agents-Deploy des Werkzeugs", "ziel": "App-Zielgruppe" },
+        { "teil": "Browser-Erweiterung", "weg": "Konfigurationsprofil (Edge: Tab Browser-Erweiterungen; Chrome/Firefox: ADMX-Ingestion)", "ziel": "Gerätegruppe" },
+        { "teil": "Server-Region", "weg": "Registry-Richtlinie (Plattformskript, System-Kontext)", "ziel": "Gerätegruppe" }
+      ],
+      "region": {
+        "eu": { "base": "https://vault.bitwarden.eu", "notifications": "https://notifications.bitwarden.eu" },
+        "us": { "base": "https://vault.bitwarden.com", "notifications": "https://notifications.bitwarden.com" },
+        "registryPfade": [
+          "SOFTWARE\\Policies\\Google\\Chrome\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment",
+          "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\jbkfoedolllekgbhcbcoahefnbanhhlh\\policy\\environment",
+          "SOFTWARE\\Policies\\Microsoft\\Edge\\3rdparty\\extensions\\nngceckbapebfimnlniiiahkandclblb\\policy\\environment"
+        ],
+        "hinweis": "Drei Pfade, weil die Erweiterung in Edge auch mit der Chrome-Id installiert sein kann. Die Region der Desktop-App ist nicht vorgebbar — sie liegt in einer data.json im Benutzerprofil, die erst beim ersten Start entsteht."
+      },
+      "fallstricke": [
+        "Bitwarden trennt US- und EU-Cloud strikt: Ein EU-Konto existiert auf bitwarden.com schlicht nicht.",
+        "Das Region-Skript gehört an die Gerätegruppe, nicht an die App-Zielgruppe — Intune löst Nesting nur beim App-Assignment auf, bei Plattformskripten nicht.",
+        "Tresor-Inhalte, Master-Passwort-Regeln und Zwei-Faktor-Pflicht werden in der Bitwarden-Organisation gesetzt, nicht über Intune."
+      ]
+    },
+    {
+      "key": "forticlient",
+      "pflicht": false,
+      "titel": "FortiClient",
+      "displayName": "FortiClient",
+      "vendor": "Fortinet",
+      "zielgruppeKind": "appGroup",
+      "zielgruppeApp": "FortiClient",
+      "herkunft": "MSI plus site-spezifische MST-Transform aus dem EMS.",
+      "installCommandLine": "msiexec /i \"<Datei>.msi\" TRANSFORMS=\"forticlient.mst\" /qn REBOOT=ReallySuppress DONT_PROMPT_REBOOT=1",
+      "silentInstallParameters": "/qn REBOOT=ReallySuppress DONT_PROMPT_REBOOT=1",
+      "bedingung": "nur bei Kunden mit Fortinet-Infrastruktur (VPN/ZTNA)",
+      "fallstricke": [
+        "MSI-Syntax, nicht EXE: /norestart wäre hier wirkungslos, msiexec braucht REBOOT=ReallySuppress."
+      ]
+    }
+  ],
+
+  "oib": {
+    "titel": "OpenIntuneBaseline",
+    "aussage": "Abweichungen von CIS sind keine Lücken, sondern dokumentierte Architekturentscheidungen mit Kompensation.",
+    "cisDelta": [
+      { "bereich": "Command-Line-/PowerShell-Logging", "warum": "Credentials und Tokens landen im Klartext in Logs", "kompensation": "Defender for Endpoint (EDR, zentral, manipulationssicher)" },
+      { "bereich": "AutoAdminLogon aus, Anmeldetext", "warum": "bricht Autopilot-Pre-Provisioning komplett", "kompensation": "nach Enrollment nicht mehr nötig; Nutzungsrichtlinie rechtlich" },
+      { "bereich": "Passwort-Policies, Strg+Alt+Entf", "warum": "zerstört die Anmeldung mit Windows Hello, redundant bei Cloud-Identity", "kompensation": "Windows Hello + MFA + Conditional Access" },
+      { "bereich": "UAC-Elevation hart ablehnen", "warum": "blockiert Helpdesk, macht LAPS unbrauchbar", "kompensation": "UAC kontrolliert nutzbar + LAPS" },
+      { "bereich": "UNC-Härtung, GPO-Verarbeitung, NTLM-Auditing", "warum": "kein lokales AD, nicht anwendbar", "kompensation": "Entra-only-Architektur" },
+      { "bereich": "starre Update-Deferrals", "warum": "keine Ring-Steuerung möglich", "kompensation": "Autopatch bzw. Update-Ringe" }
+    ],
+    "breakRisk": [
+      { "policy": "Network Security – Disable NTLM", "brichtPotenziell": "RDP per IP, Legacy-Apps mit NTLM", "risiko": "hoch" },
+      { "policy": "Local Security Policies (24H2+)", "brichtPotenziell": "alte NAS, Drucker, SMBv1, LAN-Manager-Auth", "risiko": "hoch" },
+      { "policy": "Device/Credential Guard und HVCI", "brichtPotenziell": "NTLMv1-SSO, RDP-/VPN-/802.1x-SSO, gespeicherte RDP-Anmeldedaten, Treiber", "risiko": "hoch" },
+      { "policy": "Remote Desktop Services und RPC", "brichtPotenziell": "RDP, Legacy-RPC-Anwendungen", "risiko": "hoch" },
+      { "policy": "Device Security – U – Power and Device Lock", "brichtPotenziell": "Fachanwendungen mit persistenten Datenbankverbindungen — Modern Standby kappt Sessions", "risiko": "mittel" }
+    ],
+    "assignmentFilter": {
+      "name": "Windows 11 24H2 Device Filter",
+      "regel": "(device.osVersion -startsWith \"10.0.26\")",
+      "zweck": "OIB liefert manche Policies doppelt (24H2+ und ältere Builds). Die 24H2-Variante wird mit dem Filter als Include zugewiesen, die Alt-Variante mit demselben Filter als Exclude — statt eigener Versionsgruppen."
+    },
+    "zuweisungslogik": "Policies werden nie pro Gerät zugewiesen, sondern an die dynamischen Gerätegruppen aus der GroupTag-Kette. Break-Risk-Policies zuerst an den Pilot-Ring, dann Uat, dann breit."
+  },
+
+  "onboarding": [
+    { "punkt": "MSP-Admin-Konto", "vorgabe": "Personengebunden und tier-getrennt; MFA verpflichtend, Zugangsdaten und MFA-Token dokumentiert." },
+    { "punkt": "Break-Glass", "vorgabe": "Zwei Konten als Global Admin, Mitglied der Break-Glass-Ausnahmegruppe, von CA und MFA ausgenommen, Anmeldung alarmiert. UPN auf der onmicrosoft.com-Domain, damit der Notfallzugang auch bei DNS-Problemen der Custom Domain nutzbar bleibt." },
+    { "punkt": "Lizenzen für den Betrieb", "vorgabe": "1× Exchange Online und 1× Defender for Office 365 Plan 2 für das Admin-Konto — Threat Explorer und Troubleshooting." },
+    { "punkt": "Mail-Security", "vorgabe": "BP_-Policy-Set ausrollen, Alert Policy manuell setzen; dazu die tenantweiten Punkte ohne BP_-Objekt (ausgehende Spam-Grenzwerte, externe Kennzeichnung, AutoForwarding, Direct Send) je mit Vorab-Erhebung. Vor dem Scharfstellen klären, wer ein gesperrtes Konto wieder freigibt." },
+    { "punkt": "Remediations freischalten", "vorgabe": "Intune → Tenant administration → Connectors and tokens → Windows data: Lizenz-Bestätigung auf On (Default Off)." },
+    { "punkt": "Mail-Authentifizierung", "vorgabe": "SPF, DKIM und DMARC für jede Mail-Domain; Reihenfolge SPF prüfen → DKIM aktivieren → DMARC scharf ziehen." },
+    { "punkt": "Standard-Agents", "vorgabe": "RMM-Agent und Bitdefender als Required-Apps auf jeden Standard-Client, Bitwarden als Passwortmanager; FortiClient zusätzlich bei Fortinet-Infrastruktur." },
+    { "punkt": "Gerätegruppen und GroupTags", "vorgabe": "Pro GroupTag eine dynamische Gerätegruppe. Ohne passende Gruppe läuft ein GroupTag ins Leere — das Gerät bekommt weder Profil noch Policies." }
+  ],
+
+  "mailHaertung": {
+    "titel": "Tenant-weite Härtung ohne BP_-Objekt",
+    "warumKeinBpObjekt": "Diese Punkte sitzen an der Standard-Richtlinie für ausgehenden Spam beziehungsweise direkt am Tenant. Sie gelten ohne Regel-Scope für alle Absender, und sowohl der CIS-Benchmark als auch Maester lesen genau diese Standardobjekte. Ein BP_-Klon daneben würde geprüft, aber nicht wirksam.",
+    "ausgehenderSpam": {
+      "cis": "2.1.6 / 2.1.15",
+      "werte": [
+        { "einstellung": "RecipientLimitExternalPerHour", "soll": 500 },
+        { "einstellung": "RecipientLimitInternalPerHour", "soll": 1000 },
+        { "einstellung": "RecipientLimitPerDay", "soll": 1000 },
+        { "einstellung": "ActionWhenThresholdReached", "soll": "BlockUser", "hinweis": "CIS-Empfehlung, aber eine Betriebsentscheidung: Vorher klären, wer im Ereignisfall freigibt." }
+      ],
+      "hinweise": [
+        "Der Ausgangswert 0 heisst bei dieser Richtlinie nicht «unbegrenzt», sondern Service-Default (500/1000/1000). Der explizite Wert ändert das Verhalten nicht, macht es aber prüfbar.",
+        "Benachrichtigungen an ein Sammelpostfach, nicht an eine persönliche Adresse — damit die Meldung auch in Ferienzeiten gelesen wird.",
+        "NotifyOutboundSpam ist abgekündigt; stattdessen die eingebaute Warnungsrichtlinie «User restricted from sending email» auf dieselben Empfänger setzen."
+      ]
+    },
+    "organisation": {
+      "cis": "6.2.1 / 6.2.3 / 6.5.5",
+      "massnahmen": [
+        { "was": "Externe Absender in Outlook kennzeichnen", "cmdlet": "Set-ExternalInOutlook -Enabled $true", "vorher": "nichts", "hinweis": "Wirksamste Einzelmassnahme gegen Phishing; beim Anwender sichtbar mit bis zu 48 Stunden Verzögerung." },
+        { "was": "Automatische Weiterleitung nach aussen sperren", "cmdlet": "AutoForwardingMode = Off plus Transportregel BP_Block-AutoForwarding", "vorher": "Bestehende gewollte Weiterleitungen erheben, sonst brechen sie.", "hinweis": "Die Regel lehnt mit Statuscode 5.7.1 und Begründung ab statt still zu blockieren." },
+        { "was": "Direct Send abweisen", "cmdlet": "Set-OrganizationConfig -RejectDirectSend $true", "vorher": "Mailverkehr über mindestens einen Monatswechsel auswerten.", "hinweis": "Multifunktionsdrucker, Scan-to-Mail, Monitoring und Fachanwendungen werden ohne Fehlermeldung an den Absender abgeschnitten." }
+      ]
+    }
+  },
+
+  "entscheidungsregeln": {
+    "tier": [
+      { "frage": "Wirkt das Objekt auf die Authentisierungs- oder Identitätsebene? (CA-Policy oder -Ausnahme, PIM, PAW, Entra Connect, App mit Directory-Schreibrechten)", "ja": "T0" },
+      { "frage": "Betrifft es Server oder deren Verwaltung — auch über Intune oder Arc?", "ja": "T1" },
+      { "frage": "Ist es von Compliance oder Conditional Access ausgenommen, oder steuert es, wer ausgenommen ist?", "ja": "T0", "sonst": "T2" }
+    ],
+    "cloudKerberos": [
+      { "frage": "Sind die Benutzer-Identitäten aus dem lokalen AD nach Entra synchronisiert?", "nein": "nicht nötig — cloud-only Identitäten bekommen kein lokales Kerberos-Ticket" },
+      { "frage": "Sind die Geräte rein Entra-joined, also nicht hybrid?", "nein": "nicht nötig — hybrid-joined Geräte sprechen direkt mit dem lokalen AD" },
+      { "frage": "Brauchen diese Geräte lokale Ressourcen mit Kerberos-Anmeldung?", "nein": "nicht nötig", "ja": "Cloud Kerberos Trust einrichten" }
+    ]
+  }
+}

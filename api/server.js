@@ -45,6 +45,8 @@ const ADMINROLES = require("./lib/adminRoles");
 const APPGROUPS = require("./lib/appGroups");
 const NAMING = require("./lib/naming");
 const BROWSEREXT = require("./lib/browserExtensions");
+const BASELINE = require("./lib/baseline");
+const BASELINEDOC = require("./lib/baselineDoc");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
@@ -1286,6 +1288,28 @@ function requireMcpPermission(t, permKey) {
     throw Object.assign(new Error(`MCP-Zugriff "${permKey}" ist fuer diesen Tenant nicht freigeschaltet.`), { status: 403 });
   }
 }
+
+// Baseline ueber MCP: damit eine KI "gemaess Baseline vX.Y" beraten kann,
+// statt sich Regeln auszudenken. Bewusst ohne Tenant-Freigabe — hier stehen
+// Richtlinien, keine Kundendaten.
+app.get("/api/mcp/v1/baseline", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, action: "baseline", result: "ok" });
+  res.json({ ok: true, baseline: BASELINE.get(tenantId) });
+}));
+
+app.get("/api/mcp/v1/baseline/search", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  const treffer = BASELINE.search(req.query.q, tenantId);
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, action: "baseline-search", result: treffer.length + " Treffer" });
+  res.json({ ok: true, ...BASELINE.meta(), treffer });
+}));
+
+app.get("/api/mcp/v1/baseline/agents/:key", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  logMcpAction({ keyId: req.mcpKeyId, keyLabel: req.mcpKeyLabel, action: "baseline-agent", result: req.params.key });
+  res.json({ ok: true, agent: BASELINE.agent(req.params.key, tenantId) });
+}));
 
 app.get("/api/mcp/v1/tenants", (req, res) => {
   const s = loadState();
@@ -3630,6 +3654,49 @@ app.post("/api/grouptags/devices/tag-bulk", wrap(async (req, res) => {
     }
   }
   res.json({ ok: true, results, failed: results.filter(r => !r.ok).length });
+}));
+
+// ---------- Baseline: die Betriebsrichtlinien als eine Quelle ----------
+// Lesend und ohne Tenantbezug — es sind Richtlinien, keine Kundendaten. Das
+// Namensschema kommt live aus lib/naming.js dazu (siehe lib/baseline.js).
+app.get("/api/baseline", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  res.json({ ok: true, baseline: BASELINE.get(tenantId) });
+}));
+
+// HTML-Fassung: dieselbe Quelle, damit Wissensseite und Export nicht
+// auseinanderlaufen. Fragment fuer die Oberflaeche, Dokument zum Weitergeben.
+app.get("/api/baseline/html", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  res.json({ ok: true, ...BASELINE.meta(), html: BASELINEDOC.renderSections(BASELINE.get(tenantId)) });
+}));
+
+app.get("/api/baseline/export.html", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  let tenantName = null;
+  if (tenantId) {
+    const t = (loadState().tenants || []).find(x => x.id === tenantId);
+    tenantName = t ? t.name : null;
+  }
+  const html = BASELINEDOC.renderDocument(BASELINE.get(tenantId), { tenantName });
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Content-Disposition", 'inline; filename="igeeks-baseline-' + BASELINE.meta().version + '.html"');
+  res.send(html);
+}));
+
+app.get("/api/baseline/search", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  res.json({ ok: true, ...BASELINE.meta(), treffer: BASELINE.search(req.query.q, tenantId) });
+}));
+
+app.get("/api/baseline/agents/:key", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  res.json({ ok: true, agent: BASELINE.agent(req.params.key, tenantId) });
+}));
+
+app.get("/api/baseline/:section", wrap(async (req, res) => {
+  const tenantId = String(req.query.tenantId || "").trim() || null;
+  res.json({ ok: true, ...BASELINE.meta(), section: req.params.section, inhalt: BASELINE.section(req.params.section, tenantId) });
 }));
 
 // ---------- Erzwungene Browser-Erweiterungen (Edge) ----------

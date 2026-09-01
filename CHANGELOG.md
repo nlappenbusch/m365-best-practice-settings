@@ -1,5 +1,46 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.19 - Baseline als eine Quelle (2026-09-01)
+
+### 📐 Die Betriebsrichtlinien liegen jetzt an einer Stelle
+
+Dieselben Regeln standen an drei Orten: als Prosa in den Wissensseiten, als
+Werte im Code und nochmal im Konzeptdokument. Das driftet auseinander — zuletzt
+beschrieb die Dokumentation den Bitwarden-Weg falsch, waehrend das Werkzeug es
+laengst besser konnte.
+
+Neu: `api/baseline/baseline.json` ist die Quelle. Darin stehen die
+Agent-Module (RMM, Bitdefender, Bitwarden, FortiClient) mit allen
+PMP-Feldwerten und Erkennungsregeln, das Grundgeruest fuer Custom Apps samt
+Rueckgabecodes, das CIS-Delta und die Break-Risk-Liste, die
+Onboarding-Checkliste, die Mail-Haertung ohne `BP_`-Objekt und die
+Entscheidungsregeln (Tier, Cloud Kerberos Trust).
+
+**Das Namensschema wird bewusst NICHT dupliziert** — es kommt beim Ausliefern
+live aus `lib/naming.js` dazu. Sonst gaebe es zwei Wahrheiten ueber Namen. Die
+Agent-Eintraege tragen nur den Muster-Schluessel; den fertigen Gruppennamen
+rechnet die Baseline aus, damit ihn niemand abtippt.
+
+**Schreibgeschuetzt, mit Absicht:** Die Datei liegt im Git, Aenderungen laufen
+ueber einen Commit mit Review — nicht ueber einen Klick in der Oberflaeche. Eine
+Betriebsrichtlinie, die sich zur Laufzeit aendern laesst, ist keine.
+
+### Drei Wege zur selben Quelle
+
+| Weg | Wofuer |
+|---|---|
+| Wissensseite **Baseline** (Tab Wissen) | die Sollwerte im Werkzeug nachschlagen — inkl. der Zielgruppennamen, wie sie in DIESEM Tenant heissen |
+| `GET /api/baseline/export.html` | eigenstaendiges Dokument zum Weitergeben, Drucken, Archivieren |
+| `GET /api/mcp/v1/baseline` (+ `/search`, `/agents/:key`) | damit eine KI «gemaess Baseline vX.Y» beraet, statt sich Regeln auszudenken |
+
+Gerendert wird an einer Stelle (`lib/baselineDoc.js`) — Wissensseite und Export
+zeigen deshalb dasselbe. Die Suche liefert Treffer mit Pfad
+(`oib.breakRisk[2]`), damit eine Antwort zitierfaehig bleibt.
+
+Die MCP-Endpunkte brauchen bewusst keine Tenant-Freigabe: Hier stehen
+Richtlinien, keine Kundendaten.
+
+
 ## Version 2.18 - Namenskonvention einstellbar, Edge-Erweiterungen erzwingen (2026-09-01)
 
 ### 🏷️ Eine Stelle fuer alle Objektnamen

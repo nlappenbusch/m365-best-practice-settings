@@ -3,6 +3,26 @@
   import { config } from '../lib/config.js'
   import { docsHtml, recoHtml } from '../lib/wissenTemplates.js'
   import { autopilotHtml, oibHtml, namingHtml, patchMyPcHtml, conditionalAccessHtml, intuneBackupHtml, mappingsHtml } from '../lib/wissenIntune.js'
+  import { apiGet } from '../lib/api.js'
+  import { activeTenant } from '../lib/tenantStore.js'
+
+  // Die Baseline-Seite zeigt keinen getippten Text, sondern die Sollwerte aus
+  // baseline.json — gerendert vom Server, damit Wissensseite und Export nicht
+  // auseinanderlaufen.
+  let baselineDoc = $state('')
+  let baselineVersion = $state('')
+  $effect(() => {
+    if (sub !== 'baseline' || baselineDoc) return
+    const t = $activeTenant
+    const q = t ? '?tenantId=' + encodeURIComponent(t.id) : ''
+    apiGet('/api/baseline/html' + q)
+      .then(r => { baselineDoc = r.html; baselineVersion = r.version })
+      .catch(e => { baselineDoc = '<p>Baseline konnte nicht geladen werden: ' + e.message + '</p>' })
+  })
+  function baselineExport() {
+    const t = $activeTenant
+    window.open('/api/baseline/export.html' + (t ? '?tenantId=' + encodeURIComponent(t.id) : ''), '_blank', 'noopener')
+  }
   import { openConfigDoc } from '../lib/configDoc.js'
   import { openKnowledgeDoc } from '../lib/knowledgeDoc.js'
   import { goToTab } from '../lib/tabStore.js'
@@ -35,7 +55,8 @@
     { id: 'backup',    icon: '💾', title: 'Intune-Backup',  teaser: 'Nicht-destruktives Restore und Drift-Vergleich zwischen Ständen.' },
     { id: 'mappings',  icon: '🗺️', title: 'Mappings',      teaser: 'Laufwerke und Drucker auf Cloud-only-Geräten — zwei unterschiedliche Ansätze.' },
     { id: 'pmp',       icon: '🧩', title: 'Patch My PC',   teaser: 'Automatisches Third-Party-Patch- und App-Management.' },
-    { id: 'naming',    icon: '🏷️', title: 'Namenskonventionen', teaser: 'Gruppenkonzept — inkl. Live-Generator für korrekte Namen.' }
+    { id: 'naming',    icon: '🏷️', title: 'Namenskonventionen', teaser: 'Gruppenkonzept — inkl. Live-Generator für korrekte Namen.' },
+    { id: 'baseline',  icon: '📐', title: 'Baseline',      teaser: 'Die Sollwerte selbst — Agent-Module, Break-Risk, Checkliste. Kommt aus baseline.json.' }
   ]
 
   // ---------- Interaktiver Gruppennamen-Generator (Namenskonvention) ----------
@@ -340,6 +361,16 @@
     </div>
 
     <div class="docs-content">{@html naming}</div>
+  </section>
+</div>
+
+<div class="dl-panel" class:active={sub === 'baseline'}>
+  <section class="docs-section">
+    <div class="ld-confirm-actions" style="margin-bottom:0.5rem;">
+      <button class="btn btn-secondary" onclick={baselineExport}>Als Dokument öffnen</button>
+    </div>
+    <h2>Baseline — die Sollwerte selbst{baselineVersion ? ' (Version ' + baselineVersion + ')' : ''}</h2>
+    <div class="docs-content">{@html baselineDoc || '<p>Lade…</p>'}</div>
   </section>
 </div>
 </div>
