@@ -1,5 +1,42 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.16 - Geheimnisse bearbeiten, Organisationsschalter auch im Backend (2026-09-01)
+
+### ✏️ Bearbeiten im Panel — geschrieben wird erst beim Speichern
+
+Der Tab *Geheimnisse* kann jetzt auch ändern. Der Entwurf lebt bis dahin nur im
+Eingabefeld: **Abbrechen verwirft ihn ersatzlos, geschrieben wird ausschliesslich
+beim ausdrücklichen «Speichern»** — mit Bestätigungsdialog und Eintrag im
+Audit-Log.
+
+Änderbar sind die Werte, die im Zustand oder als Datei liegen:
+
+| Eintrag | Prüfung | Nebenwirkung |
+|---|---|---|
+| SSO-Clientgeheimnis | nicht leer | bis zum Eintragen des neuen Werts schlägt die SSO-Anmeldung fehl |
+| Sitzungsgeheimnis | mindestens 16 Zeichen | meldet **alle** offenen Sitzungen ab, auch die eigene |
+| Zertifikat je Tenant | PEM-Block muss vorhanden sein | vorheriger Stand wird als `.bak` daneben gelegt |
+
+**Umgebungsvariablen sind bewusst nicht änderbar.** Sie kommen aus der Umgebung
+des Containers (GitHub-Secret bzw. Compose); ein zur Laufzeit gesetzter Wert wäre
+beim nächsten Neustart weg. Das Panel bietet es deshalb gar nicht erst an und
+schreibt den Grund dazu, statt eine Änderung vorzutäuschen, die nicht hält.
+
+### 📤 Organisationsschalter jetzt auch als Rückfallwert
+
+Ergänzung zu 2.15: Auch die serverseitigen Rückfallwerte in `deploy.js` stehen
+jetzt auf Best Practice — `blockAutoForward` und `rejectDirectSend` auf `true`,
+`thresholdAction` auf `BlockUser`. Sie greifen nur bei gespeicherten Vorlagen,
+die das Feld gar nicht kennen (aus der Zeit vor 2.13).
+
+**Damit bekommt auch ein Altkunde die Sperren**, statt durch eine Lücke in seiner
+alten Vorlage davon ausgenommen zu bleiben. Die Kehrseite gehört genannt: Beim
+Deploy einer solchen Vorlage greift Direct-Send-Abweisung, ohne dass jemand ein
+Häkchen gesetzt hat — Multifunktionsdrucker, Scan-to-Mail, Monitoring und
+Fachanwendungen mit eigenem Mailversand werden dann abgeschnitten, *ohne
+Fehlermeldung an den Absender*. Die Erhebung im Konfigurations-Tab gehört vorher
+gelaufen.
+
 ## Version 2.15 - Ausgehend & Organisation: Best Practice als Vorgabe (2026-09-01)
 
 Die drei Organisationsschalter stehen in der Vorlage jetzt **an**, und die

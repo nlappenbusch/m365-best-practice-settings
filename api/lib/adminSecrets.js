@@ -94,6 +94,8 @@ function collectSecrets(loadState, certPemPath) {
       label: t.name || t.tenantId,
       scope: t.organization || t.tenantId,
       recoverable: exists,
+      editable: true,
+      editHint: "PEM mit privatem Schlüssel. Der vorherige Stand wird als .bak daneben gelegt.",
       severity: "hoch",
       meta: {
         "Vorhanden": exists ? "ja" : "nein",
@@ -114,6 +116,8 @@ function collectSecrets(loadState, certPemPath) {
     out.push({
       id: "sso:clientSecret", group: "Dieses Werkzeug", kind: "SSO-Clientgeheimnis", label: "Anmeldung über igeeks-Tenant",
       scope: s.sso.tenantId || "—", recoverable: true, severity: "hoch",
+      editable: true,
+      editHint: "Nach dem Rotieren im Entra-Portal hier eintragen.",
       meta: {
         "Client-Id": s.sso.clientId || "—",
         "Tenant-Id": s.sso.tenantId || "—",
@@ -127,6 +131,8 @@ function collectSecrets(loadState, certPemPath) {
     out.push({
       id: "state:sessionSecret", group: "Dieses Werkzeug", kind: "Sitzungsgeheimnis", label: "Signiert die Anmelde-Cookies",
       scope: "dieses Werkzeug", recoverable: true, severity: "mittel",
+      editable: true,
+      editHint: "Mindestens 16 Zeichen. Meldet beim Speichern alle offenen Sitzungen ab, auch die eigene.",
       meta: { "Wert": maskValue(s.sessionSecret) },
       note: "Wird es geändert, sind alle offenen Sitzungen sofort ungültig."
     });
@@ -138,8 +144,11 @@ function collectSecrets(loadState, certPemPath) {
     out.push({
       id: "env:" + name, group, kind: "Umgebungsvariable", label: name, scope: "Prozess",
       recoverable: !!v, severity,
+      editable: false,
       meta: { "Zweck": desc, "Gesetzt": v ? "ja" : "nein", "Wert": v ? maskValue(v) : "—" },
-      note: v ? null : "Nicht gesetzt — die zugehörige Funktion steht damit nicht zur Verfügung."
+      note: (v ? "" : "Nicht gesetzt — die zugehörige Funktion steht damit nicht zur Verfügung. ") +
+        "Hier nicht änderbar: Der Wert kommt aus der Umgebung des Containers (GitHub-Secret bzw. Compose). " +
+        "Zur Laufzeit gesetzt würde er beim nächsten Neustart verschwinden — deshalb bietet das Panel es gar nicht erst an."
     });
   }
 
@@ -206,11 +215,71 @@ function revealSecret(id, loadState, certPemPath) {
 }
 
 /**
- * Hängt die beiden Endpunkte ein.
- * deps: { loadState, certPemPath, logMcpAction }
+ * Was sich hier überhaupt ändern lässt.
+ *
+ * Nur was im Zustand oder als Datei liegt. Umgebungsvariablen stehen bewusst
+ * NICHT drin: Sie kommen aus der Umgebung des Containers (GitHub-Secret,
+ * Compose). Ein zur Laufzeit gesetzter Wert würde nur den laufenden Prozess
+ * betreffen und beim nächsten Neustart verschwinden — das Panel würde also
+ * etwas versprechen, das nicht hält.
+ */
+const EDITABLE = {
+  "sso:clientSecret": {
+    label: "SSO-Clientgeheimnis",
+    multiline: false,
+    hint: "Nach dem Rotieren im Entra-Portal hier das neue Geheimnis eintragen. Bis dahin schlägt die Anmeldung über den igeeks-Tenant fehl.",
+    apply(state, value) { state.sso = Object.assign({}, state.sso || {}, { clientSecret: value }); }
+  },
+  "state:sessionSecret": {
+    label: "Sitzungsgeheimnis",
+    multiline: false,
+    hint: "Ändern meldet sofort ALLE offenen Sitzungen ab, auch die eigene. Danach neu anmelden.",
+    minLength: 16,
+    apply(state, value) { state.sessionSecret = value; }
+  }
+};
+
+function isCertId(id) { return id.startsWith("cert:"); }
+
+function updateSecret(id, value, deps) {
+  const { loadState, saveState, certPemPath } = deps;
+
+  // Zertifikatsdateien: liegen auf der Platte, nicht im Zustand.
+  if (isCertId(id)) {
+    const tenantId = id.slice(5);
+    const s = loadState();
+    const t = (s.tenants || []).find(x => x.tenantId === tenantId);
+    if (!t) return { status: 404, error: "Tenant nicht gefunden." };
+    if (!/-----BEGIN [A-Z ]+-----/.test(value) || !/-----END [A-Z ]+-----/.test(value)) {
+      return { status: 400, error: "Das sieht nicht nach einem PEM aus (BEGIN/END-Block fehlt). Nichts geändert." };
+    }
+    const p = certPemPath(tenantId);
+    // Vorherigen Stand danebenlegen, damit ein Fehlgriff nicht endgültig ist.
+    try { if (fs.existsSync(p)) fs.copyFileSync(p, p + ".bak"); } catch (e) { /* egal */ }
+    fs.writeFileSync(p, value, "utf8");
+    return {
+      label: t.name || tenantId,
+      warning: "Die Anmeldung gelingt nur, wenn das zugehörige öffentliche Zertifikat an der App-Registrierung hinterlegt ist. Passt es nicht, meldet Graph AADSTS700027 — «Reparieren» im Tab Tenants richtet das ein. Der vorherige Stand liegt als .bak daneben."
+    };
+  }
+
+  const def = EDITABLE[id];
+  if (!def) return { status: 400, error: "Dieses Geheimnis lässt sich hier nicht ändern." };
+  if (def.minLength && value.length < def.minLength) {
+    return { status: 400, error: `Mindestens ${def.minLength} Zeichen. Nichts geändert.` };
+  }
+  const s = loadState();
+  def.apply(s, value);
+  saveState(s);
+  return { label: def.label, warning: def.hint };
+}
+
+/**
+ * Hängt die Endpunkte ein.
+ * deps: { loadState, saveState, certPemPath, logMcpAction }
  */
 function mountAdminSecrets(app, deps) {
-  const { loadState, certPemPath, logMcpAction } = deps;
+  const { loadState, saveState, certPemPath, logMcpAction } = deps;
 
   app.get("/api/admin/secrets", (req, res) => {
     res.json({ ok: true, secrets: collectSecrets(loadState, certPemPath) });
@@ -228,6 +297,22 @@ function mountAdminSecrets(app, deps) {
     logMcpAction({ actor: "admin-panel", action: "Geheimnis eingeblendet", detail: r.label + " (" + id + ")" });
     res.json({ ok: true, id, label: r.label, value: r.value });
   });
+
+  // Schreiben passiert ausschliesslich hier — beim ausdruecklichen Speichern.
+  // Das Bearbeiten in der Oberflaeche aendert bis dahin nichts.
+  app.post("/api/admin/secrets/update", (req, res) => {
+    const b = req.body || {};
+    const id = String(b.id || "");
+    const value = String(b.value != null ? b.value : "");
+    if (b.confirm !== true) return res.status(400).json({ error: "Bestätigung fehlt (confirm: true)." });
+    if (!value.trim()) return res.status(400).json({ error: "Leerer Wert — nichts geändert." });
+
+    const r = updateSecret(id, value, { loadState, saveState, certPemPath });
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+
+    logMcpAction({ actor: "admin-panel", action: "Geheimnis geändert", detail: r.label + " (" + id + ")" });
+    res.json({ ok: true, id, label: r.label, warning: r.warning || null });
+  });
 }
 
-module.exports = { mountAdminSecrets, collectSecrets, revealSecret, maskValue };
+module.exports = { mountAdminSecrets, collectSecrets, revealSecret, updateSecret, maskValue };

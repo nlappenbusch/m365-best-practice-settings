@@ -139,10 +139,19 @@ function sanitizeConfig(raw) {
       limitExternalPerHour: intOr(ob.limitExternalPerHour, 500, 1, 10000, "limitExternalPerHour"),
       limitInternalPerHour: intOr(ob.limitInternalPerHour, 1000, 1, 10000, "limitInternalPerHour"),
       limitPerDay: intOr(ob.limitPerDay, 1000, 1, 10000, "limitPerDay"),
-      thresholdAction: pickOr(ob.thresholdAction, THRESHOLD_ACTIONS, "BlockUserForToday", "thresholdAction"),
+      // Rueckfallwerte greifen nur, wenn eine gespeicherte Vorlage das Feld gar
+      // nicht kennt — also bei Vorlagen aus der Zeit vor Version 2.13. Bewusst
+      // auf Best Practice gesetzt (Entscheid Nils, 01.09.2026): auch ein
+      // Altkunde soll die Sperren bekommen, statt durch eine Luecke in seiner
+      // alten Vorlage davon ausgenommen zu bleiben.
+      // ACHTUNG beim Deploy alter Vorlagen: Direct Send schneidet Multifunktions-
+      // drucker, Scan-to-Mail, Monitoring und Fachanwendungen mit eigenem
+      // Mailversand ab — ohne Fehlermeldung an den Absender. Die Erhebung im
+      // Konfigurations-Tab gehoert vorher gelaufen.
+      thresholdAction: pickOr(ob.thresholdAction, THRESHOLD_ACTIONS, "BlockUser", "thresholdAction"),
       externalTagging: boolOr(ob.externalTagging, true),
-      blockAutoForward: boolOr(ob.blockAutoForward, false),
-      rejectDirectSend: boolOr(ob.rejectDirectSend, false)
+      blockAutoForward: boolOr(ob.blockAutoForward, true),
+      rejectDirectSend: boolOr(ob.rejectDirectSend, true)
     }
   };
 }

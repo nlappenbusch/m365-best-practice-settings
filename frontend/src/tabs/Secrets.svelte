@@ -63,6 +63,43 @@
     })
   }
 
+  // ---------- Bearbeiten ----------
+  // Der Entwurf lebt nur im Feld. Geschrieben wird ausschliesslich beim
+  // ausdrücklichen Speichern — Abbrechen verwirft ihn ersatzlos.
+  let draft = $state({})      // id -> Entwurfstext
+  let saveBusy = $state({})
+  let saveNote = $state({})   // id -> Meldung nach dem Speichern
+
+  function startEdit(s) {
+    // Vorhandenen Wert übernehmen, wenn er gerade eingeblendet ist — sonst
+    // leer beginnen, damit niemand versehentlich eine Maskierung speichert.
+    draft = { ...draft, [s.id]: revealed[s.id] !== undefined ? revealed[s.id] : '' }
+    saveNote = { ...saveNote, [s.id]: null }
+  }
+  function cancelEdit(id) {
+    const next = { ...draft }; delete next[id]; draft = next
+  }
+  function isEditing(id) { return draft[id] !== undefined }
+
+  async function save(s) {
+    const value = draft[s.id]
+    if (!value || !value.trim()) { alert('Leerer Wert — nichts gespeichert.'); return }
+    if (!confirm(
+      `«${s.label}» jetzt überschreiben?\n\n` +
+      (s.editHint ? s.editHint + '\n\n' : '') +
+      `Der Vorgang wird im Audit-Log festgehalten.`
+    )) return
+    saveBusy = { ...saveBusy, [s.id]: true }
+    try {
+      const r = await apiPost('/api/admin/secrets/update', { id: s.id, value, confirm: true })
+      cancelEdit(s.id)
+      hide(s.id)
+      saveNote = { ...saveNote, [s.id]: r.warning || 'Gespeichert.' }
+      await load()
+    } catch (e) { alert(e.message) }
+    saveBusy = { ...saveBusy, [s.id]: false }
+  }
+
   const GROUP_ORDER = ['Kundentenants', 'Dieses Werkzeug', 'Angebundene Dienste', 'Nicht abrufbar']
 
   const grouped = $derived.by(() => {
@@ -137,19 +174,47 @@
             <p class="ld-section-hint secret-note">{s.note}</p>
           {/if}
 
-          {#if s.recoverable}
+          {#if saveNote[s.id]}
+            <div class="ld-banner ok" style="margin-top:0.6rem;">{saveNote[s.id]}</div>
+          {/if}
+
+          {#if s.recoverable || s.editable}
             <div class="secret-actions">
-              {#if revealed[s.id] === undefined}
+              {#if s.recoverable && revealed[s.id] === undefined}
                 <button class="btn btn-secondary" onclick={() => reveal(s)} disabled={revealBusy[s.id]}>
                   {revealBusy[s.id] ? 'Lädt…' : 'Im Klartext anzeigen'}
                 </button>
-              {:else}
+              {:else if s.recoverable}
                 <button class="btn btn-secondary" onclick={() => hide(s.id)}>Verbergen</button>
                 <button class="btn btn-secondary" onclick={() => copyValue(s.id)}>{copied[s.id] ? 'Kopiert' : 'Kopieren'}</button>
               {/if}
+              {#if s.editable && !isEditing(s.id)}
+                <button class="btn btn-secondary" onclick={() => startEdit(s)}>Bearbeiten</button>
+              {/if}
             </div>
-            {#if revealed[s.id] !== undefined}
+
+            {#if s.recoverable && revealed[s.id] !== undefined && !isEditing(s.id)}
               <pre class="secret-value">{revealed[s.id]}</pre>
+            {/if}
+
+            {#if isEditing(s.id)}
+              <div class="secret-edit">
+                {#if s.editHint}<p class="ld-section-hint" style="margin:0 0 0.5rem;">{s.editHint}</p>{/if}
+                <textarea
+                  class="secret-input"
+                  rows={s.id.startsWith('cert:') ? 12 : 2}
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder={s.id.startsWith('cert:') ? '-----BEGIN PRIVATE KEY-----\n…' : 'Neuer Wert'}
+                  bind:value={draft[s.id]}></textarea>
+                <div class="secret-actions">
+                  <button class="btn btn-primary" onclick={() => save(s)} disabled={saveBusy[s.id]}>
+                    {saveBusy[s.id] ? 'Speichert…' : 'Speichern'}
+                  </button>
+                  <button class="btn btn-secondary" onclick={() => cancelEdit(s.id)} disabled={saveBusy[s.id]}>Abbrechen</button>
+                  <span class="secret-editnote">Bis zum Speichern wird nichts geändert.</span>
+                </div>
+              </div>
             {/if}
           {/if}
         </div>
@@ -187,6 +252,16 @@
 
   .secret-note { margin: 0.5rem 0 0; }
   .secret-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+
+  .secret-edit { margin-top: 0.6rem; }
+  .secret-input {
+    width: 100%;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    resize: vertical;
+  }
+  .secret-editnote { font-size: 0.78rem; opacity: 0.7; align-self: center; }
 
   .secret-value {
     margin: 0.55rem 0 0;
