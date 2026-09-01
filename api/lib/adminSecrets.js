@@ -145,10 +145,17 @@ function collectSecrets(loadState, certPemPath) {
       id: "env:" + name, group, kind: "Umgebungsvariable", label: name, scope: "Prozess",
       recoverable: !!v, severity,
       editable: false,
-      meta: { "Zweck": desc, "Gesetzt": v ? "ja" : "nein", "Wert": v ? maskValue(v) : "—" },
+      meta: {
+        "Zweck": desc,
+        "Gesetzt": v ? "ja" : "nein",
+        "Wert": v ? maskValue(v) : "—",
+        "Ändern auf m365.nerdag.ch": "GitHub Secret " + name + " im Repo nlappenbusch/m365-best-practice-settings (Settings → Secrets and variables → Actions), danach Deploy auslösen",
+        "Ändern auf igeeks-prod": "Vault: kv-v2/<cluster>/m365-configurator#" + name + ", danach Pod neu starten"
+      },
       note: (v ? "" : "Nicht gesetzt — die zugehörige Funktion steht damit nicht zur Verfügung. ") +
-        "Hier nicht änderbar: Der Wert kommt aus der Umgebung des Containers (GitHub-Secret bzw. Compose). " +
-        "Zur Laufzeit gesetzt würde er beim nächsten Neustart verschwinden — deshalb bietet das Panel es gar nicht erst an."
+        "Hier bewusst nur zur Ansicht: Der Wert kommt beim Start aus der Umgebung des Containers. " +
+        "Zur Laufzeit gesetzt würde er beim nächsten Deploy oder Pod-Neustart überschrieben — " +
+        "das Panel würde also eine Änderung vortäuschen, die nicht hält."
     });
   }
 
