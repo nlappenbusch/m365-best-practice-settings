@@ -1,5 +1,37 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.9.1 - CA-Policy 200 heisst jetzt, was sie tut (2026-09-01)
+
+### 🏷️ Irreführender Name bei Conditional-Access-Policy 200 korrigiert
+
+Policy 200 hiess `All apps: Require Strong Auth or trusted device or trusted
+location`, hatte aber keine Geräte-Alternative: `builtInControls` ist leer, es
+wirkt nur die phishing-resistente Authentication Strength plus die
+Standortausnahme. Der Name versprach etwas, das die Policy nie konnte.
+
+Neuer Name in allen drei Tiers (`bareMinimum`, `aadp1`, `aadp1p2`) und in der
+lokalen `ca-policies/`-Ablage:
+
+    200 - <RING> - Base protection - All apps: Require Strong Auth or trusted location
+
+- **Das Verhalten ändert sich nicht.** `grantControls` wurden nicht angefasst —
+  weder Operator noch Controls noch Authentication Strength.
+- **Bewusst nicht** `["compliantDevice","domainJoinedDevice"]` ergänzt: der
+  Operator ist `OR`, jedes weitere Control ist ein zusätzlicher Weg hinein. Ein
+  compliant Device würde die Policy dann ohne jede MFA erfüllen — schwächer als
+  heute. Im `bareMinimum`-Tier hätte es zusätzlich die zugesicherte
+  Intune-Freiheit gebrochen.
+- Der neue Name folgt Policy **211**, die bei identischer Konstruktion (leere
+  `builtInControls` + Authentication Strength) schon immer so heisst.
+- Vermerk im Dateikopf von `conditionalAccessPolicies.js`, damit der nächste
+  Upstream-Abgleich das nicht als Transkriptionsfehler zurückrollt.
+- Upstream-Meldung vorbereitet: `docs/upstream-issue-ca200.md`.
+
+**Achtung bei bereits ausgerollten Tenants:** `upsertPolicy` erkennt Policies am
+`displayName`. Wo 200 schon deployt ist, legt der nächste Lauf eine zweite
+Policy unter dem neuen Namen an; die alte bleibt stehen und muss von Hand weg.
+Beide sind `enabledForReportingButNotEnforced`, es sperrt also niemanden aus.
+
 ## Version 2.9 - Bitwarden-Region beim Deployen, Erreichbarkeitstest ausgebaut (2026-08-31)
 
 ### 🔐 Server-Region direkt beim Bereitstellen mitgeben
