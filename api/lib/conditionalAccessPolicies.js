@@ -6069,4 +6069,119 @@ const CA_POLICY_TEMPLATES = {
   ]
 };
 
-module.exports = { CA_POLICY_TEMPLATES };
+/* ---------------------------------------------------------------------------
+ *  Kundenzusammenstellung: REMONDIS Schweiz / Chiresa
+ * ---------------------------------------------------------------------------
+ * Zielbild aus Ticket RE-46191: Der Zugriff haengt am Geraetezustand, nicht am
+ * Aufenthaltsort. Die bestehende Laendersperre wird abgeloest, nicht ergaenzt.
+ *
+ * Warum ZWEI Policies (400 und 401) und nicht eine kombinierte:
+ *   Innerhalb einer Policy sind die Gewaehrungen mit OR verknuepft - jedes
+ *   zusaetzliche Control ist ein weiterer WEG HINEIN, keine zusaetzliche Huerde.
+ *   Eine Vorlage wie 208 ("Strong Auth or trusted device") bedeutet deshalb:
+ *   wer ein verwaltetes Geraet hat, braucht gar keine MFA mehr - schwaecher als
+ *   ein Tenant, der heute schon MFA erzwingt.
+ *   ZWISCHEN Policies gilt das Gegenteil: alle zutreffenden muessen erfuellt
+ *   sein. 400 (MFA) + 401 (verwaltetes Geraet) ergibt also das UND, das eine
+ *   einzelne Policy nicht liefern kann - und jede behaelt ihre eigenen
+ *   Ausnahmen und ihren eigenen Zeitpunkt zum Scharfschalten.
+ *
+ * Bewusst NICHT enthalten: alles, was eine phishing-resistente Authentication
+ * Strength verlangt (100, 104, 200, 211). Nicht weil es falsch waere, sondern
+ * weil starke Auth hier nicht als Anforderung gesetzt werden soll - ohne
+ * ausgerollte FIDO2-/Windows-Hello-Anmeldung sperrt das beim Scharfschalten
+ * aus. 400 verlangt stattdessen schlicht "mfa" (Authenticator genuegt).
+ *
+ * Beide gewaehlten Vorlagen sind "Specific apps"-Vorlagen und liefern
+ * includeApplications: ["None"] - ohne den Override unten wuerden sie sich
+ * erfolgreich deployen und NICHTS tun.
+ */
+const REMONDIS_POLICY_NUMBERS = [109, 201, 300, 301, 306, 400, 401, 500, 501, 504, 505, 508, 509];
+
+// Reihenfolge der Quell-Tiers: aadp1 zuerst (P1-Basis mit Geraeteoptionen),
+// aadp1p2 als Rueckfall (dort liegt z.B. 109, ohne P2-Bedingungen zu nutzen).
+const REMONDIS_SOURCE_TIERS = ["aadp1", "aadp1p2", "bareMinimum"];
+
+const REMONDIS_EXCLUDED = {
+  100: "Verlangt phishing-resistente Authentication Strength. Bewusst draussen, solange keine FIDO2-/Windows-Hello-Anmeldung ausgerollt ist.",
+  104: "Wie 100 - Authentication Strength ohne Geraete-Alternative.",
+  200: "Verlangt phishing-resistente Authentication Strength ohne Geraete-Alternative. 400 uebernimmt die MFA-Haelfte mit normaler MFA.",
+  208: "\"Strong Auth ODER verwaltetes Geraet\" - der OR-Operator macht das Geraet zum Ersatz fuer MFA statt zur Ergaenzung. Waere schwaecher als der Ist-Zustand.",
+  110: "Verlangt phishing-resistente Auth ausgerechnet fuer die NOTFALLKONTEN. Ohne ausgerollte FIDO2-Schluessel sperrt sich damit genau das Konto aus, das im Notfall noch reinkommen muss. Aufnehmen, sobald Schluessel fuer die Break-Glass-Konten hinterlegt sind - dann ist es der richtige Schutz.",
+  211: "Authentication Strength beim Geraete-Join. Faellt mit dem Entscheid gegen starke Auth weg.",
+  307: "Sperrt den Device-Code-Fluss, ueber den das Onboarding und Reparieren dieses Tools selbst laeuft.",
+  210: "Braucht ein angelegtes Nutzungsbedingungs-Objekt, sonst bleibt keine wirksame Kontrolle uebrig.",
+  502: "Mobilgeraete: offener Entscheid App-Schutzrichtlinien gegen Geraetecompliance.",
+  503: "Mobilgeraete: siehe 502.",
+  506: "Mobilgeraete: siehe 502.",
+  507: "Mobilgeraete: siehe 502."
+};
+
+const REMONDIS_OVERRIDES = {
+  400: {
+    note: "Geltungsbereich auf alle Anwendungen. Verlangt MFA (Authenticator genuegt) - ueberall, ohne Standortausnahme.",
+    displayName: "400 - <RING> - Application protection - All apps: Require MFA",
+    applications: { includeApplications: ["All"] }
+  },
+  401: {
+    note: "Geltungsbereich auf alle Anwendungen; Externe vollstaendig ausgenommen - Gastgeraete sind im Tenant keine Objekte und koennen eine Compliance-Anforderung strukturell nicht erfuellen.",
+    displayName: "401 - <RING> - Application protection - All apps: Require trusted device",
+    applications: { includeApplications: ["All"] },
+    excludeGuestsOrExternalUsers: {
+      guestOrExternalUserTypes:
+        "b2bCollaborationGuest,b2bCollaborationMember,b2bDirectConnectUser,b2bDirectConnectMember,serviceProvider,otherExternalUser",
+      externalTenants: {
+        "@odata.type": "#microsoft.graph.conditionalAccessAllExternalTenants",
+        membershipKind: "all"
+      }
+    }
+  }
+};
+
+function policyNumberOf(policy) {
+  const m = /^(\d{3})/.exec(String((policy && policy.displayName) || ""));
+  return m ? Number(m[1]) : null;
+}
+
+// Baut das Tier aus den bestehenden Vorlagen zusammen, statt sie zu duplizieren -
+// so bleibt es bei einem Upstream-Abgleich automatisch in Sync.
+function buildRemondisTier() {
+  const pool = new Map();
+  for (const tier of REMONDIS_SOURCE_TIERS) {
+    for (const policy of CA_POLICY_TEMPLATES[tier] || []) {
+      const n = policyNumberOf(policy);
+      if (n != null && !pool.has(n)) pool.set(n, policy);
+    }
+  }
+  const out = [];
+  for (const n of REMONDIS_POLICY_NUMBERS) {
+    const src = pool.get(n);
+    if (!src) throw new Error("REMONDIS-Zusammenstellung: Vorlage " + n + " nicht gefunden");
+    const p = JSON.parse(JSON.stringify(src));
+    const ov = REMONDIS_OVERRIDES[n];
+    if (ov) {
+      if (ov.displayName) p.displayName = ov.displayName;
+      if (!p.conditions) p.conditions = {};
+      if (ov.applications) {
+        p.conditions.applications = Object.assign({}, p.conditions.applications || {}, ov.applications);
+      }
+      if (ov.excludeGuestsOrExternalUsers) {
+        p.conditions.users = Object.assign({}, p.conditions.users || {}, {
+          excludeGuestsOrExternalUsers: ov.excludeGuestsOrExternalUsers
+        });
+      }
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+CA_POLICY_TEMPLATES.remondis = buildRemondisTier();
+
+const REMONDIS_SELECTION_META = {
+  policies: REMONDIS_POLICY_NUMBERS,
+  excluded: REMONDIS_EXCLUDED,
+  overrides: Object.fromEntries(Object.entries(REMONDIS_OVERRIDES).map(([n, o]) => [n, o.note]))
+};
+
+module.exports = { CA_POLICY_TEMPLATES, REMONDIS_SELECTION_META };

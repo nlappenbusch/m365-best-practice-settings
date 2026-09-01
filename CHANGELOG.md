@@ -1,5 +1,47 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.10 - Kundenzusammenstellung REMONDIS als eigenes Tier (2026-09-01)
+
+### 🎯 Viertes Tier: «REMONDIS — Gerät statt Standort»
+
+Aus Ticket RE-46191. Der Tenant sperrt Zugriffe heute nach Herkunftsland; künftig
+soll der Gerätezustand entscheiden, nicht der Aufenthaltsort. Das Tier bildet das
+Zielbild ab und ist über `/api/conditionalaccess/tiers` wie die anderen wählbar.
+
+**Warum zwei Policies statt einer kombinierten.** Innerhalb einer Policy sind die
+Gewährungen mit `OR` verknüpft — jedes zusätzliche Control ist ein weiterer *Weg
+hinein*, keine zusätzliche Hürde. Eine Vorlage wie 208 («Strong Auth or trusted
+device») bedeutet deshalb: wer ein verwaltetes Gerät hat, braucht überhaupt keine
+MFA mehr. **Zwischen** Policies gilt das Gegenteil — alle zutreffenden müssen
+erfüllt sein. Deshalb:
+
+- **400** «All apps: Require MFA» — verlangt MFA, überall, ohne Standortbedingung
+- **401** «All apps: Require trusted device» — verlangt ein verwaltetes Gerät,
+  überall, Externe ausgenommen
+
+Zusammen ergibt das MFA **und** Gerät. Der Aufenthaltsort entscheidet in keiner der
+beiden über den Zugang, wodurch die Ländersperre entbehrlich wird.
+
+**Ohne Authentication Strength.** Bewusst keine Policy mit phishing-resistenter
+Stärke (100, 104, 110, 200, 211): ohne ausgerollte FIDO2-/Windows-Hello-Anmeldung
+sperrt das beim Scharfschalten aus. 400 verlangt schlicht `mfa`, der Authenticator
+genügt. Besonders 110 wäre gefährlich — sie verlangt starke Auth ausgerechnet für
+die Notfallkonten, die im Ernstfall noch hereinkommen müssen.
+
+**Zwei Overrides**, beide zwingend: 400 und 401 sind «Specific apps»-Vorlagen und
+liefern `includeApplications: ["None"]`. Ohne gesetzten Geltungsbereich würden sie
+sich erfolgreich deployen und **nichts tun** — im Portal sehen sie dabei aktiv aus.
+Der `displayName` zieht auf «All apps» mit, damit der Name nicht wieder etwas
+anderes behauptet als die Policy tut. 401 nimmt zusätzlich alle externen
+Benutzertypen aus: Gastgeräte sind im Tenant keine Objekte und können eine
+Compliance-Anforderung strukturell nicht erfüllen.
+
+**Nicht dupliziert:** Das Tier wird beim Laden aus den bestehenden Vorlagen
+zusammengesetzt (`buildRemondisTier()`), nicht abgeschrieben — bei einem
+Upstream-Abgleich bleibt es damit automatisch in Sync. Weggelassene Policies sind
+mit Begründung in `REMONDIS_SELECTION_META.excluded` hinterlegt, damit die Lücke
+dokumentiert ist statt unsichtbar.
+
 ## Version 2.9.1 - CA-Policy 200 heisst jetzt, was sie tut (2026-09-01)
 
 ### 🏷️ Irreführender Name bei Conditional-Access-Policy 200 korrigiert

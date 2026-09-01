@@ -42,6 +42,16 @@ const TIER_META = {
     description: "Zusätzlich Sign-in-/User-Risk-basierte Policies (Identity Protection), Insider-Risk-Signale und " +
       "Session-Kontrollen (Token-Schutz).",
     license: "Braucht Microsoft Entra ID P2 (in M365 E5 enthalten) zusätzlich zu P1."
+  },
+  remondis: {
+    label: "REMONDIS — Gerät statt Standort",
+    shortLabel: "REMONDIS",
+    description: "Kundenzusammenstellung aus RE-46191: MFA (400) und verwaltetes Gerät (401) als zwei getrennte " +
+      "Policies, damit beides gilt statt eines von beidem. Beide ohne Standortbedingung — der Aufenthaltsort " +
+      "entscheidet nicht mehr über den Zugang, die Ländersperre wird dadurch entbehrlich. Ohne phishing-resistente " +
+      "Authentication Strength: normale MFA genügt, es sperrt also niemanden ohne FIDO2-Schlüssel aus.",
+    license: "Braucht Microsoft Entra ID P1 (Geräte-Compliance) und Intune-verwaltete Geräte.",
+    customer: true
   }
 };
 
