@@ -12,6 +12,7 @@
   import { apiGet, apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
+  import { activeTab } from '../lib/tabStore.js'
   import { loadNaming } from '../lib/naming.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
@@ -40,9 +41,14 @@
   ])
   const targetName = $derived(naming ? naming.name('browserExtEdge', { name: profileName }) : '')
 
+  // Erst laden, wenn dieser Bereich auch offen ist: Alle Tabs bleiben gemountet,
+  // und die Profilliste zieht sämtliche Konfigurationsprofile des Tenants über
+  // Graph — das bei jedem Tenantwechsel im Hintergrund zu tun, waere unnötige
+  // Last auf dem Kundentenant.
   let loadedFor = null
   $effect(() => {
     const t = $activeTenant
+    if ($activeTab !== 'browserext') return
     if (!$session.loggedIn || !t) return
     if (loadedFor === t.id) return
     loadedFor = t.id
@@ -60,10 +66,12 @@
         apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/edge`),
         loadNaming($activeTenant.id)
       ])
-      catalog = cat.catalog || []
-      edgeStore = cat.edgeStore || edgeStore
-      groups = grp.groups || []
-      profiles = prof.profiles || []
+      // Defensiv, aus demselben Grund wie im Namenskonvention-Tab: Diese
+      // Komponente ist immer gemountet.
+      catalog = Array.isArray(cat?.catalog) ? cat.catalog : []
+      edgeStore = cat?.edgeStore || edgeStore
+      groups = Array.isArray(grp?.groups) ? grp.groups : []
+      profiles = Array.isArray(prof?.profiles) ? prof.profiles : []
       naming = nm
       // Bitwarden ist der Regelfall — vorausgewählt, abwählbar.
       if (!Object.keys(picked).length && catalog.some(c => c.key === 'bitwarden')) picked = { bitwarden: true }

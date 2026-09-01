@@ -31,6 +31,9 @@ RUN npm ci --omit=dev
 COPY server.js ./
 COPY lib ./lib
 COPY assets ./assets
+# Die Baseline ist Teil des Images: lib/baseline.js liest sie zur Laufzeit aus
+# /app/baseline. Fehlt sie, meldet die Wissensseite ENOENT.
+COPY baseline ./baseline
 
 ENV STATE_DIR=/app/state \
     PORT=3000

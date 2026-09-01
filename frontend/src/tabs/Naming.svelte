@@ -22,8 +22,12 @@
   let templates = $state({})       // nur die abweichenden Muster
   let tenantOverride = $state(null)
 
-  const kinds = $derived(data ? data.kinds : [])
-  const profiles = $derived(data ? data.profiles : [])
+  // Defensiv: Eine unerwartete Antwort darf diese Komponente nicht zerlegen —
+  // sie ist immer gemountet, ein Fehler beim Rendern legt sonst die ganze
+  // Oberflaeche lahm (auch den Tenant-Umschalter im Kopf).
+  const kinds = $derived(Array.isArray(data?.kinds) ? data.kinds : [])
+  const profiles = $derived(Array.isArray(data?.profiles) ? data.profiles : [])
+  const tenantRows = $derived(Array.isArray(data?.tenants) ? data.tenants : [])
   const baseTemplates = $derived(
     (profiles.find(p => p.key === profile) || { templates: {} }).templates
   )
@@ -76,7 +80,7 @@
   function applyScope() {
     if (!data) return
     if (scope === 'tenant' && $activeTenant) {
-      const t = (data.tenants || []).find(x => x.id === $activeTenant.id)
+      const t = tenantRows.find(x => x.id === $activeTenant.id)
       tenantOverride = t ? t.naming : null
       const src = tenantOverride || data.global || { profile: 'legacy', templates: {} }
       profile = src.profile || 'legacy'
@@ -183,7 +187,7 @@
     <p class="ld-section-hint"><span class="ld-spinner"></span> Lade…</p>
   {/if}
 
-  {#if data}
+  {#if data && kinds.length}
     <div class="nm-scope">
       <button class="btn {scope === 'global' ? 'btn-primary' : 'btn-secondary'}" onclick={() => setScope('global')}>
         Global
@@ -253,13 +257,13 @@
       {busy ? 'Speichere…' : (scope === 'tenant' ? '💾 Für diesen Tenant speichern' : '💾 Global speichern')}
     </button>
 
-    {#if data.tenants && data.tenants.length}
+    {#if tenantRows.length}
       <h5 class="nm-sub">Was gilt wo</h5>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th>Tenant</th><th>Konvention</th></tr></thead>
           <tbody>
-            {#each data.tenants as t (t.id)}
+            {#each tenantRows as t (t.id)}
               <tr>
                 <td>{t.name}</td>
                 <td>{tenantLabel(t)}</td>
