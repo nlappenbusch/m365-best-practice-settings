@@ -5,7 +5,10 @@
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
-  const TIER_ORDER = ['bareMinimum', 'aadp1', 'aadp1p2']
+  // Die drei Standard-Tiers zuerst, danach alles Weitere in der Reihenfolge der
+  // API — so erscheinen Kundenzusammenstellungen (z.B. "remondis") automatisch,
+  // ohne dass hier eine Liste nachgezogen werden muss.
+  const BASE_TIER_ORDER = ['bareMinimum', 'aadp1', 'aadp1p2']
   const STATE_META = {
     enabledForReportingButNotEnforced: { label: '🟡 Report-only', cls: 'warn' },
     enabled: { label: '🟢 Aktiv', cls: 'ok' },
@@ -14,6 +17,11 @@
 
   let tiers = $state(null)
   let tiersError = $state(null)
+  const tierOrder = $derived(
+    tiers
+      ? [...BASE_TIER_ORDER.filter(k => tiers[k]), ...Object.keys(tiers).filter(k => !BASE_TIER_ORDER.includes(k))]
+      : []
+  )
   let previewOpen = $state({}) // tierKey -> bool
   let previewSelected = $state({}) // tierKey -> { index: bool }
   // Ring-Konzept (AlexFilipin): Ring-Name ersetzt <RING> im Policy-Namen;
@@ -507,7 +515,7 @@
   {:else}
     <h4 style="margin-bottom:0.5rem;"><span class="step-n">1</span> Vorlage auswählen &amp; ausrollen</h4>
     <div class="settings-grid" style="margin-bottom:1.5rem;">
-      {#each TIER_ORDER as key}
+      {#each tierOrder as key}
         {@const t = tiers[key]}
         <div class="policy-card" style="margin-bottom:0;">
           <div class="policy-details active" style="display:block; padding:1rem 1.1rem;">
@@ -522,7 +530,7 @@
       {/each}
     </div>
 
-    {#each TIER_ORDER as key}
+    {#each tierOrder as key}
       {@const t = tiers[key]}
       {#if previewOpen[key]}
         <div class="ld-job" style="margin-bottom:1.5rem;">
