@@ -5,7 +5,7 @@
 Die Prosa-Seiten erklaerten das Warum und wiederholten daneben die Werte —
 Break-Risk-Liste, CIS-Delta, CA-Schutzgruppen, Backup-Umfang. Genau dort
 veraltet dann wieder etwas. Jetzt ziehen sie den passenden Baseline-Abschnitt
-nach:  liefert ihn einzeln, gerendert vom
+nach: `GET /api/baseline/html?section=oib` liefert ihn einzeln, gerendert vom
 selben Code wie die Baseline-Seite und der Export.
 
 | Wissensseite | zieht |
