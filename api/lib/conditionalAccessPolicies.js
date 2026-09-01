@@ -4,6 +4,19 @@
  * inakzeptabel) aus dem MIT-lizenzierten Repo AlexFilipin/ConditionalAccess
  * (https://github.com/AlexFilipin/ConditionalAccess), Stand: 20260720-Abruf.
  *
+ * EINZIGE bewusste Abweichung vom Upstream (01.09.2026): Policy 200 heisst dort
+ * "All apps: Require Strong Auth or trusted device or trusted location", hat aber
+ * builtInControls=[] - eine Geraete-Alternative existiert nicht. Der Name ist im
+ * Upstream schlicht falsch; die Policy selbst ist korrekt und strenger als ihr
+ * Name behauptet. Hier auf "Require Strong Auth or trusted location" korrigiert,
+ * analog zu Policy 211, die bei identischer Konstruktion (builtInControls=[] +
+ * authenticationStrength) genau so heisst.
+ *   NICHT "reparieren", indem man ["compliantDevice","domainJoinedDevice"] setzt:
+ *   der Operator ist OR, jedes zusaetzliche Control ist ein zusaetzlicher Weg
+ *   hinein. Das wuerde die Policy schwaechen (Geraet statt MFA genuegt) und im
+ *   bareMinimum-Tier die unten zugesicherte Intune-Freiheit brechen.
+ *   Upstream-Meldung: siehe docs/upstream-issue-ca200.md
+ *
  * Drei Tiers:
  *  - bareMinimum: nur Authentication-Strength/MFA-Grant-Controls - KEINE
  *    Geraete-Compliance-Anforderung irgendeiner Art (verifiziert: keine Policy
@@ -277,7 +290,7 @@ const CA_POLICY_TEMPLATES = {
       }
     },
     {
-      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted device or trusted location",
+      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted location",
       "createdDateTime": null,
       "modifiedDateTime": null,
       "state": "enabledForReportingButNotEnforced",
@@ -1303,7 +1316,7 @@ const CA_POLICY_TEMPLATES = {
       }
     },
     {
-      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted device or trusted location",
+      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted location",
       "createdDateTime": null,
       "modifiedDateTime": null,
       "state": "enabledForReportingButNotEnforced",
@@ -3840,7 +3853,7 @@ const CA_POLICY_TEMPLATES = {
       }
     },
     {
-      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted device or trusted location",
+      "displayName": "200 - <RING> - Base protection - All apps: Require Strong Auth or trusted location",
       "createdDateTime": null,
       "modifiedDateTime": null,
       "state": "enabledForReportingButNotEnforced",
