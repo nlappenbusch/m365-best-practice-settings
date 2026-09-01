@@ -441,9 +441,9 @@ nicht aus einem unauffälligen Namen.</p>
 (WS/NB brauchen selten eigene Configs und blähen nur auf). Beispiele: <code>STD</code> (Standard-Client /
 Office / Knowledge-Worker), <code>PROD</code> (Produktionsgerät / Shopfloor), <code>KIOSK</code>, <code>EXEC</code>.
 Formfaktor nur dann als eigene Rolle, wenn er wirklich andere Configs bedingt.</p>
-<p>Rollout-Ring (<code>&lt;RING&gt;</code>) nur anhängen, wo tatsächlich geringt wird: <code>PILOT → UAT → BROAD</code>.
-<code>PROD</code> wird nie als Ring verwendet (kollidiert mit der Geräterolle „Produktion"); der breite Ring
-heisst <code>BROAD</code>.</p>
+<p>Rollout-Ring nur anhängen, wo tatsächlich geringt wird — im Bestand <code>PILOT → UAT → BROAD</code>,
+in v2 als CamelCase <code>Pilot → Uat → Broad</code>. <code>PROD</code> wird nie als Ring verwendet, weil es mit
+der Geräterolle «Produktion» kollidiert; der breite Ring heisst <code>Broad</code>.</p>
 <p>App-Gruppen werden nach Verwaltung unterschieden, nicht nach Paketformat: <code>PMP</code> für
 Patch-My-PC-Apps, <code>APP</code> für selbst paketierte. WIN32/Paketformat-Token werden nicht verwendet
 (altert mit Store/winget/MSIX).</p>
@@ -480,6 +480,12 @@ sie können nicht dynamisch gemacht werden, und sie eignen sich nicht für dynam
 Ein klares <code>AAD-</code> (cloud-geboren) gegenüber z.&nbsp;B. <code>AD-</code> (synchronisiert) verhindert,
 dass jemand versehentlich eine synchronisierte On-Prem-Gruppe für eine Intune-/Autopilot-Zuweisung greift und
 stille Fehler erntet.</p>
+<p><strong>In v2 fällt das <code>AAD-</code>-Präfix weg — die Information geht aber nicht verloren.</strong> Sie
+wandert an die KLASSE-Position des Namens: <code>CSG</code> steht für eine cloud-native Sicherheitsgruppe,
+<code>GG</code> und <code>DL</code> für aus dem AD synchronisierte. Bei Gerätegruppen (<code>DG</code>) ist die
+Cloud-Herkunft ohnehin gesetzt, weil es sie nur dort gibt. Die Warnung oben bleibt damit gültig, sie liest sich
+nur an anderer Stelle im Namen: Wer eine <code>GG</code>- oder <code>DL</code>-Gruppe für eine Intune-Zuweisung
+greift, holt sich dieselben stillen Fehler.</p>
 
 <h3>🗺️ Die Kette im Überblick</h3>
 <div class="flow-diagram" role="img" aria-label="Geraet ueber GroupTag zur Gruppe, die Autopilot-Profil, OIB-Policies und App-Gruppen zieht">
@@ -529,16 +535,20 @@ stille Fehler erntet.</p>
 </ul>
 
 <h3>🔄 Migration bestehender Namen</h3>
+<p>Zwei Schritte, die nichts miteinander zu tun haben: Erst wurden gewachsene Altnamen auf den Bestand
+vereinheitlicht (Tabelle unten), danach steht die Umstellung auf v2 an. <strong>Beides passiert nie durch
+Umbenennen</strong> — das Werkzeug legt Neues nach der eingestellten Konvention an und findet Bestehendes
+weiterhin unter allen bekannten Mustern.</p>
 <table class="comparison-table">
-  <thead><tr><th>Alt</th><th>Neu</th></tr></thead>
+  <thead><tr><th>Gewachsen</th><th>Bestand</th><th>v2</th></tr></thead>
   <tbody>
-    <tr><td><code>AAD-DG-STD</code></td><td><code>AAD-DEV-STD</code> (GroupTag <code>DEV-STD</code>)</td></tr>
-    <tr><td><code>AAD-DEV-WS-PRD</code></td><td><code>AAD-DEV-STD</code></td></tr>
-    <tr><td>GroupTag <code>DG_STD</code></td><td><code>DEV-STD</code></td></tr>
-    <tr><td>GroupTag <code>EDU-DG-Office</code></td><td><code>DEV-STD</code></td></tr>
-    <tr><td>GroupTag <code>EDU-DG-PROD</code> (Produktion)</td><td><code>DEV-PROD</code></td></tr>
-    <tr><td>GroupTag <code>DV-NB-MA</code></td><td><code>DEV-STD</code> (oder eigene Rolle, falls Notebooks anders konfiguriert)</td></tr>
-    <tr><td><code>AAD-WIN32-&lt;APP&gt;</code></td><td><code>AAD-APP-&lt;APP&gt;</code></td></tr>
+    <tr><td><code>AAD-DG-STD</code></td><td><code>AAD-DEV-STD</code></td><td><code>T2-DG-WIN-Std</code></td></tr>
+    <tr><td><code>AAD-DEV-WS-PRD</code></td><td><code>AAD-DEV-STD</code></td><td><code>T2-DG-WIN-Std</code></td></tr>
+    <tr><td>GroupTag <code>DG_STD</code></td><td><code>DEV-STD</code></td><td><code>WIN-Std</code></td></tr>
+    <tr><td>GroupTag <code>EDU-DG-Office</code></td><td><code>DEV-STD</code></td><td><code>WIN-Std</code></td></tr>
+    <tr><td>GroupTag <code>EDU-DG-PROD</code> (Produktion)</td><td><code>DEV-PROD</code></td><td><code>WIN-Prod</code></td></tr>
+    <tr><td>GroupTag <code>DV-NB-MA</code></td><td><code>DEV-STD</code></td><td><code>WIN-Std</code> <small>(oder eigene Rolle, falls Notebooks anders konfiguriert)</small></td></tr>
+    <tr><td><code>AAD-WIN32-&lt;APP&gt;</code></td><td><code>AAD-APP-&lt;APP&gt;</code></td><td><code>T2-DG-WIN-App&lt;App&gt;</code></td></tr>
   </tbody>
 </table>
 <p class="note">Umzustellen: die Skript-Liste <code>$availableGroupTags</code> im Autopilot-Wrapper (falls der

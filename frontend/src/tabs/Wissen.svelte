@@ -77,10 +77,28 @@
 
   // Der Wissen-Tab ist tenantunabhängig — hier gilt die globale Vorgabe.
   let nm = $state(null)
+  let detailTouched = false
   $effect(() => {
     if (nm) return
-    loadNaming(null).then(v => { nm = v }).catch(() => {})
+    loadNaming(null).then(v => {
+      nm = v
+      // Vorbelegung passend zum aktiven Schema: Im Bestand lautet der GroupTag
+      // DEV-STD, in v2 WIN-Std. Eine eigene Eingabe wird nicht überschrieben.
+      if (!detailTouched && nameCat === 'dev') {
+        nameDetail = /^T2-DG-/.test(catName('dev', 'X')) ? 'WIN-Std' : 'DEV-STD'
+      }
+    }).catch(() => {})
   })
+
+  // Beim Kategoriewechsel eine sinnvolle Vorgabe setzen, solange nichts
+  // Eigenes im Feld steht.
+  function pickCat(key) {
+    nameCat = key
+    if (detailTouched) return
+    nameDetail = key === 'dev'
+      ? (/^T2-DG-/.test(catName('dev', 'X')) ? 'WIN-Std' : 'DEV-STD')
+      : { pmp: 'GoogleChrome', app: 'ZeiterfassungXY', usr: 'AppProtection', role: 'Helpdesk' }[key]
+  }
 
   // Ist die Konvention noch nicht geladen, greift das Bestandsmuster.
   function catName(catKey, value) {
@@ -96,7 +114,7 @@
     return /^T2-DG-/.test(catName('dev', 'X')) ? 'WIN-Std' : 'DEV-STD'
   })
   let nameCat = $state('dev')
-  let nameDetail = $state('STD')
+  let nameDetail = $state('DEV-STD')
   let nameRing = $state('')
   let nameCopied = $state(false)
 
@@ -327,7 +345,7 @@
       <div class="name-builder-row">
         <label class="name-builder-field">
           Kategorie
-          <select bind:value={nameCat}>
+          <select value={nameCat} onchange={(e) => pickCat(e.currentTarget.value)}>
             <option value="dev">Gerätegruppe</option>
             <option value="pmp">App-Gruppe (Patch My PC)</option>
             <option value="app">App-Gruppe (manuell)</option>
@@ -337,7 +355,8 @@
         </label>
         <label class="name-builder-field">
           Detail
-          <input type="text" bind:value={nameDetail} placeholder={catPlaceholder} />
+          <input type="text" bind:value={nameDetail} placeholder={catPlaceholder}
+                 oninput={() => (detailTouched = true)} />
         </label>
         {#if nameCat === 'dev'}
           <label class="name-builder-field">
