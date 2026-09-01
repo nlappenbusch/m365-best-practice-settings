@@ -1,5 +1,38 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.11 - Offboarding: App-Registrierung im Kundentenant wird jetzt entfernt (2026-09-01)
+
+### 🧹 Tenant-Offboarding als Gegenstück zum Onboarding
+
+Bisher entfernte «✕ Entfernen» nur den lokalen Eintrag und das Zertifikat — der
+Bestätigungsdialog sagte das sogar selbst: *«Die App-Registrierung im Tenant bleibt
+bestehen.»* Zurück blieb im Kundenverzeichnis eine App mit
+`DeviceManagementConfiguration.ReadWrite.All`, `Policy.ReadWrite.ConditionalAccess`,
+`User.ReadWrite.All`, `RoleManagement.ReadWrite.Directory` und der
+Exchange-Verwaltungsrolle — ohne brauchbare Anmeldedaten, aber auch ohne dass noch
+jemand wusste, wofür sie da war.
+
+**Neu: «🧹 Offboarden»** im Tab Tenants. Löscht im Kundentenant zuerst den
+Dienstprinzipal (damit fallen Rollenzuweisungen und erteilte Admin-Zustimmungen weg),
+danach die App-Registrierung — und räumt **erst dann** lokal auf.
+
+**Warum noch einmal Device-Code:** Die App hat nur `Application.Read.All`, nicht
+`ReadWrite` — sie kann sich nicht selbst löschen. Das Aufräumen braucht deshalb
+zwingend eine Anmeldung mit Anwendungsadministrator-Rechten im Kundentenant, genau
+wie das Anlegen.
+
+**Reihenfolge ist Absicht:** Scheitert der Remote-Teil, wird lokal *nichts* gelöscht
+und der Vorgang meldet `partial` mit Hinweis. Sonst stünde die App mit ihren Rechten
+weiter im Kundentenant, während wir hier die Mittel wegwerfen, sie überhaupt noch zu
+finden.
+
+**Zweiter, bewusst getrennter Weg: «✕ Nur lokal».** Für den Fall, dass der Zugang
+schon weg ist oder die App dort von Hand entfernt wurde. Verlangt eine ausdrückliche
+Bestätigung und sagt danach klar, dass die App-Registrierung stehen bleibt.
+
+Die Löschung ist eine **Soft-Löschung**: Entra behält das Objekt 30 Tage im
+Papierkorb, ein Versehen ist zurückholbar. Bewusst kein permanentes Purge.
+
 ## Version 2.10 - Kundenzusammenstellung REMONDIS als eigenes Tier (2026-09-01)
 
 ### 🎯 Viertes Tier: «REMONDIS — Gerät statt Standort»

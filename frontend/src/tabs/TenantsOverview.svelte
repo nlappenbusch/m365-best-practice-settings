@@ -244,6 +244,81 @@
     navigator.clipboard.writeText(onboardStep.userCode).then(() => { onboardCopied = true })
   }
 
+  // ---------- Offboarding (Device-Code) ----------
+  // Gegenstueck zum Onboarding: entfernt die App-Registrierung IM KUNDENTENANT
+  // und raeumt erst danach lokal auf. Die App kann sich nicht selbst loeschen
+  // (sie hat nur Application.Read.All), deshalb noch einmal Device-Code.
+  let offTargetId = $state(null)
+  let offTargetName = $state('')
+  let offStep = $state(null)      // { verificationUri, userCode, interval }
+  let offResult = $state(null)    // { error } | { steps, local } | { partial }
+  let offBusy = $state(false)
+  let offCopied = $state(false)
+  let offTimer = null
+
+  function closeOffPanel() {
+    if (offTimer) { clearTimeout(offTimer); offTimer = null }
+    offTargetId = null; offTargetName = ''; offStep = null; offResult = null; offBusy = false; offCopied = false
+  }
+
+  async function startOffboard(t) {
+    if (!confirm(
+      `Tenant "${t.name}" vollständig offboarden?\n\n` +
+      `Es wird die App-Registrierung samt Dienstprinzipal IM KUNDENTENANT gelöscht ` +
+      `und danach lokal aufgeräumt.\n\n` +
+      `Dafür ist eine Anmeldung mit Anwendungsadministrator-Rechten im Kundentenant nötig. ` +
+      `Die App landet für 30 Tage im Entra-Papierkorb und ist von dort zurückholbar.`
+    )) return
+    offTargetId = t.id; offTargetName = t.name
+    offBusy = true; offStep = null; offResult = null; offCopied = false
+    let start
+    try {
+      start = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/offboard/start`, {})
+    } catch (e) {
+      offResult = { error: e.message }; offBusy = false; return
+    }
+    offStep = start
+    scheduleOffboardPoll(t.id, start.interval || 5)
+  }
+
+  function scheduleOffboardPoll(tenantId, interval) {
+    offTimer = setTimeout(async () => {
+      let r
+      try { r = await apiPost(`/api/tenants/${encodeURIComponent(tenantId)}/offboard/poll`, {}) }
+      catch (e) { offResult = { error: e.message }; offBusy = false; offStep = null; return }
+      if (r.status === 'pending') { scheduleOffboardPoll(tenantId, r.interval || interval); return }
+      if (r.status === 'error') { offResult = { error: r.error }; offBusy = false; offStep = null; return }
+      if (r.status === 'partial') {
+        offResult = { partial: true, steps: r.steps || [], error: r.error, hint: r.hint }
+        offBusy = false; offStep = null; return
+      }
+      offResult = { steps: r.steps || [], local: r.local || [], note: r.recycleBinNote }
+      offBusy = false; offStep = null
+      await loadTenants()
+    }, interval * 1000)
+  }
+
+  function copyOffCode() {
+    if (!offStep) return
+    navigator.clipboard.writeText(offStep.userCode).then(() => { offCopied = true })
+  }
+
+  // Nur lokal aufraeumen — bewusst getrennt, damit niemand versehentlich eine
+  // App mit weitreichenden Rechten im Kundentenant zuruecklaesst.
+  async function localOnlyCleanup(t) {
+    if (!confirm(
+      `Nur lokal aufräumen für "${t.name}"?\n\n` +
+      `Die App-Registrierung${t.clientId ? ' ' + t.clientId : ''} BLEIBT im Kundentenant bestehen ` +
+      `und muss dort von Hand entfernt werden. Zertifikat und Eintrag hier werden gelöscht.`
+    )) return
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent(t.id)}/offboard/local-only`, { confirm: true })
+      offTargetId = t.id; offTargetName = t.name
+      offResult = { steps: [], local: r.local || [], warning: r.warning }
+      await loadTenants()
+    } catch (e) { alert(e.message) }
+  }
+
   // ---------- Reparieren (bestehende App-Registrierung, Device-Code) ----------
   let fixTargetId = $state(null)
   let fixTargetName = $state('')
@@ -410,8 +485,10 @@
                       title="Steuert, was externe MCP-Clients (API-Key) für diesen Tenant lesen/schreiben dürfen">🔌 MCP-Zugriff</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startFix(t) }}
                       title="App-Registrierung prüfen/reparieren: Permission, Consent, Rollen, Zertifikat">🔧 Reparieren</button>
-              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); doRemove(t) }}
-                      title="Tenant aus dem Tool entfernen">✕ Entfernen</button>
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); startOffboard(t) }}
+                      title="Vollständig offboarden: App-Registrierung und Dienstprinzipal im Kundentenant löschen, danach lokal aufräumen">🧹 Offboarden</button>
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); localOnlyCleanup(t) }}
+                      title="Nur lokal aufräumen — die App-Registrierung bleibt im Kundentenant bestehen und muss dort von Hand weg">✕ Nur lokal</button>
             </div>
           </div>
         {/each}
@@ -541,6 +618,46 @@
         {/each}
       </div>
     {/if}
+  {/if}
+
+  {#if offTargetId}
+    <div class="ld-job" style="margin-bottom:1.5rem">
+      <div class="ld-job-head">
+        <strong>Offboarding: {offTargetName}</strong>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeOffPanel}>schließen</button>
+      </div>
+      {#if offStep}
+        <div class="ld-step"><small>
+          Löscht Dienstprinzipal und App-Registrierung im Kundentenant. Erst wenn das durch ist,
+          werden Zertifikat und Eintrag hier entfernt — sonst bliebe eine App mit weitreichenden
+          Rechten stehen, während wir die Mittel wegwerfen, sie noch zu finden.
+        </small></div>
+        <div class="ld-onboard-step"><span class="step-n">1</span> Öffne <a href={offStep.verificationUri} target="_blank" rel="noopener">{offStep.verificationUri}</a></div>
+        <div class="ld-onboard-step"><span class="step-n">2</span> Melde dich als <strong>Anwendungsadministrator von {offTargetName}</strong> an und gib diesen Code ein:
+          <span class="ld-code">{offStep.userCode}</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={copyOffCode}>{offCopied ? '✓ Kopiert' : 'Kopieren'}</button>
+        </div>
+        <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf deine Anmeldung…</div>
+      {:else if offResult?.error && !offResult?.partial}
+        <div class="ld-banner fail">{offResult.error}</div>
+      {:else if offResult?.partial}
+        <div class="ld-banner fail">{offResult.error}</div>
+        {#each offResult.steps as s}
+          <div class="ld-step"><small>{s.step}: {s.status}{s.error ? ' — ' + s.error : ''}</small></div>
+        {/each}
+        {#if offResult.hint}<div class="ld-step"><small>{offResult.hint}</small></div>{/if}
+      {:else if offResult}
+        <div class="ld-banner ok">Offboarding abgeschlossen.</div>
+        {#each offResult.steps as s}
+          <div class="ld-step"><small>Kundentenant — {s.step}: {s.status}{s.name ? ' (' + s.name + ')' : ''}</small></div>
+        {/each}
+        {#each offResult.local as l}
+          <div class="ld-step"><small>Lokal — {l}</small></div>
+        {/each}
+        {#if offResult.warning}<div class="ld-banner warn">{offResult.warning}</div>{/if}
+        {#if offResult.note}<div class="ld-step"><small>{offResult.note}</small></div>{/if}
+      {/if}
+    </div>
   {/if}
 
   {#if fixTargetId}

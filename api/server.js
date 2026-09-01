@@ -1424,6 +1424,158 @@ app.delete("/api/tenants/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Offboarding (Device-Code) ----------
+// Gegenstueck zum Onboarding. Loescht die App-Registrierung samt Dienstprinzipal
+// IM KUNDENTENANT und raeumt danach lokal auf.
+//
+// Warum ein zweites Mal Device-Code statt der App-eigenen Anmeldung: Die App hat
+// nur Application.READ.All (siehe GRAPH_APP_PERMS) - sie kann sich nicht selbst
+// loeschen. Das Aufraeumen braucht also zwingend eine Anmeldung eines
+// Kundenadmins, genau wie das Anlegen.
+//
+// Die Loeschung ist eine SOFT-Loeschung: Entra behaelt das Objekt 30 Tage im
+// Papierkorb (/directory/deletedItems), ein Versehen ist also zurueckholbar.
+// Bewusst kein permanentes Purge.
+async function deprovisionAppReg(token, clientId) {
+  const steps = [];
+  const q = encodeURIComponent(`appId eq '${String(clientId).replace(/'/g, "''")}'`);
+
+  // 1. Dienstprinzipal zuerst - mit ihm fallen Rollenzuweisungen und erteilte
+  //    Admin-Zustimmungen weg. Umgekehrte Reihenfolge liesse verwaiste
+  //    Zuweisungen zurueck, falls der zweite Schritt scheitert.
+  try {
+    const sps = await gReq(token, "GET", `/servicePrincipals?$filter=${q}&$select=id,displayName`);
+    const sp = (sps.value || [])[0];
+    if (!sp) steps.push({ step: "servicePrincipal", status: "nicht vorhanden" });
+    else {
+      await gReq(token, "DELETE", `/servicePrincipals/${sp.id}`);
+      steps.push({ step: "servicePrincipal", status: "geloescht", id: sp.id, name: sp.displayName || "" });
+    }
+  } catch (e) {
+    steps.push({ step: "servicePrincipal", status: "Fehler", error: e.message });
+  }
+
+  // 2. Die App-Registrierung selbst.
+  try {
+    const apps = await gReq(token, "GET", `/applications?$filter=${q}&$select=id,displayName`);
+    const app = (apps.value || [])[0];
+    if (!app) steps.push({ step: "application", status: "nicht vorhanden" });
+    else {
+      await gReq(token, "DELETE", `/applications/${app.id}`);
+      steps.push({ step: "application", status: "geloescht", id: app.id, name: app.displayName || "" });
+    }
+  } catch (e) {
+    steps.push({ step: "application", status: "Fehler", error: e.message });
+  }
+
+  const failed = steps.filter(s => s.status === "Fehler");
+  return { steps, ok: failed.length === 0, failed };
+}
+
+// Lokales Aufraeumen: Zertifikat und Zustandseintrag. Getrennt, damit es auch
+// nach einem gescheiterten Remote-Schritt bewusst ausgeloest werden kann.
+function cleanupTenantLocally(tenantRecord) {
+  const done = [];
+  try { fs.unlinkSync(certPemPath(tenantRecord.tenantId)); done.push("Zertifikat geloescht"); }
+  catch (e) { done.push("Zertifikat war nicht vorhanden"); }
+  const s = loadState();
+  s.tenants = (s.tenants || []).filter(x => x.id !== tenantRecord.id);
+  saveState(s);
+  done.push("Tenant aus der Verwaltung entfernt");
+  try { GRAPHLIB.clearTenantToken(tenantRecord.tenantId); } catch (e) { /* egal */ }
+  return done;
+}
+
+app.post("/api/tenants/:id/offboard/start", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  if (!t.clientId) return res.status(400).json({ error: "Fuer diesen Tenant ist keine App-Registrierung hinterlegt. Nur lokales Aufraeumen moeglich." });
+
+  const tenantForLogin = t.organization || t.tenantId;
+  const params = new URLSearchParams({
+    client_id: GRAPH_CLI_CLIENT,
+    scope: "Application.ReadWrite.All Directory.ReadWrite.All offline_access openid"
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantForLogin)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+
+  req.session.offboard = {
+    tenantUid: t.id, tenantId: t.tenantId, clientId: t.clientId,
+    deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({
+    userCode: j.user_code,
+    verificationUri: j.verification_uri || "https://microsoft.com/devicelogin",
+    interval: j.interval || 5,
+    tenant: { name: t.name, tenantId: t.tenantId, clientId: t.clientId }
+  });
+}));
+
+app.post("/api/tenants/:id/offboard/poll", wrap(async (req, res) => {
+  const df = req.session.offboard;
+  if (!df || df.tenantUid !== req.params.id) return res.status(400).json({ error: "Kein laufender Offboarding-Vorgang fuer diesen Tenant." });
+  if (Date.now() > df.expiresAt) { delete req.session.offboard; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.tenantId)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.offboard;
+    return res.json({ status: "error", error: j.error_description || j.error || ("HTTP " + r.status) });
+  }
+
+  const result = await deprovisionAppReg(j.access_token, df.clientId);
+
+  // Nur aufraeumen, wenn im Kundentenant wirklich nichts mehr steht. Sonst
+  // bliebe eine App mit weitreichenden Rechten zurueck, waehrend wir lokal die
+  // Mittel wegwerfen, sie noch zu finden.
+  if (!result.ok) {
+    return res.json({
+      status: "partial", steps: result.steps,
+      error: "Die App-Registrierung konnte nicht vollstaendig entfernt werden. Lokal wurde nichts geloescht.",
+      hint: "Entweder mit einem Konto mit Anwendungsadministrator-Rechten wiederholen, oder die App im Kundentenant von Hand entfernen und danach 'nur lokal aufraeumen' waehlen."
+    });
+  }
+
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === df.tenantUid);
+  const local = t ? cleanupTenantLocally(t) : ["Tenant war bereits entfernt"];
+  delete req.session.offboard;
+  res.json({ status: "done", steps: result.steps, local, recycleBinNote: "Die App liegt 30 Tage im Entra-Papierkorb und laesst sich dort zurueckholen." });
+}));
+
+// Ausdruecklicher zweiter Weg: lokal aufraeumen, ohne im Kundentenant zu loeschen.
+// Fuer den Fall, dass der Zugang schon weg ist oder die App dort von Hand
+// entfernt wurde. Verlangt eine bewusste Bestaetigung.
+app.post("/api/tenants/:id/offboard/local-only", wrap(async (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  if (!(req.body && req.body.confirm === true)) {
+    return res.status(400).json({ error: "Bestaetigung fehlt (confirm: true)." });
+  }
+  const local = cleanupTenantLocally(t);
+  delete req.session.offboard;
+  res.json({
+    status: "done", local,
+    warning: t.clientId
+      ? `Die App-Registrierung ${t.clientId} bleibt im Kundentenant bestehen und muss dort von Hand entfernt werden.`
+      : null
+  });
+}));
+
 // ---------- Onboarding (Device-Code) ----------
 app.post("/api/onboard/start", wrap(async (req, res) => {
   const b = req.body || {};
