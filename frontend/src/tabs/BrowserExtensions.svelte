@@ -8,7 +8,8 @@
   //
   // Zuweisung geht an die GERÄTEGRUPPE. Intune löst verschachtelte Gruppen nur
   // beim App-Assignment auf — ein Konfigurationsprofil auf einer App-Zielgruppe
-  // erreicht kein einziges Gerät.
+  // erreicht kein einziges Gerät. Deshalb sortiert die Auswahl unten die
+  // dynamischen Gerätegruppen nach oben und warnt bei App-Zielgruppen.
   import { apiGet, apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
@@ -19,6 +20,7 @@
   let catalog = $state([])
   let edgeStore = $state('https://edge.microsoft.com/extensionwebstorebase/v1/crx')
   let groups = $state([])
+  let deviceGroupIds = $state([])   // Gruppen mit [OrderID]-Tag
   let profiles = $state(null)
   let naming = $state(null)
 
@@ -27,13 +29,14 @@
   let notice = $state(null)
 
   let profileName = $state('Standard')
-  let picked = $state({})        // catalog key -> bool
+  let picked = $state({})
   let customId = $state('')
   let customUrl = $state('')
-  let extras = $state([])        // frei ergänzte Erweiterungen
-  let selGroups = $state({})     // groupId -> bool
+  let extras = $state([])
+  let selGroups = $state({})
+  let groupFilter = $state('')
+  let showOther = $state(false)
 
-  const canQuery = $derived(!!$activeTenant)
   const selectedGroupIds = $derived(Object.keys(selGroups).filter(g => selGroups[g]))
   const chosen = $derived([
     ...catalog.filter(c => picked[c.key]).map(c => ({ extensionId: c.extensionId, updateUrl: c.updateUrl, label: c.label })),
@@ -41,10 +44,23 @@
   ])
   const targetName = $derived(naming ? naming.name('browserExtEdge', { name: profileName }) : '')
 
-  // Erst laden, wenn dieser Bereich auch offen ist: Alle Tabs bleiben gemountet,
-  // und die Profilliste zieht sämtliche Konfigurationsprofile des Tenants über
-  // Graph — das bei jedem Tenantwechsel im Hintergrund zu tun, waere unnötige
-  // Last auf dem Kundentenant.
+  // Eine App-Zielgruppe hier zu wählen ist der eine Fehler, der garantiert dazu
+  // führt, dass das Profil kein Gerät erreicht — deshalb sichtbar machen.
+  const APP_GROUP = /^(AAD-APP-|AAD-PMP-|T2-DG-WIN-(App|Pmp))/i
+  function isAppGroup(name) { return APP_GROUP.test(String(name || '')) }
+  function isDeviceGroup(g) { return deviceGroupIds.includes(g.id) }
+
+  const filtered = $derived(
+    groups.filter(g => {
+      const q = groupFilter.trim().toLowerCase()
+      return !q || String(g.displayName || '').toLowerCase().includes(q)
+    })
+  )
+  const devGroups = $derived(filtered.filter(isDeviceGroup))
+  const otherGroups = $derived(filtered.filter(g => !isDeviceGroup(g)))
+  const selectedNames = $derived(groups.filter(g => selectedGroupIds.includes(g.id)).map(g => g.displayName))
+  const wrongPick = $derived(selectedNames.filter(isAppGroup))
+
   let loadedFor = null
   $effect(() => {
     const t = $activeTenant
@@ -60,20 +76,22 @@
   async function load() {
     busy = true; error = null; notice = null
     try {
-      const [cat, grp, prof, nm] = await Promise.all([
+      const [cat, grp, prof, nm, dyn] = await Promise.all([
         apiGet('/api/browserext/catalog'),
         apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/groups`),
         apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/edge`),
-        loadNaming($activeTenant.id)
+        loadNaming($activeTenant.id),
+        // Liefert die dynamischen Gruppen samt GroupTags — daraus wissen wir,
+        // welche der vielen Gruppen überhaupt Gerätegruppen sind.
+        apiPost('/api/grouptags/groups', { tenantId: $activeTenant.id }).catch(() => ({ groups: [] }))
       ])
-      // Defensiv, aus demselben Grund wie im Namenskonvention-Tab: Diese
-      // Komponente ist immer gemountet.
       catalog = Array.isArray(cat?.catalog) ? cat.catalog : []
       edgeStore = cat?.edgeStore || edgeStore
       groups = Array.isArray(grp?.groups) ? grp.groups : []
       profiles = Array.isArray(prof?.profiles) ? prof.profiles : []
       naming = nm
-      // Bitwarden ist der Regelfall — vorausgewählt, abwählbar.
+      deviceGroupIds = (Array.isArray(dyn?.groups) ? dyn.groups : [])
+        .filter(g => (g.tags || []).length).map(g => g.id)
       if (!Object.keys(picked).length && catalog.some(c => c.key === 'bitwarden')) picked = { bitwarden: true }
     } catch (e) {
       error = e.message
@@ -92,16 +110,18 @@
     customId = ''; customUrl = ''; error = null
   }
 
-  function removeExtra(id) {
-    extras = extras.filter(e => e.extensionId !== id)
-  }
+  function removeExtra(id) { extras = extras.filter(e => e.extensionId !== id) }
+  function toggleGroup(id) { selGroups = { ...selGroups, [id]: !selGroups[id] } }
 
   async function deploy() {
     if (!chosen.length) { error = 'Keine Erweiterung gewählt.'; return }
-    const gnames = groups.filter(g => selectedGroupIds.includes(g.id)).map(g => g.displayName)
     const what = `Profil „${targetName || profileName}" mit ${chosen.length} Erweiterung(en) anlegen bzw. aktualisieren`
-      + (gnames.length ? ` und ${gnames.join(', ')} zuweisen?` : ' und OHNE Zuweisung anlegen?')
-    if (!confirm(`${what}\n\nDas schreibt in den Tenant ${$activeTenant?.name}. Die Erweiterungen werden auf den Geräten still installiert und lassen sich vom Benutzer nicht entfernen.`)) return
+      + (selectedNames.length ? ` und ${selectedNames.join(', ')} zuweisen?` : ' und OHNE Zuweisung anlegen?')
+    const warn = wrongPick.length
+      ? `\n\nACHTUNG: ${wrongPick.join(', ')} ${wrongPick.length === 1 ? 'ist eine App-Zielgruppe' : 'sind App-Zielgruppen'} — `
+        + 'Konfigurationsprofile lösen deren Nesting nicht auf, das Profil erreicht darüber kein Gerät.'
+      : ''
+    if (!confirm(`${what}${warn}\n\nDas schreibt in den Tenant ${$activeTenant?.name}. Die Erweiterungen werden auf den Geräten still installiert und lassen sich vom Benutzer nicht entfernen.`)) return
 
     busy = true; error = null; notice = null
     try {
@@ -113,7 +133,8 @@
       notice = `„${r.displayName}" ${r.updated ? 'aktualisiert' : 'angelegt'}`
         + (r.assignedGroups ? `, ${r.assignedGroups} Gruppe(n) zugewiesen` : ' (ohne Zuweisung)')
         + '. Auf den Geräten greift es beim nächsten Richtlinien-Abgleich.'
-      profiles = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/edge`)).profiles || []
+      const p = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/edge`)
+      profiles = Array.isArray(p?.profiles) ? p.profiles : []
     } catch (e) {
       error = e.message
     }
@@ -126,14 +147,8 @@
     <h4>Erzwungene Browser-Erweiterungen <small>(Microsoft Edge)</small></h4>
     <p class="ld-section-hint" style="margin-top:0">
       Legt ein Konfigurationsprofil an, das die gewählten Erweiterungen still installiert — der Benutzer
-      kann sie nicht entfernen. Umgesetzt als OMA-URI auf die Edge-Richtlinie
-      <code>ExtensionInstallForcelist</code>; im Portal erscheint es als normales Custom-Profil.
-    </p>
-    <p class="ld-section-hint">
-      <strong>Zuweisung gehört an die Gerätegruppe</strong>, nicht an eine App-Zielgruppe: Intune löst
-      verschachtelte Gruppen nur beim App-Assignment auf, bei Konfigurationsprofilen nicht.
-      <br />Chrome und Firefox brauchen stattdessen eine ADMX-Ingestion — das ist ein anderer Mechanismus
-      und hier bewusst nicht mit drin.
+      kann sie nicht entfernen. Umgesetzt als OMA-URI auf <code>ExtensionInstallForcelist</code>.
+      Chrome und Firefox bräuchten eine ADMX-Ingestion und sind hier nicht dabei.
     </p>
 
     {#if error}<div class="alert alert-warning">❌ {error}</div>{/if}
@@ -142,111 +157,206 @@
 
     {#if profiles}
       {#if profiles.length}
-        <h5 class="be-sub">Vorhandene Profile ({profiles.length})</h5>
-        <div class="tbl-wrap">
-          <table class="tbl">
-            <thead><tr><th>Profil</th><th>Objekt in Intune</th></tr></thead>
-            <tbody>
-              {#each profiles as p (p.id)}
-                <tr><td>{p.profileName}</td><td><code>{p.displayName}</code></td></tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else}
-        <p class="ld-section-hint">Noch kein Profil in diesem Tenant.</p>
-      {/if}
-
-      <h5 class="be-sub">Neues Profil</h5>
-      <div class="be-form">
-        <div class="input-group" style="max-width:240px; margin:0">
-          <label for="be-name">Profilname</label>
-          <input id="be-name" type="text" bind:value={profileName} placeholder="Standard" />
-        </div>
-      </div>
-      {#if targetName}
-        <p class="ld-section-hint" style="margin-top:0.4rem">
-          Heisst in Intune: <code>{targetName}</code> — nach der eingestellten Namenskonvention.
-        </p>
-      {/if}
-
-      <h5 class="be-sub">Erweiterungen</h5>
-      <div class="be-list">
-        {#each catalog as c (c.key)}
-          <label class="be-item">
-            <input type="checkbox" bind:checked={picked[c.key]} />
-            <span>
-              <strong>{c.label}</strong>
-              <br /><code>{c.extensionId}</code>
-              {#if c.note}<br /><small>{c.note}</small>{/if}
-            </span>
-          </label>
-        {/each}
-        {#each extras as e (e.extensionId)}
-          <label class="be-item">
-            <input type="checkbox" checked disabled />
-            <span>
-              <strong>Eigene Erweiterung</strong>
-              <br /><code>{e.extensionId}</code>
-              <br /><small>{e.updateUrl}</small>
-            </span>
-            <button class="ag-link" onclick={() => removeExtra(e.extensionId)}>entfernen</button>
-          </label>
-        {/each}
-      </div>
-
-      <div class="be-form" style="margin-top:0.6rem">
-        <div class="input-group" style="max-width:330px; margin:0">
-          <label for="be-id">Weitere Erweiterung (Id aus edge://extensions)</label>
-          <input id="be-id" type="text" bind:value={customId} placeholder="32 Buchstaben a–p" />
-        </div>
-        <div class="input-group" style="max-width:330px; margin:0">
-          <label for="be-url">Update-URL <small>(leer = Edge-Add-ons)</small></label>
-          <input id="be-url" type="text" bind:value={customUrl} placeholder={edgeStore} />
-        </div>
-        <button class="btn btn-secondary" onclick={addCustom}>Hinzufügen</button>
-      </div>
-
-      <h5 class="be-sub">Gerätegruppen</h5>
-      {#if groups.length}
-        <div class="be-list">
-          {#each groups as g (g.id)}
-            <label class="be-item">
-              <input type="checkbox" bind:checked={selGroups[g.id]} />
-              <span>{g.displayName}</span>
-            </label>
+        <div class="bx-existing">
+          <span class="bx-existing-label">Vorhanden</span>
+          {#each profiles as p (p.id)}
+            <span class="bx-chip"><strong>{p.profileName}</strong><code>{p.displayName}</code></span>
           {/each}
         </div>
-      {:else}
-        <p class="ld-section-hint">Keine Gruppen gefunden.</p>
       {/if}
 
-      <button class="btn btn-primary" style="margin-top:0.9rem"
-              disabled={busy || !chosen.length} onclick={deploy}>
-        {busy ? 'Rolle aus…' : '🧩 Profil anlegen und zuweisen'}
-      </button>
-      <p class="ld-section-hint" style="margin-top:0.6rem">
-        Die Server-Region der Bitwarden-Erweiterung ist ein getrenntes Objekt — die setzt die
-        Registry-Richtlinie im Bereich Mappings bzw. der Bereitstellen-Dialog der Desktop-App.
-      </p>
+      <section class="bx-step">
+        <h5><span class="bx-n">1</span> Erweiterungen wählen</h5>
+        <div class="bx-ext-grid">
+          {#each catalog as c (c.key)}
+            <label class="bx-ext" class:sel={picked[c.key]}>
+              <input type="checkbox" bind:checked={picked[c.key]} />
+              <span class="bx-ext-body">
+                <strong>{c.label}</strong>
+                <code>{c.extensionId}</code>
+                {#if c.note}<small>{c.note}</small>{/if}
+              </span>
+            </label>
+          {/each}
+          {#each extras as e (e.extensionId)}
+            <div class="bx-ext sel">
+              <span class="bx-ext-body">
+                <strong>Eigene Erweiterung</strong>
+                <code>{e.extensionId}</code>
+                <small>{e.updateUrl}</small>
+              </span>
+              <button class="bx-x" title="entfernen" onclick={() => removeExtra(e.extensionId)}>✕</button>
+            </div>
+          {/each}
+        </div>
+        <details class="bx-more">
+          <summary>Weitere Erweiterung von Hand</summary>
+          <div class="bx-more-body">
+            <div class="input-group" style="max-width:330px; margin:0">
+              <label for="be-id">Erweiterungs-Id <small>(aus edge://extensions)</small></label>
+              <input id="be-id" type="text" bind:value={customId} placeholder="32 Buchstaben a–p" />
+            </div>
+            <div class="input-group" style="max-width:330px; margin:0">
+              <label for="be-url">Update-URL <small>(leer = Edge-Add-ons)</small></label>
+              <input id="be-url" type="text" bind:value={customUrl} placeholder={edgeStore} />
+            </div>
+            <button class="btn btn-secondary" onclick={addCustom}>Hinzufügen</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="bx-step">
+        <h5><span class="bx-n">2</span> Gerätegruppen zuweisen</h5>
+        <p class="ld-section-hint" style="margin-top:0">
+          Konfigurationsprofile lösen kein Gruppen-Nesting auf — sie gehören direkt an die dynamischen
+          Gerätegruppen, nicht an App-Zielgruppen.
+        </p>
+
+        {#if selectedGroupIds.length}
+          <div class="bx-sel">
+            {#each selectedGroupIds as id (id)}
+              {@const g = groups.find(x => x.id === id)}
+              {#if g}
+                <span class="bx-chip bx-chip-sel" class:warn={isAppGroup(g.displayName)}>
+                  {g.displayName}
+                  <button class="bx-x" title="abwählen" onclick={() => toggleGroup(id)}>✕</button>
+                </span>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+
+        {#if wrongPick.length}
+          <div class="alert alert-warning">
+            <strong>{wrongPick.join(', ')}</strong> {wrongPick.length === 1 ? 'ist eine App-Zielgruppe' : 'sind App-Zielgruppen'} —
+            darüber erreicht das Profil kein Gerät. Nimm die Gerätegruppe, in der die Geräte tatsächlich Mitglied sind.
+          </div>
+        {/if}
+
+        <div class="input-group" style="max-width:280px; margin:0 0 0.5rem">
+          <label for="bx-filter">Gruppe suchen</label>
+          <input id="bx-filter" type="search" bind:value={groupFilter} placeholder="Name…" />
+        </div>
+
+        {#if devGroups.length}
+          <div class="bx-glabel">Dynamische Gerätegruppen <small>({devGroups.length})</small></div>
+          <div class="bx-glist">
+            {#each devGroups as g (g.id)}
+              <label class="bx-g" class:sel={selGroups[g.id]}>
+                <input type="checkbox" bind:checked={selGroups[g.id]} />
+                <span>{g.displayName}</span>
+              </label>
+            {/each}
+          </div>
+        {:else}
+          <p class="ld-section-hint">
+            Keine dynamische Gerätegruppe gefunden — im Tab <strong>GroupTags</strong> zuerst eine anlegen,
+            sonst hat das Profil kein sinnvolles Ziel.
+          </p>
+        {/if}
+
+        {#if otherGroups.length}
+          <button class="bx-toggle" onclick={() => (showOther = !showOther)}>
+            {showOther ? '▾' : '▸'} Weitere Gruppen ({otherGroups.length})
+          </button>
+          {#if showOther}
+            <div class="bx-glist">
+              {#each otherGroups as g (g.id)}
+                <label class="bx-g" class:sel={selGroups[g.id]} class:warn={isAppGroup(g.displayName)}>
+                  <input type="checkbox" bind:checked={selGroups[g.id]} />
+                  <span>{g.displayName}</span>
+                  {#if isAppGroup(g.displayName)}<small class="bx-warnhint">App-Zielgruppe</small>{/if}
+                </label>
+              {/each}
+            </div>
+          {/if}
+        {/if}
+      </section>
+
+      <section class="bx-step">
+        <h5><span class="bx-n">3</span> Anlegen</h5>
+        <div class="bx-final">
+          <div class="input-group" style="max-width:240px; margin:0">
+            <label for="be-name">Profilname</label>
+            <input id="be-name" type="text" bind:value={profileName} placeholder="Standard" />
+          </div>
+          <div class="bx-summary">
+            {#if targetName}<div>Heisst in Intune: <code>{targetName}</code></div>{/if}
+            <div class="bx-muted">
+              {chosen.length} Erweiterung{chosen.length === 1 ? '' : 'en'} ·
+              {selectedGroupIds.length ? `${selectedGroupIds.length} Gruppe(n)` : 'ohne Zuweisung'}
+            </div>
+          </div>
+          <button class="btn btn-primary" disabled={busy || !chosen.length} onclick={deploy}>
+            {busy ? 'Rolle aus…' : '🧩 Profil anlegen und zuweisen'}
+          </button>
+        </div>
+        <p class="ld-section-hint" style="margin-top:0.6rem">
+          Die Server-Region der Bitwarden-Erweiterung ist ein getrenntes Objekt — die setzt die
+          Registry-Richtlinie im Bereich <strong>Mappings</strong> bzw. der Bereitstellen-Dialog der Desktop-App.
+        </p>
+      </section>
     {/if}
   </div>
 </TenantContext>
 
 <style>
-  .be-sub { margin: 1.4rem 0 0.5rem; font-size: 0.95rem; }
-  .be-form { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; }
-  .be-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.45rem; }
-  .be-item {
-    display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.88rem; cursor: pointer;
-    border: 1px solid var(--border, rgba(127,127,127,.25)); border-radius: 8px; padding: 0.5rem 0.65rem;
+  .bx-step { margin: 1.4rem 0; padding-top: 1rem; border-top: 1px solid var(--border, rgba(127,127,127,.2)); }
+  .bx-step:first-of-type { border-top: 0; }
+  .bx-step h5 { display: flex; align-items: center; gap: .5rem; margin: 0 0 .5rem; font-size: .98rem; }
+  .bx-n {
+    width: 1.5rem; height: 1.5rem; border-radius: 50%; display: inline-flex;
+    align-items: center; justify-content: center; font-size: .78rem; font-weight: 700;
+    background: var(--surface-2, rgba(127,127,127,.12)); color: var(--accent, #0081ad);
   }
-  .be-item code { font-size: 0.76rem; opacity: .8; }
-  .be-item small { opacity: .7; }
-  .ag-link {
-    background: none; border: 0; cursor: pointer; padding: 0; font: inherit;
-    font-size: 0.78rem; text-decoration: underline; color: inherit; opacity: .8;
-    margin-left: auto; white-space: nowrap;
+
+  .bx-existing { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .6rem 0; }
+  .bx-existing-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; opacity: .55; }
+  .bx-chip {
+    display: inline-flex; align-items: center; gap: .4rem; font-size: .82rem;
+    border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 999px; padding: .15rem .7rem;
   }
-  .ag-link:hover { opacity: 1; }
+  .bx-chip code { font-size: .74rem; opacity: .7; }
+  .bx-chip-sel { background: var(--surface-2, rgba(127,127,127,.1)); padding-right: .25rem; }
+  .bx-chip-sel.warn { border-color: #c0392b; color: #c0392b; }
+  .bx-sel { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: .6rem; }
+
+  .bx-ext-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .5rem; }
+  .bx-ext {
+    display: flex; align-items: flex-start; gap: .55rem; cursor: pointer;
+    border: 1px solid var(--border, rgba(127,127,127,.25)); border-radius: 10px; padding: .6rem .7rem;
+  }
+  .bx-ext.sel { border-color: var(--accent, #0081ad); }
+  .bx-ext-body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+  .bx-ext-body code { font-size: .74rem; opacity: .75; overflow-wrap: anywhere; }
+  .bx-ext-body small { opacity: .65; font-size: .78rem; }
+
+  .bx-more { margin-top: .6rem; }
+  .bx-more > summary { cursor: pointer; font-size: .85rem; opacity: .75; }
+  .bx-more-body { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; padding-top: .6rem; }
+
+  .bx-glabel { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin: .5rem 0 .3rem; }
+  .bx-glist { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .25rem; }
+  .bx-g {
+    display: flex; align-items: center; gap: .45rem; font-size: .86rem; cursor: pointer;
+    padding: .3rem .5rem; border-radius: 7px; border: 1px solid transparent;
+  }
+  .bx-g:hover { background: var(--surface-2, rgba(127,127,127,.08)); }
+  .bx-g.sel { border-color: var(--accent, #0081ad); }
+  .bx-g.warn span { opacity: .7; }
+  .bx-warnhint { color: #c0392b; font-size: .7rem; margin-left: auto; white-space: nowrap; }
+  .bx-toggle {
+    background: none; border: 0; cursor: pointer; font: inherit; font-size: .84rem;
+    color: inherit; opacity: .7; padding: .5rem 0 .2rem;
+  }
+  .bx-toggle:hover { opacity: 1; }
+
+  .bx-final { display: flex; gap: .9rem; align-items: flex-end; flex-wrap: wrap; }
+  .bx-summary { font-size: .85rem; }
+  .bx-muted { opacity: .65; }
+  .bx-x {
+    background: none; border: 0; cursor: pointer; color: inherit; opacity: .5;
+    font-size: .8rem; line-height: 1; padding: .2rem .3rem; border-radius: 999px;
+  }
+  .bx-x:hover { opacity: 1; color: #c0392b; }
 </style>

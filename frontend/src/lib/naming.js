@@ -11,7 +11,8 @@ export function camel(s) {
     .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
     .replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss')
     .split(/[^A-Za-z0-9]+/).filter(Boolean)
-    .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+    // Wie serverseitig: PILOT -> Pilot, GoogleChrome bleibt GoogleChrome.
+    .map(p => (p === p.toUpperCase() && p.length > 1 ? p.charAt(0) + p.slice(1).toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1)))
     .join('')
 }
 
