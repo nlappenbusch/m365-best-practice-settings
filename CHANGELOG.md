@@ -1,5 +1,71 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.13 - Ausgehend & Organisation (2026-09-01)
+
+### 📤 Sechs Punkte, die bisher von Hand liefen
+
+Bei PKRück wurden am 01.09.2026 sechs CIS-Punkte einzeln per Skript gesetzt, weil
+das Werkzeug sie nicht kannte. Genau die sind jetzt drin — als eigener Bereich
+**«Ausgehend & Organisation»** in der Vorlage, im Deploy, im Audit, im
+Export-Skript und in der Konfigurationsdoku:
+
+| CIS | Einstellung | Objekt |
+|---|---|---|
+| 2.1.6 | Benachrichtigung bei ausgehendem Spam + Empfänger | Outbound-Spam-Richtlinie *Default* |
+| 2.1.15 | Empfängerlimits explizit, Aktion bei Überschreitung | dieselbe |
+| 6.2.3 | Kennzeichnung externer Absender in Outlook | `Set-ExternalInOutlook` |
+| 6.2.1 | Automatische Weiterleitung nach aussen sperren | `AutoForwardingMode` + Regel `BP_Block-AutoForwarding` |
+| 6.5.5 | Direct Send abweisen | `Set-OrganizationConfig -RejectDirectSend` |
+| 2.1.6 | Warnungsrichtlinie «User restricted from sending email» | im manuellen S&C-Snippet |
+
+**Bewusst keine eigene `BP_`-Policy:** Diese Punkte sitzen an der *Standard*-Richtlinie
+bzw. am Tenant. Eine eigene Policy mit Rule-Scope wäre konsistenter mit dem Rest des
+Werkzeugs, aber CIS-Benchmark und Maester lesen die Default-Richtlinie — eine
+danebengelegte BP_-Policy würde im Audit als «nicht erfüllt» erscheinen.
+
+### 🛑 Zwei Schalter stehen absichtlich aus
+
+**Auto-Forward-Sperre** und **Direct Send abweisen** können laufenden Betrieb
+unterbrechen: gewollte Weiterleitungen, Multifunktionsdrucker, Scan-to-Mail,
+Fachanwendungen mit eigenem Mailversand — bei Direct Send *ohne Fehlermeldung an den
+Absender*. Beide sind in der Vorlage `false` und tragen im Konfigurations-Tab den
+Erhebungsbefehl, der vorher zu laufen hat. Alles Unkritische (Benachrichtigung,
+Limits, externe Kennzeichnung) steht auf Best Practice.
+
+`ActionWhenThresholdReached` steht auf `BlockUserForToday`. CIS empfiehlt `BlockUser`
+— das ist aber eine Betriebsentscheidung und setzt voraus, dass geklärt ist, wer im
+Ereignisfall freigibt. Als Auswahl vorhanden, nicht als Vorgabe.
+
+### 🔔 NotifyOutboundSpam ist abgekündigt
+
+Microsoft hat den Parameter zugunsten der Warnungsrichtlinien abgekündigt. Das
+Werkzeug setzt deshalb **beide** Wege: den Parameter an der Default-Richtlinie und —
+im manuellen Snippet, weil S&C-PowerShell auf Linux nicht läuft — die eingebaute
+Richtlinie «User restricted from sending email». Bestehende Empfänger dort bleiben
+erhalten, die eigenen kommen dazu.
+
+### 🐛 Cmdlet-Whitelist: `Get-OrganizationConfig` fehlte
+
+`Connect-ExchangeOnline -CommandName` listete `Get-OrganizationConfig` nicht, obwohl
+der Deploy-Body es für die `IsDehydrated`-Vorprüfung aufruft. Der Aufruf steckt in
+einem leeren `catch` — die Prüfung lief also seit jeher ins Leere und der Anwender
+bekam bei dehydrierten Tenants zehn Einzelfehler statt einer klaren Meldung. Jetzt
+in der Whitelist, zusammen mit den neuen Cmdlets.
+
+### 🧭 Ablaufplan hängt an der Konfiguration
+
+`deployPlan(cfg)` ersetzt die feste `DEPLOY_PLAN`-Liste beim Anlegen eines Jobs:
+abgewählte Organisationsschritte stehen nicht mehr dauerhaft als «ausstehend» in der
+Live-Anzeige.
+
+### 🔄 Bestehende Tenant-Vorlagen
+
+Eine vor dieser Version gespeicherte Vorlage kennt den Abschnitt nicht. Der Store
+füllt fehlende Abschnitte aus den Standardwerten auf, das Backend nimmt fehlende
+Einzelwerte weich an — ein alter Stand blockiert den Deploy also nicht. Wer die
+Werte pro Kunde festhalten will, speichert die Vorlage einmal neu.
+
+
 ## Version 2.12 - «Gerät statt Standort» als allgemeine Vorlage, Banner-Layout (2026-09-01)
 
 ### 🔁 Kundenname raus, Beschreibung rein

@@ -23,6 +23,14 @@ const DMARC_Q_ACTIONS = ["Quarantine", "MoveToJmf", "Reject", "None"];
 const DMARC_R_ACTIONS = ["Reject", "Quarantine"];
 const SPAM_ACTIONS = ["Quarantine", "MoveToJmf"];
 const HC_PHISH_ACTIONS = ["Quarantine", "Reject", "MoveToJmf"];
+const THRESHOLD_ACTIONS = ["BlockUser", "BlockUserForToday"];
+
+// Ablehnungstext der Auto-Forward-Regel. Geht als NDR an den Absender, also
+// bewusst ohne Umlaute — der Text laeuft durch pwsh-stdin und soll unterwegs
+// nicht zerlegt werden.
+const FORWARD_REJECT_TEXT =
+  "Automatische Weiterleitung nach extern ist in dieser Organisation nicht zugelassen. " +
+  "Bitte leiten Sie die Nachricht von Hand weiter oder wenden Sie sich an Ihre IT.";
 
 function pick(value, allowed, field) {
   const v = String(value == null ? "" : value);
@@ -39,6 +47,19 @@ function isDomain(d) {
   return typeof d === "string" && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(d);
 }
 function isEmail(e) { return typeof e === "string" && /^[^\s@']+@[^\s@']+\.[^\s@']{2,}$/.test(e); }
+
+// Weiche Varianten fuer den Abschnitt "outbound": eine vor dieser Erweiterung
+// gespeicherte Tenant-Vorlage kennt die Felder nicht. Fehlt ein Wert, gilt der
+// Standard — nicht ein harter Fehler, der den ganzen Deploy blockiert.
+function intOr(v, def, min, max, field) {
+  if (v === undefined || v === null || v === "") return def;
+  return intRange(v, min, max, field);
+}
+function pickOr(v, allowed, def, field) {
+  if (v === undefined || v === null || v === "") return def;
+  return pick(v, allowed, field);
+}
+function boolOr(v, def) { return (v === undefined || v === null) ? def : !!v; }
 function psArray(items) { return "@(" + items.map(psQuote).join(", ") + ")"; }
 
 /** Validiert die rohe Client-Config und gibt eine normalisierte Struktur zurueck. */
@@ -48,6 +69,7 @@ function sanitizeConfig(raw) {
   const ap = raw.antiPhishing || {};
   const as = raw.antiSpam || {};
   const am = raw.antiMalware || {};
+  const ob = raw.outbound || {};
 
   const domains = (Array.isArray(g.domains) ? g.domains : []).map(d => String(d || "").trim().toLowerCase()).filter(Boolean);
   for (const d of domains) if (!isDomain(d)) throw new Error("Ungueltige Domain: " + d.slice(0, 60));
@@ -106,6 +128,21 @@ function sanitizeConfig(raw) {
       commonAttachFilter: !!am.commonAttachFilter,
       zapMalware: !!am.zapMalware,
       fileTypes
+    },
+    // Ausgehend & Organisation. Zwei Schalter stehen absichtlich standardmaessig
+    // auf false: Auto-Forward-Sperre und "Direct Send abweisen" koennen laufenden
+    // Betrieb unterbrechen (Drucker, Scan-to-Mail, Fachanwendungen, gewollte
+    // Weiterleitungen) und gehoeren erst nach einer Bestandsaufnahme im Tenant
+    // gesetzt — sonst schneidet ein Deploy still Systeme ab.
+    outbound: {
+      notifyOutboundSpam: boolOr(ob.notifyOutboundSpam, true),
+      limitExternalPerHour: intOr(ob.limitExternalPerHour, 500, 1, 10000, "limitExternalPerHour"),
+      limitInternalPerHour: intOr(ob.limitInternalPerHour, 1000, 1, 10000, "limitInternalPerHour"),
+      limitPerDay: intOr(ob.limitPerDay, 1000, 1, 10000, "limitPerDay"),
+      thresholdAction: pickOr(ob.thresholdAction, THRESHOLD_ACTIONS, "BlockUserForToday", "thresholdAction"),
+      externalTagging: boolOr(ob.externalTagging, true),
+      blockAutoForward: boolOr(ob.blockAutoForward, false),
+      rejectDirectSend: boolOr(ob.rejectDirectSend, false)
     }
   };
 }
@@ -160,13 +197,37 @@ const RETRY_HELPER = [
 
 // Der geplante Ablauf — Basis fuer die Live-Anzeige im Frontend (Job-Steps
 // werden damit vorbefuellt). Namen muessen zu den step()-Aufrufen passen.
+const STEP_OUTBOUND = "Ausgehender Spam: Benachrichtigung & Limits";
+const STEP_EXT_TAG = "Externe Absender kennzeichnen";
+const STEP_AUTOFWD = "Automatische Weiterleitung nach aussen sperren";
+const STEP_DIRECTSEND = "Direct Send abweisen";
+
 const DEPLOY_PLAN = [
   { phase: "Quarantine Policies", steps: ["Quarantine-Policy SelfRelease", "Quarantine-Policy RequestRelease"] },
   { phase: "Anti-Phishing", steps: ["Anti-Phishing-Policy", "Anti-Phishing-Rule"] },
   { phase: "Anti-Spam", steps: ["Anti-Spam-Policy", "Anti-Spam-Rule"] },
   { phase: "Anti-Malware", steps: ["Anti-Malware-Policy", "Anti-Malware-Rule"] },
+  { phase: "Ausgehend & Organisation", steps: [STEP_OUTBOUND, STEP_EXT_TAG, STEP_AUTOFWD, STEP_DIRECTSEND] },
   { phase: "Alert Policy (Security & Compliance)", steps: ["Alert-Policy Quarantine-Release"] }
 ];
+
+/**
+ * Der tatsaechliche Ablauf haengt an der Konfiguration: die drei optionalen
+ * Organisationsschritte laufen nur, wenn sie angehakt sind. Ohne diese Filterung
+ * stuenden sie in der Live-Anzeige dauerhaft auf "ausstehend" und der Anwender
+ * wartet auf etwas, das nie kommt.
+ */
+function deployPlan(cfg) {
+  const ob = (cfg && cfg.outbound) || {};
+  return DEPLOY_PLAN.map(ph => {
+    if (ph.phase !== "Ausgehend & Organisation") return ph;
+    const steps = [STEP_OUTBOUND];
+    if (ob.externalTagging) steps.push(STEP_EXT_TAG);
+    if (ob.blockAutoForward) steps.push(STEP_AUTOFWD);
+    if (ob.rejectDirectSend) steps.push(STEP_DIRECTSEND);
+    return { phase: ph.phase, steps };
+  });
+}
 
 function phaseMarker(label) {
   return "Send-BPProgress @{ type = 'phase'; label = " + psQuote(label) + " }";
@@ -187,9 +248,24 @@ function step(name, identity, getCmd, newLines, setLines) {
   ];
 }
 
+// Organisationsweite Einstellungen kennen kein New/Set-Paar — sie werden nur
+// gesetzt. Get liefert deshalb fest $true, damit Invoke-BPStep in den Set-Zweig
+// geht und Retry, Fortschritt und Fehlerbehandlung identisch greifen.
+function orgStep(name, setLines) {
+  return [
+    "Invoke-BPStep " + psQuote(name) + " `",
+    "  { $true } `",
+    "  { throw 'unerreichbar' } `",
+    "  {",
+    ...setLines.map(l => "    " + l),
+    "  }",
+    ""
+  ];
+}
+
 /** Baut den pwsh-Body (laeuft innerhalb der runExo-Verbindung). */
 function buildDeployBody(cfg) {
-  const ap = cfg.antiPhishing, as = cfg.antiSpam, am = cfg.antiMalware;
+  const ap = cfg.antiPhishing, as = cfg.antiSpam, am = cfg.antiMalware, ob = cfg.outbound;
   const onOff = v => v ? "'On'" : "'Off'";
 
   const phishParams = (cmdlet, nameArg) => [
@@ -244,6 +320,35 @@ function buildDeployBody(cfg) {
     "  -QuarantineTag 'BP_Quarantine-RequestReleaseNotification' | Out-Null"
   ];
 
+  // 2.1.6 + 2.1.15 (+ 6.2.1 ueber AutoForwardingMode): alles an der
+  // Standard-Richtlinie fuer ausgehenden Spam. Bewusst nicht als eigene BP_-Policy:
+  // Pruefwerkzeuge (CIS, Maester) lesen genau diese Default-Richtlinie, und ohne
+  // Rule-Scope gilt sie fuer alle Absender des Tenants.
+  const notifyRecipients = [cfg.adminEmail];
+  if (cfg.mspEmail && cfg.mspEmail !== cfg.adminEmail) notifyRecipients.push(cfg.mspEmail);
+
+  const outboundLines = [
+    "Set-HostedOutboundSpamFilterPolicy -Identity Default `",
+    "  -NotifyOutboundSpam " + bool(ob.notifyOutboundSpam) + " `",
+    ...(ob.notifyOutboundSpam ? ["  -NotifyOutboundSpamRecipients " + psArray(notifyRecipients) + " `"] : []),
+    "  -RecipientLimitExternalPerHour " + ob.limitExternalPerHour + " `",
+    "  -RecipientLimitInternalPerHour " + ob.limitInternalPerHour + " `",
+    "  -RecipientLimitPerDay " + ob.limitPerDay + " `",
+    ...(ob.blockAutoForward ? ["  -AutoForwardingMode Off `"] : []),
+    "  -ActionWhenThresholdReached " + ob.thresholdAction + " | Out-Null"
+  ];
+
+  const fwRuleParams = (cmdlet, nameArg) => [
+    cmdlet + " " + nameArg + " `",
+    "  -FromScope InOrganization `",
+    "  -SentToScope NotInOrganization `",
+    "  -MessageTypeMatches AutoForward `",
+    "  -RejectMessageEnhancedStatusCode '5.7.1' `",
+    "  -RejectMessageReasonText " + psQuote(FORWARD_REJECT_TEXT) + " `",
+    "  -SetAuditSeverity High `",
+    "  -Mode Enforce | Out-Null"
+  ];
+
   const ruleStep = (name, identity, getCmd, newCmd, setCmd, policyParam, policyName) => step(
     name, identity, getCmd,
     [newCmd + " -Name " + psQuote(identity) + " -" + policyParam + " " + psQuote(policyName) + " -RecipientDomainIs $Domains -Priority 0 | Out-Null"],
@@ -296,6 +401,31 @@ function buildDeployBody(cfg) {
       malwareParams("Set-MalwareFilterPolicy", "-Identity 'BP_AntiMalware'")),
     ...ruleStep("Anti-Malware-Rule", "BP_AntiMalware_Rule", "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule", "MalwareFilterPolicy", "BP_AntiMalware"),
     "",
+    "# --- Ausgehend & Organisation ---",
+    phaseMarker("Ausgehend & Organisation"),
+    ...orgStep(STEP_OUTBOUND, outboundLines),
+    ...(ob.externalTagging ? orgStep(STEP_EXT_TAG, [
+      "Set-ExternalInOutlook -Enabled $true | Out-Null"
+    ]) : []),
+    ...(ob.blockAutoForward ? orgStep(STEP_AUTOFWD, [
+      "$fwRule = Get-TransportRule -Identity 'BP_Block-AutoForwarding' -ErrorAction SilentlyContinue",
+      "if ($null -eq $fwRule) {",
+      ...fwRuleParams("  New-TransportRule", "-Name 'BP_Block-AutoForwarding'"),
+      "} else {",
+      ...fwRuleParams("  Set-TransportRule", "-Identity 'BP_Block-AutoForwarding'"),
+      "  Enable-TransportRule -Identity 'BP_Block-AutoForwarding' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null",
+      "}"
+    ]) : []),
+    ...(ob.rejectDirectSend ? orgStep(STEP_DIRECTSEND, [
+      // Aeltere Tenants kennen den Parameter noch nicht. Ohne diese Pruefung
+      // laeuft der Schritt in einen unverstaendlichen Bindungsfehler.
+      "if ((Get-Command Set-OrganizationConfig).Parameters.Keys -contains 'RejectDirectSend') {",
+      "  Set-OrganizationConfig -RejectDirectSend $true | Out-Null",
+      "} else {",
+      "  throw 'Dieser Tenant kennt den Parameter RejectDirectSend nicht.'",
+      "}"
+    ]) : []),
+    "",
     "$failed = @($steps | Where-Object { -not $_.ok })",
     "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = @($steps); domains = @($Domains) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
   ];
@@ -335,6 +465,17 @@ function buildAlertPolicySnippet(cfg) {
     "} else {",
     "    Set-ProtectionAlert -Identity 'BP_UserRequestReleaseStatus' -NotifyUser " + notify,
     "}",
+    "",
+    "# CIS 2.1.6: Microsoft hat NotifyOutboundSpam abgekuendigt — die Meldung ueber ein",
+    "# auffaellig sendendes Konto laeuft kuenftig ueber diese eingebaute Warnungsrichtlinie.",
+    "# Bestehende Empfaenger bleiben erhalten, die eigenen kommen dazu.",
+    "$restricted = Get-ProtectionAlert -Identity 'User restricted from sending email' -ErrorAction SilentlyContinue",
+    "if ($null -eq $restricted) {",
+    "    Write-Host 'Warnungsrichtlinie \"User restricted from sending email\" nicht gefunden — im Defender-Portal pruefen.' -ForegroundColor Yellow",
+    "} else {",
+    "    $empf = @($restricted.NotifyUser) + " + notify + " | Where-Object { $_ } | Sort-Object -Unique",
+    "    Set-ProtectionAlert -Identity 'User restricted from sending email' -NotifyUser $empf -NotificationEnabled $true -Confirm:$false",
+    "}",
     "Disconnect-ExchangeOnline -Confirm:$false"
   ].join("\r\n");
 }
@@ -357,9 +498,13 @@ function buildAuditBody() {
     "  antiSpamRule     = Get-Safe { Get-HostedContentFilterRule -Identity 'BP_AntiSpam_Inbound_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
     "  malware          = Get-Safe { Get-MalwareFilterPolicy -Identity 'BP_AntiMalware' -ErrorAction SilentlyContinue | Select-Object Name, EnableFileFilter, FileTypes, ZapEnabled, QuarantineTag, InternalSenderAdminAddress, ExternalSenderAdminAddress, EnableInternalSenderAdminNotifications, EnableExternalSenderAdminNotifications }",
     "  malwareRule      = Get-Safe { Get-MalwareFilterRule -Identity 'BP_AntiMalware_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
+    "  outboundSpam     = Get-Safe { Get-HostedOutboundSpamFilterPolicy -Identity Default | Select-Object Name, NotifyOutboundSpam, NotifyOutboundSpamRecipients, RecipientLimitExternalPerHour, RecipientLimitInternalPerHour, RecipientLimitPerDay, ActionWhenThresholdReached, AutoForwardingMode }",
+    "  externalTagging  = Get-Safe { Get-ExternalInOutlook | Select-Object -First 1 | Select-Object Enabled, AllowList }",
+    "  orgConfig        = Get-Safe { Get-OrganizationConfig | Select-Object Name, RejectDirectSend }",
+    "  autoForwardRule  = Get-Safe { Get-TransportRule -Identity 'BP_Block-AutoForwarding' -ErrorAction SilentlyContinue | Select-Object Name, State, Mode, FromScope, SentToScope, MessageTypeMatches }",
     "}",
     "Write-Output ('BEGINJSON' + (@{ ok = $true; audit = $audit } | ConvertTo-Json -Compress -Depth 8) + 'ENDJSON')"
   ].join("\r\n");
 }
 
-module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN, NON_MAIL_DOMAIN_PS_FILTER };
+module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN, deployPlan, NON_MAIL_DOMAIN_PS_FILTER };

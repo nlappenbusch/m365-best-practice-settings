@@ -60,7 +60,7 @@
   )
 
   // Collapse-Zustand je Policy-Card (Vanilla: toggle-btn -> .expanded).
-  let open = $state({ phish: false, spam: false, malware: false, quarantine: false })
+  let open = $state({ phish: false, spam: false, malware: false, outbound: false, quarantine: false })
   const toggle = (k) => (open[k] = !open[k])
 
   function addDomain() { $config.global.domains = [...$config.global.domains, ''] }
@@ -280,6 +280,103 @@
           <small>💡 <strong>Malware Quarantine:</strong> BP_Quarantine-RequestReleaseNotification</small><br>
           <small>💡 <strong>Blocked File Types:</strong> Rejected with NDR (not quarantined)</small>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ausgehend & Organisation -->
+  <div class="policy-card" class:expanded={open.outbound}>
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('outbound')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('outbound'))}>
+      <div class="policy-title">
+        <span class="policy-icon">📤</span>
+        <div><h3>Ausgehend &amp; Organisation</h3><p class="policy-name">Standard-Richtlinie · Tenant-Einstellungen</p></div>
+      </div>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
+    </div>
+    <div class="policy-details" class:active={open.outbound}>
+      <div class="alert alert-info">
+        <strong>ℹ️ Kein <code>BP_</code>-Objekt:</strong> Diese Punkte sitzen an der <em>Standard</em>-Richtlinie für
+        ausgehenden Spam bzw. direkt am Tenant. Das ist Absicht — sie gelten ohne Regel-Scope für alle Absender,
+        und CIS-Benchmark wie Maester lesen genau diese Objekte.
+      </div>
+
+      <div class="settings-group">
+        <h4>Ausgehender Spam <span class="policy-name">CIS 2.1.6 / 2.1.15</span></h4>
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={$config.outbound.notifyOutboundSpam}>
+          <span>Benachrichtigung bei ausgehendem Spam</span>
+        </label>
+        <small>Meldet ein Konto, das auffällig viele Nachrichten versendet — das typische Muster eines übernommenen
+        Postfachs. Empfänger sind <strong>{[$config.global.adminEmail, $config.global.igeeksEmail].filter(Boolean).join(', ') || '(oben eintragen)'}</strong>
+        aus den globalen Einstellungen. Ein Sammelpostfach ist einer persönlichen Adresse vorzuziehen, damit die
+        Meldung auch in Ferienzeiten gelesen wird.</small>
+        <div class="action-grid" style="margin-top:.75rem;">
+          <div class="input-group"><label for="obExtH">Empfänger extern / Stunde</label>
+            <input id="obExtH" type="number" min="1" max="10000" bind:value={$config.outbound.limitExternalPerHour}></div>
+          <div class="input-group"><label for="obIntH">Empfänger intern / Stunde</label>
+            <input id="obIntH" type="number" min="1" max="10000" bind:value={$config.outbound.limitInternalPerHour}></div>
+          <div class="input-group"><label for="obDay">Empfänger / Tag</label>
+            <input id="obDay" type="number" min="1" max="10000" bind:value={$config.outbound.limitPerDay}></div>
+          <div class="input-group"><label for="obAct">Aktion bei Überschreitung</label>
+            <select id="obAct" bind:value={$config.outbound.thresholdAction}>
+              <option value="BlockUserForToday">Sperre bis Tagesende</option>
+              <option value="BlockUser">Sperre bis zur manuellen Freigabe (CIS)</option>
+            </select></div>
+        </div>
+        <div class="policy-info">
+          <small>💡 Der Ausgangswert <code>0</code> heisst bei dieser Richtlinie nicht «unbegrenzt», sondern
+          Service-Default (500/1000/1000). Der explizite Wert ändert das Verhalten nicht, macht es aber prüfbar.</small><br>
+          <small>💡 <strong>Sperre bis zur manuellen Freigabe</strong> ist die CIS-Empfehlung, aber eine
+          Betriebsentscheidung: es muss geklärt sein, wer im Ereignisfall freigibt.</small>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h4>Organisation <span class="policy-name">CIS 6.2.1 / 6.2.3 / 6.5.5</span></h4>
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={$config.outbound.externalTagging}>
+          <span>Externe Absender in Outlook kennzeichnen</span>
+        </label>
+        <small>Wirksamste Einzelmassnahme gegen Phishing und kostenlos. Beim Anwender sichtbar mit bis zu
+        48 Stunden Verzögerung.</small>
+
+        <label class="checkbox-label" style="margin-top:.75rem;">
+          <input type="checkbox" bind:checked={$config.outbound.blockAutoForward}>
+          <span>Automatische Weiterleitung nach aussen sperren</span>
+        </label>
+        <small>Setzt <code>AutoForwardingMode = Off</code> und legt die Regel <code>BP_Block-AutoForwarding</code> an:
+        Ablehnung mit Statuscode 5.7.1 und Begründungstext statt stiller Blockade.</small>
+        {#if $config.outbound.blockAutoForward}
+          <div class="alert alert-warning" style="margin-top:.5rem;">
+            <strong>Vorher erheben:</strong> bestehende gewollte Weiterleitungen brechen sonst.<br>
+            <code>Get-Mailbox -ResultSize Unlimited | Where-Object &#123; $_.ForwardingSmtpAddress -or $_.ForwardingAddress &#125;</code>
+          </div>
+        {/if}
+
+        <label class="checkbox-label" style="margin-top:.75rem;">
+          <input type="checkbox" bind:checked={$config.outbound.rejectDirectSend}>
+          <span>Direct Send abweisen</span>
+        </label>
+        <small>Verhindert, dass fremde Systeme unauthentifiziert Mails mit einer Absenderadresse des Tenants
+        einliefern.</small>
+        {#if $config.outbound.rejectDirectSend}
+          <div class="alert alert-warning" style="margin-top:.5rem;">
+            <strong>Unterbruchrisiko:</strong> Multifunktionsdrucker, Scan-to-Mail, Monitoring und Fachanwendungen mit
+            eigenem Mailversand werden <em>ohne Fehlermeldung an den Absender</em> abgeschnitten. Vorher den
+            Mailverkehr über mindestens einen Monatswechsel auswerten, damit Monatsläufe wie Lohn oder Fakturierung
+            im Erhebungszeitraum liegen:<br>
+            <code>Get-MessageTraceV2 -StartDate (Get-Date).AddDays(-10) -EndDate (Get-Date)</code><br>
+            Nach dem Setzen kontrollieren, ob etwas abgewiesen wurde (<code>-Status Failed</code>).
+          </div>
+        {/if}
+      </div>
+
+      <div class="policy-info">
+        <small>🔔 Microsoft hat <code>NotifyOutboundSpam</code> zugunsten der Warnungsrichtlinien abgekündigt. Das
+        Snippet im Tab «Mail-Security» setzt deshalb zusätzlich die eingebaute Richtlinie
+        <strong>User restricted from sending email</strong> auf dieselben Empfänger — bestehende Empfänger dort
+        bleiben erhalten.</small>
       </div>
     </div>
   </div>

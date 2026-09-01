@@ -2954,10 +2954,12 @@ app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
 const jobs = new Map(); // jobId -> Job
 const JOB_KEEP = 20;
 
-function createJob(t) {
+function createJob(t, cfg) {
   const id = crypto.randomBytes(8).toString("hex");
   const steps = [];
-  for (const ph of DEPLOY.DEPLOY_PLAN) for (const name of ph.steps) steps.push({ phase: ph.phase, name, state: "pending" });
+  // Der Plan haengt an der Konfiguration: abgewaehlte Organisationsschritte
+  // duerfen gar nicht erst als "ausstehend" in der Anzeige stehen.
+  for (const ph of DEPLOY.deployPlan(cfg)) for (const name of ph.steps) steps.push({ phase: ph.phase, name, state: "pending" });
   const job = {
     id, tenantId: t.id, tenantName: t.name,
     status: "running", phase: "Vorbereitung", steps,
@@ -3071,7 +3073,7 @@ async function fakeDeployJob(job, onProgress, cfg) {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   onProgress({ type: "phase", label: "Verbindung zu Exchange Online" });
   await sleep(1500);
-  for (const ph of DEPLOY.DEPLOY_PLAN) {
+  for (const ph of DEPLOY.deployPlan(cfg)) {
     onProgress({ type: "phase", label: ph.phase });
     for (const name of ph.steps) {
       if (name === "Alert-Policy Quarantine-Release") continue; // wird unten als manual markiert
@@ -3159,7 +3161,7 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
     }
   }
 
-  const job = createJob(t);
+  const job = createJob(t, cfg);
   runDeployJob(job, t, cfg).catch(e => {
     job.status = "failed"; job.error = e.message; job.finishedAt = new Date().toISOString();
   });

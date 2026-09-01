@@ -29,6 +29,7 @@
 
   function buildAuditGroups(audit, alertPolicy, cfg, autoDomainsOn, devMap) {
     const ap = cfg.antiPhishing, as = cfg.antiSpam, am = cfg.antiMalware, g = cfg.global
+    const ob = cfg.outbound || {}
     const sollDomains = autoDomainsOn ? (audit.acceptedDomains || []) : [...g.domains, g.onmicrosoftDomain].filter(Boolean)
     const groups = []
     function group(icon, title) { const grp = { icon, title, checks: [] }; groups.push(grp); return grp }
@@ -158,6 +159,47 @@
       if (ldDomainsEqual(audit.malwareRule.RecipientDomainIs, sollDomains)) ok(gm, 'Rule-Domains', (audit.malwareRule.RecipientDomainIs || []).join(', '))
       else bad(gm, 'Rule-Domains', sollDomains.join(', '), (audit.malwareRule.RecipientDomainIs || []).join(', ') || '(leer)')
     }
+
+    // Ausgehend & Organisation — Standard-Richtlinie und Tenant, kein BP_-Objekt
+    const gob = group('📤', 'Ausgehend & Organisation')
+    if (!audit.outboundSpam) info(gob, 'Standard-Richtlinie ausgehender Spam', 'nicht lesbar — Audit erneut ausführen')
+    else {
+      const o = audit.outboundSpam
+      const notifySoll = ob.notifyOutboundSpam !== false
+      cmpBool(gob, 'Benachrichtigung bei ausgehendem Spam', notifySoll, o.NotifyOutboundSpam)
+      if (notifySoll) {
+        const sollE = [g.adminEmail, g.igeeksEmail].filter(Boolean).map(e => String(e).toLowerCase())
+        const istE = (o.NotifyOutboundSpamRecipients || []).map(e => String(e).toLowerCase())
+        const fehlend = sollE.filter(e => !istE.includes(e))
+        if (!fehlend.length && istE.length) ok(gob, 'Empfänger der Meldung', (o.NotifyOutboundSpamRecipients || []).join(', '))
+        else bad(gob, 'Empfänger der Meldung', sollE.join(', '), istE.join(', ') || '(leer)')
+      }
+      // 0 heisst hier Service-Default, nicht "unbegrenzt" — als Abweichung
+      // ausweisen, aber im Text erklaeren, damit niemand Alarm schlaegt.
+      const limit = (label, soll, ist) => {
+        if (String(soll) === String(ist)) ok(gob, label, String(ist))
+        else if (Number(ist) === 0) bad(gob, label, String(soll), '0 (Service-Default, nicht explizit gesetzt)')
+        else bad(gob, label, String(soll), String(ist == null ? '(leer)' : ist))
+      }
+      limit('Empfänger extern / Stunde', ob.limitExternalPerHour ?? 500, o.RecipientLimitExternalPerHour)
+      limit('Empfänger intern / Stunde', ob.limitInternalPerHour ?? 1000, o.RecipientLimitInternalPerHour)
+      limit('Empfänger / Tag', ob.limitPerDay ?? 1000, o.RecipientLimitPerDay)
+      cmp(gob, 'Aktion bei Überschreitung', ob.thresholdAction || 'BlockUserForToday', o.ActionWhenThresholdReached)
+      if (ob.blockAutoForward) cmp(gob, 'Automatische Weiterleitung (AutoForwardingMode)', 'Off', o.AutoForwardingMode)
+      else info(gob, 'Automatische Weiterleitung (AutoForwardingMode)', 'Vorlage: nicht gesetzt · Tenant: ' + (o.AutoForwardingMode || '(leer)'))
+    }
+    if (!audit.externalTagging) info(gob, 'Kennzeichnung externer Absender', 'nicht lesbar')
+    else cmpBool(gob, 'Kennzeichnung externer Absender', !!ob.externalTagging, audit.externalTagging.Enabled)
+    if (ob.blockAutoForward) {
+      if (!audit.autoForwardRule) missing(gob, 'Regel BP_Block-AutoForwarding')
+      else {
+        cmp(gob, 'Regel BP_Block-AutoForwarding aktiv', 'Enabled', audit.autoForwardRule.State)
+        cmp(gob, 'Regel-Modus', 'Enforce', audit.autoForwardRule.Mode)
+      }
+    }
+    const rds = audit.orgConfig ? audit.orgConfig.RejectDirectSend : null
+    if (ob.rejectDirectSend) cmpBool(gob, 'Direct Send abweisen', true, rds)
+    else info(gob, 'Direct Send abweisen', 'Vorlage: nicht gesetzt · Tenant: ' + (rds === true ? 'aktiv' : rds === false ? 'inaktiv' : '(unbekannt)'))
 
     // Alert Policy — via TCM-Snapshot (Graph)
     const ga = group('🔔', 'Alert Policy (Security & Compliance)')

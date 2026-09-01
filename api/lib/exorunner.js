@@ -25,7 +25,15 @@ const COMMANDS = [
   "Get-HostedContentFilterRule", "New-HostedContentFilterRule", "Set-HostedContentFilterRule",
   "Get-MalwareFilterPolicy", "New-MalwareFilterPolicy", "Set-MalwareFilterPolicy",
   "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule",
-  "Get-DkimSigningConfig"
+  "Get-DkimSigningConfig",
+  // Ausgehend & Organisation (CIS 2.1.6, 2.1.15, 6.2.1, 6.2.3, 6.5.5).
+  // Get-OrganizationConfig stand hier bisher nicht drin, obwohl der Deploy-Body
+  // es fuer die IsDehydrated-Vorpruefung aufruft — die Pruefung lief deshalb
+  // still ins Leere (der Aufruf steckt in einem leeren catch).
+  "Get-OrganizationConfig", "Set-OrganizationConfig",
+  "Get-HostedOutboundSpamFilterPolicy", "Set-HostedOutboundSpamFilterPolicy",
+  "Get-ExternalInOutlook", "Set-ExternalInOutlook",
+  "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule"
 ].join(",");
 
 

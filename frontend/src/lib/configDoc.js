@@ -24,6 +24,8 @@ const ASF_ROWS = [
 
 export function buildConfigDocHtml(config) {
   const g = config.global, ap = config.antiPhishing, as = config.antiSpam, am = config.antiMalware
+  const ob = config.outbound || {}
+  const jaNein = (v) => v ? 'aktiviert' : 'nicht aktiviert'
   const now = new Date()
   const dateStr = now.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const fileTypes = String(am.customFileTypes || '').split(',').map(t => t.trim().replace(/^\.+/, '')).filter(Boolean)
@@ -173,7 +175,32 @@ z.&nbsp;B. aus <code>.exe</code> nicht <code>..exe</code>.</p>
 </div>
 
 <div class="section">
-<h2>7&nbsp;&nbsp;Warnungsrichtlinie <span class="obj">BP_UserRequestReleaseStatus</span></h2>
+<h2>7&nbsp;&nbsp;Ausgehend &amp; Organisation <span class="obj">Standard-Richtlinie / Tenant</span></h2>
+<p>Diese Punkte liegen nicht in einer eigenen <code>BP_</code>-Richtlinie, sondern an der Standard-Richtlinie für
+ausgehenden Spam bzw. direkt am Tenant. Das ist Absicht: sie gelten ohne Regel-Scope für alle Absender, und die
+Prüfwerkzeuge (CIS-Benchmark, Maester) lesen genau diese Objekte.</p>
+<table>
+  <tr><th style="width:40%">Parameter</th><th style="width:22%">Wert</th><th>Bedeutung</th></tr>
+  ${row3('NotifyOutboundSpam', psBool(ob.notifyOutboundSpam), 'Meldung, wenn ein Konto auffällig viele Nachrichten versendet — das typische Muster eines übernommenen Postfachs.')}
+  ${row3('NotifyOutboundSpamRecipients', [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ') || '(pro Tenant)', 'Empfänger der Meldung. Sammelpostfach statt persönlicher Adresse, damit sie auch in Ferienzeiten gelesen wird.')}
+  ${row3('RecipientLimitExternalPerHour', String(ob.limitExternalPerHour ?? 500), 'Empfänger pro Stunde nach extern. Der Ausgangswert 0 bedeutet nicht «unbegrenzt», sondern den Service-Default — der explizite Wert macht ihn prüfbar.')}
+  ${row3('RecipientLimitInternalPerHour', String(ob.limitInternalPerHour ?? 1000), 'Empfänger pro Stunde intern.')}
+  ${row3('RecipientLimitPerDay', String(ob.limitPerDay ?? 1000), 'Empfänger pro Tag.')}
+  ${row3('ActionWhenThresholdReached', String(ob.thresholdAction || 'BlockUserForToday'), ob.thresholdAction === 'BlockUser' ? 'Sperre bis zur manuellen Freigabe (CIS-Empfehlung). Setzt eine geklärte Zuständigkeit für die Freigabe voraus.' : 'Sperre bis Tagesende. Mildere Variante; CIS empfiehlt BlockUser.')}
+  ${row3('ExternalInOutlook', jaNein(ob.externalTagging), 'Kennzeichnung externer Absender in Outlook. Wirkt beim Anwender mit bis zu 48 Stunden Verzögerung.')}
+  ${row3('AutoForwardingMode / BP_Block-AutoForwarding', jaNein(ob.blockAutoForward), 'Automatische Weiterleitung nach aussen wird abgelehnt — mit Statuscode 5.7.1 und Begründungstext statt stiller Blockade.')}
+  ${row3('RejectDirectSend', jaNein(ob.rejectDirectSend), 'Weist unauthentifizierte Einlieferung mit interner Absenderdomäne ab.')}
+</table>
+<p class="note"><b>Warum zwei Schalter standardmässig aus sind:</b> Die Auto-Forward-Sperre und «Direct Send abweisen»
+können laufenden Betrieb unterbrechen — gewollte Weiterleitungen, Multifunktionsdrucker, Scan-to-Mail oder
+Fachanwendungen mit eigenem Mailversand. Beide gehören erst nach einer Bestandsaufnahme im Tenant gesetzt:
+Weiterleitungen über <code>Get-Mailbox … ForwardingSmtpAddress</code>, Einlieferungen über
+<code>Get-MessageTraceV2</code> über mindestens einen Monatswechsel, damit Monatsläufe wie Lohn oder Fakturierung
+im Erhebungszeitraum liegen.</p>
+</div>
+
+<div class="section">
+<h2>8&nbsp;&nbsp;Warnungsrichtlinie <span class="obj">BP_UserRequestReleaseStatus</span></h2>
 <p>Eigene Warnungsrichtlinie (Security &amp; Compliance PowerShell), da die eingebaute Microsoft-Richtlinie
 schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin und MSP.</p>
 <table>
@@ -186,10 +213,13 @@ schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin und
   ${row2('NotifyUser', [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ') || '(pro Tenant)')}
 </table>
 <p class="note">Warnungsrichtlinien setzen ggf. Office 365 E5 bzw. Defender for Office 365 P2 voraus.</p>
+<p class="note">Zusätzlich wird die eingebaute Richtlinie <span class="mono">User restricted from sending email</span>
+auf dieselben Empfänger gesetzt: Microsoft hat <code>NotifyOutboundSpam</code> zugunsten der Warnungsrichtlinien
+abgekündigt, die Meldung läuft künftig über diesen Weg. Bestehende Empfänger bleiben dabei erhalten.</p>
 </div>
 
 <div class="section">
-<h2>8&nbsp;&nbsp;Hinweise zur Anwendung</h2>
+<h2>9&nbsp;&nbsp;Hinweise zur Anwendung</h2>
 <ul class="plain">
   <li>Alle <code>*_Rule</code>-Objekte laufen mit <code>Priority 0</code> und sind über <code>RecipientDomainIs</code> auf die Mail-Domains des Tenants eingeschränkt (Nicht-Mail-Domains werden ausgefiltert).</li>
   <li>Der <code>SpoofQuarantineTag</code> wird ausschließlich per PowerShell gesetzt (im Portal nicht wählbar).</li>

@@ -45,6 +45,25 @@ export const defaultConfig = () => ({
     zapMalware: true,
     customFileTypes: '.ace, .apk, .app, .appx, .arj, .bat, .cab, .cmd, .com, .deb, .dex, .dll, .dmg, .elf, .exe, .hta, .img, .iso, .jar, .jnlp, .kext, .lha, .lib, .library, .lnk, .lzh, .macho, .msc, .msi, .msix, .msp, .mst, .pif, .pkg, .prf, .ps1, .scr, .sct, .sys, .vb, .vbe, .vbs, .vxd, .wsc, .wsf, .wsh, .xll',
     malwareAction: 'Reject'
+  },
+  // Ausgehend & Organisation — CIS 2.1.6, 2.1.15, 6.2.1, 6.2.3, 6.5.5.
+  // Anders als die BP_-Policies sind das organisationsweite Einstellungen an
+  // der Standard-Richtlinie bzw. am Tenant; genau dort schauen auch die
+  // Pruefwerkzeuge hin.
+  outbound: {
+    notifyOutboundSpam: true,
+    limitExternalPerHour: 500,
+    limitInternalPerHour: 1000,
+    limitPerDay: 1000,
+    // CIS empfiehlt BlockUser (Sperre bis zur manuellen Freigabe). Das ist eine
+    // Betriebsentscheidung mit spuerbarer Wirkung auf den Betroffenen und
+    // braucht eine geklaerte Zustaendigkeit — deshalb hier der mildere Default.
+    thresholdAction: 'BlockUserForToday',
+    externalTagging: true,
+    // Die beiden folgenden koennen laufenden Betrieb unterbrechen und stehen
+    // deshalb aus: erst Bestandsaufnahme im Tenant, dann anhaken.
+    blockAutoForward: false,
+    rejectDirectSend: false
   }
 })
 
