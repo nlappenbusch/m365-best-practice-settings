@@ -3,6 +3,17 @@
   import { apiGet, apiPost } from '../lib/api.js'
   import { session } from '../lib/session.js'
   import { activeTenant } from '../lib/tenantStore.js'
+  import { loadNaming } from '../lib/naming.js'
+
+  // Gruppennamen kommen aus der eingestellten Konvention. Bis sie geladen
+  // ist, greift der Bestandsname — nie ein leeres Feld anzeigen, wo gleich
+  // ein Objekt mit genau diesem Namen angelegt wird.
+  let nm = $state(null)
+  const bgName = $derived((nm && nm.name('caBreakGlass', {})) || 'AAD-CA-BreakGlass')
+  function caRingName(ring) {
+    if (!ring) return ''
+    return (nm && nm.name('caRing', { ring })) || ('AAD-CA-RING-' + String(ring).toUpperCase())
+  }
   import TenantContext from '../lib/TenantContext.svelte'
 
   // Die drei Lizenz-Tiers zuerst, danach alles Weitere in der Reihenfolge der
@@ -25,7 +36,8 @@
   let previewOpen = $state({}) // tierKey -> bool
   let previewSelected = $state({}) // tierKey -> { index: bool }
   // Ring-Konzept (AlexFilipin): Ring-Name ersetzt <RING> im Policy-Namen;
-  // "ring-getargetet" scoped "Alle Benutzer"-Policies auf AAD-CA-RING-<RING>.
+  // "ring-getargetet" scoped "Alle Benutzer"-Policies auf die Ring-Gruppe;
+  // wie sie heisst, bestimmt die Namenskonvention (Tab Namenskonvention).
   let ringChoice = $state({})   // tierKey -> 'PILOT'|'UAT'|'BROAD'|'CUSTOM'
   let ringCustom = $state({})   // tierKey -> freier Ring-Name
   let ringTargeted = $state({}) // tierKey -> bool
@@ -130,6 +142,7 @@
 
   async function loadGroups() {
     try {
+      try { nm = await loadNaming($activeTenant.id) } catch (e) { /* Rueckfall auf Bestandsnamen */ }
       const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/groups`)
       groups = r.groups || []
     } catch (e) { /* egal, Pilot-Auswahl bleibt dann leer */ }
@@ -176,7 +189,7 @@
     if (!confirm(
       `Tier "${meta.label}" als Ring "${ring}" ausrollen (${indices.length} von ${meta.policyCount} Policies)?\n\n` +
       (targeted
-        ? `🎯 Ring-getargetet: Policies, die sonst "Alle Benutzer" treffen würden, gelten nur für Mitglieder der Gruppe AAD-CA-RING-${ring} (wird leer angelegt — danach Mitglieder pflegen!).\n\n`
+        ? `🎯 Ring-getargetet: Policies, die sonst "Alle Benutzer" treffen würden, gelten nur für Mitglieder der Gruppe ${caRingName(ring)} (wird leer angelegt — danach Mitglieder pflegen!).\n\n`
         : `🌐 Nicht ring-getargetet: Policies mit "Alle Benutzer"-Ziel gelten für ALLE Benutzer (abzüglich Schutzgruppen-Ausnahmen).\n\n`) +
       `Alle Policies werden ausschliesslich im Report-only-Zustand angelegt — ` +
       `NICHTS wird dadurch scharf geschaltet. Vier Schutzgruppen (Break-Glass, ` +
@@ -213,7 +226,7 @@
     // blockieren. Deshalb HIER nochmal explizit warnen (nicht nur die passive
     // Banner oben, die man beim schnellen Klicken uebersehen kann).
     if (breakGlassEmpty && !confirm(
-      `🚨 AAD-CA-BreakGlass ist LEER!\n\n` +
+      `🚨 ${bgName} ist LEER!\n\n` +
       `Wenn diese Policy dich (oder einen Kollegen) versehentlich aussperrt, gibt es aktuell KEIN ` +
       `Notfallzugriffskonto, um wieder reinzukommen — die Aussperrung waere u.U. nur ueber Microsoft-Support behebbar.\n\n` +
       `Trotzdem OHNE Notfallzugriffskonto fortfahren?`
@@ -294,7 +307,7 @@
 
   async function batchActivate() {
     if (breakGlassEmpty && !confirm(
-      `🚨 AAD-CA-BreakGlass ist LEER!\n\n` +
+      `🚨 ${bgName} ist LEER!\n\n` +
       `Wenn eine dieser Policies dich (oder einen Kollegen) versehentlich aussperrt, gibt es aktuell KEIN ` +
       `Notfallzugriffskonto, um wieder reinzukommen.\n\nTrotzdem OHNE Notfallzugriffskonto fortfahren?`
     )) return
@@ -553,7 +566,7 @@
             <label style="display:flex; align-items:center; gap:0.35rem; cursor:pointer; font-size:0.84rem;">
               <input type="checkbox" checked={!!ringTargeted[key]}
                      onchange={(e) => (ringTargeted = { ...ringTargeted, [key]: e.target.checked })} />
-              🎯 nur auf Ring-Gruppe <code>AAD-CA-RING-{ringFor(key) || '…'}</code> statt „Alle Benutzer"
+              🎯 nur auf Ring-Gruppe <code>{caRingName(ringFor(key)) || '…'}</code> statt „Alle Benutzer"
             </label>
           </div>
           <p class="ld-section-hint">Der Ring-Name ersetzt <code>&lt;RING&gt;</code> im Policy-Namen — dasselbe Set kann so mehrfach nebeneinander existieren (z.B. erst PILOT ring-getargetet testen, später BROAD für alle ausrollen).</p>
@@ -613,7 +626,7 @@
       <h4><span class="step-n">2</span> Schutzgruppen befüllen
         <span class="step-state {breakGlassEmpty ? 'open' : 'done'}">{breakGlassEmpty ? 'Break-Glass leer' : '✓ Break-Glass gefüllt'}</span></h4>
       {#if breakGlassEmpty}
-        <div class="ld-banner warn"><b>AAD-CA-BreakGlass ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
+        <div class="ld-banner warn"><b>{bgName} ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
       {/if}
       {#each supportGroups as g}
         {@const critical = g.memberCount === 0 && g.key === 'breakGlass'}
@@ -694,7 +707,7 @@
           <button class="btn btn-secondary" onclick={batchSetScope} disabled={batchBusy}>Scope für Auswahl setzen</button>
           <button class="btn btn-secondary" onclick={batchDeactivate} disabled={batchBusy}>⏸ Auswahl auf Report-only</button>
           <button class="btn btn-primary" onclick={batchActivate} disabled={batchBusy}
-                  title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff vorhanden!' : ''}>
+                  title={breakGlassEmpty ? `Achtung: ${bgName} ist leer — kein Notfallzugriff vorhanden!` : ''}>
             {breakGlassEmpty ? '🚨' : '🔓'} Auswahl aktivieren
           </button>
           <button class="btn btn-secondary" onclick={batchDelete} disabled={batchBusy}>Auswahl löschen</button>
@@ -765,7 +778,7 @@
                                 title="Auf Report-only zurücknehmen">⏸</button>
                       {:else}
                         <button class="ca-btn ca-btn-go" onclick={() => activate(p)} disabled={actionBusy[p.id]}
-                                title={breakGlassEmpty ? 'Achtung: AAD-CA-BreakGlass ist leer — kein Notfallzugriff!' : 'Scharf schalten'}>
+                                title={breakGlassEmpty ? `Achtung: ${bgName} ist leer — kein Notfallzugriff!` : 'Scharf schalten'}>
                           {breakGlassEmpty ? '🚨' : '▶'}
                         </button>
                       {/if}

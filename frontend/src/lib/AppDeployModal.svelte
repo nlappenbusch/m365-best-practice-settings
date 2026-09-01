@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { dlApi } from './downloads.js'
+  import { loadNaming } from './naming.js'
 
   let { open = false, onclose, vendor, appNameDefault = '', source = null, tenantId = null, tenantName = '' } = $props()
 
@@ -35,6 +36,21 @@
       hint: 'Bitwarden-Desktop-App: /allusers /S installiert maschinenweit und still (offizielle Bitwarden-Doku). Install-/Uninstall-Kommando und Erkennungsregel sind bereits korrekt vorbelegt — normalerweise unverändert lassen.'
     }
   }
+
+  // Die Zielgruppen- und Skriptnamen kommen aus der eingestellten
+  // Namenskonvention — hier nur zur Anzeige, damit der Dialog nicht einen
+  // Namen verspricht, den der Server so gar nicht bildet.
+  let nm = $state(null)
+  $effect(() => {
+    if (!open || !tenantId || nm) return
+    loadNaming(tenantId).then(v => { nm = v }).catch(() => {})
+  })
+  const adGroupPreview = $derived(
+    nm && appName ? nm.name('appGroup', { app: String(appName).replace(/[^A-Za-z0-9]/g, '') }) : ''
+  )
+  const adRegionScript = $derived(
+    (nm && nm.name('scriptRegistry', { name: 'Bitwarden-Region' })) || 'WIN - RegistryPolicy - Bitwarden-Region'
+  )
 
   let appName = $state('')
   let description = $state('')
@@ -196,14 +212,14 @@
         {:else}
           <div class="tool-tie-in" style="margin-top:0;">
             <span>ℹ️</span>
-            <div>Zielgruppe ist immer <code>AAD-APP-{'<Name>'}</code> — die gewählte dynamische GroupTag-Gruppe
+            <div>Zielgruppe ist immer <code>{adGroupPreview || 'die App-Zielgruppe'}</code> — die gewählte dynamische GroupTag-Gruppe
               wird als Mitglied genestet, ihre Geräte bekommen die App dadurch automatisch (siehe Wissen →
               Namenskonventionen). <b>Vor breitem Rollout mit einem Pilot-/Testgerät prüfen.</b></div>
           </div>
           <div class="alert alert-warning">⚠️ {(DEFAULTS[vendor] || DEFAULTS.bitdefender).hint}</div>
 
           <div class="input-group" style="margin-bottom:0.7rem;">
-            <label for="adAppName">App-Name (wird auch für <code>AAD-APP-&lt;Name&gt;</code> verwendet)</label>
+            <label for="adAppName">App-Name (bildet auch den Namen der App-Zielgruppe)</label>
             <input id="adAppName" type="text" bind:value={appName} />
           </div>
           <div class="input-group" style="margin-bottom:0.7rem;">
@@ -275,7 +291,7 @@
                     <input id="adBwBase" type="text" bind:value={bwSelfhostBase} placeholder="https://bitwarden.kunde.ch" />
                   </div>
                 {/if}
-                <small>Legt zusätzlich das Intune-Plattformskript <code>WIN - RegistryPolicy - Bitwarden-Region</code> an
+                <small>Legt zusätzlich das Intune-Plattformskript <code>{adRegionScript}</code> an
                   und weist es <b>derselben GroupTag-Gerätegruppe</b> zu. Wirkt auf die Bitwarden-Erweiterung in Chrome
                   und Edge. <b>Die Desktop-App ist davon nicht betroffen</b> — die liest ihre Region aus dem
                   Benutzerprofil, dort wählt sie der Benutzer beim ersten Login.</small>

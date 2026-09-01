@@ -1,4 +1,5 @@
 <script>
+  import { loadNaming, renderName } from '../lib/naming.js'
   import { config } from '../lib/config.js'
   import { docsHtml, recoHtml } from '../lib/wissenTemplates.js'
   import { autopilotHtml, oibHtml, namingHtml, patchMyPcHtml, conditionalAccessHtml, intuneBackupHtml, mappingsHtml } from '../lib/wissenIntune.js'
@@ -38,13 +39,41 @@
   ]
 
   // ---------- Interaktiver Gruppennamen-Generator (Namenskonvention) ----------
+  // Die Muster kommen aus der eingestellten Konvention (Tab Namenskonvention),
+  // nicht aus einer festen Liste: In einem Tenant auf v2 hiesse die Gerätegruppe
+  // hier sonst anders als das, was das Werkzeug tatsächlich anlegt.
+  //
+  // Bei der Gerätegruppe ist die Eingabe der GroupTag, nicht die Rolle allein —
+  // im Bestand lautet er DEV-STD (Gruppe AAD-DEV-STD), in v2 WIN-Std (Gruppe
+  // T2-DG-WIN-Std). Die Kategorie steckt also im Tag.
   const NAME_CATS = {
-    dev:  { prefix: 'AAD-DEV-',  placeholder: 'STD / PROD / KIOSK / EXEC', hint: 'Geräterolle — kurz & sprechend, nicht nach Formfaktor.' },
-    pmp:  { prefix: 'AAD-PMP-',  placeholder: 'GoogleChrome', hint: 'Exakter App-Name, 1:1 pro Patch-My-PC-App.' },
-    app:  { prefix: 'AAD-APP-',  placeholder: 'ZeiterfassungXY', hint: 'Selbst paketierte (nicht PMP-verwaltete) App.' },
-    usr:  { prefix: 'AAD-USR-',  placeholder: 'AppProtection', hint: 'Nur wenn wirklich der Mensch das Ziel ist.' },
-    role: { prefix: 'AAD-ROLE-', placeholder: 'Helpdesk', hint: 'Admin-/RBAC-Rollenzuweisung.' }
+    dev:  { kind: 'deviceGroup', v: 'tag', fallback: 'AAD-{tag}',      hint: 'GroupTag der Geräterolle — nach Zweck, nicht nach Formfaktor. Der Gruppenname entsteht daraus.' },
+    pmp:  { kind: 'pmpGroup',    v: 'app', fallback: 'AAD-PMP-{app}',  hint: 'Exakter App-Name, 1:1 pro Patch-My-PC-App.' },
+    app:  { kind: 'appGroup',    v: 'app', fallback: 'AAD-APP-{app}',  hint: 'Selbst paketierte (nicht PMP-verwaltete) App.' },
+    usr:  { kind: 'mamGroup',    v: 'app', fallback: 'AAD-USR-{app}',  hint: 'Nur wenn wirklich der Mensch das Ziel ist.' },
+    role: { kind: 'roleGroup',   v: 'app', fallback: 'AAD-ROLE-{app}', hint: 'Admin-/RBAC-Rollenzuweisung.' }
   }
+
+  // Der Wissen-Tab ist tenantunabhängig — hier gilt die globale Vorgabe.
+  let nm = $state(null)
+  $effect(() => {
+    if (nm) return
+    loadNaming(null).then(v => { nm = v }).catch(() => {})
+  })
+
+  // Ist die Konvention noch nicht geladen, greift das Bestandsmuster.
+  function catName(catKey, value) {
+    const c = NAME_CATS[catKey]
+    const v = nm ? nm.name(c.kind, { [c.v]: value }) : ''
+    return v || renderName(c.fallback, { [c.v]: value })
+  }
+
+  // v2 benennt Gerätegruppen nach Plattform (WIN-Std), der Bestand nach
+  // Kategorie (DEV-STD) — der Platzhalter im Feld zeigt, was gerade gilt.
+  const catPlaceholder = $derived.by(() => {
+    if (nameCat !== 'dev') return { pmp: 'GoogleChrome', app: 'ZeiterfassungXY', usr: 'AppProtection', role: 'Helpdesk' }[nameCat]
+    return /^T2-DG-/.test(catName('dev', 'X')) ? 'WIN-Std' : 'DEV-STD'
+  })
   let nameCat = $state('dev')
   let nameDetail = $state('STD')
   let nameRing = $state('')
@@ -53,16 +82,18 @@
   function cleanDetail(s) {
     // NFKD zerlegt Umlaute in Basisbuchstabe + Akzentzeichen (z.B. "ö" -> "o" + Akzent);
     // der zweite Schritt entfernt neben Leerzeichen/Sonderzeichen damit auch das Akzentzeichen.
-    return String(s || '').normalize('NFKD').replace(/[^A-Za-z0-9]+/g, '')
+    // Beim GroupTag bleibt der Bindestrich erhalten — er trennt dort Plattform
+    // bzw. Kategorie von der Rolle (WIN-Std, DEV-STD).
+    const keepDash = nameCat === 'dev'
+    return String(s || '').normalize('NFKD').replace(keepDash ? /[^A-Za-z0-9-]+/g : /[^A-Za-z0-9]+/g, '')
   }
   let cleanedDetail = $derived(cleanDetail(nameDetail))
-  let generatedName = $derived(NAME_CATS[nameCat].prefix + (cleanedDetail || '…') + (nameCat === 'dev' && nameRing ? '-' + nameRing : ''))
-  // GroupTag (OrderID) = Gruppenname ohne das "AAD-"-Praefix (siehe "GroupTag <-> Geraetegruppe"
-  // unten) - z.B. Gruppe AAD-DEV-STD -> Tag DEV-STD. Nur den Rollen-Teil zu nehmen waere falsch
-  // und wuerde genau den in der Doku gewarnten Fehler "Geraet landet in keiner Gruppe" erzeugen.
-  let groupTagValue = $derived(nameCat === 'dev' && cleanedDetail
-    ? NAME_CATS.dev.prefix.replace(/^AAD-/, '') + cleanedDetail + (nameRing ? '-' + nameRing : '')
-    : '')
+  const detailWithRing = $derived((cleanedDetail || '') + (nameCat === 'dev' && nameRing ? '-' + nameRing : ''))
+  let generatedName = $derived(cleanedDetail ? catName(nameCat, detailWithRing) : catName(nameCat, '…'))
+  // Der GroupTag IST die Eingabe (inkl. Ring) — der Gruppenname entsteht daraus.
+  // Andersherum gerechnet wäre es fehleranfällig, und ein falscher Tag erzeugt
+  // genau den Fehler "Gerät landet in keiner Gruppe".
+  let groupTagValue = $derived(nameCat === 'dev' && cleanedDetail ? detailWithRing : '')
   let orderIdRule = $derived(groupTagValue
     ? '(device.devicePhysicalIds -any (_ -eq "[OrderID]:' + groupTagValue + '"))'
     : '')
@@ -280,7 +311,7 @@
         </label>
         <label class="name-builder-field">
           Detail
-          <input type="text" bind:value={nameDetail} placeholder={NAME_CATS[nameCat].placeholder} />
+          <input type="text" bind:value={nameDetail} placeholder={catPlaceholder} />
         </label>
         {#if nameCat === 'dev'}
           <label class="name-builder-field">

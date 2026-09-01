@@ -43,6 +43,8 @@ const REPORT = require("./lib/report");
 const GROUPTAGS = require("./lib/groupTags");
 const ADMINROLES = require("./lib/adminRoles");
 const APPGROUPS = require("./lib/appGroups");
+const NAMING = require("./lib/naming");
+const BROWSEREXT = require("./lib/browserExtensions");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
@@ -117,6 +119,9 @@ function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch (e) { return { tenants: [] }; }
 }
 function saveState(s) { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2), "utf8"); }
+// Die Namenskonvention liegt im Zustand — das Modul liest ihn nicht selbst,
+// sondern bekommt den Zugriff hier hereingereicht.
+NAMING.useStateProvider(loadState);
 function certPemPath(tenantId) { return path.join(CERT_DIR, tenantId + ".pem"); }
 
 // ---------- Lokaler Admin-Login ----------
@@ -2068,7 +2073,7 @@ app.post("/api/tenants/:id/registrypolicy", wrap(async (req, res) => {
   const b = req.body || {};
   if (process.env.FAKE_DEPLOY === "1") {
     REGPOLICY.buildScript({ entries: b.entries }); // Validierung auch im Fake-Modus echt laufen lassen
-    return res.json({ ok: true, scriptId: "rp-1", displayName: "WIN - RegistryPolicy - " + String(b.profileName || ""), updated: false });
+    return res.json({ ok: true, scriptId: "rp-1", displayName: NAMING.name("scriptRegistry", { name: String(b.profileName || "") }, t.id), updated: false });
   }
   const r = await REGPOLICY.deployProfile(t, certPemPath(t.tenantId), {
     profileName: b.profileName, entries: b.entries,
@@ -3457,7 +3462,7 @@ async function runAppDeployJob(job, t, b) {
       const entries = REGPOLICY.bitwardenExtensionEntries(b.clientConfig);
       if (process.env.FAKE_DEPLOY === "1") {
         await new Promise(r => setTimeout(r, 500));
-        job.clientConfig = { displayName: REGPOLICY.SCRIPT_PREFIX + BITWARDEN_REGION_PROFILE, updated: false, groupName: deviceGroupName, values: entries.length };
+        job.clientConfig = { displayName: NAMING.name("scriptRegistry", { name: BITWARDEN_REGION_PROFILE }, t.id), updated: false, groupName: deviceGroupName, values: entries.length };
       } else {
         const rp = await REGPOLICY.deployProfile(t, cert, {
           profileName: BITWARDEN_REGION_PROFILE, entries, groupIds: [deviceGroupId]
@@ -3625,6 +3630,166 @@ app.post("/api/grouptags/devices/tag-bulk", wrap(async (req, res) => {
     }
   }
   res.json({ ok: true, results, failed: results.filter(r => !r.ok).length });
+}));
+
+// ---------- Erzwungene Browser-Erweiterungen (Edge) ----------
+// Die letzte Handarbeit im Passwortmanager-Rollout: Die Erweiterung selbst
+// musste bisher im Portal erzwungen werden. Jetzt als Custom-Profil (OMA-URI).
+// Zuweisung an die GERAETEGRUPPE — Konfigurationsprofile loesen Nesting nicht auf.
+app.get("/api/browserext/catalog", (req, res) => {
+  res.json({ ok: true, catalog: BROWSEREXT.CATALOG, edgeStore: BROWSEREXT.EDGE_STORE });
+});
+
+app.get("/api/tenants/:id/browserext/edge", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, profiles: [] });
+  res.json({ ok: true, profiles: await BROWSEREXT.listProfiles(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/browserext/edge", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const extensions = BROWSEREXT.sanitizeExtensions(b.extensions);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true, profileId: "be-1", updated: false, extensions,
+      displayName: NAMING.name("browserExtEdge", { name: String(b.profileName || "") }, t.id),
+      assignedGroups: (Array.isArray(b.groupIds) ? b.groupIds : []).length
+    });
+  }
+  const r = await BROWSEREXT.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName,
+    extensions,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- Namenskonvention ----------
+// Global als Vorgabe, pro Tenant ueberschreibbar. Bewusst kein Umbenennen
+// bestehender Objekte: Ein Schemawechsel gilt fuer das, was danach entsteht.
+// Gesucht wird weiterhin ueber alle bekannten Muster (siehe lib/naming.js).
+function sanitizeNaming(b) {
+  const profile = NAMING.PROFILES[b && b.profile] ? b.profile : "legacy";
+  const allowed = NAMING.KINDS.map(k => k.key);
+  const templates = {};
+  Object.keys((b && b.templates) || {}).forEach(k => {
+    if (allowed.indexOf(k) < 0) return;
+    const v = String(b.templates[k] == null ? "" : b.templates[k]).trim();
+    if (!v) return;
+    if (v.length > 120) { const e = new Error("Muster zu lang (max. 120 Zeichen): " + k); e.status = 400; throw e; }
+    // Steuerzeichen und die Zeichen, die Entra in Anzeigenamen nicht mag.
+    if (/[\u0000-\u001f\\/:*?"<>|]/.test(v)) {
+      const e = new Error("Unerlaubtes Zeichen im Muster " + k + " — verboten sind Steuerzeichen und \\ / : * ? \" < > |");
+      e.status = 400; throw e;
+    }
+    templates[k] = v;
+  });
+  return { profile, templates };
+}
+
+app.get("/api/naming", wrap(async (req, res) => {
+  const st = loadState();
+  const d = NAMING.describe(null);
+  res.json({
+    ok: true,
+    global: st.naming || null,
+    profiles: d.profiles, kinds: d.kinds, effective: d.effective, preview: d.preview,
+    tenants: (st.tenants || []).map(t => ({ id: t.id, name: t.name, naming: t.naming || null }))
+  });
+}));
+
+app.post("/api/naming", wrap(async (req, res) => {
+  const b = req.body || {};
+  const st = loadState();
+  if (b.reset === true) delete st.naming; else st.naming = sanitizeNaming(b);
+  saveState(st);
+  const d = NAMING.describe(null);
+  res.json({ ok: true, global: st.naming || null, effective: d.effective, preview: d.preview });
+}));
+
+app.get("/api/tenants/:id/naming", wrap(async (req, res) => {
+  const st = loadState();
+  const t = (st.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  const d = NAMING.describe(t.id);
+  res.json({ ok: true, tenant: t.name, override: t.naming || null, effective: d.effective, preview: d.preview });
+}));
+
+app.post("/api/tenants/:id/naming", wrap(async (req, res) => {
+  const b = req.body || {};
+  const st = loadState();
+  const t = (st.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  if (b.reset === true) delete t.naming; else t.naming = sanitizeNaming(b);
+  saveState(st);
+  const d = NAMING.describe(t.id);
+  res.json({ ok: true, override: t.naming || null, effective: d.effective, preview: d.preview });
+}));
+
+// ---------- App-Zielgruppen: anlegen und auf die Geraetegruppen matchen ----------
+// Damit laesst sich die Zuweisungsstruktur fuer App-Deployments komplett hier
+// vorbereiten -- auch fuer Apps, die ueber Patch My PC installiert werden.
+// PMP weist danach nur noch gegen die fertige Gruppe zu; das Entra-/
+// Intune-Portal muss dafuer niemand mehr oeffnen.
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.post("/api/appgroups/list", wrap(async (req, res) => {
+  const access = await groupTagAccess(req);
+  const r = await APPGROUPS.listAppGroups(access, null, {
+    withAssignments: true,
+    tenantId: access.tenant ? access.tenant.id : null
+  });
+  res.json({ ok: true, tenant: access.label, ...r });
+}));
+
+// Schreibend im Kundentenant — legt die App-Zielgruppe an und nimmt die
+// gewaehlten dynamischen Geraetegruppen als Mitglied auf.
+app.post("/api/appgroups/ensure", wrap(async (req, res) => {
+  const b = req.body || {};
+  const deviceGroupIds = (Array.isArray(b.deviceGroupIds) ? b.deviceGroupIds : [])
+    .map(x => String(x || "").trim()).filter(Boolean);
+  if (deviceGroupIds.some(id => !GUID_RE.test(id))) {
+    return res.status(400).json({ error: "Ungueltige Gruppen-Id in deviceGroupIds." });
+  }
+  if (deviceGroupIds.length > 20) {
+    return res.status(400).json({ error: "Maximal 20 Geraetegruppen pro Durchgang." });
+  }
+  if (!String(b.appName || "").trim() && !String(b.displayName || "").trim()) {
+    return res.status(400).json({ error: "appName oder displayName fehlt." });
+  }
+
+  const access = await groupTagAccess(req);
+  const group = await APPGROUPS.ensureAppGroup(access, null, b.appName, {
+    displayName: b.displayName,
+    // "auto" (oder nichts) = Konvention des Tenants; legacy/v2 erzwingen ein Profil.
+    scheme: (b.scheme === "legacy" || b.scheme === "v2") ? b.scheme : null,
+    managed: b.managed,
+    tenantId: access.tenant ? access.tenant.id : null
+  });
+
+  // Ein fehlgeschlagenes Nesting darf die schon angelegte Gruppe nicht
+  // verschlucken — pro Gruppe melden, was passiert ist.
+  const nested = [];
+  for (const id of deviceGroupIds) {
+    try {
+      nested.push({ groupId: id, status: await APPGROUPS.nestGroupAsMember(access, null, group.id, id) });
+    } catch (e) {
+      nested.push({ groupId: id, status: "failed", error: e.message });
+    }
+  }
+  res.json({ ok: true, group, nested });
+}));
+
+// Schreibend im Kundentenant — loest eine Verknuepfung wieder.
+app.post("/api/appgroups/unnest", wrap(async (req, res) => {
+  const b = req.body || {};
+  if (!GUID_RE.test(String(b.appGroupId || "")) || !GUID_RE.test(String(b.deviceGroupId || ""))) {
+    return res.status(400).json({ error: "appGroupId und deviceGroupId muessen Gruppen-Ids sein." });
+  }
+  const access = await groupTagAccess(req);
+  await APPGROUPS.unnestGroupMember(access, null, b.appGroupId, b.deviceGroupId);
+  res.json({ ok: true, status: "removed" });
 }));
 
 // ---------- Migration: App-Registrierungen anlegen lassen ----------

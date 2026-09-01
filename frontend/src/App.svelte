@@ -31,6 +31,8 @@
   import Reports from './tabs/Reports.svelte'
   import Maester from './tabs/Maester.svelte'
   import Secrets from './tabs/Secrets.svelte'
+  import Naming from './tabs/Naming.svelte'
+  import BrowserExtensions from './tabs/BrowserExtensions.svelte'
 
   // Tickets nur fuer den freigeschalteten Nutzer -- die Durchsetzung passiert
   // serverseitig (403 auf /api/sdp, /api/runbooks), das hier ist nur die Sicht.
@@ -133,6 +135,8 @@
         <div class:tab-hidden={$activeTab !== 'maester'}><Maester /></div>
         <div class:tab-hidden={$activeTab !== 'diagnose'}><Diagnose /></div>
         <div class:tab-hidden={$activeTab !== 'secrets'}><Secrets /></div>
+        <div class:tab-hidden={$activeTab !== 'naming'}><Naming /></div>
+        <div class:tab-hidden={$activeTab !== 'browserext'}><BrowserExtensions /></div>
         <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
       </div>
     </main>

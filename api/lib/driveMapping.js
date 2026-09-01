@@ -23,6 +23,32 @@ const { graphReq, graphAllPages } = require("./graph");
 const BETA = { beta: true, retryTransient: true };
 const TEMPLATE_PATH = path.join(__dirname, "..", "assets", "intune", "IntuneDriveMappingTemplate.ps1");
 const SCRIPT_PREFIX = "WIN - DriveMapping - ";
+const NAMING = require("./naming");
+
+// Die Objektnamen kommen aus der Namenskonvention (lib/naming.js). Gesucht wird
+// ueber ALLE bekannten Praefixe -- sonst findet das Tool nach einem
+// Schemawechsel die eigenen Objekte nicht mehr und legt daneben neue an.
+const NAME_KIND = "scriptDrive";
+const NAME_SEP = "\u0001";
+
+function knownPrefixes(tenant) {
+  return NAMING.candidates(NAME_KIND, { name: NAME_SEP }, tenant && tenant.id)
+    .map(c => c.split(NAME_SEP)[0])
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+}
+function displayNameFor(tenant, profileName) {
+  return NAMING.name(NAME_KIND, { name: sanitizeProfileName(profileName) }, tenant && tenant.id);
+}
+function isOurs(tenant, displayName) {
+  const n = String(displayName || "");
+  return knownPrefixes(tenant).some(p => n.startsWith(p));
+}
+function profileNameFrom(tenant, displayName) {
+  const n = String(displayName || "");
+  for (const p of knownPrefixes(tenant)) { if (n.startsWith(p)) return n.slice(p.length); }
+  return n;
+}
 
 function sanitizeProfileName(name) {
   const n = String(name || "").trim().replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 40);
@@ -86,7 +112,7 @@ function parseScript(scriptText) {
 /** Vorhandene DriveMapping-Profile (Skripte mit unserem Praefix) inkl. Zuweisungen + Konfiguration. */
 async function listProfiles(tenant, cert) {
   const scripts = await graphAllPages(tenant, cert, "/deviceManagement/deviceManagementScripts", BETA);
-  const ours = scripts.filter(s => String(s.displayName || "").startsWith(SCRIPT_PREFIX));
+  const ours = scripts.filter(s => isOurs(tenant, s.displayName));
   const result = [];
   for (const s of ours) {
     let full = s, assignments = [];
@@ -95,7 +121,7 @@ async function listProfiles(tenant, cert) {
     const content = full.scriptContent ? Buffer.from(full.scriptContent, "base64").toString("utf8") : "";
     result.push({
       id: s.id,
-      profileName: String(s.displayName).slice(SCRIPT_PREFIX.length),
+      profileName: profileNameFrom(tenant, s.displayName),
       displayName: s.displayName,
       config: parseScript(content),
       groupIds: assignments.map(a => a && a.target && a.target.groupId).filter(Boolean)
@@ -106,7 +132,7 @@ async function listProfiles(tenant, cert) {
 
 /** Profil anlegen/aktualisieren (idempotent nach displayName) + Gruppen zuweisen (ersetzt Zuweisungen des Skripts). */
 async function deployProfile(tenant, cert, { profileName, mappings, searchRoot, removeStaleDrives, groupIds }) {
-  const name = SCRIPT_PREFIX + sanitizeProfileName(profileName);
+  const name = displayNameFor(tenant, profileName);
   const scriptContent = Buffer.from(buildScript({ mappings, searchRoot, removeStaleDrives }), "utf8").toString("base64");
   const body = {
     "@odata.type": "#microsoft.graph.deviceManagementScript",

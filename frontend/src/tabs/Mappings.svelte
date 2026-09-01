@@ -3,6 +3,7 @@
   import { apiGet, apiPost } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
+  import { loadNaming } from '../lib/naming.js'
 
   // Alle vier Bereiche folgen demselben gefuehrten Ablauf:
   //   1 Profil benennen -> 2 Inhalte definieren -> 3 Gruppen zuweisen ->
@@ -18,9 +19,18 @@
   const intuneSafe = (s) => String(s || '').trim().replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 40)
   const UNC_RE = /^\\\\[^\\]+\\.+/
 
-  // ---------- Gemeinsames: Tenant, Gruppen ----------
+  // ---------- Gemeinsames: Tenant, Gruppen, Namenskonvention ----------
   let groups = $state([])
   let lastTenantId = null
+
+  // Die Objektnamen kommen aus der eingestellten Konvention (Tab
+  // Namenskonvention) — hier nur zur Anzeige. Solange sie nicht geladen ist,
+  // greift der Bestandsname als Rückfall, damit nie ein leeres Feld dasteht.
+  let nm = $state(null)
+  function nmName(kind, vars, fallback) {
+    const v = nm ? nm.name(kind, vars) : ''
+    return v || fallback
+  }
 
   function selNames(sel) {
     return Object.keys(sel).filter(k => sel[k]).map(id => groups.find(g => g.id === id)?.displayName || id)
@@ -76,6 +86,8 @@
   async function loadGroups() {
     try { groups = (await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/groups`)).groups || [] }
     catch (e) { /* Auswahl bleibt leer */ }
+    try { nm = await loadNaming($activeTenant.id) }
+    catch (e) { /* Rückfall auf die Bestandsnamen */ }
   }
 
   function newProfile() {
@@ -108,6 +120,7 @@
 
   const dmContentOk = $derived(mappings.some(m => m.driveLetter && m.path.trim()))
   const dmName = $derived(intuneSafe(profileName))
+  const dmTarget = $derived(dmName ? nmName('scriptDrive', { name: dmName }, `WIN - DriveMapping - ${dmName}`) : '')
 
   function dmJump(n) {
     if (n > 1 && !dmName) return
@@ -152,7 +165,7 @@
     const groupIds = Object.keys(selGroups).filter(g => selGroups[g])
     if (!confirm(
       `Profil „${dmName}" deployen?\n\n` +
-      `Es wird ein PowerShell-Plattformskript „WIN - DriveMapping - ${dmName}" in Intune angelegt/aktualisiert ` +
+      `Es wird ein PowerShell-Plattformskript „${dmTarget}" in Intune angelegt/aktualisiert ` +
       `und ${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}. ` +
       `Das Skript läuft als SYSTEM und registriert einen Logon-Task, der die Laufwerke pro Benutzer verbindet.`
     )) return
@@ -231,6 +244,7 @@
 
   const pmContentOk = $derived(pmPrinters.some(p => p.path.trim()))
   const pmSafeName = $derived(intuneSafe(pmName))
+  const pmTarget = $derived(pmSafeName ? nmName('scriptPrinter', { name: pmSafeName }, `WIN - PrinterMapping - ${pmSafeName}`) : '')
   const pmInvalidPaths = $derived(pmPrinters.filter(p => p.path.trim() && !UNC_RE.test(p.path.trim())).length)
 
   function pmJump(n) {
@@ -242,7 +256,7 @@
     const groupIds = Object.keys(pmSelGroups).filter(g => pmSelGroups[g])
     if (!confirm(
       `Drucker-Profil „${pmSafeName}" ausrollen?\n\n` +
-      `Es wird die ADMX-Vorlage (einmalig) importiert, das Konfigurationsprofil „WIN - PrinterMapping - ${pmSafeName}" angelegt/aktualisiert (${pmPrinters.length} Drucker, ${pmScope === 'machine' ? 'Geräte' : 'Benutzer'}-Kontext), ` +
+      `Es wird die ADMX-Vorlage (einmalig) importiert, das Konfigurationsprofil „${pmTarget}" angelegt/aktualisiert (${pmPrinters.length} Drucker, ${pmScope === 'machine' ? 'Geräte' : 'Benutzer'}-Kontext), ` +
       `${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}${pmDeployApp ? ' und die Store-App als Required mit deployt' : ''}.`
     )) return
     pmBusy = true
@@ -346,6 +360,7 @@
   )
   const spSelSiteCount = $derived(Object.values(spSelSites).filter(Boolean).length)
   const spSafeName = $derived(intuneSafe(spProfileName))
+  const spTarget = $derived(spSafeName ? nmName('scriptSharePoint', { name: spSafeName }, `WIN - SharePointSync - ${spSafeName}`) : '')
   function spToggleAllFiltered(val) {
     const next = { ...spSelSites }
     for (const s of spFilteredSites) next[s.id] = val
@@ -400,7 +415,7 @@
     const groupIds = Object.keys(spSelGroups).filter(g => spSelGroups[g])
     if (!confirm(
       `Profil „${spSafeName}" deployen?\n\n` +
-      `Es wird ein PowerShell-Plattformskript „WIN - SharePointSync - ${spSafeName}" in Intune angelegt/aktualisiert ` +
+      `Es wird ein PowerShell-Plattformskript „${spTarget}" in Intune angelegt/aktualisiert ` +
       `und ${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}. ` +
       `Das Skript läuft im Benutzerkontext und schreibt die Bibliotheken direkt in HKCU — OneDrive übernimmt sie beim nächsten Anmelden (Fenster bis zu 8h, siehe Microsoft-Doku). Voraussetzung: OneDrive Files On-Demand ist im Tenant aktiv.`
     )) return
@@ -478,6 +493,7 @@
   function rpRemoveRow(i) { rpEntries = rpEntries.filter((_, j) => j !== i) }
 
   const rpSafeName = $derived(intuneSafe(rpProfileName))
+  const rpTarget = $derived(rpSafeName ? nmName('scriptRegistry', { name: rpSafeName }, `WIN - RegistryPolicy - ${rpSafeName}`) : '')
   const rpContentOk = $derived(rpEntries.length > 0)
 
   function rpJump(n) {
@@ -497,7 +513,7 @@
     const groupIds = Object.keys(rpSelGroups).filter(g => rpSelGroups[g])
     if (!confirm(
       `Profil „${rpSafeName}" deployen?\n\n` +
-      `Es wird ein PowerShell-Plattformskript „WIN - RegistryPolicy - ${rpSafeName}" in Intune angelegt/aktualisiert ` +
+      `Es wird ein PowerShell-Plattformskript „${rpTarget}" in Intune angelegt/aktualisiert ` +
       `und ${groupIds.length ? groupIds.length + ' Gruppe(n) zugewiesen' : 'OHNE Zuweisung angelegt'}. ` +
       `Das Skript läuft im Systemkontext (SYSTEM) und schreibt die Werte direkt unter HKLM auf dem Gerät.`
     )) return
@@ -646,7 +662,7 @@
             <div class="input-group" style="max-width:320px;">
               <label for="dmName">Profilname</label>
               <input id="dmName" type="text" bind:value={profileName} placeholder="Standard" />
-              <small>Skriptname in Intune: <code>WIN - DriveMapping - {dmName || '…'}</code>{profileName.trim() && dmName !== profileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
+              <small>Skriptname in Intune: <code>{dmTarget || '…'}</code>{profileName.trim() && dmName !== profileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
             </div>
             <div class="ld-confirm-actions">
               <button class="btn btn-primary" disabled={!dmName} onclick={() => dmJump(2)}>Weiter</button>
@@ -729,7 +745,7 @@
           <div class="wiz-body">
             <div class="gt-table-wrap" style="margin-bottom:0.6rem;">
               <table class="gt-table"><tbody>
-                <tr><td style="width:160px;">Intune-Objekt</td><td><code>WIN - DriveMapping - {dmName}</code> (PowerShell-Plattformskript)</td></tr>
+                <tr><td style="width:160px;">Intune-Objekt</td><td><code>{dmTarget}</code> (PowerShell-Plattformskript)</td></tr>
                 <tr><td>Ausführung</td><td>Als SYSTEM; registriert einen Logon-Task, der die Laufwerke pro Benutzer verbindet</td></tr>
                 <tr><td>Inhalt</td><td>{mappings.filter(m => m.driveLetter && m.path.trim()).map(m => `${m.driveLetter}: → ${m.path}`).join(' · ')}{removeStaleDrives ? ' · trennt nicht konfigurierte Laufwerke' : ''}{searchRoot ? ` · AD-Domäne: ${searchRoot}` : ''}</td></tr>
                 <tr><td>Zuweisung</td><td>{selNames(selGroups).length ? selNames(selGroups).join(', ') : '⚠️ keine — Profil wird ohne Zuweisung angelegt'}</td></tr>
@@ -840,7 +856,7 @@
               <div class="input-group" style="max-width:280px;">
                 <label for="pmName">Profilname</label>
                 <input id="pmName" type="text" bind:value={pmName} placeholder="Buero EG" />
-                <small>Profil in Intune: <code>WIN - PrinterMapping - {pmSafeName || '…'}</code>{pmName.trim() && pmSafeName !== pmName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
+                <small>Profil in Intune: <code>{pmTarget || '…'}</code>{pmName.trim() && pmSafeName !== pmName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
               </div>
               <div class="input-group" style="max-width:220px;">
                 <label for="pmScope">Kontext</label>
@@ -916,7 +932,7 @@
           <div class="wiz-body">
             <div class="gt-table-wrap" style="margin-bottom:0.6rem;">
               <table class="gt-table"><tbody>
-                <tr><td style="width:160px;">Intune-Objekt</td><td><code>WIN - PrinterMapping - {pmSafeName}</code> (Imported-ADMX-Konfigurationsprofil; die ADMX-Vorlage wird bei Bedarf einmalig importiert)</td></tr>
+                <tr><td style="width:160px;">Intune-Objekt</td><td><code>{pmTarget}</code> (Imported-ADMX-Konfigurationsprofil; die ADMX-Vorlage wird bei Bedarf einmalig importiert)</td></tr>
                 <tr><td>Kontext</td><td>{pmScope === 'machine' ? 'Gerät (alle Benutzer)' : 'Benutzer'}</td></tr>
                 <tr><td>Inhalt</td><td>{pmPrinters.filter(p => p.path.trim()).map(p => `${p.operation === 'Delete' ? '🗑️' : '🖨️'} ${p.path}${p.setDefault ? ' (Standard)' : ''}`).join(' · ')}</td></tr>
                 <tr><td>Store-App</td><td>{pmDeployApp ? 'Wird als Required-App an dieselben Gruppen mit deployt' : 'Wird NICHT mit deployt (muss auf den Geräten vorhanden sein)'}</td></tr>
@@ -1012,7 +1028,7 @@
             <div class="input-group" style="max-width:280px;">
               <label for="spName">Profilname</label>
               <input id="spName" type="text" bind:value={spProfileName} placeholder="Standard" />
-              <small>Skriptname in Intune: <code>WIN - SharePointSync - {spSafeName || '…'}</code>{spProfileName.trim() && spSafeName !== spProfileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
+              <small>Skriptname in Intune: <code>{spTarget || '…'}</code>{spProfileName.trim() && spSafeName !== spProfileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
             </div>
             <div class="ld-confirm-actions">
               <button class="btn btn-primary" disabled={!spSafeName} onclick={() => spJump(2)}>Weiter</button>
@@ -1101,7 +1117,7 @@
           <div class="wiz-body">
             <div class="gt-table-wrap" style="margin-bottom:0.6rem;">
               <table class="gt-table"><tbody>
-                <tr><td style="width:160px;">Intune-Objekt</td><td><code>WIN - SharePointSync - {spSafeName}</code> (PowerShell-Plattformskript)</td></tr>
+                <tr><td style="width:160px;">Intune-Objekt</td><td><code>{spTarget}</code> (PowerShell-Plattformskript)</td></tr>
                 <tr><td>Ausführung</td><td>Im Benutzerkontext; schreibt die Bibliotheken nach <code>HKCU</code>, OneDrive übernimmt sie beim nächsten Anmelden (bis zu 8h)</td></tr>
                 <tr><td>Inhalt</td><td>{spMappings.map(m => m.libraryName).join(' · ')}</td></tr>
                 <tr><td>Zuweisung</td><td>{selNames(spSelGroups).length ? selNames(spSelGroups).join(', ') : '⚠️ keine — Profil wird ohne Zuweisung angelegt'}</td></tr>
@@ -1198,7 +1214,7 @@
             <div class="input-group" style="max-width:320px;">
               <label for="rpName">Profilname</label>
               <input id="rpName" type="text" bind:value={rpProfileName} placeholder="Standard" />
-              <small>Skriptname in Intune: <code>WIN - RegistryPolicy - {rpSafeName || '…'}</code>{rpProfileName.trim() && rpSafeName !== rpProfileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
+              <small>Skriptname in Intune: <code>{rpTarget || '…'}</code>{rpProfileName.trim() && rpSafeName !== rpProfileName.trim() ? ' — Umlaute/Sonderzeichen werden entfernt' : ''}</small>
             </div>
             <div class="ld-confirm-actions">
               <button class="btn btn-primary" disabled={!rpSafeName} onclick={() => rpJump(2)}>Weiter</button>
@@ -1271,7 +1287,7 @@
           <div class="wiz-body">
             <div class="gt-table-wrap" style="margin-bottom:0.6rem;">
               <table class="gt-table"><tbody>
-                <tr><td style="width:160px;">Intune-Objekt</td><td><code>WIN - RegistryPolicy - {rpSafeName}</code> (PowerShell-Plattformskript)</td></tr>
+                <tr><td style="width:160px;">Intune-Objekt</td><td><code>{rpTarget}</code> (PowerShell-Plattformskript)</td></tr>
                 <tr><td>Ausführung</td><td>Als SYSTEM; schreibt direkt unter <code>HKLM</code> auf dem Gerät</td></tr>
                 <tr><td>Inhalt</td><td>{rpEntries.map(e => `${e.name} = ${e.value} (${e.type})`).join(' · ')}</td></tr>
                 <tr><td>Zuweisung</td><td>{selNames(rpSelGroups).length ? selNames(rpSelGroups).join(', ') : '⚠️ keine — Profil wird ohne Zuweisung angelegt'}</td></tr>

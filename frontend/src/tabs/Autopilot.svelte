@@ -280,7 +280,7 @@
       </div>
     {:else if !groupTags.length}
       <div class="step-card"><div class="ld-banner warn">Keine GroupTags in den dynamischen Security Groups gefunden.
-        <br /><small>Die Regeln müssen ein <code>[OrderID]:&lt;GroupTag&gt;</code> enthalten (Nils' GroupTag-Konzept). Zuerst die AAD-DEV-*-Gruppen anlegen.</small></div></div>
+        <br /><small>Die Regeln müssen ein <code>[OrderID]:&lt;GroupTag&gt;</code> enthalten (Nils' GroupTag-Konzept). Zuerst die Gerätegruppen anlegen (Tab GroupTags).</small></div></div>
     {:else}
       {@const pickedCount = Object.values(checkedTags).filter(Boolean).length}
       <p class="ld-section-hint">Das Paket enthält eine dedizierte App-Registrierung <code>IG-Autopilot-Staging</code>

@@ -237,6 +237,73 @@ die vor der Alert-Policy-Erweiterung onboardet wurden, einfach neu onboarden —
 dabei wird die fehlende Compliance-Administrator-Rolle ergänzt (App und
 Zertifikat bleiben erhalten bzw. werden erneuert).
 
+## 🏷️ Namenskonvention (Tab Namenskonvention)
+
+Legt fest, wie die Objekte heissen, die dieses Werkzeug anlegt. Zwei Profile,
+dazu frei editierbare Muster je Objekttyp:
+
+| Objekt | Bestand (Vorgabe) | v2 |
+|---|---|---|
+| Gerätegruppe | `AAD-WIN-Std` | `T2-DG-WIN-Std` |
+| App-Zielgruppe | `AAD-APP-Bitdefender` | `T2-DG-WIN-AppBitdefender` |
+| CA-Ring | `AAD-CA-RING-PILOT` | `T0-CSG-GOV-CA-RingPilot` |
+| CA-Break-Glass | `AAD-CA-BreakGlass` | `T0-CSG-GOV-CA-BreakGlass-Exempt` |
+| Break-Glass-Konto | `breakglass-01` | `brk.notfall01` |
+| Plattformskript | `WIN - DriveMapping - Standard` | `T2-WIN-CP-DriveMapping-Standard` |
+
+**Global als Vorgabe, pro Tenant überschreibbar** — ein neuer Kunde kann auf v2
+laufen, während Bestandskunden ihre gewachsenen Namen behalten.
+
+**Bestehende Objekte werden nie umbenannt.** Gesucht wird über alle bekannten
+Muster, nicht nur über das aktive: Sonst legt das Werkzeug nach einem Wechsel
+neben der vorhandenen Gruppe eine zweite an — bei einer leeren
+Break-Glass-Ausnahmegruppe wäre das gefährlich.
+
+Der `BP_`-Marker der EOP-Objekte ist bewusst ausgenommen: Er identifiziert die
+tool-eigenen Exchange-Objekte, und der Audit erkennt sie daran wieder.
+
+## 🧩 Browser-Erweiterungen erzwingen (Tab Browser-Erweiterungen)
+
+Legt ein Custom-Konfigurationsprofil an (OMA-URI auf
+`ExtensionInstallForcelist`), das die gewählten Erweiterungen in **Edge** still
+installiert — der Benutzer kann sie nicht entfernen. Bitwarden ist als Vorlage
+hinterlegt, weitere Erweiterungen lassen sich über ihre Id ergänzen.
+
+**Zuweisung an die Gerätegruppe**, nie an eine App-Zielgruppe: Intune löst
+verschachtelte Gruppen nur beim App-Assignment auf.
+
+Chrome und Firefox brauchen eine ADMX-Ingestion und sind hier nicht abgedeckt.
+Die Server-Region der Bitwarden-Erweiterung ist ein getrenntes Objekt — dafür
+ist die Registry-Richtlinie zuständig.
+
+## 🎯 App-Zielgruppen (Tab GroupTags)
+
+Eine App wird immer an **genau eine** Gruppe zugewiesen. Welche Geräte sie
+bekommen, steuert das **Nesting**: Die dynamische GroupTag-Gerätegruppe wird
+Mitglied der App-Gruppe, Intune löst das beim App-Assignment auf. Der Bereich
+*App-Zielgruppen* legt beides an — Gruppe und Verknüpfung —, sodass für ein
+Agent-Rollout weder Entra- noch Intune-Portal geöffnet werden muss.
+
+| Funktion | Details |
+|---|---|
+| Bestand anzeigen | alle Gruppen mit `AAD-APP-`, `AAD-PMP-`, `T2-DG-WIN-App`, `T2-DG-WIN-Pmp` |
+| Mitglieder | verknüpfte Gerätegruppen als Chips, ✕ löst die Verknüpfung |
+| Zuweisungsnachweis | zeigt, welche Intune-App mit welchem Intent auf der Gruppe hängt |
+| Anlegen | Presets (Bitdefender, RMM-Agent, Bitwarden, FortiClient) oder freier Name |
+| Schema | `AAD-APP-…` (Vorgabe) oder `T2-DG-WIN-App…` (v2) |
+
+Angeboten werden nur Gerätegruppen mit `[OrderID]`-Tag — andere ergeben als
+Mitglied keinen Sinn. Anlegen ist idempotent: Eine vorhandene Gruppe wird
+wiederverwendet, nicht gedoppelt.
+
+**Was das Tool nicht tut:** die App selbst zuweisen. Das bleibt in Patch My PC,
+dort gegen diese eine Gruppe, Intent *Required*.
+
+**Achtung bei Plattformskripten:** Intune löst verschachtelte Gruppen *nur beim
+App-Assignment* auf. Ein Plattformskript (Drive-/Printer-Mapping,
+Registry-Richtlinie) muss deshalb direkt an die Gerätegruppe zugewiesen werden,
+nie an eine App-Gruppe — sonst erreicht es kein Gerät.
+
 ## 🔐 Bitwarden-Desktop-App per Intune verteilen
 
 Tab **📦 Apps & Agents → 🔐 Bitwarden**. Kein API-Key nötig — der Windows-Client

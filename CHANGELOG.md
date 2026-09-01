@@ -1,5 +1,141 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.18 - Namenskonvention einstellbar, Edge-Erweiterungen erzwingen (2026-09-01)
+
+### 🏷️ Eine Stelle fuer alle Objektnamen
+
+Wie die angelegten Objekte heissen, stand bisher als Literal in dem Modul, das
+sie brauchte — `"AAD-" + tag` in groupTags, `"AAD-CA-RING-"` in
+conditionalAccess, `"WIN - DriveMapping - "` in driveMapping. Ein Schemawechsel
+hiess: alle Stellen suchen und hoffen, keine zu vergessen. Das liegt jetzt in
+`api/lib/naming.js`.
+
+Zwei mitgelieferte Profile, dazu frei editierbare Muster:
+
+| | Geraetegruppe | App-Zielgruppe | CA-Ring | Break-Glass |
+|---|---|---|---|---|
+| **Bestand** (Vorgabe) | `AAD-WIN-Std` | `AAD-APP-Bitdefender` | `AAD-CA-RING-PILOT` | `breakglass-01` |
+| **v2** | `T2-DG-WIN-Std` | `T2-DG-WIN-AppBitdefender` | `T0-CSG-GOV-CA-RingPilot` | `brk.notfall01` |
+
+**Global als Vorgabe, pro Tenant ueberschreibbar.** Das ist der Punkt: Ein neu
+onboardeter Kunde kann auf v2 laufen, waehrend Bestandskunden ihre gewachsenen
+Namen behalten.
+
+**Bestehende Objekte werden nie umbenannt.** Gesucht wird ueber ALLE bekannten
+Muster (`candidates()`), nicht nur ueber das aktive — sonst wuerde das Werkzeug
+nach einem Wechsel neben der vorhandenen Gruppe eine zweite anlegen. Bei einer
+leeren Break-Glass-Ausnahmegruppe waere das gefaehrlich.
+
+Neuer Tab **Namenskonvention** (Einrichtung): Grundprofil waehlen, einzelne
+Muster ueberschreiben, Live-Vorschau je Objekttyp, Uebersicht welcher Tenant
+welcher Konvention folgt.
+
+Umgestellt sind: Geraetegruppen (GroupTags), App-Zielgruppen, CA-Ring- und
+-Schutzgruppen, Break-Glass-Konten, die vier Mapping-/Skript-Module und die
+Profile der Browser-Erweiterungen. Der `BP_`-Marker der EOP-Objekte bleibt —
+er ist mit Anish noch offen.
+
+### 🧩 Erzwungene Browser-Erweiterungen (Edge)
+
+Die letzte Handarbeit im Passwortmanager-Rollout: Desktop-App und Server-Region
+kann das Werkzeug laengst, die Erweiterung selbst musste jemand im Portal
+erzwingen. Neuer Tab **Browser-Erweiterungen** (Intune) legt dafuer ein
+Custom-Konfigurationsprofil an — OMA-URI auf die Edge-Richtlinie
+`ExtensionInstallForcelist`.
+
+Bewusst OMA-URI statt Settings Catalog: Die Edge-Richtlinien sind dort zwar
+vorhanden, ihre Definition-Ids sind aber lang, versionsabhaengig und muessten
+zur Laufzeit gesucht werden. Der OMA-URI-Pfad ist stabil; im Portal sieht das
+Profil gleich aus und laesst sich dort weiterpflegen.
+
+**Zuweisung geht an die Geraetegruppe, nicht an eine App-Zielgruppe.** Intune
+loest verschachtelte Gruppen nur beim App-Assignment auf — bei
+Konfigurationsprofilen nicht. Dieselbe Falle wie beim Region-Skript.
+
+Chrome und Firefox brauchen eine ADMX-Ingestion (Datei muss erst in den Tenant
+hochgeladen werden). Anderer Mechanismus, hier bewusst nicht mit drin.
+
+### Oberflaeche zieht mit
+
+Die Oberflaeche zeigte an rund 50 Stellen fest verdrahtete Objektnamen — bei
+einem Tenant auf v2 haette dort gestanden, was das Werkzeug gar nicht anlegt.
+Jetzt kommen sie aus der Konvention:
+
+| Wo | Was |
+|---|---|
+| Mappings (alle vier Bereiche) | Bestaetigungstexte und Vorschau zeigen den echten Skript-/Profilnamen |
+| Conditional Access | Ring- und Break-Glass-Gruppennamen in Dialogen, Bannern und Tooltips |
+| App-Deploy-Dialog | Zielgruppe und Region-Skript |
+| GroupTags | Gruppennamen-Platzhalter; App-Gruppen-Schema neu mit Option **nach Konvention** (Vorgabe) |
+| Wissen | Namensgenerator erzeugt Namen nach der eingestellten Konvention; Schema-Tabelle zeigt Bestand und v2 nebeneinander |
+
+Zwei Punkte, die dabei aufgefallen sind und mitkorrigiert wurden: Der
+Namensgenerator im Wissen-Tab nimmt bei Geraetegruppen jetzt den **GroupTag**
+als Eingabe (im Bestand `DEV-STD`, in v2 `WIN-Std`) — die Kategorie steckt im
+Tag, nicht im Praefix, und andersherum gerechnet waere es fehleranfaellig.
+Dazu kennt die Konvention zwei weitere Gruppenarten: `mamGroup`
+(`AAD-USR-*` / `T2-CSG-GOV-MAM-*`) und `roleGroup`
+(`AAD-ROLE-*` / `T2-CSG-ADM-ENTRA-*`).
+
+### Technisch
+
+| Datei | Was |
+|---|---|
+| `api/lib/naming.js` | Profile, Muster-Rendering, wirksame Konvention, `candidates()` fuer die Suche |
+| `api/lib/browserExtensions.js` | Edge-Forcelist als Custom-Profil, Katalog, Validierung |
+| `api/server.js` | `/api/naming`, `/api/tenants/:id/naming`, `/api/browserext/*` |
+| `api/lib/{groupTags,appGroups,conditionalAccess,driveMapping,printerMapping,registryPolicy,sharepointMapping}.js` | Namen kommen aus der Konvention, Suche ueber alle Muster |
+| `frontend/src/tabs/{Naming,BrowserExtensions}.svelte` | die beiden neuen Bereiche |
+| `frontend/src/lib/naming.js` | dieselbe Rendering-Logik fuer Vorschauen in der Oberflaeche |
+
+
+## Version 2.17 - App-Zielgruppen anlegen und verknuepfen (2026-09-01)
+
+### 🎯 Zuweisungsstruktur ohne Portal
+
+Der Tab *GroupTags* hat einen neuen Bereich **App-Zielgruppen**. Er nimmt die
+Arbeit ab, fuer die man sonst ins Entra-Portal wechselt: Gruppe nach Schema
+anlegen, die richtigen GroupTag-Geraetegruppen hineinnesten — idempotent, eine
+vorhandene Gruppe wird wiederverwendet statt gedoppelt.
+
+Hintergrund: Eine App wird immer an **genau eine** Gruppe zugewiesen. Welche
+Geraete sie bekommen, steuert das Nesting — die dynamische Geraetegruppe wird
+Mitglied der App-Gruppe, Intune loest das beim App-Assignment auf. Damit laesst
+sich die komplette Zielgruppen-Vorbereitung im Tool erledigen, auch fuer Apps,
+die spaeter ueber Patch My PC installiert werden.
+
+| Die Ansicht zeigt | Wozu |
+|---|---|
+| alle App-Zielgruppen (`AAD-APP-`, `AAD-PMP-`, `T2-DG-WIN-App`, `T2-DG-WIN-Pmp`) | Bestandsaufnahme, auch von Hand angelegte Gruppen |
+| verknuepfte Geraetegruppen als Chips, mit ✕ zum Loesen | das Nesting ist die eigentliche Steuerung |
+| welche **Intune-App** auf der Gruppe haengt, mit Intent | Nachweis, dass die Zuweisung in Patch My PC angekommen ist |
+| Warnung «erreicht so kein Geraet» bei leerer Gruppe | der haeufigste stille Fehler |
+
+Anlegen ueber Presets (Bitdefender, RMM-Agent, Bitwarden, FortiClient) oder mit
+freiem App-Namen; dazu Verwaltung (selbst paketiert / Patch My PC) und
+Namensschema. Der fertige Gruppenname steht als Vorschau da, ein bereits
+existierender wird als solcher gemeldet. Zur Auswahl stehen nur Geraetegruppen
+mit `[OrderID]`-Tag — andere haben als Mitglied keinen Zweck. Jede schreibende
+Aktion fragt vorher nach und nennt den Tenant beim Namen.
+
+**Namensschema als Umschalter:** Voreingestellt bleibt der Bestand
+(`AAD-APP-…`), das v2-Schema (`T2-DG-WIN-App…`) steht als zweite Option bereit.
+Bewusst kein stiller Wechsel — solange die v2 nicht freigegeben ist, wuerde er
+in Kundentenants nur Dubletten erzeugen.
+
+**Grenze:** Das Tool bereitet die Zielgruppe vor. Die Zuweisung der App selbst
+bleibt in Patch My PC — dort gegen diese eine Gruppe, Intent *Required*.
+
+### Technisch
+
+| Datei | Was |
+|---|---|
+| `api/lib/appGroups.js` | Schema-Bau (`buildAppGroupName`), Liste mit Mitgliedern und App-Zuweisungen, Entkoppeln; beide Zugangswege (Zertifikat und Token) wie im GroupTag-Modul |
+| `api/lib/groupTags.js` | `accessReq`/`accessAllPages` exportiert, statt sie im App-Gruppen-Modul zu verdoppeln |
+| `api/server.js` | `POST /api/appgroups/list`, `/ensure`, `/unnest` |
+| `frontend/src/tabs/GroupTags.svelte` | Bereich «App-Zielgruppen» |
+
+
 ## Version 2.16 - Geheimnisse bearbeiten, Organisationsschalter auch im Backend (2026-09-01)
 
 ### ✏️ Bearbeiten im Panel — geschrieben wird erst beim Speichern

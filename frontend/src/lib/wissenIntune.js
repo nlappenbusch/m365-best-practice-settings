@@ -168,8 +168,8 @@ Windows-Installationsmedium gebaut werden:</p>
 <table class="comparison-table">
   <thead><tr><th>Element</th><th>Beispiel</th><th>Bedeutung</th></tr></thead>
   <tbody>
-    <tr><td>Gruppe</td><td><code>AAD-DEV-STD</code></td><td>AAD = cloud-native Entra-Gruppe, DEV = Gerätegruppe, STD = Rolle (Standard-Client)</td></tr>
-    <tr><td>GroupTag (OrderID)</td><td><code>DEV-STD</code> / <code>DEV-PROD</code></td><td>Gruppensuffix ohne <code>AAD-</code>; steuert, in welche Gruppe das Gerät fällt</td></tr>
+    <tr><td>Gruppe</td><td><code>AAD-DEV-STD</code> bzw. <code>T2-DG-WIN-Std</code></td><td>Gerätegruppe für die Rolle «Standard-Client» — im Bestandsschema mit <code>AAD-DEV-</code>, in v2 mit Tier und Plattform</td></tr>
+    <tr><td>GroupTag (OrderID)</td><td><code>DEV-STD</code> bzw. <code>WIN-Std</code></td><td>Gruppenname ohne das Präfix; steuert, in welche Gruppe das Gerät fällt</td></tr>
   </tbody>
 </table>
 <p>Vollständig im Abschnitt „🏷️ Namenskonventionen" dieses Wissen-Bereichs.</p>
@@ -341,7 +341,8 @@ Windows-Builds neuer als 24H2 einsetzen, jeweils diese Variante ausrollen.</p>
 dynamische Mitgliedschaftsregel wird das Gerät automatisch Mitglied der passenden Sicherheitsgruppe. Die
 Policy-Zuweisung erfolgt anschliessend nicht pro Gerät, sondern ausschliesslich an diese dynamischen
 Gerätegruppen — Details siehe „🏷️ Namenskonventionen".</p>
-<pre style="font-size:.78rem">(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD</pre>
+<pre style="font-size:.78rem">(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD
+(device.devicePhysicalIds -any (_ -eq "[OrderID]:WIN-Std"))   →   T2-DG-WIN-Std</pre>
 
 <h3>⚠️ Policies mit Break-Risiko (vor dem Enforce testen)</h3>
 <p>Folgende Policies können bestehenden Zugriff brechen und sollten vor dem scharfen Ausrollen getestet werden
@@ -409,24 +410,33 @@ export function namingHtml() {
 </ol>
 
 <h3>📐 Festgelegte Konvention</h3>
-<p>Aufbau: <code>AAD-&lt;KATEGORIE&gt;-&lt;DETAIL&gt;[-&lt;RING&gt;]</code> — Grossbuchstaben,
-Bindestrich-getrennt, keine Leerzeichen, keine Umlaute, keine Kundenkürzel.</p>
+<p>Es gibt <b>zwei</b> Konventionen: den gewachsenen Bestand (<code>AAD-*</code>) und das Tier-Schema der
+Namenskonventionen v2. Welche in einem Tenant gilt, steht im Tab <b>Namenskonvention</b> — global als
+Vorgabe, pro Tenant überschreibbar. Das Werkzeug legt Objekte nach der eingestellten Konvention an und
+findet bestehende weiterhin unter beiden Namen; umbenannt wird nie.</p>
 <table class="comparison-table">
-  <thead><tr><th>Kategorie</th><th>Schema</th><th>Beispiel</th><th>Zweck</th></tr></thead>
+  <thead><tr><th>Kategorie</th><th>Bestand</th><th>v2</th><th>Zweck</th></tr></thead>
   <tbody>
-    <tr><td>Gerätegruppe</td><td><code>AAD-DEV-&lt;ROLLE&gt;[-&lt;RING&gt;]</code></td><td><code>AAD-DEV-STD</code></td><td>Sammelgruppe für Geräte (Ziel von Policies &amp; App-Gruppen)</td></tr>
-    <tr><td>App-Gruppe (Patch My PC)</td><td><code>AAD-PMP-&lt;APP&gt;</code></td><td><code>AAD-PMP-GoogleChrome</code></td><td>genau eine Gruppe pro PMP-App (1:1)</td></tr>
-    <tr><td>App-Gruppe (manuell/selbstpaketiert)</td><td><code>AAD-APP-&lt;APP&gt;</code></td><td><code>AAD-APP-ZeiterfassungXY</code></td><td>eine Gruppe pro selbst paketierter App</td></tr>
-    <tr><td>Benutzergruppe (sparsam)</td><td><code>AAD-USR-&lt;ZWECK&gt;</code></td><td><code>AAD-USR-AppProtection</code></td><td>nur wo der Benutzer das Ziel ist</td></tr>
-    <tr><td>Rolle / RBAC</td><td><code>AAD-ROLE-&lt;ZWECK&gt;</code></td><td><code>AAD-ROLE-Helpdesk</code></td><td>Admin-/Rollenzuweisung</td></tr>
-    <tr><td>Notfallzugriffskonto (Break-Glass)</td><td><code>breakglass-&lt;NN&gt;</code></td><td><code>breakglass-01</code></td><td>dediziertes Konto fuer Conditional-Access-Notfallzugriff, niemals fuer taegliche Arbeit</td></tr>
+    <tr><td>Gerätegruppe</td><td><code>AAD-DEV-STD</code></td><td><code>T2-DG-WIN-Std</code></td><td>Sammelgruppe für Geräte (Ziel von Policies &amp; App-Gruppen)</td></tr>
+    <tr><td>App-Gruppe (Patch My PC)</td><td><code>AAD-PMP-GoogleChrome</code></td><td><code>T2-DG-WIN-PmpGoogleChrome</code></td><td>genau eine Gruppe pro PMP-App (1:1)</td></tr>
+    <tr><td>App-Gruppe (selbst paketiert)</td><td><code>AAD-APP-ZeiterfassungXY</code></td><td><code>T2-DG-WIN-AppZeiterfassungXY</code></td><td>eine Gruppe pro selbst paketierter App</td></tr>
+    <tr><td>Benutzergruppe (sparsam)</td><td><code>AAD-USR-AppProtection</code></td><td><code>T2-CSG-GOV-MAM-AppProtection</code></td><td>nur wo der Benutzer das Ziel ist</td></tr>
+    <tr><td>Rolle / RBAC</td><td><code>AAD-ROLE-Helpdesk</code></td><td><code>T2-CSG-ADM-ENTRA-Helpdesk</code></td><td>Admin-/Rollenzuweisung</td></tr>
+    <tr><td>CA-Ring / -Ausnahme</td><td><code>AAD-CA-RING-PILOT</code></td><td><code>T0-CSG-GOV-CA-RingPilot</code></td><td>Rollout-Ringe und Ausnahmen für Conditional Access</td></tr>
+    <tr><td>Notfallzugriffskonto (Break-Glass)</td><td><code>breakglass-01</code></td><td><code>brk.notfall01</code></td><td>dediziertes Konto für den CA-Notfallzugriff, nie für tägliche Arbeit</td></tr>
   </tbody>
 </table>
+<p>Gemeinsam ist beiden: Bindestrich trennt die Positionen, keine Leerzeichen, keine Umlaute, <b>kein
+Kundenkürzel im Kundentenant</b> — identische Namen in jedem Tenant halten Skripte, Vorlagen und GroupTags
+portabel. Der Unterschied liegt im Aufbau: Der Bestand kodiert die Kategorie (<code>DEV</code>,
+<code>PMP</code>, <code>APP</code>), v2 stellt das Tier voran und trennt Gerätegruppen (<code>DG</code>) von
+Sicherheitsgruppen (<code>CSG</code>).</p>
 <p>Break-Glass-Konten sind <b>Benutzerobjekte</b>, nicht Gruppen — daher lowercase (UPN-Konvention) statt
 Grossbuchstaben-Gruppenschema, aber gleiche Idee: kurz, sprechend, durchnummeriert (<code>-01</code>,
 <code>-02</code>, …), da Microsoft mindestens zwei Notfallkonten empfiehlt. Kein Versuch, den Zweck zu
-verschleiern — der Schutz kommt aus starkem Passwort, Monitoring und CA-Ausschluss (Gruppe
-<code>AAD-CA-BreakGlass</code>), nicht aus einem unauffälligen Namen.</p>
+verschleiern — der Schutz kommt aus starkem Passwort, Monitoring und CA-Ausschluss (die Break-Glass-Gruppe
+heisst je nach Konvention <code>AAD-CA-BreakGlass</code> oder <code>T0-CSG-GOV-CA-BreakGlass-Exempt</code>),
+nicht aus einem unauffälligen Namen.</p>
 <p>Geräterolle (<code>&lt;ROLLE&gt;</code>) ist die primäre Dimension — nach Zweck, nicht nach Formfaktor
 (WS/NB brauchen selten eigene Configs und blähen nur auf). Beispiele: <code>STD</code> (Standard-Client /
 Office / Knowledge-Worker), <code>PROD</code> (Produktionsgerät / Shopfloor), <code>KIOSK</code>, <code>EXEC</code>.
@@ -441,9 +451,11 @@ Patch-My-PC-Apps, <code>APP</code> für selbst paketierte. WIN32/Paketformat-Tok
 <h3>🔗 GroupTag ↔ Gerätegruppe</h3>
 <p>Der GroupTag (Autopilot) steuert die Mitgliedschaft der Gerätegruppe per dynamischer Regel auf dem Attribut
 <code>OrderID</code>:</p>
-<pre>(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD</pre>
-<p>Regel: GroupTag = Gruppensuffix ohne <code>AAD-</code> (Gruppe <code>AAD-DEV-STD</code> → Tag
-<code>DEV-STD</code>, <code>AAD-DEV-PROD</code> → <code>DEV-PROD</code>). So ist die Zuordnung auf einen Blick
+<pre>(device.devicePhysicalIds -any (_ -eq "[OrderID]:DEV-STD"))   →   AAD-DEV-STD
+(device.devicePhysicalIds -any (_ -eq "[OrderID]:WIN-Std"))   →   T2-DG-WIN-Std</pre>
+<p>Regel: GroupTag = Gruppenname ohne das Präfix der Gerätegruppe — im Bestand ohne <code>AAD-</code>
+(<code>AAD-DEV-STD</code> → <code>DEV-STD</code>), in v2 ohne <code>T2-DG-</code>
+(<code>T2-DG-WIN-Std</code> → <code>WIN-Std</code>). So ist die Zuordnung auf einen Blick
 lesbar.</p>
 
 <h3>❓ Warum <code>AAD-</code> statt Kundenkürzel als Präfix</h3>

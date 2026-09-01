@@ -26,6 +26,32 @@ const ASSET_DIR = path.join(__dirname, "..", "assets", "intune");
 const ADMX_FILE = "Intune.Printer.Mapping.admx";
 const ADML_FILE = "Intune.Printer.Mapping.adml";
 const CONFIG_PREFIX = "WIN - PrinterMapping - ";
+const NAMING = require("./naming");
+
+// Die Objektnamen kommen aus der Namenskonvention (lib/naming.js). Gesucht wird
+// ueber ALLE bekannten Praefixe -- sonst findet das Tool nach einem
+// Schemawechsel die eigenen Objekte nicht mehr und legt daneben neue an.
+const NAME_KIND = "scriptPrinter";
+const NAME_SEP = "\u0001";
+
+function knownPrefixes(tenant) {
+  return NAMING.candidates(NAME_KIND, { name: NAME_SEP }, tenant && tenant.id)
+    .map(c => c.split(NAME_SEP)[0])
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+}
+function displayNameFor(tenant, profileName) {
+  return NAMING.name(NAME_KIND, { name: profileName }, tenant && tenant.id);
+}
+function isOurs(tenant, displayName) {
+  const n = String(displayName || "");
+  return knownPrefixes(tenant).some(p => n.startsWith(p));
+}
+function profileNameFrom(tenant, displayName) {
+  const n = String(displayName || "");
+  for (const p of knownPrefixes(tenant)) { if (n.startsWith(p)) return n.slice(p.length); }
+  return n;
+}
 const STORE_PRODUCT_ID = "9N3TH84TXRF4";
 const APP_DISPLAY_NAME = "Intune Printer Mapping";
 const AUTOSTART_PFN = "HaukeGtze.IntunePrinterMapping_6bk20wvc8rfx2";
@@ -157,7 +183,7 @@ async function deployProfile(tenant, cert, opts, onProgress) {
   }
 
   notify("Konfigurationsprofil anlegen");
-  const displayName = CONFIG_PREFIX + profileName;
+  const displayName = displayNameFor(tenant, profileName);
   const existing = await graphAllPages(tenant, cert,
     `/deviceManagement/groupPolicyConfigurations?$filter=displayName eq '${displayName.replace(/'/g, "''")}'`, BETA);
   let cfgId;
@@ -243,7 +269,7 @@ async function ensureApp(tenant, cert, groupIds) {
 /** Deployte Profile inkl. zurueckgeparster Drucker + Zuweisungen. */
 async function listProfiles(tenant, cert) {
   const configs = await graphAllPages(tenant, cert, "/deviceManagement/groupPolicyConfigurations", BETA);
-  const ours = configs.filter(c => String(c.displayName || "").startsWith(CONFIG_PREFIX));
+  const ours = configs.filter(c => isOurs(tenant, c.displayName));
   const result = [];
   for (const c of ours) {
     let printers = [], scope = "user", enabled = false, groupIdsList = [];
@@ -271,7 +297,7 @@ async function listProfiles(tenant, cert) {
     } catch (e) { /* Profil trotzdem listen */ }
     result.push({
       id: c.id,
-      profileName: String(c.displayName).slice(CONFIG_PREFIX.length),
+      profileName: profileNameFrom(tenant, c.displayName),
       displayName: c.displayName,
       enabled, scope,
       printers: printers.filter(Boolean),

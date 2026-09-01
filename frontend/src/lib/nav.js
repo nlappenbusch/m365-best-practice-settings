@@ -27,7 +27,9 @@ export const NAV_GROUPS = [
       { id: 'tenants', icon: 'building', label: 'Tenants',
         desc: 'Kunden-Tenants onboarden, Status prüfen, geführter Einrichtungs-Assistent' },
       { id: 'config', icon: 'sliders', label: 'Vorlage',
-        desc: 'Baseline: Domains, Admin-/MSP-Adressen, Policy-Werte — Grundlage für alle Werkzeuge' }
+        desc: 'Baseline: Domains, Admin-/MSP-Adressen, Policy-Werte — Grundlage für alle Werkzeuge' },
+      { id: 'naming', icon: 'tag', label: 'Namenskonvention', isNew: true,
+        desc: 'Wie die angelegten Objekte heissen — global mit Tenant-Override' }
     ]
   },
   {
@@ -58,6 +60,8 @@ export const NAV_GROUPS = [
         desc: 'OIB-Baseline-Policies zuweisen — inklusive Hinweis auf Break-Risiken' },
       { id: 'mappings', icon: 'map', label: 'Mappings',
         desc: 'Laufwerk- und Druckermappings als Intune-Profil erzeugen und zuweisen' },
+      { id: 'browserext', icon: 'puzzle', label: 'Browser-Erweiterungen', isNew: true,
+        desc: 'Edge-Erweiterungen erzwingen — Konfigurationsprofil auf die Gerätegruppen' },
       { id: 'downloads', icon: 'package', label: 'Apps & Agents',
         desc: 'Bitdefender, N-sight RMM und FortiClient als Win32-App ausrollen' }
     ]

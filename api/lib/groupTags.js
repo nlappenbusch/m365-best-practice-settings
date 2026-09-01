@@ -13,6 +13,7 @@
  * Deshalb `access` als kleiner gemeinsamer Nenner statt zwei Codepfaden.
  */
 const GRAPHLIB = require("./graph");
+const NAMING = require("./naming");
 
 const GRAPH_V1 = "https://graph.microsoft.com/v1.0";
 const GRAPH_BETA = "https://graph.microsoft.com/beta";
@@ -90,8 +91,10 @@ function tagsFromRule(rule) {
   return out;
 }
 
-/** Name der Gruppe zu einem Tag — Konvention aus dem Autopilot-Bereich. */
-function groupNameForTag(tag) { return "AAD-" + tag; }
+/** Name der Gruppe zu einem Tag — Muster kommt aus der Namenskonvention. */
+function groupNameForTag(tag, tenantId) {
+  return NAMING.name("deviceGroup", { tag: String(tag || "") }, tenantId);
+}
 
 /** Mitgliedschaftsregel für einen GroupTag. */
 function ruleForTag(tag) {
@@ -201,7 +204,8 @@ async function createGroupForTag(access, tag, displayName) {
     return { created: false, reason: "exists", group: clash };
   }
 
-  const name = String(displayName || "").trim() || groupNameForTag(clean);
+  const tenantId = access.tenant ? access.tenant.id : null;
+  const name = String(displayName || "").trim() || groupNameForTag(clean, tenantId);
   const created = await req(access, "POST", "/groups", {
     displayName: name,
     description: `Autopilot-Geräte mit GroupTag ${clean} (automatisch angelegt)`,
@@ -239,5 +243,8 @@ async function setDeviceTag(access, deviceId, tag) {
 
 module.exports = {
   tokenFromSecret, listGroups, listDevices, createGroupForTag, setDeviceTag,
-  tagsFromRule, ruleForTag, groupNameForTag
+  tagsFromRule, ruleForTag, groupNameForTag,
+  // Der Token-Weg wird auch vom App-Gruppen-Modul gebraucht (gleiche
+  // access-Struktur) — statt ihn dort zu verdoppeln, hier mit herausgeben.
+  accessReq: req, accessAllPages: allPages
 };

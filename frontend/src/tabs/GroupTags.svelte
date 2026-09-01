@@ -9,6 +9,7 @@
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
   import TenantContext from '../lib/TenantContext.svelte'
+  import { loadNaming } from '../lib/naming.js'
 
   let groups = $state(null)
   let devices = $state(null)
@@ -36,7 +37,9 @@
     loadedFor = t.id
     groups = null
     devices = null
+    appGroups = null
     selected = {}
+    agSelected = {}
     loadAll()
   })
 
@@ -54,6 +57,9 @@
       error = e.message
     }
     busy = false
+    // Eigener Durchgang: Fehlen die App-Leserechte, soll wenigstens der Rest
+    // der Seite stehen — deshalb nicht in dasselbe try wie oben.
+    loadAppGroups()
   }
 
   // ---------- Gruppe anlegen ----------
@@ -87,6 +93,122 @@
       error = e.message
     }
     createBusy = false
+  }
+
+  // ---------- App-Zielgruppen ----------
+  // Eine App wird in Intune (bzw. in Patch My PC) immer an genau EINE Gruppe
+  // zugewiesen; welche Geräte sie bekommen, steuert das Nesting: die
+  // dynamische GroupTag-Gerätegruppe wird Mitglied der App-Gruppe. Damit lässt
+  // sich die ganze Zuweisungsstruktur hier vorbereiten — im Entra- oder
+  // Intune-Portal muss dafür niemand mehr etwas anlegen.
+  let appGroups = $state(null)
+  let appGroupsError = $state(null)
+  let assignmentsOk = $state(true)
+  let agName = $state('')
+  let agScheme = $state('auto')
+  let nm = $state(null)
+  let agManaged = $state('app')
+  let agSelected = $state({})     // deviceGroupId -> bool
+  let agBusy = $state(false)
+  let agUnnestBusy = $state({})   // appGroupId|deviceGroupId -> bool
+
+  // Die drei Pflichtmodule je Kunde plus FortiClient, wo Fortinet steht.
+  const AG_PRESETS = [
+    { label: 'Bitdefender', name: 'Bitdefender', managed: 'app' },
+    { label: 'RMM-Agent', name: 'AdvancedMonitoringAgent', managed: 'app' },
+    { label: 'Bitwarden', name: 'Bitwarden', managed: 'pmp' },
+    { label: 'FortiClient', name: 'FortiClient', managed: 'app' }
+  ]
+
+  // 'auto' folgt der eingestellten Namenskonvention (Tab Namenskonvention);
+  // die beiden anderen Werte erzwingen ein Profil — etwa wenn in einem Tenant
+  // bewusst noch das Altschema weitergeführt wird.
+  function agBuildName(name, scheme, managed) {
+    const clean = String(name || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 60)
+    if (!clean) return ''
+    if (scheme === 'auto') {
+      const kind = managed === 'pmp' ? 'pmpGroup' : 'appGroup'
+      const v = nm ? nm.name(kind, { app: clean }) : ''
+      if (v) return v
+    }
+    const prefix = scheme === 'v2'
+      ? (managed === 'pmp' ? 'T2-DG-WIN-Pmp' : 'T2-DG-WIN-App')
+      : (managed === 'pmp' ? 'AAD-PMP-' : 'AAD-APP-')
+    return prefix + clean
+  }
+
+  const agPreview = $derived(agBuildName(agName, agScheme, agManaged))
+  // Nur Gruppen mit [OrderID]-Tag sind Autopilot-Gerätegruppen — nur die
+  // ergeben als Mitglied einer App-Gruppe Sinn.
+  const agCandidates = $derived(groups ? groups.filter(g => g.tags.length) : [])
+  const agSelectedIds = $derived(Object.entries(agSelected).filter(([, v]) => v).map(([k]) => k))
+  const agExists = $derived(
+    appGroups && agPreview ? appGroups.some(g => g.displayName.toLowerCase() === agPreview.toLowerCase()) : false
+  )
+
+  async function loadAppGroups() {
+    if (!canQuery) return
+    appGroupsError = null
+    try { nm = await loadNaming($activeTenant.id) } catch (e) { /* Rückfall auf die festen Präfixe */ }
+    try {
+      const r = await apiPost('/api/appgroups/list', creds())
+      appGroups = r.groups || []
+      assignmentsOk = r.assignmentsOk !== false
+    } catch (e) {
+      appGroups = []
+      appGroupsError = e.message
+    }
+  }
+
+  function agPreset(p) {
+    agName = p.name
+    agManaged = p.managed
+  }
+
+  async function createAppGroup() {
+    if (!agPreview) return
+    const names = agCandidates.filter(g => agSelectedIds.includes(g.id)).map(g => g.displayName)
+    const what = names.length
+      ? `Gruppe „${agPreview}" anlegen und ${names.join(', ')} als Mitglied aufnehmen?`
+      : `Gruppe „${agPreview}" ohne Mitglieder anlegen?`
+    if (!confirm(`${what}\n\nDas schreibt in den Tenant ${$activeTenant?.name}.`)) return
+
+    agBusy = true; error = null; notice = null
+    try {
+      const r = await apiPost('/api/appgroups/ensure', {
+        ...creds(),
+        appName: agName,
+        scheme: agScheme,
+        managed: agManaged,
+        deviceGroupIds: agSelectedIds
+      })
+      const added = (r.nested || []).filter(n => n.status === 'added').length
+      const failed = (r.nested || []).filter(n => n.status === 'failed')
+      notice = `${r.group.created ? 'Gruppe angelegt' : 'Gruppe war schon vorhanden'}: „${r.group.displayName}"`
+        + (added ? `, ${added} Gerätegruppe(n) verknüpft` : '')
+        + (failed.length ? ` — ${failed.length} Verknüpfung(en) fehlgeschlagen: ${failed[0].error}` : '')
+        + '. Die Zuweisung der App selbst passiert in Patch My PC gegen diese Gruppe.'
+      agName = ''
+      agSelected = {}
+      await loadAppGroups()
+    } catch (e) {
+      error = e.message
+    }
+    agBusy = false
+  }
+
+  async function unnest(appGroup, deviceGroup) {
+    if (!confirm(`„${deviceGroup.displayName}" aus „${appGroup.displayName}" entfernen?\n\nDie Geräte dieser Gruppe bekommen die App danach nicht mehr. Das schreibt in den Tenant ${$activeTenant?.name}.`)) return
+    const key = appGroup.id + '|' + deviceGroup.id
+    agUnnestBusy[key] = true; error = null; notice = null
+    try {
+      await apiPost('/api/appgroups/unnest', { ...creds(), appGroupId: appGroup.id, deviceGroupId: deviceGroup.id })
+      notice = `„${deviceGroup.displayName}" ist nicht mehr Mitglied von „${appGroup.displayName}".`
+      await loadAppGroups()
+    } catch (e) {
+      error = e.message
+    }
+    agUnnestBusy[key] = false
   }
 
   // ---------- Geräte taggen ----------
@@ -220,13 +342,153 @@
           <input id="gt-newtag" type="text" bind:value={newTag} placeholder="DEV-STD" />
         </div>
         <div class="input-group" style="max-width:240px; margin:0">
-          <label for="gt-newname">Gruppenname <small>(leer = AAD-&lt;Tag&gt;)</small></label>
-          <input id="gt-newname" type="text" bind:value={newName} placeholder="AAD-DEV-STD" />
+          <label for="gt-newname">Gruppenname <small>(leer = nach Konvention)</small></label>
+          <input id="gt-newname" type="text" bind:value={newName} placeholder={nm ? nm.name('deviceGroup', { tag: newTag || 'WIN-Std' }) : 'AAD-DEV-STD'} />
         </div>
         <button class="btn btn-primary" disabled={!newTag.trim() || createBusy} onclick={() => createGroup()}>
           {createBusy ? 'Lege an…' : '➕ Gruppe anlegen'}
         </button>
       </div>
+    </div>
+  {/if}
+
+  {#if groups}
+    <div class="settings-group" style="margin-top:1.25rem">
+      <h4>App-Zielgruppen {appGroups ? `(${appGroups.length})` : ''}</h4>
+      <p class="ld-section-hint" style="margin-top:0">
+        Eine App wird immer an <strong>genau eine</strong> Gruppe zugewiesen. Welche Geräte sie bekommen,
+        steuert die Mitgliedschaft: Die dynamische GroupTag-Gerätegruppe wird Mitglied der App-Gruppe.
+        Hier angelegt, in Patch My PC nur noch ausgewählt — im Entra- oder Intune-Portal ist dafür nichts zu tun.
+      </p>
+
+      {#if appGroupsError}
+        <div class="alert alert-warning">App-Zielgruppen konnten nicht gelesen werden: {appGroupsError}</div>
+      {:else if !assignmentsOk}
+        <div class="alert alert-warning">
+          Die Gruppen sind gelesen, die zugewiesenen Apps nicht — dafür fehlt der App-Registrierung die
+          Leseberechtigung auf Intune-Apps. Anlegen und Verknüpfen funktioniert trotzdem.
+        </div>
+      {/if}
+
+      {#if appGroups && appGroups.length}
+        <div class="gt-groups">
+          {#each appGroups as g (g.id)}
+            <div class="gt-group">
+              <div class="gt-group-head">
+                <strong>{g.displayName}</strong>
+                {#if g.scheme === 'v2'}<span class="tbadge">v2-Schema</span>{/if}
+                {#if g.managed === 'pmp'}<span class="tbadge">Patch My PC</span>{/if}
+              </div>
+
+              {#if g.memberGroups.length}
+                <div class="gt-taglist">
+                  {#each g.memberGroups as m (m.id)}
+                    <span class="ag-member">
+                      {m.displayName}
+                      <button class="ag-x" title="Verknüpfung lösen"
+                              disabled={agUnnestBusy[g.id + '|' + m.id]}
+                              onclick={() => unnest(g, m)}>✕</button>
+                    </span>
+                  {/each}
+                </div>
+              {:else}
+                <div class="gt-plainnote">keine Gerätegruppe verknüpft — die App erreicht so kein Gerät</div>
+              {/if}
+
+              {#if g.otherMemberCount}
+                <div class="gt-plainnote">
+                  zusätzlich {g.otherMemberCount} direkte(s) Mitglied(er) — laut Konzept gehören dort nur Gruppen hinein
+                </div>
+              {/if}
+
+              {#if assignmentsOk}
+                <div class="ag-apps">
+                  {#if g.apps.length}
+                    {#each g.apps as a}
+                      <span class="ag-app">📦 {a.displayName}{a.intent ? ` · ${a.intent}` : ''}</span>
+                    {/each}
+                  {:else}
+                    <span class="ag-app ag-app-none">noch keine Intune-App auf dieser Gruppe zugewiesen</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {:else if appGroups}
+        <p class="ld-section-hint">Noch keine App-Zielgruppen in diesem Tenant.</p>
+      {/if}
+
+      <h5 class="ag-sub">Neue App-Zielgruppe</h5>
+      <div class="ag-presets">
+        {#each AG_PRESETS as p}
+          <button class="btn btn-secondary" onclick={() => agPreset(p)}>{p.label}</button>
+        {/each}
+      </div>
+
+      <div class="ag-form">
+        <div class="input-group" style="max-width:220px; margin:0">
+          <label for="ag-name">App</label>
+          <input id="ag-name" type="text" bind:value={agName} placeholder="Bitdefender" />
+        </div>
+        <div class="input-group" style="max-width:190px; margin:0">
+          <label for="ag-managed">Verwaltung</label>
+          <select id="ag-managed" bind:value={agManaged}>
+            <option value="app">selbst paketiert</option>
+            <option value="pmp">Patch My PC</option>
+          </select>
+        </div>
+        <div class="input-group" style="max-width:230px; margin:0">
+          <label for="ag-scheme">Namensschema</label>
+          <select id="ag-scheme" bind:value={agScheme}>
+            <option value="auto">nach Konvention</option>
+            <option value="legacy">Bestand (AAD-APP-…)</option>
+            <option value="v2">v2 (T2-DG-WIN-App…)</option>
+          </select>
+        </div>
+      </div>
+
+      {#if agPreview}
+        <p class="ag-preview">
+          Gruppenname: <code>{agPreview}</code>
+          {#if agExists}<span class="tbadge warn">gibt es schon — es wird nur verknüpft</span>{/if}
+        </p>
+      {/if}
+
+      <div class="ag-pick">
+        <div class="ag-pick-head">
+          Gerätegruppen, die diese App bekommen sollen
+          {#if agCandidates.length}
+            <button class="ag-link" onclick={() => { for (const g of agCandidates) agSelected[g.id] = true }}>alle</button>
+            <button class="ag-link" onclick={() => (agSelected = {})}>keine</button>
+          {/if}
+        </div>
+        {#if agCandidates.length}
+          <div class="ag-pick-list">
+            {#each agCandidates as g (g.id)}
+              <label class="ag-pick-item">
+                <input type="checkbox" bind:checked={agSelected[g.id]} />
+                <span>{g.displayName}</span>
+                <span class="ag-pick-tags">{g.tags.join(', ')}</span>
+              </label>
+            {/each}
+          </div>
+        {:else}
+          <p class="ld-section-hint">
+            Keine dynamische GroupTag-Gerätegruppe vorhanden — zuerst oben eine anlegen,
+            sonst hat die App-Gruppe keine Mitglieder.
+          </p>
+        {/if}
+      </div>
+
+      <button class="btn btn-primary" style="margin-top:0.75rem"
+              disabled={!agPreview || agBusy} onclick={createAppGroup}>
+        {agBusy ? 'Lege an…' : '➕ Gruppe anlegen und verknüpfen'}
+      </button>
+      <p class="ld-section-hint" style="margin-top:0.6rem">
+        Danach in Patch My PC die App gegen diese Gruppe zuweisen — Intent <strong>Required</strong>,
+        keine Ringe. Bis Entra die Mitgliedschaft ausgewertet hat, vergehen ein paar Minuten.
+      </p>
     </div>
   {/if}
 
@@ -336,3 +598,42 @@
     </div>
   {/if}
 </TenantContext>
+
+<style>
+  .ag-sub { margin: 1.4rem 0 0.5rem; font-size: 0.95rem; }
+  .ag-presets { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .ag-form { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: flex-end; }
+  .ag-preview { margin: 0.7rem 0 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+  .ag-member {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    background: var(--surface-2, rgba(127, 127, 127, .12));
+    border: 1px solid var(--border, rgba(127, 127, 127, .3));
+    border-radius: 999px; padding: 0.1rem 0.25rem 0.1rem 0.6rem; font-size: 0.82rem;
+  }
+  .ag-x {
+    background: none; border: 0; cursor: pointer; color: inherit; opacity: .55;
+    font-size: 0.85rem; line-height: 1; padding: 0.2rem 0.35rem; border-radius: 999px;
+  }
+  .ag-x:hover:not(:disabled) { opacity: 1; color: #c0392b; }
+  .ag-x:disabled { opacity: .3; cursor: default; }
+
+  .ag-apps { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+  .ag-app { font-size: 0.78rem; opacity: .85; }
+  .ag-app-none { opacity: .5; font-style: italic; }
+
+  .ag-pick { margin-top: 0.9rem; }
+  .ag-pick-head {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: .05em;
+    opacity: .7; margin-bottom: 0.4rem;
+  }
+  .ag-link {
+    background: none; border: 0; cursor: pointer; padding: 0; font: inherit;
+    font-size: 0.78rem; text-decoration: underline; color: inherit; opacity: .8;
+  }
+  .ag-link:hover { opacity: 1; }
+  .ag-pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.3rem; }
+  .ag-pick-item { display: flex; align-items: center; gap: 0.45rem; font-size: 0.87rem; cursor: pointer; }
+  .ag-pick-tags { opacity: .55; font-size: 0.78rem; margin-left: auto; }
+</style>

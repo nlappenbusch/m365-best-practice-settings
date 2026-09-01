@@ -19,6 +19,7 @@
  *    Schritt (setPolicyState) - nie Teil des Deploys.
  */
 const { graphReq, graphAllPages } = require("./graph");
+const NAMING = require("./naming");
 const { CA_POLICY_TEMPLATES } = require("./conditionalAccessPolicies");
 
 const TIER_META = {
@@ -64,12 +65,23 @@ const TIER_META = {
   }
 };
 
+// Die Namen kommen aus der Namenskonvention (lib/naming.js); `kind` verweist
+// auf das jeweilige Muster. Gesucht wird ueber alle bekannten Muster, damit
+// nach einem Schemawechsel die bestehende Gruppe gefunden und nicht gedoppelt
+// wird — eine zweite, leere Break-Glass-Ausnahmegruppe waere gefaehrlich.
 const SUPPORT_GROUPS = [
-  { key: "exclusionTemp", placeholder: "<ExclusionTempGroup>", name: "AAD-CA-ExclusionTemp", desc: "Temporäre Ausnahmen von Conditional-Access-Policies (z.B. Troubleshooting) — zeitnah wieder leeren." },
-  { key: "exclusionPerm", placeholder: "<ExclusionPermGroup>", name: "AAD-CA-ExclusionPermanent", desc: "Dauerhafte, bewusst dokumentierte Ausnahmen von Conditional-Access-Policies (z.B. Legacy-Systemkonten)." },
-  { key: "breakGlass", placeholder: "<EmergencyAccessAccountsGroup>", name: "AAD-CA-BreakGlass", desc: "Notfallzugriffskonten (Break-Glass) — WICHTIG: mit mindestens einem Konto befüllen, bevor Policies aktiviert werden." },
-  { key: "syncAccounts", placeholder: "<SynchronizationServiceAccountsGroup>", name: "AAD-CA-SyncAccounts", desc: "Entra-Connect-/Synchronisierungs-Dienstkonten — dürfen nie durch interaktive Auth-Anforderungen blockiert werden." }
+  { key: "exclusionTemp", kind: "caExclusionTemp", placeholder: "<ExclusionTempGroup>", desc: "Temporäre Ausnahmen von Conditional-Access-Policies (z.B. Troubleshooting) — zeitnah wieder leeren." },
+  { key: "exclusionPerm", kind: "caExclusionPerm", placeholder: "<ExclusionPermGroup>", desc: "Dauerhafte, bewusst dokumentierte Ausnahmen von Conditional-Access-Policies (z.B. Legacy-Systemkonten)." },
+  { key: "breakGlass", kind: "caBreakGlass", placeholder: "<EmergencyAccessAccountsGroup>", desc: "Notfallzugriffskonten (Break-Glass) — WICHTIG: mit mindestens einem Konto befüllen, bevor Policies aktiviert werden." },
+  { key: "syncAccounts", kind: "caSyncAccounts", placeholder: "<SynchronizationServiceAccountsGroup>", desc: "Entra-Connect-/Synchronisierungs-Dienstkonten — dürfen nie durch interaktive Auth-Anforderungen blockiert werden." }
 ];
+
+/** Sollname einer Schutzgruppe nach der Konvention des Tenants. */
+function supportGroupName(key, tenantId) {
+  const g = SUPPORT_GROUPS.find(x => x.key === key);
+  if (!g) throw new Error("Unbekannte CA-Schutzgruppe: " + key);
+  return NAMING.name(g.kind, {}, tenantId);
+}
 
 function odataLit(s) { return String(s || "").replace(/'/g, "''"); }
 
@@ -87,14 +99,19 @@ function normalizeRing(ring) {
   return r;
 }
 
-function ringGroupName(ring) { return "AAD-CA-RING-" + normalizeRing(ring); }
+function ringGroupName(ring, tenantId) {
+  return NAMING.name("caRing", { ring: normalizeRing(ring) }, tenantId);
+}
 
 /** Ring-Gruppe sicherstellen (idempotent, leer angelegt). Rueckgabe: { id, name, created }. */
 async function ensureRingGroup(tenant, certPemPath, ring) {
-  const name = ringGroupName(ring);
-  const existing = await graphAllPages(tenant, certPemPath,
-    `/groups?$filter=displayName eq '${odataLit(name)}'&$select=id,displayName`, { retryTransient: true });
-  if (existing.length) return { id: existing[0].id, name, created: false };
+  const tenantId = tenant && tenant.id;
+  const name = ringGroupName(ring, tenantId);
+  for (const candidate of NAMING.candidates("caRing", { ring: normalizeRing(ring) }, tenantId)) {
+    const found = await graphAllPages(tenant, certPemPath,
+      `/groups?$filter=displayName eq '${odataLit(candidate)}'&$select=id,displayName`, { retryTransient: true });
+    if (found.length) return { id: found[0].id, name: found[0].displayName, created: false };
+  }
   const created = await graphReq(tenant, certPemPath, "POST", "/groups", {
     displayName: name,
     description: `Ring-Zielgruppe fuer Conditional-Access-Rollout (Ring ${normalizeRing(ring)}) — automatisch angelegt vom M365 Security Policy Manager. Mitglieder = Nutzer, fuer die dieser Ring gilt.`,
@@ -110,20 +127,26 @@ async function ensureRingGroup(tenant, certPemPath, ring) {
 /** Die vier Schutzgruppen sicherstellen (idempotent, leer angelegt). */
 async function ensureSupportGroups(tenant, certPemPath) {
   const ids = {};
+  const tenantId = tenant && tenant.id;
   for (const g of SUPPORT_GROUPS) {
-    const existing = await graphAllPages(tenant, certPemPath,
-      `/groups?$filter=displayName eq '${odataLit(g.name)}'&$select=id,displayName`, { retryTransient: true });
-    if (existing.length) { ids[g.key] = { id: existing[0].id, name: g.name, created: false }; continue; }
+    const name = NAMING.name(g.kind, {}, tenantId);
+    let found = null;
+    for (const candidate of NAMING.candidates(g.kind, {}, tenantId)) {
+      const hit = await graphAllPages(tenant, certPemPath,
+        `/groups?$filter=displayName eq '${odataLit(candidate)}'&$select=id,displayName`, { retryTransient: true });
+      if (hit.length) { found = hit[0]; break; }
+    }
+    if (found) { ids[g.key] = { id: found.id, name: found.displayName, created: false }; continue; }
     const created = await graphReq(tenant, certPemPath, "POST", "/groups", {
-      displayName: g.name,
+      displayName: name,
       description: g.desc + " — automatisch angelegt vom M365 Security Policy Manager.",
       mailEnabled: false,
-      mailNickname: g.name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+      mailNickname: name.toLowerCase().replace(/[^a-z0-9]/g, ""),
       securityEnabled: true,
       groupTypes: []
     });
     await graphReq(tenant, certPemPath, "GET", `/groups/${created.id}?$select=id`, null, { retryTransient: true });
-    ids[g.key] = { id: created.id, name: g.name, created: true };
+    ids[g.key] = { id: created.id, name, created: true };
   }
   return ids;
 }
@@ -287,7 +310,7 @@ async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
 
 module.exports = {
   TIER_META, SUPPORT_GROUPS,
-  ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName,
+  ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName, supportGroupName,
   substitutePolicy, listManagedPolicies, listAllPolicies, deletePolicy,
   deployTier, setPolicyState, setPolicyScope
 };

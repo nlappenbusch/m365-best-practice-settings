@@ -706,7 +706,7 @@
     {#if !data.policies?.length}
       <div class="ld-job"><div class="ld-banner warn">Keine "Win - OIB"-Policies im Tenant gefunden — zuerst die OIB-Baseline importieren.</div></div>
     {:else if !data.groups?.length}
-      <div class="ld-job"><div class="ld-banner warn">Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen (AAD-DEV-*) anlegen.</div></div>
+      <div class="ld-job"><div class="ld-banner warn">Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen anlegen (Tab GroupTags).</div></div>
     {:else}
       <div class="ld-job">
         <div class="ld-job-head"><strong>OIB-Policies: {$activeTenant.name}</strong>
