@@ -87,7 +87,9 @@ export const NAV_GROUPS = [
       { id: 'tickets', icon: 'ticket', label: 'Tickets', gated: 'ticketsAllowed',
         desc: 'SDP-Ticket-Copilot: offene Tickets, Runbooks, Worklogs' },
       { id: 'diagnose', icon: 'stethoscope', label: 'Diagnose',
-        desc: 'Server-Log der laufenden Instanz und Erreichbarkeitstest der Microsoft-Endpunkte' }
+        desc: 'Server-Log der laufenden Instanz und Erreichbarkeitstest der Microsoft-Endpunkte' },
+      { id: 'secrets', icon: 'key', label: 'Geheimnisse',
+        desc: 'Welche Schlüssel und Zugangsdaten dieses Werkzeug hält — Zustand, Gültigkeit, gezieltes Einblenden' }
     ]
   },
   {

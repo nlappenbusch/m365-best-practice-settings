@@ -1208,6 +1208,11 @@ function logMcpAction(entry) {
   saveState(s);
 }
 
+// Admin-Panel: Uebersicht ueber die Geheimnisse, die dieses Werkzeug haelt.
+// Liegt in einer eigenen Datei, weil server.js ohnehin gross genug ist und der
+// Umgang mit Zertifikats-Privatschluesseln fuer sich stehen soll.
+require("./lib/adminSecrets").mountAdminSecrets(app, { loadState, certPemPath, logMcpAction });
+
 // Session-gated: Admin-Panel verwaltet Keys + sieht das Audit-Log -- das ist
 // bewusst NICHT ueber einen API-Key erreichbar (sonst koennte ein kompromittierter
 // Key sich selbst neue, weitere Keys ausstellen).

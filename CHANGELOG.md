@@ -1,5 +1,45 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.14 - Tab «Geheimnisse»: was das Werkzeug hält (2026-09-01)
+
+### 🔑 Übersicht statt Blindflug
+
+Neuer Bereich unter *Betrieb → Geheimnisse*. Er beantwortet die Frage, die man
+sich sonst nur über SSH auf den Container beantworten kann: **Welche Schlüssel und
+Zugangsdaten hält dieses Werkzeug, und in welchem Zustand?**
+
+Gelistet werden Zertifikats-Privatschlüssel je Tenant (mit Fingerabdruck,
+Gültigkeit bis, Dateizustand, zugehöriger App-Id), das SSO-Clientgeheimnis, das
+Sitzungsgeheimnis und die drei Umgebungsvariablen `ADMIN_PASSWORD`,
+`ANTHROPIC_API_KEY`, `SDP_API_KEY`.
+
+**Fehlt eine Zertifikatsdatei, steht das da** — mit dem Hinweis, dass «Reparieren»
+im Tab Tenants ein neues anlegt. Das ist die häufigste Ursache für AADSTS700027
+und war bisher nur im Fehlerfall sichtbar.
+
+### 👁 Einblenden ist ein Schritt, kein Zustand
+
+Die Übersicht zeigt **Zustand, nicht Werte**. Jedes Einblenden ist ein einzelner,
+bestätigter Aufruf pro Eintrag und landet im Audit-Log. Bewusst gibt es **kein
+«alles anzeigen»**: Hier liegen die Privatschlüssel für jeden angebundenen
+Kundentenant, mit Rechten bis `RoleManagement.ReadWrite.Directory`. Eine Ansicht,
+die sie gleichzeitig rendert, würde aus einem Screenshot oder einem offen
+stehenden Bildschirm die Kompromittierung sämtlicher Mandate machen. Eingeblendete
+Werte liegen nur im Speicher der Seite und lassen sich einzeln oder gesammelt
+wieder verbergen.
+
+Die Liste der abrufbaren Umgebungsvariablen ist **fest verdrahtet**, nicht
+`process.env` durchgereicht — sonst wäre jede künftige Variable automatisch über
+die Weboberfläche lesbar.
+
+### 🚫 Zwei Dinge kann auch ein Admin nicht sehen
+
+**MCP-API-Keys** liegen nur als SHA-256-Hash vor; der Klartext erscheint einmalig
+bei der Erzeugung. **Das Admin-Passwort** liegt als gesalzener Hash vor. Beide
+werden trotzdem aufgeführt — mit dem Vermerk, dass sie nicht abrufbar sind, damit
+niemand sie hier sucht und glaubt, sie seien verloren gegangen.
+
+
 ## Version 2.13 - Ausgehend & Organisation (2026-09-01)
 
 ### 📤 Sechs Punkte, die bisher von Hand liefen
