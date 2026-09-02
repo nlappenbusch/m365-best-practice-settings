@@ -1,42 +1,57 @@
 /**
  * Automatische MDM-Einschreibung (Portal: Entra ID > Mobilitaet (MDM und MAM) >
- * Microsoft Intune, bzw. Intune > Geraete > Registrierung > Automatische
- * Registrierung).
+ * Microsoft Intune, gleichbedeutend Intune > Geraete > Registrierung > Windows >
+ * Automatische Registrierung).
  *
- * Graph bildet das als mobilityManagementPolicy ab:
  *   GET   /beta/policies/mobileDeviceManagementPolicies
  *   PATCH /beta/policies/mobileDeviceManagementPolicies/{id}
- * Nur beta. Permission: Policy.ReadWrite.MobilityManagement.
  *
- * Warum das der wichtigste Schalter im Tenant ist: Autopilot joint das Geraet
- * nur in Entra. Das Einschreiben in Intune stoesst danach Entra an — und zwar
- * genau ueber diese Richtlinie. Steht appliesTo auf "none", wird das Geraet
- * zwar Entra-beigetreten, bleibt aber unverwaltet. Microsoft fuehrt
- * "Configure Microsoft Entra automatic enrollment" deshalb unter den
- * Pflichtvoraussetzungen fuer Autopilot.
+ * WARUM HIER EIN TOKEN STATT DES TENANT-ZERTIFIKATS REINKOMMT: Graph laesst
+ * diesen Endpunkt NICHT app-only zu. Ein Client-Credentials-Token bekommt
+ * "Unsupported app-only call" zurueck, und Policy.ReadWrite.MobilityManagement
+ * existiert nur als delegierte Berechtigung. Der Rest des Konfigurators
+ * arbeitet app-only per Zertifikat — dieser eine Schalter braucht deshalb eine
+ * einmalige Admin-Anmeldung per Device-Code (wie Onboarding und Offboarding).
+ * Wer das hier auf graphReq umstellt, baut den Fehler von 2.25 nach.
  *
- * Zwei Dinge werden hier bewusst NICHT geraten:
- *  - Die Richtlinien-Id wird gesucht, nicht hart verdrahtet. Die Intune-Policy
- *    traegt zwar ueblicherweise 0000000a-0000-0000-c000-000000000000, aber ein
- *    PATCH auf eine erratene Id im Kundentenant ist es nicht wert.
- *  - isMdmEnrollmentDuringRegistrationDisabled ist Public Preview und in der
- *    Ressourcen-Doku (Stand 09/2026) nicht aufgefuehrt. Geschrieben wird das
- *    Feld nur, wenn der GET es tatsaechlich zurueckliefert — sonst wuerde eine
- *    Tippfehler-Eigenschaft still im Objekt landen.
+ * Der Schalter selbst ist die Voraussetzung, ohne die ein Geraet zwar Entra
+ * beitritt, aber nie in Intune landet — Autopilot eingeschlossen. Microsoft
+ * fuehrt "Configure Microsoft Entra automatic enrollment" unter den
+ * Autopilot-Pflichtvoraussetzungen.
  */
-const { graphReq } = require("./graph");
-
-const BETA = { beta: true };
+const GRAPH_BETA = "https://graph.microsoft.com/beta";
 const LIST_PATH = "/policies/mobileDeviceManagementPolicies";
 const INTUNE_APP_ID = "0000000a-0000-0000-c000-000000000000";
 const SCOPES = ["none", "some", "all"];
 const REG_FLAG = "isMdmEnrollmentDuringRegistrationDisabled";
+/** Delegierter Scope fuer den Device-Code-Login. */
+const GRAPH_SCOPE = "Policy.ReadWrite.MobilityManagement offline_access openid";
 
 function bad(msg, status) { const e = new Error(msg); e.status = status || 400; return e; }
 
-/** Die Intune-Richtlinie aus der Liste holen — ueber Id, sonst ueber den Namen. */
-async function findIntunePolicy(tenant, certPemPath) {
-  const r = await graphReq(tenant, certPemPath, "GET", LIST_PATH, null, { ...BETA, retryTransient: true });
+/** Graph-beta mit delegiertem Bearer-Token. */
+async function gBeta(token, method, path, body) {
+  const r = await fetch(GRAPH_BETA + path, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let j; try { j = text ? JSON.parse(text) : {}; } catch { j = { raw: text }; }
+  if (!r.ok) {
+    const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
+    throw bad(msg, r.status);
+  }
+  return j;
+}
+
+/**
+ * Die Intune-Richtlinie holen — ueber die uebliche Id, sonst ueber Name oder
+ * Ermittlungs-URL. Gesucht statt hart verdrahtet: ein PATCH auf eine erratene
+ * Id im Kundentenant ist die Abkuerzung nicht wert.
+ */
+async function findIntunePolicy(token) {
+  const r = await gBeta(token, "GET", LIST_PATH);
   const list = (r && r.value) || [];
   if (!list.length) throw bad("Keine Mobilitaets-Richtlinien im Tenant gefunden — automatische Einschreibung braucht Entra ID P1.", 412);
   const hit = list.find(p => String(p.id || "").toLowerCase() === INTUNE_APP_ID)
@@ -46,7 +61,6 @@ async function findIntunePolicy(tenant, certPemPath) {
   return hit;
 }
 
-/** Anzeigefertiger Stand. `regFlagSupported` sagt, ob der Preview-Schalter da ist. */
 function summarize(p) {
   const scope = String((p || {}).appliesTo || "none").toLowerCase();
   return {
@@ -55,7 +69,6 @@ function summarize(p) {
     scope,
     scopeLabel: scope === "all" ? "Alle" : scope === "some" ? "Einige" : "Keine",
     autoEnrollActive: scope === "all" || scope === "some",
-    isValid: p.isValid !== false,
     discoveryUrl: p.discoveryUrl || null,
     termsOfUseUrl: p.termsOfUseUrl || null,
     complianceUrl: p.complianceUrl || null,
@@ -65,21 +78,22 @@ function summarize(p) {
   };
 }
 
-async function read(tenant, certPemPath) {
-  return summarize(await findIntunePolicy(tenant, certPemPath));
+async function read(token) {
+  return summarize(await findIntunePolicy(token));
 }
 
 /**
- * Einschreibung scharf stellen. `scope` = none|some|all. `blockDuringRegistration`
- * ist optional und wird nur mitgeschickt, wenn der Tenant das Feld kennt.
- * Idempotent: steht schon alles richtig, wird nicht geschrieben.
+ * Benutzerbereich setzen. Idempotent: steht alles schon richtig, wird nicht
+ * geschrieben. `blockDuringRegistration` wird nur mitgeschickt, wenn der Tenant
+ * das Feld kennt — es ist Public Preview und in der Ressourcen-Doku (09/2026)
+ * nicht aufgefuehrt; sonst landete eine Tippfehler-Eigenschaft still im Objekt.
  */
-async function apply(tenant, certPemPath, { scope, blockDuringRegistration } = {}) {
+async function apply(token, { scope, blockDuringRegistration } = {}) {
   const want = String(scope || "all").toLowerCase();
   if (!SCOPES.includes(want)) throw bad("Benutzerbereich muss none, some oder all sein.");
   if (want === "some") throw bad("Benutzerbereich 'Einige' braucht eine Gruppenauswahl und wird hier nicht gesetzt — im Portal konfigurieren.");
 
-  const before = await findIntunePolicy(tenant, certPemPath);
+  const before = await findIntunePolicy(token);
   const body = {};
   if (String(before.appliesTo || "").toLowerCase() !== want) body.appliesTo = want;
   if (blockDuringRegistration !== undefined && Object.prototype.hasOwnProperty.call(before, REG_FLAG)
@@ -89,16 +103,16 @@ async function apply(tenant, certPemPath, { scope, blockDuringRegistration } = {
   if (!Object.keys(body).length) {
     return { changed: false, before: summarize(before), policy: summarize(before), regFlagSkipped: false };
   }
-  await graphReq(tenant, certPemPath, "PATCH", `${LIST_PATH}/${before.id}`, body, { ...BETA, retryTransient: true });
-  const after = await findIntunePolicy(tenant, certPemPath);
+  await gBeta(token, "PATCH", `${LIST_PATH}/${before.id}`, body);
+  const after = await findIntunePolicy(token);
   return {
     changed: true,
     before: summarize(before),
     policy: summarize(after),
-    // Ehrlich melden, wenn der Preview-Schalter im Tenant gar nicht existiert:
-    // sonst glaubt der Anwender, er haette ihn gesetzt.
+    // Ehrlich melden, wenn es den Preview-Schalter im Tenant nicht gibt — sonst
+    // glaubt der Anwender, er haette ihn gesetzt.
     regFlagSkipped: blockDuringRegistration !== undefined && !Object.prototype.hasOwnProperty.call(before, REG_FLAG)
   };
 }
 
-module.exports = { read, apply, findIntunePolicy, summarize, SCOPES, LIST_PATH, INTUNE_APP_ID, REG_FLAG };
+module.exports = { read, apply, findIntunePolicy, summarize, SCOPES, GRAPH_SCOPE, LIST_PATH, INTUNE_APP_ID, REG_FLAG };

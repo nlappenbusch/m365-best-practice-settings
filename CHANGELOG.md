@@ -1,5 +1,85 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.27 - Admin-Benachrichtigungsadresse gehoert zum Tenant, nicht in die Vorlage (2026-09-02)
+
+**Der Fund:** Bei aktivem Tenant SGVP stand im Alert-Snippet
+`admin@im43.onmicrosoft.com` — die Adresse eines anderen Kunden. Ursache: die
+Admin-Adresse kam aus dem globalen Tab "⚙️ Vorlage", der fuer ALLE Tenants
+derselbe ist. Und sie steht nicht nur im Snippet, sondern geht live mit in
+
+- `-InternalSenderAdminAddress` / `-ExternalSenderAdminAddress` der
+  BP_-Anti-Malware-Policy,
+- `-NotifyOutboundSpamRecipients` der Standard-Outbound-Spam-Policy.
+
+Beide werden app-only deployt. Wer die Vorlage zuletzt fuer einen anderen Kunden
+gesetzt hatte, schrieb dessen Administrator als Empfaenger in die
+Sicherheitsrichtlinien des naechsten Kunden — Malware-Meldungen und
+Outbound-Spam-Alarme des einen Kunden an den Administrator des anderen.
+
+Die bestehende Schutzpruefung fing das nicht: sie sucht nur nach
+`example.com`-Platzhaltern. Eine echte, gueltige Adresse aus dem falschen Tenant
+faellt dort durch. Bei den Domains war es entschaerft — "Domains automatisch aus
+dem Ziel-Tenant" leert die Domainliste; fuer die Adresse gab es das nicht.
+
+**Zwei Aenderungen:**
+
+1. **Adresse je Tenant.** Neues Feld am Tenant (`mailAdminEmail`), pflegbar direkt
+   im Mail-Security-Tab. Es schlaegt die Vorlage; die Vorlage bleibt Vorbelegung.
+   Ist keine gesetzt, sagt die Oberflaeche ausdruecklich, dass gerade der
+   Vorlagenwert gilt und was das bedeutet. Die MSP-Alert-Adresse bleibt bewusst
+   global — die ist fuer alle Kunden dieselbe.
+2. **Sperre vor dem Deploy.** Gehoert die Domain der Admin-Adresse nachweislich zu
+   einem ANDEREN eingerichteten Tenant, bricht der Deploy mit Klartext ab. Sonst
+   wird gegen die verifizierten Domains des Zieltenants geprueft
+   (`GET /organization`, vorhandene Berechtigung `Organization.Read.All`).
+   Laesst sich die Domainliste nicht lesen, wird NICHT blockiert — eine Sperre,
+   die auf einer misslungenen Abfrage beruht, waere schlimmer als die Luecke.
+
+Geprueft gegen die echten Faelle: IM43-Adresse bei SGVP blockiert (mit Nennung
+des fremden Tenants), fremde Adresse ueber eine hinterlegte Tenant-Adresse
+blockiert, SGVP-eigene Adresse und SGVP-onmicrosoft gehen durch, unbekannte
+Fremddomain blockiert, nicht lesbare Domainliste laesst durch.
+
+
+## Version 2.26 - Einschreibungs-Schalter laeuft jetzt ueber eine Admin-Anmeldung (2026-09-02)
+
+Der in 2.25 eingebaute Schalter scheiterte im Kundentenant mit **"Unsupported
+app-only call"**. Grund: Graph laesst `/policies/mobileDeviceManagementPolicies`
+ausschliesslich mit angemeldetem Benutzer zu — `Policy.ReadWrite.MobilityManagement`
+existiert nur als delegierte Berechtigung, nicht als Anwendungsberechtigung. Der
+Konfigurator arbeitet sonst app-only per Zertifikat je Tenant. Wichtig zu
+unterscheiden: "Unsupported app-only call" heisst *so nie moeglich*, nicht
+*Berechtigung fehlt* — "Reparieren" haette daran nie etwas geaendert.
+
+Statt den Schalter zu streichen, laeuft er jetzt ueber denselben
+**Device-Code-Login**, den Onboarding, Offboarding und die Migration schon
+benutzen: einmal als Administrator des Tenants anmelden, dann liest und setzt das
+Tool den Benutzerbereich auf "Alle" und den Registrierungs-Schalter auf Nein.
+Danach zeigt es den erreichten Stand, ob ueberhaupt geschrieben wurde und ob noch
+Standard-URLs fehlen.
+
+Details, die im Betrieb zaehlen:
+
+- Die Richtlinien-Id wird **gesucht**, nicht hart verdrahtet.
+- `isMdmEnrollmentDuringRegistrationDisabled` (Public Preview, nicht in der
+  Ressourcen-Doku) wird nur geschrieben, wenn der GET das Feld zurueckliefert —
+  und die Antwort sagt, wenn es uebersprungen wurde.
+- "Einige" lehnt das Backend ab: das braucht eine Gruppenauswahl, die es hier
+  nicht gibt, und ein stiller Wechsel von "Einige" auf "Alle" waere eine
+  Ausweitung, die niemand bestellt hat.
+- Scheitert die Anmeldung, weist die Meldung auf den haeufigsten Grund hin: eine
+  Conditional-Access-Policy, die den Device-Code-Flow blockiert.
+
+Die optionale Anwendungsberechtigung `Policy.ReadWrite.MobilityManagement` ist
+wieder raus — als App-Rolle gibt es sie nicht. Ein Kommentar in
+`lib/mdmEnrollment.js` haelt fest, warum dort ein Token statt des Zertifikats
+hereinkommt, damit niemand es auf `graphReq` zurueckbaut.
+
+Der LAPS-Schalter im selben Abschnitt bleibt app-only: `deviceRegistrationPolicy`
+fuehrt `Policy.ReadWrite.DeviceConfiguration` ausdruecklich als
+Anwendungsberechtigung.
+
+
 ## Version 2.25 - Automatische Einschreibung per Klick, Microsoft-365-Apps-Liste repariert (2026-09-02)
 
 **Fix: die Microsoft-365-Apps-Liste war seit 2.24 kaputt** ("(intermediate value)

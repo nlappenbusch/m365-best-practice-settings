@@ -104,7 +104,7 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // Reparieren komplett blockieren, nur weil eine Zusatzfunktion nicht ginge.
 // Tolerant aufgeloest heisst: fehlt sie, laeuft alles andere weiter und nur der
 // LAPS-Abschnitt meldet fehlende Berechtigung.
-const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.MobilityManagement"];
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
@@ -3177,6 +3177,68 @@ function fakeDomainAuth() {
   ];
 }
 
+// Admin-Benachrichtigungsadresse je Tenant. Die Vorlage im Tab "⚙️ Vorlage" ist
+// global — sie gilt fuer ALLE Tenants. Genau deshalb darf die Admin-Adresse dort
+// nicht die Wahrheit sein: sie landet nicht nur im Alert-Snippet, sondern live in
+// -InternalSenderAdminAddress/-ExternalSenderAdminAddress der BP_-Anti-Malware-
+// Policy und in -NotifyOutboundSpamRecipients der Standard-Outbound-Policy.
+// Stand die Vorlage noch auf einem anderen Kunden, meldeten die Richtlinien des
+// einen Kunden an den Administrator des anderen.
+app.get("/api/tenants/:id/mailsec-admin", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, email: t.mailAdminEmail || null, organization: t.organization || null });
+}));
+
+app.post("/api/tenants/:id/mailsec-admin", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const email = String((req.body || {}).email || "").trim();
+  if (email && !/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: "Keine gueltige E-Mail-Adresse." });
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === t.id);
+  if (!rec) return res.status(404).json({ error: "Tenant nicht gefunden." });
+  if (email) rec.mailAdminEmail = email; else delete rec.mailAdminEmail;
+  saveState(s);
+  res.json({ ok: true, email: email || null });
+}));
+
+/**
+ * Letzte Reissleine vor dem Deploy: gehoert die Admin-Adresse ueberhaupt zu
+ * diesem Tenant? Die Platzhalter-Pruefung faengt nur example.com — eine echte,
+ * gueltige Adresse aus einem FREMDEN Kundentenant faellt dort durch.
+ * Rueckgabe: Fehlermeldung (String) oder null.
+ */
+async function checkAdminEmailFitsTenant(t, adminEmail) {
+  const dom = String(adminEmail || "").split("@")[1];
+  if (!dom) return null;
+  const d = dom.toLowerCase();
+
+  // 1. Gehoert die Domain nachweislich einem ANDEREN eingerichteten Tenant?
+  //    Das ist eindeutig genug fuer ein hartes Nein, ohne Graph zu fragen.
+  const others = (loadState().tenants || []).filter(x => x.id !== t.id);
+  const foreign = others.find(x => String(x.organization || "").toLowerCase() === d
+    || String(x.mailAdminEmail || "").toLowerCase().split("@")[1] === d);
+  if (foreign) {
+    return `Die Admin-Adresse "${adminEmail}" gehoert zum Tenant "${foreign.name}", nicht zu "${t.name}". `
+      + "Im Mail-Security-Tab die Adresse fuer diesen Tenant setzen.";
+  }
+
+  // 2. Sonst gegen die verifizierten Domains des Zieltenants pruefen.
+  //    Schlaegt der Abruf fehl, wird NICHT blockiert — eine Sperre, die auf
+  //    einer misslungenen Abfrage beruht, waere schlimmer als die Luecke.
+  try {
+    const org = await GRAPHLIB.graphReq(t, certPemPath(t.tenantId), "GET", "/organization", null, { retryTransient: true });
+    const verified = (((org.value || [])[0] || {}).verifiedDomains || []).map(v => String(v.name || "").toLowerCase());
+    if (verified.length && !verified.includes(d)) {
+      return `Die Admin-Adresse "${adminEmail}" liegt auf keiner verifizierten Domain von "${t.name}" `
+        + `(${verified.slice(0, 6).join(", ")}${verified.length > 6 ? ", …" : ""}). `
+        + "Im Mail-Security-Tab die Adresse fuer diesen Tenant setzen.";
+    }
+  } catch (e) {
+    console.log("Admin-Adress-Pruefung uebersprungen (Domainliste nicht lesbar): " + e.message);
+  }
+  return null;
+}
+
 // Live-Deploy starten: legt einen Job an und antwortet sofort mit der Job-Id.
 // Die UI pollt /api/jobs/:id fuer den Live-Fortschritt.
 // Platzhalter-Werte duerfen NIE in einen echten Tenant deployt werden — die
@@ -3203,12 +3265,19 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   // (Get-AcceptedDomain zur Laufzeit) statt der Domains aus der Tool-Config.
   if (b.autoDomains) cfg.domains = [];
 
+  // Die Admin-Adresse des Tenants schlaegt die globale Vorlage. Ohne das gilt
+  // fuer jeden Kunden die Adresse, die zuletzt in der Vorlage stand.
+  if (t.mailAdminEmail) cfg.adminEmail = t.mailAdminEmail;
+
   const placeholders = findPlaceholderValues(cfg);
   if (placeholders.length) {
     return res.status(400).json({
       error: "Platzhalter-Werte in der Vorlage — bitte im Tab '⚙️ Vorlage' anpassen, bevor deployt wird: " + placeholders.join(", ")
     });
   }
+
+  const fremd = await checkAdminEmailFitsTenant(t, cfg.adminEmail);
+  if (fremd) return res.status(400).json({ error: fremd });
 
   for (const j of jobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
@@ -4852,50 +4921,70 @@ app.post("/api/tenants/:id/entra/devicesettings/laps", wrap(async (req, res) => 
   }
 }));
 
-// ---------- Automatische MDM-Einschreibung ----------
-// Portal: Entra ID > Mobilitaet (MDM und MAM) > Microsoft Intune. Der
-// Benutzerbereich ist die Voraussetzung dafuer, dass Geraete nach dem
-// Entra-Beitritt ueberhaupt in Intune landen — auch bei Autopilot.
-app.get("/api/tenants/:id/mdm-enrollment", wrap(async (req, res) => {
+// ---------- Automatische MDM-Einschreibung (delegiert) ----------
+// Graph laesst /policies/mobileDeviceManagementPolicies nicht app-only zu
+// ("Unsupported app-only call") — Policy.ReadWrite.MobilityManagement gibt es
+// nur delegiert. Deshalb hier derselbe Device-Code-Login wie beim Onboarding:
+// einmal als Administrator anmelden, dann liest und setzt das Tool den Schalter.
+app.post("/api/tenants/:id/mdm-enrollment/start", wrap(async (req, res) => {
   const t = requireTenant(req);
-  if (process.env.FAKE_DEPLOY === "1") {
-    return res.json({ ok: true, mdm: MDMENROLL.summarize({
-      id: "0000000a-0000-0000-c000-000000000000", displayName: "Microsoft Intune", appliesTo: "none",
-      discoveryUrl: "https://enrollment.manage.microsoft.com/enrollmentserver/discovery.svc",
-      termsOfUseUrl: "https://portal.manage.microsoft.com/TermsofUse.aspx",
-      complianceUrl: "https://portal.manage.microsoft.com/?portalAction=Compliance",
-      isMdmEnrollmentDuringRegistrationDisabled: false
-    }) });
-  }
-  try {
-    res.json({ ok: true, mdm: await MDMENROLL.read(t, certPemPath(t.tenantId)) });
-  } catch (e) {
-    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
-      return res.status(403).json({ error: "Die Einschreibungs-Einstellungen brauchen Policy.ReadWrite.MobilityManagement — im Tab 'Tenants' einmal Reparieren ausfuehren." });
-    }
-    throw e;
-  }
+  const scope = String((req.body || {}).scope || "all").toLowerCase();
+  if (scope === "some") return res.status(400).json({ error: "Benutzerbereich 'Einige' braucht eine Gruppenauswahl — im Portal setzen." });
+  if (!MDMENROLL.SCOPES.includes(scope)) return res.status(400).json({ error: "Unbekannter Benutzerbereich: " + scope });
+
+  const tenantForLogin = t.organization || t.tenantId;
+  const params = new URLSearchParams({ client_id: GRAPH_CLI_CLIENT, scope: MDMENROLL.GRAPH_SCOPE });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantForLogin)}/oauth2/v2.0/devicecode`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
+
+  req.session.mdmEnroll = {
+    tenantUid: t.id, tenantId: t.tenantId, scope,
+    blockDuringRegistration: (req.body || {}).blockDuringRegistration,
+    deviceCode: j.device_code, interval: (j.interval || 5),
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+  };
+  res.json({
+    userCode: j.user_code,
+    verificationUri: j.verification_uri || "https://microsoft.com/devicelogin",
+    interval: j.interval || 5
+  });
 }));
 
-// Schreibender Eingriff im Kundentenant mit Reichweite: ab "Alle" schreibt sich
-// JEDES kuenftig Entra-beigetretene Windows-Geraet automatisch in Intune ein.
-// Die Bestaetigung passiert im Frontend, "Einige" wird serverseitig abgelehnt
-// (braucht eine Gruppenauswahl, die es hier nicht gibt).
-app.post("/api/tenants/:id/mdm-enrollment", wrap(async (req, res) => {
-  const t = requireTenant(req);
-  const b = req.body || {};
-  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, mdm: { scope: b.scope || "all" } });
+app.post("/api/tenants/:id/mdm-enrollment/poll", wrap(async (req, res) => {
+  const df = req.session.mdmEnroll;
+  if (!df || df.tenantUid !== req.params.id) return res.status(400).json({ error: "Kein laufender Anmeldevorgang fuer diesen Tenant." });
+  if (Date.now() > df.expiresAt) { delete req.session.mdmEnroll; return res.json({ status: "error", error: "Anmeldecode abgelaufen — bitte neu starten." }); }
+
+  const params = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    client_id: GRAPH_CLI_CLIENT, device_code: df.deviceCode
+  });
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(df.tenantId)}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.error === "authorization_pending") return res.json({ status: "pending" });
+    if (j.error === "slow_down") { df.interval = (df.interval || 5) + 5; return res.json({ status: "pending", slowDown: true, interval: df.interval }); }
+    delete req.session.mdmEnroll;
+    // Ein CA-Block auf den Device-Code-Flow ist der haeufigste Grund, warum das
+    // hier scheitert — die Meldung von Entra sagt das nicht von selbst.
+    const hint = /device code|AADSTS50199|AADSTS53003/i.test(String(j.error_description || ""))
+      ? " (Hinweis: Blockiert eine Conditional-Access-Policy den Device-Code-Flow, muss sie fuer diese Anmeldung ausgenommen werden.)" : "";
+    return res.json({ status: "error", error: (j.error_description || j.error || ("HTTP " + r.status)) + hint });
+  }
+
+  delete req.session.mdmEnroll;
+  const t = (loadState().tenants || []).find(x => x.id === req.params.id);
   try {
-    const r = await MDMENROLL.apply(t, certPemPath(t.tenantId), {
-      scope: b.scope, blockDuringRegistration: b.blockDuringRegistration
-    });
-    console.log(`MDM-Einschreibung in Tenant ${t.name}: Benutzerbereich ${r.policy.scope}${r.changed ? "" : " (stand schon so)"}.`);
-    res.json({ ok: true, changed: r.changed, regFlagSkipped: r.regFlagSkipped, mdm: r.policy, before: r.before });
+    const out = await MDMENROLL.apply(j.access_token, { scope: df.scope, blockDuringRegistration: df.blockDuringRegistration });
+    console.log(`MDM-Einschreibung in Tenant ${t ? t.name : df.tenantId}: Benutzerbereich ${out.policy.scope}${out.changed ? "" : " (stand schon so)"}.`);
+    res.json({ status: "done", changed: out.changed, regFlagSkipped: out.regFlagSkipped, mdm: out.policy, before: out.before });
   } catch (e) {
-    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
-      return res.status(403).json({ error: "Einschreibung umschalten braucht Policy.ReadWrite.MobilityManagement — im Tab 'Tenants' einmal Reparieren ausfuehren." });
-    }
-    throw e;
+    res.json({ status: "error", error: e.message });
   }
 }));
 

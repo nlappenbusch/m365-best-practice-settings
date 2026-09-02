@@ -194,62 +194,63 @@
       form = null
       m365Result = null
       m365Error = null
-      mdm = null
+      cancelMdm()
+      mdmResult = null
       mdmError = null
-      mdmNotice = null
-      if (id) { load(); loadDevSettings(); loadM365(); loadMdm() }
+      if (id) { load(); loadDevSettings(); loadM365() }
     }
   })
 
   // ---------- Automatische MDM-Einschreibung ----------
-  // Der Benutzerbereich aus Entra > Mobilitaet (MDM und MAM). Steht er auf
-  // "Keine", wird ein Geraet zwar Entra-beigetreten, aber nie in Intune
-  // eingeschrieben — auch per Autopilot nicht.
-  let mdm = $state(null)
-  let mdmLoading = $state(false)
+  // Graph laesst diese Richtlinie nicht app-only zu, deshalb einmalige
+  // Admin-Anmeldung per Device-Code — dasselbe Muster wie Onboarding/Migration.
+  let mdmStep = $state(null)        // { userCode, verificationUri }
   let mdmBusy = $state(false)
   let mdmError = $state(null)
-  let mdmNotice = $state(null)
+  let mdmResult = $state(null)
+  let mdmCopied = $state(false)
+  let mdmTimer = null
 
-  async function loadMdm() {
-    if (!$activeTenant) return
-    mdmLoading = true
-    mdmError = null
-    try {
-      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment`)
-      mdm = r.mdm
-    } catch (e) {
-      mdmError = e.message
-    }
-    mdmLoading = false
-  }
-
-  async function enableMdm() {
-    if (!mdm) return
+  async function startMdm() {
     if (!confirm(`Automatische Einschreibung in ${$activeTenant.name} auf „Alle" stellen?
 
-Ab dann schreibt sich JEDES künftig Entra-beigetretene oder -registrierte Windows-Gerät automatisch in Intune ein — auch die per Autopilot.
-Bereits vorhandene Geräte werden nicht rückwirkend eingeschrieben.
+Ab dann schreibt sich JEDES künftig Entra-beigetretene oder -registrierte Windows-Gerät automatisch in Intune ein — auch die per Autopilot. Bereits vorhandene Geräte werden nicht rückwirkend eingeschrieben.
 
-Ausserdem wird „MDM-Registrierung beim Hinzufügen eines Arbeits- oder Schulkontos deaktivieren" auf Nein gesetzt.
+Du meldest dich gleich einmalig als Administrator dieses Tenants an; Graph lässt diesen Schalter nur mit angemeldetem Benutzer setzen.
 
 Nur für einen Pilotkreis? Dann hier abbrechen und im Portal „Einige" mit einer Gruppe wählen.`)) return
-    mdmBusy = true
     mdmError = null
-    mdmNotice = null
+    mdmResult = null
+    mdmCopied = false
+    mdmBusy = true
+    if (mdmTimer) { clearTimeout(mdmTimer); mdmTimer = null }
     try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment`,
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment/start`,
         { scope: 'all', blockDuringRegistration: false })
-      mdm = r.mdm
-      mdmNotice = r.changed
-        ? 'Automatische Einschreibung steht jetzt auf „Alle".'
-        : 'Stand war schon so — nichts geschrieben.'
-      if (r.regFlagSkipped) {
-        mdmNotice += ' Der Registrierungs-Schalter ist in diesem Tenant nicht verfügbar (Public Preview) und wurde nicht angefasst.'
-      }
+      mdmStep = { userCode: r.userCode, verificationUri: r.verificationUri }
+      pollMdm(r.interval || 5)
     } catch (e) {
       mdmError = e.message
+      mdmBusy = false
     }
+  }
+
+  function pollMdm(interval) {
+    mdmTimer = setTimeout(async () => {
+      let r
+      try { r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment/poll`) }
+      catch (e) { mdmError = e.message; mdmStep = null; mdmBusy = false; return }
+      if (r.status === 'pending') { pollMdm(r.interval || interval); return }
+      mdmStep = null
+      mdmBusy = false
+      if (r.status === 'error') { mdmError = r.error; return }
+      mdmResult = r
+    }, interval * 1000)
+  }
+
+  function cancelMdm() {
+    if (mdmTimer) { clearTimeout(mdmTimer); mdmTimer = null }
+    mdmStep = null
     mdmBusy = false
   }
 
@@ -647,64 +648,59 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     }
   }
 
-  onDestroy(() => { if (importTimer) clearTimeout(importTimer); if (bkTimer) clearTimeout(bkTimer) })
+  onDestroy(() => { if (importTimer) clearTimeout(importTimer); if (bkTimer) clearTimeout(bkTimer); if (mdmTimer) clearTimeout(mdmTimer) })
 </script>
 
 <TenantContext>
   <div class="settings-group">
     <h4>Tenant-Voraussetzungen <small>(Entra)</small>
       <button class="btn btn-secondary" style="margin-left:auto; padding:0.15rem 0.55rem; font-size:0.75rem; font-weight:500;"
-              onclick={() => { loadDevSettings(); loadMdm() }} disabled={devLoading || devBusy || mdmLoading || mdmBusy}
-              title="Ist-Stand neu lesen">↻</button>
+              onclick={loadDevSettings} disabled={devLoading || devBusy} title="Ist-Stand neu lesen">↻</button>
     </h4>
     <p class="ld-section-hint">Zwei Schalter, ohne die der Rest ins Leere läuft: die automatische Einschreibung in Intune
       (Entra → Mobilität) und LAPS (Entra → Geräte → Geräteeinstellungen).</p>
 
-    {#if mdmLoading && !mdm}
-      <div class="ld-step running"><span class="ld-spinner"></span> Lese Einschreibungs-Einstellungen…</div>
-    {:else if mdmError && !mdm}
-      <div class="alert alert-warning">❌ {mdmError}
-        {#if /Policy.ReadWrite.MobilityManagement/i.test(mdmError)}
-          <br /><small>Diese Berechtigung ist neu — im Tab „Tenants" einmal 🔧 Reparieren ausführen.</small>
+    {#if mdmResult}
+      <div class="ld-banner ok">
+        <b>Automatische Einschreibung steht auf „{mdmResult.mdm.scopeLabel}".</b>
+        {mdmResult.changed ? '' : ' (Stand war schon so — nichts geschrieben.)'}
+        {#if mdmResult.regFlagSkipped}
+          <br /><small>Der Registrierungs-Schalter ist in diesem Tenant nicht verfügbar (Public Preview) und wurde nicht angefasst.</small>
         {/if}
+        {#if !mdmResult.mdm.urlsComplete}
+          <br /><small>⚠️ An der Richtlinie fehlen noch Standard-URLs — im Portal einmal „Standard MDM URLs wiederherstellen".</small>
+        {/if}
+        <br /><small>Bereits vorhandene Geräte werden nicht rückwirkend eingeschrieben: dort das Arbeitskonto trennen und neu verbinden.</small>
       </div>
-    {:else if mdm}
-      {#if mdmNotice}<div class="ld-banner ok">{mdmNotice}</div>{/if}
-      {#if mdmError}<div class="alert alert-warning">❌ {mdmError}</div>{/if}
-      <div class="ld-banner {mdm.autoEnrollActive ? 'ok' : 'warn'}"
-           style="display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-        <div style="flex:1 1 22rem;">
-          <b>Automatische Einschreibung in Intune: {mdm.scopeLabel}</b>
-          <div><small>
-            {#if mdm.scope === 'all'}
-              Jedes Gerät, das Entra beitritt oder sich registriert, landet automatisch in Intune. Das ist die
-              Voraussetzung, ohne die auch Autopilot nur einen Entra-Beitritt macht und das Gerät unverwaltet bleibt.
-            {:else if mdm.scope === 'some'}
-              Nur die ausgewählte Gruppe schreibt sich automatisch ein. Wer nicht drin ist, bekommt beim Entra-Beitritt
-              keine Intune-Verwaltung — auch per Autopilot nicht. Die Gruppenauswahl selbst bleibt im Portal.
-            {:else}
-              Kein Gerät schreibt sich ein. Ein Entra-Beitritt macht das Gerät nicht verwaltet, Autopilot bleibt wirkungslos,
-              und in den Windows-Einstellungen fehlt beim Arbeitskonto der „Info"-Knopf zum Synchronisieren.
-            {/if}
-          </small></div>
-        </div>
-        {#if mdm.scope !== 'all'}
-          <button class="btn btn-primary" onclick={enableMdm} disabled={mdmBusy}>
-            {mdmBusy ? '…' : 'Auf „Alle" stellen'}
+    {:else if mdmStep}
+      <div class="ld-job">
+        <div class="ld-onboard-step"><span class="step-n">1</span> Öffne
+          <a href={mdmStep.verificationUri} target="_blank" rel="noopener">{mdmStep.verificationUri}</a></div>
+        <div class="ld-onboard-step"><span class="step-n">2</span> Als <strong>Administrator dieses Tenants</strong> anmelden und diesen Code eingeben:
+          <span class="ld-code">{mdmStep.userCode}</span>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;"
+                  onclick={() => navigator.clipboard.writeText(mdmStep.userCode).then(() => (mdmCopied = true))}>
+            {mdmCopied ? '✓ Kopiert' : 'Kopieren'}
           </button>
-        {/if}
+        </div>
+        <div class="ld-onboard-step"><span class="step-n">3</span> <span class="ld-spinner"></span> Warte auf die Anmeldung…
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8rem;" onclick={cancelMdm}>Abbrechen</button></div>
       </div>
-      {#if !mdm.urlsComplete}
-        <div class="ld-banner warn">An dieser Richtlinie fehlen die Standard-URLs (Ermittlung, Nutzungsbedingungen, Konformität).
-          Das deutet darauf hin, dass sie nie eingerichtet wurde — im Portal einmal „Standard MDM URLs wiederherstellen".</div>
-      {/if}
-      {#if mdm.regFlagSupported}
-        <p class="ld-section-hint">„MDM-Registrierung beim Hinzufügen eines Arbeits- oder Schulkontos deaktivieren" steht auf
-          <b>{mdm.regFlagDisabled ? 'Ja — Einschreibung blockiert' : 'Nein'}</b>. Betrifft nur das Hinzufügen über Edge oder eine
-          App wie Teams; über <i>Einstellungen → Konten</i> hinzugefügte Konten sind davon nicht betroffen.</p>
-      {/if}
+    {:else}
+      <div class="ld-banner warn" style="display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+        <div style="flex:1 1 22rem;">
+          <b>Automatische Einschreibung in Intune</b>
+          <div><small>Ohne sie tritt ein Gerät zwar Entra bei, landet aber nie in Intune — auch per Autopilot nicht, und in den
+            Windows-Einstellungen fehlt beim Arbeitskonto der „Info"-Knopf zum Synchronisieren.</small></div>
+        </div>
+        <button class="btn btn-primary" onclick={startMdm} disabled={mdmBusy}>Anmelden &amp; auf „Alle" stellen</button>
+      </div>
     {/if}
-
+    {#if mdmError}<div class="alert alert-warning">❌ {mdmError}</div>{/if}
+    <p class="ld-section-hint">Warum hier eine Anmeldung nötig ist: Graph lässt diese Richtlinie
+      (<code>/policies/mobileDeviceManagementPolicies</code>) ausschliesslich mit angemeldetem Benutzer zu —
+      <code>Policy.ReadWrite.MobilityManagement</code> gibt es nicht als Anwendungsberechtigung. Der Rest des Tools
+      arbeitet app-only per Zertifikat.</p>
 
     {#if devLoading && !devSettings}
       <div class="ld-step running"><span class="ld-spinner"></span> Lese Geräteeinstellungen…</div>

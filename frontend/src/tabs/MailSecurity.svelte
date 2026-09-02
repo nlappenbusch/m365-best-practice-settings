@@ -7,7 +7,50 @@
   import { buildAlertPolicySnippet } from '../lib/alertPolicySnippet.js'
 
   let snippetCopied = $state(false)
-  let alertSnippet = $derived(buildAlertPolicySnippet($config.global))
+
+  // Admin-Benachrichtigungsadresse gehoert zum TENANT, nicht in die globale
+  // Vorlage: sie landet live in -InternalSenderAdminAddress/-ExternalSender-
+  // AdminAddress der Anti-Malware-Policy und in -NotifyOutboundSpamRecipients.
+  // Stand in der Vorlage noch ein anderer Kunde, meldeten die Richtlinien des
+  // einen Kunden an den Administrator des anderen.
+  let tenantAdminEmail = $state('')
+  let tenantAdminSaving = $state(false)
+  let tenantAdminMsg = $state(null)
+  let tenantAdminLoadedFor = null
+
+  $effect(() => {
+    const id = $activeTenant?.id ?? null
+    if (id === tenantAdminLoadedFor) return
+    tenantAdminLoadedFor = id
+    tenantAdminEmail = ''
+    tenantAdminMsg = null
+    if (id) {
+      apiGet(`/api/tenants/${encodeURIComponent(id)}/mailsec-admin`)
+        .then(r => { tenantAdminEmail = r.email || '' })
+        .catch(() => { /* Anzeige bleibt leer, Vorlage greift */ })
+    }
+  })
+
+  // Was wirklich deployt wird: Tenant-Adresse, sonst die Vorlage.
+  const effectiveAdminEmail = $derived(tenantAdminEmail.trim() || $config.global.adminEmail)
+  const adminFromTemplate = $derived(!tenantAdminEmail.trim())
+
+  async function saveTenantAdmin() {
+    if (!$activeTenant) return
+    tenantAdminSaving = true
+    tenantAdminMsg = null
+    try {
+      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mailsec-admin`, { email: tenantAdminEmail.trim() })
+      tenantAdminMsg = tenantAdminEmail.trim()
+        ? { ok: true, text: 'Gespeichert — gilt nur für diesen Tenant.' }
+        : { ok: true, text: 'Gelöscht — es gilt wieder die Adresse aus der Vorlage.' }
+    } catch (e) {
+      tenantAdminMsg = { ok: false, text: e.message }
+    }
+    tenantAdminSaving = false
+  }
+
+  let alertSnippet = $derived(buildAlertPolicySnippet({ ...$config.global, adminEmail: effectiveAdminEmail }))
   function copyAlertSnippet() {
     navigator.clipboard.writeText(alertSnippet).then(() => {
       snippetCopied = true
@@ -311,15 +354,30 @@
       {snippetCopied ? '✓ Kopiert' : '📋 Snippet kopieren'}
     </button>
     <div class="ld-step" style="margin-top:0.5rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
-      <div class="input-group" style="max-width:220px; margin-bottom:0;">
-        <label for="alertAdminMail"><small>Admin Notification Email</small></label>
-        <input id="alertAdminMail" type="email" bind:value={$config.global.adminEmail} placeholder="admin@example.com" />
+      <div class="input-group" style="max-width:260px; margin-bottom:0;">
+        <label for="alertAdminMail"><small>Admin Notification Email <b>für {$activeTenant.name}</b></small></label>
+        <input id="alertAdminMail" type="email" bind:value={tenantAdminEmail}
+               placeholder={$config.global.adminEmail || 'admin@kundendomain.ch'} />
       </div>
+      <button class="btn btn-secondary" style="padding:0.3rem 0.8rem; font-size:0.82rem;"
+              onclick={saveTenantAdmin} disabled={tenantAdminSaving}>
+        {tenantAdminSaving ? '…' : 'Für diesen Tenant speichern'}
+      </button>
       <div class="input-group" style="max-width:220px; margin-bottom:0;">
-        <label for="alertMspMail"><small>MSP Alert Email</small></label>
+        <label for="alertMspMail"><small>MSP Alert Email (global)</small></label>
         <input id="alertMspMail" type="email" bind:value={$config.global.igeeksEmail} />
       </div>
-      <small style="flex-basis:100%;">💡 Direkt hier änderbar — Snippet oben passt sich sofort an (dieselben Werte wie im Tab „⚙️ Vorlage").</small>
+      {#if tenantAdminMsg}
+        <small style="flex-basis:100%; color:{tenantAdminMsg.ok ? 'var(--ok)' : 'var(--crit)'};">{tenantAdminMsg.text}</small>
+      {/if}
+      {#if adminFromTemplate}
+        <small style="flex-basis:100%;">⚠️ Für diesen Tenant ist keine eigene Adresse hinterlegt — es gilt
+          <code>{$config.global.adminEmail}</code> aus der Vorlage. Die Vorlage ist für <b>alle</b> Tenants dieselbe;
+          eine fremde Kundenadresse würde hier live in die Richtlinien geschrieben. Vor dem Deploy prüft das Tool das
+          zusätzlich gegen die verifizierten Domains des Tenants.</small>
+      {:else}
+        <small style="flex-basis:100%;">Die MSP-Alert-Adresse ist bewusst global — die ist für alle Kunden dieselbe.</small>
+      {/if}
     </div>
   </div>
 
@@ -345,7 +403,7 @@
     {@const as = $config.antiSpam}
     {@const am = $config.antiMalware}
     {@const fileTypeCount = String(am.customFileTypes || '').split(',').map(s => s.trim()).filter(Boolean).length}
-    {@const recipients = [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
+    {@const recipients = [effectiveAdminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
     {@const domains = [...g.domains, g.onmicrosoftDomain].filter(Boolean)}
     <div class="ld-confirm">
       <strong>Deploy nach {$activeTenant.name} — das wird angewendet:</strong>

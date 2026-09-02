@@ -1273,8 +1273,8 @@
                     {#each rpEntries as e, i}
                       {@const rowErr = rpRowErrors[i]}
                       <tr style={rowErr ? "background: var(--warn-wash);" : ""}>
-                        <td><input type="text" bind:value={e.path} placeholder="SOFTWARE\Policies\Microsoft\Windows\AAD" /></td>
-                        <td><input type="text" bind:value={e.name} placeholder="AutoAcceptSsoPermission" /></td>
+                        <td><input type="text" bind:value={e.path} placeholder="z.B. SOFTWARE\Policies\Microsoft\Windows\AAD" /></td>
+                        <td><input type="text" bind:value={e.name} placeholder="z.B. AutoAcceptSsoPermission" /></td>
                         <td>
                           <select bind:value={e.type}>
                             <option value="DWORD">DWORD</option>
@@ -1282,7 +1282,7 @@
                             <option value="String">String</option>
                           </select>
                         </td>
-                        <td><input type="text" bind:value={e.value} placeholder="1" /></td>
+                        <td><input type="text" bind:value={e.value} placeholder="z.B. 1" /></td>
                         <td><button class="btn btn-secondary map-remove" onclick={() => rpRemoveRow(i)} title="Zeile entfernen">✕</button></td>
                       </tr>
                     {/each}
@@ -1293,6 +1293,7 @@
               <p class="ld-section-hint">Noch kein Registry-Wert hinzugefügt — Vorlage übernehmen oder manuell anlegen.</p>
             {/if}
             {#if rpEntries.length && !rpContentOk}
+              <p class="ld-section-hint">💡 Für die bekannten Fälle nichts abtippen: oben eine Vorlage anklicken, die füllt die Zeile fertig aus.</p>
               <div class="ld-banner warn">Noch nicht vollständig — diese Zeilen lassen sich so nicht ausrollen:
                 {#each rpRowErrors as err, i}{#if err}<br />Zeile {i + 1}: {err}{/if}{/each}
               </div>
