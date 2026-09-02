@@ -220,6 +220,7 @@ const JUMPS = [
   ["bl-ca", "Conditional Access"],
   ["bl-mappings", "Mappings"],
   ["bl-remediations", "Remediations"],
+  ["bl-haertung", "Tenant-Härtung"],
   ["bl-backup", "Intune-Backup"],
   ["bl-onboarding", "Onboarding"],
   ["bl-regeln", "Entscheidungsregeln"],
@@ -325,7 +326,52 @@ function remediationsSection(rm) {
   ${table(["Teil", "Zweck"], (rm.aufbau || []).map(a => ["<strong>" + esc(a.teil) + "</strong>", esc(a.zweck)]))}
   <h3>Beim Anlegen</h3>
   ${list((rm.deployRegeln || []).map(esc), "bl-list bl-list-check")}
+  ${rm.zuweisungsfalle ? '<div class="bl-note"><strong>Zuweisungsfalle:</strong> ' + esc(rm.zuweisungsfalle) + "</div>" : ""}
+  ${rm.werkzeug ? '<p class="bl-muted"><strong>Im Werkzeug:</strong> ' + esc(rm.werkzeug) + "</p>" : ""}
   <p class="bl-muted">${esc(rm.abgrenzung || "")}</p>
+</section>`;
+}
+
+/**
+ * Tenant-Grundhaertung. Der Abschnitt ist neu (Baseline 1.2) — aeltere
+ * Baseline-Dateien kennen ihn nicht, deshalb wie bei den anderen: fehlt er,
+ * faellt er weg statt zu werfen.
+ */
+function haertungSection(h) {
+  if (!h) return "";
+  const la = h.lokaleAdminsEinfuehrung || {};
+  return `
+<section id="bl-haertung" class="bl-sec">
+  <h2>${esc(h.titel || "Tenant-Grundhärtung")}</h2>
+  <p>${esc(h.zweck || "")}</p>
+  ${h.werkzeug ? '<p class="bl-muted"><strong>Im Werkzeug:</strong> ' + esc(h.werkzeug) + "</p>" : ""}
+
+  <h3>Standardberechtigungen des Verzeichnisses</h3>
+  ${table(["Einstellung", "Soll", "Warum"], (h.standardberechtigungen || []).map(s =>
+    ["<strong>" + esc(s.einstellung) + "</strong>", '<strong class="bl-val">' + esc(s.soll) + "</strong>",
+     '<span class="bl-muted">' + esc(s.warum) + "</span>"]))}
+
+  <h3>Externe Zusammenarbeit</h3>
+  ${list((h.gaeste || []).map(esc))}
+
+  <h3>Geräte-Beitritt und lokale Administratoren</h3>
+  ${table(["Einstellung", "Soll", "Warum"], (h.geraeteBeitritt || []).map(s =>
+    ["<strong>" + esc(s.einstellung) + "</strong>", '<strong class="bl-val">' + esc(s.soll) + "</strong>",
+     '<span class="bl-muted">' + esc(s.warum) + "</span>"]))}
+  ${h.warnungPut ? '<div class="bl-note"><strong>Die teuerste Falle dieser Seite:</strong> ' + esc(h.warnungPut) + "</div>" : ""}
+
+  <details class="bl-det bl-det-warn"><summary>Lokale Administratoren für die Einführungsphase — befristete Ausnahme</summary>
+    <div class="bl-det-body">
+      <p>${esc(la.these || "")}</p>
+      <p><strong>Weg:</strong> ${esc(la.weg || "")}</p>
+      ${list((la.regeln || []).map(esc), "bl-list bl-list-check")}
+      <p><strong>Preis der Ausnahme:</strong> ${esc(la.preis || "")}</p>
+      <p class="bl-muted"><strong>Stolperfalle:</strong> ${esc(la.stolperfalle || "")}</p>
+    </div>
+  </details>
+
+  <h3>Bleibt Handarbeit im Portal</h3>
+  ${list((h.bleibtManuell || []).map(esc))}
 </section>`;
 }
 
@@ -412,6 +458,8 @@ ${autopilotSection(b.autopilot)}
     <strong>Assignment-Filter statt Versionsgruppen</strong><br>
     ${esc(oib.assignmentFilter ? oib.assignmentFilter.zweck : "")}
     <pre class="bl-pre">${esc(oib.assignmentFilter ? oib.assignmentFilter.regel : "")}</pre>
+    ${oib.assignmentFilter && oib.assignmentFilter.werkzeug
+      ? "<span><strong>Im Werkzeug:</strong> " + esc(oib.assignmentFilter.werkzeug) + "</span><br>" : ""}
     <span class="bl-muted">${esc(oib.zuweisungslogik || "")}</span>
   </div>
 </section>
@@ -419,6 +467,7 @@ ${autopilotSection(b.autopilot)}
 ${caSection(b.conditionalAccess)}
 ${mappingsSection(b.mappings)}
 ${remediationsSection(b.remediations)}
+${haertungSection(b.tenantHaertung)}
 ${backupSection(b.intuneBackup)}
 
 <section id="bl-onboarding" class="bl-sec">

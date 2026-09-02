@@ -14,9 +14,14 @@
  * gesucht werden. Der OMA-URI-Pfad ist stabil und deterministisch — das Profil
  * sieht im Portal genauso aus und laesst sich dort weiter pflegen.
  *
- * Chrome und Firefox brauchen dagegen eine ADMX-Ingestion (die ADMX-Datei muss
- * erst in den Tenant hochgeladen werden). Das ist ein eigener Mechanismus und
- * hier absichtlich nicht mit eingebaut.
+ * Chrome und Firefox kennt der Settings Catalog nicht. Der ueblich genannte Weg
+ * dafuer ist eine ADMX-Ingestion — die ADMX-Datei muss erst in den Tenant
+ * hochgeladen werden, ein eigener Mechanismus mit eigenen Fallstricken. Er ist
+ * hier nicht noetig: Beide Browser lesen ihre Richtlinien direkt aus der
+ * Registry unter HKLM\SOFTWARE\Policies. Deshalb laufen Chrome und Firefox
+ * ueber dasselbe Plattformskript wie die Bitwarden-Region
+ * (lib/registryPolicy.js) — buildChromeForcelistEntries() und
+ * buildFirefoxEntries() liefern die Registry-Zeilen dafuer.
  *
  * WICHTIG bei der Zuweisung: an die dynamische GroupTag-Geraetegruppe, nicht an
  * eine App-Zielgruppe. Intune loest verschachtelte Gruppen nur beim
@@ -49,6 +54,10 @@ const CATALOG = [
     key: "bitwarden",
     label: "Bitwarden (Passwortmanager)",
     extensionId: "jbkfoedolllekgbhcbcoahefnbanhhlh",
+    // Chrome kennt dieselbe Erweiterung unter einer ANDEREN Id. Wer die
+    // Edge-Id in Chromes Forcelist schreibt, bekommt eine Richtlinie, die
+    // nichts tut und niemandem auffaellt.
+    chromeId: "nngceckbapebfimnlniiiahkandclblb",
     updateUrl: EDGE_STORE,
     note: "Setzt die Erweiterung; die Server-Region kommt getrennt über die Registry-Richtlinie."
   }
@@ -168,8 +177,65 @@ async function deployProfile(tenant, cert, { profileName, extensions, groupIds }
   };
 }
 
+// ---------------------------------------------------------------- Chrome
+/**
+ * Registry-Zeilen fuer Chromes ExtensionInstallForcelist.
+ *
+ * Chrome liest die Liste als nummerierte Werte unter
+ * HKLM\SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist — "1", "2", …
+ * je "<Id>;<Update-URL>". Das ist derselbe Inhalt wie in der Edge-Policy, nur
+ * ohne ADMX-Ingestion, weil Chrome die Registry direkt auswertet.
+ *
+ * Die Update-URL gehoert dazu: Ohne sie weiss Chrome nicht, woher es die
+ * Erweiterung holen soll, und die Richtlinie bleibt wirkungslos.
+ */
+function buildChromeForcelistEntries(extensions) {
+  const list = sanitizeExtensions(extensions);
+  const path = "SOFTWARE\\Policies\\Google\\Chrome\\ExtensionInstallForcelist";
+  return list.map((x, i) => ({
+    path,
+    name: String(i + 1),
+    type: "String",
+    value: `${x.extensionId};${x.updateUrl || CHROME_STORE}`
+  }));
+}
+
+/**
+ * Registry-Zeilen fuer Firefox' ExtensionSettings.
+ *
+ * Firefox arbeitet nicht mit einer nummerierten Liste, sondern mit einem
+ * Zweig je Add-on: …\ExtensionSettings\<Add-on-Id>\installation_mode =
+ * "force_installed" plus install_url auf die XPI-Datei.
+ *
+ * Bewusst ohne mitgelieferten Katalog: Firefox-Add-on-Ids sind GUIDs in
+ * geschweiften Klammern und je Add-on verschieden — eine falsch geratene Id
+ * erzeugt eine Richtlinie, die nichts tut und niemandem auffaellt. Wer Firefox
+ * ausrollt, traegt Id und XPI-URL aus dem Add-on selbst ein.
+ */
+function buildFirefoxEntries(addons) {
+  const out = [];
+  (Array.isArray(addons) ? addons : []).forEach(a => {
+    const id = String((a && a.addonId) || "").trim();
+    const url = String((a && a.installUrl) || "").trim();
+    // Beide Schreibweisen kommen vor: GUID in Klammern und E-Mail-artige Ids
+    // (z.B. uBlock0@raymondhill.net).
+    if (!/^\{[0-9a-fA-F-]{36}\}$/.test(id) && !/^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$/.test(id)) {
+      throw Object.assign(new Error("Ungültige Firefox-Add-on-Id: " + id + " — erwartet {GUID} oder name@domain."), { status: 400 });
+    }
+    if (!/^https:\/\/.+\.xpi(\?.*)?$/i.test(url)) {
+      throw Object.assign(new Error("Install-URL muss auf eine https-XPI-Datei zeigen: " + url), { status: 400 });
+    }
+    const path = `SOFTWARE\\Policies\\Mozilla\\Firefox\\ExtensionSettings\\${id}`;
+    out.push({ path, name: "installation_mode", type: "String", value: "force_installed" });
+    out.push({ path, name: "install_url", type: "String", value: url });
+  });
+  if (!out.length) throw Object.assign(new Error("Kein Firefox-Add-on angegeben."), { status: 400 });
+  return out;
+}
+
 module.exports = {
   CATALOG, OMA_URI, EDGE_STORE, CHROME_STORE,
   sanitizeExtensions, sanitizeProfileName, buildForcelistValue,
+  buildChromeForcelistEntries, buildFirefoxEntries,
   listProfiles, deployProfile
 };

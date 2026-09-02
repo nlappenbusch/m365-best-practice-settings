@@ -1122,3 +1122,123 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .kpi-tile.bad { border-color: color-mix(in srgb, var(--crit) 45%, transparent); background: var(--crit-wash); }
 .kpi-tile.bad b { color: var(--crit); }
 .kpi-tile.ok b { color: var(--ok); }
+
+/* ---------------- Tenant-Härtung, Remediations, App-Hygiene ---------------- */
+/* Gemeinsame Bausteine für die Bereiche, die einen Ist-Zustand gegen einen
+   Sollwert zeigen und daneben den Knopf haben, der ihn geraderückt. Die
+   Begründung steht bewusst unter jeder Zeile statt in einem Tooltip: Wer
+   tenantweite Schalter umlegt, soll vorher lesen, warum. */
+.hd-card {
+    border: 1px solid var(--rule); border-radius: var(--radius-md);
+    background: var(--bg-raised); padding: 0.9rem 1rem; margin-bottom: 1rem;
+}
+.hd-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
+.hd-head h4 { margin: 0; font-size: 0.95rem; }
+.hd-score {
+    font-size: 0.78rem; font-weight: 700; color: var(--warn);
+    background: var(--warn-wash); border-radius: var(--radius-sm); padding: 0.15rem 0.5rem;
+}
+.hd-score.ok { color: var(--ok); background: var(--ok-wash); }
+
+.hd-table { width: 100%; border-collapse: collapse; margin: 0.25rem 0 0.5rem; }
+.hd-table th {
+    text-align: left; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--text-dim); padding: 0.35rem 0.5rem;
+    border-bottom: 1.5px solid var(--rule);
+}
+.hd-table td { padding: 0.5rem; border-bottom: 1px solid var(--rule); vertical-align: top; font-size: 0.85rem; }
+.hd-table td:nth-child(2), .hd-table td:nth-child(3) { white-space: nowrap; color: var(--text-dim); }
+.hd-table tr.hd-krit td { opacity: 0.72; }
+
+.hd-why { font-size: 0.78rem; color: var(--text-dim); line-height: 1.45; margin-top: 0.15rem; }
+.hd-portal { font-size: 0.72rem; color: var(--text-faint); font-family: var(--font-mono); margin-top: 0.15rem; }
+.hd-ok { color: var(--ok); font-weight: 700; }
+.hd-warn { color: var(--warn); font-weight: 700; }
+.hd-lock { font-size: 0.75rem; color: var(--text-faint); }
+.hd-tag {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
+    background: var(--bg-inset); color: var(--text-dim);
+    border-radius: var(--radius-sm); padding: 0.1rem 0.35rem; margin-left: 0.4rem;
+}
+.hd-btn { padding: 0.3rem 0.6rem; font-size: 0.8rem; white-space: nowrap; }
+.hd-link {
+    background: none; border: 0; padding: 0; color: var(--accent);
+    font: inherit; font-size: inherit; text-decoration: underline; cursor: pointer;
+}
+
+.hd-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 0.75rem 0; }
+.hd-label { font-size: 0.75rem; font-weight: 700; color: var(--text-dim); margin-bottom: 0.25rem; display: block; }
+.hd-select {
+    width: 100%; padding: 0.4rem 0.5rem; border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text);
+    font: inherit; font-size: 0.85rem;
+}
+.hd-select-sm { width: auto; max-width: 220px; }
+.hd-num {
+    width: 70px; padding: 0.3rem 0.4rem; border: 1px solid var(--rule);
+    border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text); font: inherit;
+}
+.hd-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+.hd-rows { display: flex; flex-direction: column; }
+.hd-row {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    padding: 0.55rem 0; border-bottom: 1px solid var(--rule);
+}
+.hd-row:last-child { border-bottom: 0; }
+.hd-row-act { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
+
+.hd-glist { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.25rem 0 0.5rem; }
+.hd-g {
+    display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: 0.3rem 0.55rem; font-size: 0.82rem; background: var(--bg);
+}
+.hd-g.sel { border-color: var(--accent); background: var(--accent-wash); }
+.hd-g input { accent-color: var(--accent); }
+
+.hd-la { border-top: 1px solid var(--rule); margin-top: 0.5rem; padding-top: 0.75rem; }
+.hd-la-group { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+.hd-la-form { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.hd-la-groups { margin-bottom: 0.75rem; }
+
+/* ---------------- Remediations-Katalog ---------------- */
+.rm-katalog { display: flex; flex-direction: column; gap: 0.5rem; }
+.rm-item {
+    display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    padding: 0.6rem 0.75rem; background: var(--bg);
+}
+.rm-item.sel { border-color: var(--accent); background: var(--accent-wash); }
+.rm-item input { accent-color: var(--accent); margin-top: 0.2rem; }
+.rm-body { display: flex; flex-direction: column; gap: 0.2rem; }
+.rm-body small { font-size: 0.78rem; color: var(--text-dim); line-height: 1.45; }
+.rm-body em { font-size: 0.76rem; color: var(--text-faint); font-style: normal; }
+.rm-body .hd-link { align-self: flex-start; font-size: 0.78rem; margin-top: 0.2rem; }
+.rm-code { border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 0.5rem 0.65rem; background: var(--bg-inset); }
+.rm-code-label { font-size: 0.72rem; font-weight: 700; color: var(--text-dim); margin: 0.35rem 0 0.2rem; }
+.rm-code pre {
+    margin: 0; padding: 0.5rem; overflow-x: auto; font-family: var(--font-mono);
+    font-size: 0.74rem; line-height: 1.5; background: var(--bg); border-radius: var(--radius-sm);
+}
+.rm-check { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.75rem 0 0; font-size: 0.85rem; cursor: pointer; }
+.rm-check input { accent-color: var(--accent); margin-top: 0.2rem; }
+.rm-check small { color: var(--text-dim); }
+
+/* ---------------- App-Hygiene ---------------- */
+.ah-app { border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; background: var(--bg); }
+.ah-app.fehler { border-left: 3px solid var(--crit); }
+.ah-app.warn { border-left: 3px solid var(--warn); }
+.ah-app.hinweis { border-left: 3px solid var(--info); }
+.ah-app.ok { border-left: 3px solid var(--ok); }
+.ah-app-head { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.ah-app-head b { font-size: 0.9rem; }
+.ah-meta { font-size: 0.75rem; color: var(--text-dim); font-family: var(--font-mono); margin-top: 0.25rem; word-break: break-all; }
+.ah-fund { border-top: 1px solid var(--rule); padding-top: 0.4rem; margin-top: 0.4rem; font-size: 0.82rem; }
+.ah-fund b { display: block; }
+.ah-fund .ah-emp { color: var(--text-dim); font-size: 0.78rem; margin-top: 0.15rem; }
+.ah-sev { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: var(--radius-sm); padding: 0.1rem 0.35rem; }
+.ah-sev.fehler { color: var(--crit); background: var(--crit-wash); }
+.ah-sev.warn { color: var(--warn); background: var(--warn-wash); }
+.ah-sev.hinweis { color: var(--info); background: var(--info-wash); }
+.ah-sev.ok { color: var(--ok); background: var(--ok-wash); }

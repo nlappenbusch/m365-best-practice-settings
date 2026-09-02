@@ -133,6 +133,26 @@ const PRESETS = [
       "(bei der Installation aus dem Chrome-Store behaelt die Erweiterung auch in Edge ihre Chrome-ID). " +
       "Quelle: Bitwarden-Doku \"Connect Managed Devices\".",
     entries: bitwardenExtensionEntries({ region: "eu" })
+  },
+  {
+    key: "chrome-forcelist-bitwarden",
+    label: "Chrome: Bitwarden-Erweiterung erzwingen",
+    description:
+      "Erzwingt die Bitwarden-Erweiterung in Google Chrome. Fuer Edge macht das der Tab \"Browser-Erweiterungen\" " +
+      "ueber ein Konfigurationsprofil; Chrome kennt der Settings Catalog nicht. Der ueblich genannte Weg dafuer waere " +
+      "eine ADMX-Ingestion — noetig ist sie nicht, denn Chrome liest ExtensionInstallForcelist direkt aus der Registry: " +
+      "nummerierte Werte je \"<Erweiterungs-Id>;<Update-URL>\". Ohne die Update-URL weiss Chrome nicht, woher es die " +
+      "Erweiterung laden soll, und die Richtlinie bleibt wirkungslos. " +
+      "Die Server-Region der Erweiterung setzt die Vorlage \"Bitwarden-Browsererweiterung: Server-Region EU\" — das ist " +
+      "eine andere Richtlinie und ersetzt diese hier nicht.",
+    entries: [
+      {
+        path: "SOFTWARE\\Policies\\Google\\Chrome\\ExtensionInstallForcelist",
+        name: "1",
+        type: "String",
+        value: `${BITWARDEN_EXTENSION_IDS.chrome};https://clients2.google.com/service/update2/crx`
+      }
+    ]
   }
 ];
 
@@ -145,7 +165,10 @@ function sanitizeProfileName(name) {
 const REG_TYPES = new Set(["DWORD", "String", "QWORD"]);
 // HKLM-Unterpfad, keine Laufwerks-/Datei-Sonderzeichen, kein Zugriff ausserhalb der Policies-Hive erzwungen (aber nicht technisch eingeschraenkt --
 // Nils tippt hier bewusst als Admin, kein Fremdinput).
-const PATH_RE = /^[A-Za-z0-9 _.\\-]+$/;
+// Geschweifte Klammern und @ sind erlaubt, weil Firefox seine Add-ons unter
+// ...\ExtensionSettings\{GUID} bzw. ...\name@domain ablegt -- ohne sie liesse
+// sich der Firefox-Zweig ueberhaupt nicht schreiben.
+const PATH_RE = /^[A-Za-z0-9 _.\\{}@-]+$/;
 const NAME_RE = /^[A-Za-z0-9 _.-]+$/;
 
 /** Eintraege validieren -- Pfad relativ zu HKLM:\, Name, Typ, Wert. */

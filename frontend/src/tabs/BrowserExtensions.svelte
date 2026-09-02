@@ -113,6 +113,55 @@
   function removeExtra(id) { extras = extras.filter(e => e.extensionId !== id) }
   function toggleGroup(id) { selGroups = { ...selGroups, [id]: !selGroups[id] } }
 
+  // ---------- Chrome und Firefox ----------
+  // Dieselbe Auswahl wie oben, aber mit Chromes eigenen Ids: Bitwarden heisst in
+  // Chrome anders als in Edge. Wer die Edge-Id in Chromes Forcelist schreibt,
+  // bekommt eine Richtlinie, die nichts tut.
+  const CHROME_STORE = 'https://clients2.google.com/service/update2/crx'
+  let ffId = $state('')
+  let ffUrl = $state('')
+
+  const chromeChosen = $derived([
+    ...catalog.filter(c => picked[c.key] && c.chromeId)
+      .map(c => ({ extensionId: c.chromeId, updateUrl: CHROME_STORE, label: c.label })),
+    ...extras.map(e => ({ extensionId: e.extensionId, updateUrl: CHROME_STORE, label: e.label }))
+  ])
+
+  async function deployChrome() {
+    if (!chromeChosen.length) { error = 'Keine Erweiterung mit bekannter Chrome-Id gewählt.'; return }
+    if (!confirm(`Chrome-Erweiterungen im Tenant ${$activeTenant.name} erzwingen?\n\n`
+      + chromeChosen.map(c => `• ${c.label} (${c.extensionId})`).join('\n')
+      + `\n\nZuweisung: ${selectedNames.join(', ')}\n\n`
+      + 'Läuft als Registry-Plattformskript im Systemkontext — nicht als Konfigurationsprofil.')) return
+    busy = true; error = null; notice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/chrome`, {
+        extensions: chromeChosen.map(c => ({ extensionId: c.extensionId, updateUrl: c.updateUrl })),
+        groupIds: selectedGroupIds
+      })
+      notice = `✅ Chrome: „${r.displayName}" ${r.updated ? 'aktualisiert' : 'angelegt'} (${r.entries.length} Registry-Wert(e)).`
+    } catch (e) {
+      error = e.message
+    }
+    busy = false
+  }
+
+  async function deployFirefox() {
+    if (!confirm(`Firefox-Add-on ${ffId} im Tenant ${$activeTenant.name} erzwingen?\n\n`
+      + `Install-URL: ${ffUrl}\nZuweisung: ${selectedNames.join(', ')}`)) return
+    busy = true; error = null; notice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/browserext/firefox`, {
+        addons: [{ addonId: ffId.trim(), installUrl: ffUrl.trim() }],
+        groupIds: selectedGroupIds
+      })
+      notice = `✅ Firefox: „${r.displayName}" ${r.updated ? 'aktualisiert' : 'angelegt'} (${r.entries.length} Registry-Wert(e)).`
+    } catch (e) {
+      error = e.message
+    }
+    busy = false
+  }
+
   async function deploy() {
     if (!chosen.length) { error = 'Keine Erweiterung gewählt.'; return }
     const what = `Profil „${targetName || profileName}" mit ${chosen.length} Erweiterung(en) anlegen bzw. aktualisieren`
@@ -148,7 +197,7 @@
     <p class="ld-section-hint" style="margin-top:0">
       Legt ein Konfigurationsprofil an, das die gewählten Erweiterungen still installiert — der Benutzer
       kann sie nicht entfernen. Umgesetzt als OMA-URI auf <code>ExtensionInstallForcelist</code>.
-      Chrome und Firefox bräuchten eine ADMX-Ingestion und sind hier nicht dabei.
+      Chrome und Firefox stehen weiter unten — sie laufen über ein Registry-Plattformskript statt über ein Profil.
     </p>
 
     {#if error}<div class="alert alert-warning">❌ {error}</div>{/if}
@@ -295,6 +344,59 @@
           Die Server-Region der Bitwarden-Erweiterung ist ein getrenntes Objekt — die setzt die
           Registry-Richtlinie im Bereich <strong>Mappings</strong> bzw. der Bereitstellen-Dialog der Desktop-App.
         </p>
+      </section>
+
+      <section class="bx-step">
+        <h5><span class="bx-n">4</span> Chrome und Firefox</h5>
+        <p class="ld-section-hint" style="margin-top:0">
+          Beide kennt der Settings Catalog nicht. Der üblich genannte Weg wäre eine ADMX-Ingestion — nötig ist sie
+          nicht: Chrome und Firefox lesen ihre Richtlinien direkt aus <code>HKLM\Software\Policies</code>. Deshalb
+          laufen sie hier über ein <strong>Registry-Plattformskript</strong>, denselben Mechanismus wie die
+          Bitwarden-Region. Zuweisung an dieselben Gerätegruppen wie oben.
+        </p>
+
+        {#if chromeChosen.length}
+          <div class="bx-existing">
+            <span class="bx-existing-label">Chrome</span>
+            {#each chromeChosen as c (c.extensionId)}
+              <span class="bx-chip"><strong>{c.label}</strong><code>{c.extensionId}</code></span>
+            {/each}
+          </div>
+        {/if}
+        <div class="bx-final">
+          <div class="bx-summary">
+            <div class="bx-muted">
+              {chromeChosen.length
+                ? `${chromeChosen.length} Erweiterung(en) aus der Auswahl oben — mit Chromes eigenen Ids, nicht mit den Edge-Ids.`
+                : 'Nichts gewählt — oben eine Erweiterung ankreuzen.'}
+            </div>
+          </div>
+          <button class="btn btn-secondary" disabled={busy || !chromeChosen.length || !selectedGroupIds.length} onclick={deployChrome}>
+            Chrome ausrollen
+          </button>
+        </div>
+
+        <details class="bx-more" style="margin-top:0.8rem">
+          <summary>Firefox (Add-on-Id und XPI-URL von Hand)</summary>
+          <div class="bx-more-body">
+            <p class="ld-section-hint" style="margin:0 0 0.5rem">
+              Bewusst ohne Vorlage: Firefox-Add-on-Ids sind je Add-on verschieden — eine falsch geratene Id erzeugt
+              eine Richtlinie, die nichts tut und niemandem auffällt. Beides steht auf der Add-on-Seite bei
+              addons.mozilla.org.
+            </p>
+            <div class="input-group" style="max-width:330px; margin:0">
+              <label for="ff-id">Add-on-Id</label>
+              <input id="ff-id" type="text" bind:value={ffId} placeholder="{'{'}GUID{'}'} oder name@domain" />
+            </div>
+            <div class="input-group" style="max-width:330px; margin:0">
+              <label for="ff-url">Install-URL (.xpi)</label>
+              <input id="ff-url" type="text" bind:value={ffUrl} placeholder="https://addons.mozilla.org/…/latest.xpi" />
+            </div>
+            <button class="btn btn-secondary" disabled={busy || !ffId || !ffUrl || !selectedGroupIds.length} onclick={deployFirefox}>
+              Firefox ausrollen
+            </button>
+          </div>
+        </details>
       </section>
     {/if}
   </div>

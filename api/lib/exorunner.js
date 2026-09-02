@@ -25,7 +25,10 @@ const COMMANDS = [
   "Get-HostedContentFilterRule", "New-HostedContentFilterRule", "Set-HostedContentFilterRule",
   "Get-MalwareFilterPolicy", "New-MalwareFilterPolicy", "Set-MalwareFilterPolicy",
   "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule",
-  "Get-DkimSigningConfig",
+  // DKIM: Lesen fuer den Audit, New/Set fuer den Aktivieren-Knopf im Audit-Tab.
+  // Rotate- steht bewusst NICHT hier: Ein Schluesselwechsel auf 2048 Bit hat ein
+  // eigenes Zeitfenster und ist keine Nebenwirkung eines Aktivieren-Klicks.
+  "Get-DkimSigningConfig", "New-DkimSigningConfig", "Set-DkimSigningConfig",
   // Ausgehend & Organisation (CIS 2.1.6, 2.1.15, 6.2.1, 6.2.3, 6.5.5).
   // Get-OrganizationConfig stand hier bisher nicht drin, obwohl der Deploy-Body
   // es fuer die IsDehydrated-Vorpruefung aufruft — die Pruefung lief deshalb

@@ -39,7 +39,9 @@ export const NAV_GROUPS = [
       { id: 'ca', icon: 'lock', label: 'Conditional Access',
         desc: 'CA-Tier wählen, im Report-only-Pilot starten, Policies ausrollen und aufräumen' },
       { id: 'adminroles', icon: 'userCog', label: 'Administrative Rollen', isNew: true,
-        desc: 'Wer hat erhöhte Rechte — Globale Administratoren mit ihren Gruppen und weiteren Rollen' }
+        desc: 'Wer hat erhöhte Rechte — Globale Administratoren mit ihren Gruppen und weiteren Rollen' },
+      { id: 'haertung', icon: 'settings', label: 'Tenant-Härtung', isNew: true,
+        desc: 'Standardberechtigungen, Gastzugriff, Geräte-Beitritt und Registrierung — die Grundeinstellungen vor dem Regelbetrieb' }
     ]
   },
   {
@@ -61,7 +63,9 @@ export const NAV_GROUPS = [
       { id: 'mappings', icon: 'map', label: 'Mappings',
         desc: 'Laufwerk- und Druckermappings als Intune-Profil erzeugen und zuweisen' },
       { id: 'browserext', icon: 'puzzle', label: 'Browser-Erweiterungen', isNew: true,
-        desc: 'Edge-Erweiterungen erzwingen — Konfigurationsprofil auf die Gerätegruppen' },
+        desc: 'Erweiterungen in Edge, Chrome und Firefox erzwingen — auf die Gerätegruppen' },
+      { id: 'remediations', icon: 'refresh', label: 'Remediations', isNew: true,
+        desc: 'Erkennen und Beheben: wiederkehrende Reparatur statt Einmal-Skript' },
       { id: 'downloads', icon: 'package', label: 'Apps & Agents',
         desc: 'Bitdefender, N-sight RMM und FortiClient als Win32-App ausrollen' }
     ]

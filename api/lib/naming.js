@@ -47,6 +47,9 @@ const PROFILES = {
       scriptRegistry: "WIN - RegistryPolicy - {name}",
       scriptSharePoint: "WIN - SharePointSync - {name}",
       browserExtEdge: "WIN - BrowserExtensions - Edge - {name}",
+      remediation: "WIN - Remediation - {name}",
+      localAdminSetup: "WIN - LocalAdmins - {name}",
+      localAdminGroup: "AAD-ROLE-DeviceLocalAdminSetup",
       eopPrefix: "BP_"
     }
   },
@@ -71,6 +74,9 @@ const PROFILES = {
       scriptRegistry: "T2-WIN-CP-RegistryPolicy-{Name}",
       scriptSharePoint: "T2-WIN-CP-SharePointSync-{Name}",
       browserExtEdge: "T2-WIN-CP-BrowserExtensions-Edge-{Name}",
+      remediation: "T2-WIN-CP-Remediation-{Name}",
+      localAdminSetup: "T2-WIN-CP-LocalAdmins-{Name}",
+      localAdminGroup: "T2-CSG-ROLE-DeviceLocalAdminSetup",
       eopPrefix: "BP_"
     }
   }
@@ -97,6 +103,11 @@ const KINDS = [
   { key: "scriptRegistry", label: "Plattformskript Registry-Richtlinie", vars: ["name"], example: { name: "Bitwarden-Region" } },
   { key: "scriptSharePoint", label: "Plattformskript SharePoint-Sync", vars: ["name"], example: { name: "Standard" } },
   { key: "browserExtEdge", label: "Profil Browser-Erweiterungen (Edge)", vars: ["name"], example: { name: "Bitwarden" } },
+  { key: "remediation", label: "Remediation (Erkennen und Beheben)", vars: ["name"], example: { name: "SSO-Hinweis" } },
+  { key: "localAdminSetup", label: "Profil lokale Administratoren (Einführungsphase)", vars: ["name"], example: { name: "Einfuehrung" },
+    note: "Befristete Ausnahme — gehört an eine Gerätegruppe, nicht an den ganzen Bestand." },
+  { key: "localAdminGroup", label: "Gruppe lokale Administratoren (Einführungsphase)", vars: [], example: {},
+    note: "Mitglieder sind die Personen, die während der Einführung am Gerät arbeiten. Nach dem Rückbau leer." },
   { key: "eopPrefix", label: "Präfix EOP-/Alert-Objekte", vars: [], example: {},
     note: "Tool-Marker für die eigenen Exchange-Objekte. Ändern heisst: Der Audit erkennt bestehende Objekte nicht mehr." }
 ];

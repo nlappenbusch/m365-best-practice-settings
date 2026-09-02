@@ -252,6 +252,35 @@
   let daResults = $state(null) // [{domain, spf, dmarc, dkim}]
   let daExpanded = $state({})  // domain -> bool, welche Detail-Zeilen aufgeklappt sind
 
+  // DKIM einschalten. Angeboten wird das nur, wenn die beiden CNAME-Records im
+  // öffentlichen DNS stehen — Exchange lehnt das Aktivieren ohne sie ohnehin ab,
+  // und die eigene Meldung ist an der Stelle die brauchbarere.
+  let dkimBusy = $state('')     // Domain, die gerade läuft
+  let dkimNotice = $state(null)
+
+  function dkimAktivierbar(d) {
+    return !!(d && d.dkim && d.dkim.cnamesPublished && !d.dkim.enabledInM365)
+  }
+
+  async function enableDkim(domain) {
+    if (!confirm(`DKIM für ${domain} in Exchange Online aktivieren?\n\nTenant: ${$activeTenant.name}\n\n`
+      + 'Beide CNAME-Records stehen im DNS. Existiert noch keine Signierungs-Konfiguration, wird sie mit '
+      + '2048 Bit angelegt. Eine bestehende Schlüssellänge bleibt unangetastet — ein Wechsel darauf ist eine '
+      + 'Rotation mit eigenem Zeitfenster, kein Nebeneffekt dieses Klicks.')) return
+    dkimBusy = domain
+    dkimNotice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/dkim/enable`, { domain })
+      dkimNotice = `✅ ${domain}: DKIM ${r.created ? 'angelegt und ' : ''}aktiviert`
+        + (r.status ? ` (Status ${r.status})` : '')
+        + (r.keySize && Number(r.keySize) < 2048 ? ` — Achtung: Schlüssellänge ${r.keySize} Bit, Rotation auf 2048 einplanen.` : '')
+      await runDomainAuth()
+    } catch (e) {
+      dkimNotice = '❌ ' + e.message
+    }
+    dkimBusy = ''
+  }
+
   $effect(() => {
     const id = $activeTenant?.id ?? null
     if (id !== lastTenantId) {
@@ -906,6 +935,10 @@
         <button class="btn btn-secondary ld-pdf-btn" onclick={openDomainAuthReport} title="SPF/DKIM/DMARC-Report als PDF speichern" disabled={!daResults.length}>Domain-PDF</button>
       </div>
 
+      {#if dkimNotice}
+        <div class="ld-banner {dkimNotice.startsWith('❌') ? 'fail' : 'ok'}">{dkimNotice}</div>
+      {/if}
+
       {#if !daResults.length}
         <div class="ld-banner warn">Keine Mail-Domains gefunden.</div>
       {:else}
@@ -950,6 +983,14 @@
                             <span class="da-check-state">{b.cls === 'ok' ? 'in Ordnung' : b.cls === 'warn' ? 'Warnung' : 'Problem'}</span>
                             {#if label === 'DKIM'}
                               <span class="da-check-meta">M365: {r.enabledInM365 ? 'aktiviert' : 'nicht aktiviert'} · DNS-CNAMEs: {r.cnamesPublished ? 'veröffentlicht' : 'fehlen'}</span>
+                              {#if dkimAktivierbar(d)}
+                                <button class="btn btn-primary" style="padding:0.2rem 0.6rem; font-size:0.78rem; margin-left:auto;"
+                                        disabled={dkimBusy === d.domain} onclick={() => enableDkim(d.domain)}>
+                                  {dkimBusy === d.domain ? '…' : 'DKIM aktivieren'}
+                                </button>
+                              {:else if !r.cnamesPublished && !r.enabledInM365}
+                                <span class="da-check-meta" style="margin-left:auto;">Erst die CNAMEs beim Registrar setzen — ohne sie lehnt Exchange das Aktivieren ab.</span>
+                              {/if}
                             {/if}
                             {#if label === 'DMARC' && r.policy}
                               <span class="da-check-meta">Policy: {r.policy}</span>

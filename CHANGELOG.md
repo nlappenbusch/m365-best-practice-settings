@@ -1,5 +1,182 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.30 - Kapitel 9 der Wissensbasis nachgezogen (2026-09-02)
+
+Der Namenskonventionen-Abgleich markiert in Kapitel 9 an einem Dutzend Stellen
+"🔮 künftig automatisierbar". Diese Version arbeitet die Liste ab. Was bleibt,
+steht am Ende dieses Eintrags — mit dem Grund, warum es bleibt.
+
+### Neuer Bereich "Tenant-Härtung" (Identität & Zugriff)
+
+Die Punkte der Onboarding-Checkliste, die bisher Handarbeit im Portal waren.
+Vier Quellen auf einer Seite, weil sie zusammengehören:
+
+**Standardberechtigungen und Gastzugriff** kommen aus einem einzigen
+Graph-Objekt (`/policies/authorizationPolicy`): Selbstregistrierung, Beitritt
+über verifizierte E-Mail-Adresse, App-Registrierung durch Benutzer,
+Tenant-Erstellung durch Nicht-Administratoren, Sicherheitsgruppen im
+Self-Service, Gastrolle und wer einladen darf. Je Punkt steht Ist, Soll und die
+Begründung — und "Alles auf Managed-Default" macht daraus **einen** PATCH statt
+sechs. Was schon stimmt, wird nicht geschrieben.
+
+Eine Ausnahme ist gesperrt: **"Benutzer dürfen andere Benutzer lesen"** bleibt
+an, und das Werkzeug schaltet es auch auf Wunsch nicht um. Microsoft
+unterstützt das Abschalten nur in Sonderfällen; aus bricht Adressbuch,
+Teams-Suche und Delegierung. Ein tenantweiter Schalter mit dieser Wirkung
+gehört nicht hinter einen Knopf, der aussieht wie die fünf daneben.
+
+**Geräte-Beitritt und lokale Administratoren** erweitern die Seite, die bisher
+nur den LAPS-Schalter kannte: wer joinen darf (Alle / Ausgewählte / Niemand),
+ob globale Administratoren beim Join lokale Admins werden, ob der
+registrierende Benutzer es wird, und das Gerätekontingent. Ab Werk darf jeder
+Benutzer bis zu 20 Geräte selbst joinen — so landen private Geräte im Tenant,
+sobald sich jemand mit Firmen-Anmeldedaten anmeldet.
+
+Alle vier gehen über denselben abgesicherten Schreibweg wie LAPS
+(`updatePolicy()` in `lib/entraDeviceSettings.js`): lesen, genau ein Feld
+ändern, vollständig zurückschreiben. Der Grund steht schon länger im Modul —
+`/policies/deviceRegistrationPolicy` ist ein PUT, und fehlt `userDeviceQuota`
+im Körper, setzt Graph sie auf 0. Dann kann tenantweit niemand mehr ein Gerät
+joinen, ohne Fehlermeldung. Jede Kopie dieses Ablaufs wäre eine Stelle, an der
+die Falle wieder aufgeht; deshalb gibt es sie genau einmal.
+
+**Registrierungseinschränkungen (Intune)** stehen direkt darunter, mit dem Satz,
+warum sie dort stehen: Der Entra-Schalter regelt den Entra-Join, die
+Einschränkung die MDM-Einschreibung. Wer nur eines setzt, lässt die andere Tür
+offen.
+
+**Lokale Administratoren für die Einführungsphase** — die befristete Ausnahme
+aus dem Abgleich, jetzt als Werkzeug. Rollengruppe anlegen, Gerätegruppen der
+Einführungsphase wählen, Enddatum setzen, ausrollen. Umgesetzt als
+Konfigurationsprofil auf `LocalUsersAndGroups` mit `action="U"` — nicht über
+den tenantweiten Entra-Schalter, der sich nicht auf eine Gerätegruppe
+eingrenzen liesse.
+
+Drei Festlegungen, die dabei nicht verhandelbar sind:
+
+- **Enddatum ist Pflicht**, und mehr als ein halbes Jahr nimmt das Formular
+  nicht an. Befristet mit einem Datum in zwei Jahren ist keine Befristung.
+  Abgelaufene Profile werden in der Liste als "Rückbau fällig" markiert.
+- Die lokale Administratorengruppe wird über ihre **SID S-1-5-32-544**
+  angesprochen, nicht über den Namen. Auf einem deutschen Windows heisst sie
+  "Administratoren" — mit dem Namen wäre die Policy dort wirkungslos, ohne dass
+  es eine Fehlermeldung gäbe.
+- Die Entra-Gruppe wird über ihre **Gruppen-SID** referenziert, nicht über die
+  Objekt-Id (der Intune-Picker rechnet das im Portal selbst um). Die Umrechnung
+  ist gegen `[Guid]::ToByteArray()` + `BitConverter` gegengeprüft.
+
+### Zuweisungsfilter 24H2 (Tab Intune)
+
+OIB liefert einige Richtlinien doppelt: eine Variante für Windows 11 24H2 und
+neuer, eine für ältere Builds. Bisher stand der Filter dafür nur in der
+Wissensseite. Jetzt erkennt der Tab die Paare an ihren Namen, legt den Filter
+auf Wunsch einmalig an (`(device.osVersion -startsWith "10.0.26")` — deckt 24H2
+und 25H2 ab) und setzt ihn beim Zuweisen automatisch richtig herum: 24H2-Variante
+als Einschluss, Alt-Variante als Ausschluss, beides an dieselbe Gerätegruppe.
+Hat ein Tenant keine solchen Paare, wird der Kasten gar nicht erst angezeigt.
+
+Dazu ein neuer Rückgabewert beim Zuweisen: **`updated`** — die Gruppe war schon
+zugewiesen, aber mit einem anderen Filter. Vorher fiel genau das unter
+`skipped`, und die Änderung, um die es beim Filter geht, wäre stillschweigend
+verschluckt worden.
+
+### App-Hygiene (Tab Apps & Agents)
+
+Rein lesende Prüfung der vorhandenen Win32-Apps gegen das gemeinsame
+Grundgerüst aus Kapitel 9.7. Geprüft wird, was in zwei Kundentenants
+tatsächlich gefunden wurde: Kundenname im Anzeigenamen, derselbe
+`setupdownloader` zweimal in der Kommandozeile, zwei **verschiedene**
+GravityZone-Tokens in einer Zeile (im Fundstück eines auf `de-DE`, eines auf
+`en-US`), "n-Abel" als Hersteller, leeres Mindest-Betriebssystem, Beschreibung
+ohne Kundenbezug, Kommandozeile die eine andere Datei startet als die
+hochgeladene, RMM-Erkennung über die Registry statt über die Datei, mehr als
+eine Required-Gruppe, leere Zielgruppe.
+
+Das Bitdefender-Token wird dabei dekodiert (Base64, `-` zurück zu `/`) und
+zeigt Paket-Id und Sprache. Damit lässt sich jede vorgefundene Kommandozeile
+prüfen, ohne sie auszuführen. **Das Token wird nie vollständig ausgegeben** —
+weder in der Oberfläche noch im Log: Wer es hat, kann Geräte in den
+GravityZone-Mandanten des Kunden einschreiben.
+
+### Remediations (neuer Bereich unter Intune)
+
+Katalog mit Skript-Vorschau, Zuweisung an die dynamischen Gerätegruppen,
+täglicher Lauf um 03:00. Erste Vorlage ist der SSO-Hinweis für die Schweiz
+(`IntegratedServicesRegionPolicySet.json`). Als wiederkehrende Wartung und
+nicht als Einmal-Skript, weil Windows-Updates die Datei zurücksetzen.
+
+Zwei Dinge stehen dick in der Oberfläche: Der **Lizenz-Schalter** unter
+Connectors und Token muss auf Ein stehen, sonst wird die Wartung angelegt und
+läuft nie — dafür gibt es keine API. Und die Zuweisung geht **direkt an die
+GroupTag-Gerätegruppe**: Intune löst verschachtelte Gruppen nur beim
+App-Assignment auf, eine Wartung auf einer App-Zielgruppe erreicht kein
+einziges Gerät.
+
+### DKIM aktivieren (Tab Audit)
+
+Der Audit prüft SPF, DKIM und DMARC seit langem — was fehlte, war der Knopf
+daneben. Steht DKIM in Exchange Online auf aus und sind beide CNAMEs im
+öffentlichen DNS auffindbar, gibt es "DKIM aktivieren": legt die
+Signierungs-Konfiguration mit 2048 Bit an oder schaltet eine vorhandene ein.
+
+Fehlen die CNAMEs, wird der Knopf nicht angeboten und die Vorprüfung sagt
+warum — Exchange lehnt das Aktivieren ohne sie ohnehin ab, nur mit einer
+unschöneren Meldung. Die Schlüssellänge einer **bestehenden** Konfiguration
+bleibt unangetastet: Der Wechsel auf 2048 Bit ist eine Rotation mit eigenem
+Zeitfenster, kein Nebeneffekt eines Aktivieren-Klicks. Steht dort weniger,
+sagt die Erfolgsmeldung es.
+
+### Chrome und Firefox (Tab Browser-Erweiterungen)
+
+Bisher stand dort: "Chrome und Firefox bräuchten eine ADMX-Ingestion und sind
+hier nicht dabei." Bräuchten sie nicht — beide lesen ihre Richtlinien direkt
+aus `HKLM\Software\Policies`. Sie laufen deshalb über dasselbe
+Registry-Plattformskript wie die Bitwarden-Region.
+
+Für Chrome zählt dabei eine andere Erweiterungs-Id als für Edge: Bitwarden
+heisst in Chrome `nngceck…`, in Edge `jbkfoe…`. Wer die Edge-Id in Chromes
+Forcelist schreibt, bekommt eine Richtlinie, die nichts tut und niemandem
+auffällt — der Katalog führt jetzt beide.
+
+Firefox bleibt bewusst ohne Vorlage: Add-on-Ids sind je Add-on verschieden, und
+eine falsch geratene Id erzeugt dieselbe stille Wirkungslosigkeit. Id und
+XPI-URL werden von Hand eingetragen.
+
+### Baseline 1.2
+
+Neuer Abschnitt `tenantHaertung` mit Sollwerten, Begründungen, der
+PUT-Warnung und den Regeln für die befristete Ausnahme. Dazu nachgezogen, was
+inzwischen im Werkzeug steckt (Zuweisungsfilter, Remediations,
+DKIM-Aktivierung) und ein neunter Punkt in der Onboarding-Checkliste. Die
+Wissensseite rendert den Abschnitt mit.
+
+### Berechtigung
+
+Neu **`Policy.ReadWrite.Authorization`**, und zwar als *optionale* Permission —
+aus demselben Grund wie `Policy.ReadWrite.DeviceConfiguration`: Fehlt sie im
+Graph-Service-Principal, soll das Onboarding trotzdem durchlaufen und nur
+dieser eine Bereich melden, dass er nicht darf. **Bestandstenants brauchen
+einmal "Reparieren"**, sonst zeigt die Tenant-Härtung eine 403-Meldung mit
+genau diesem Hinweis.
+
+### Was Handarbeit bleibt — und warum
+
+- **Lizenz-Schalter für Remediations**, **Zugriff aufs Entra Admin Center**,
+  **Office-Software-Download**: keine öffentliche API.
+- **LinkedIn-Kontoverbindungen** und **"Angemeldet bleiben"**: liegen in den
+  `directorySettings`. Erreichbar wären sie nur mit `Directory.ReadWrite.All` —
+  eine sehr breite Berechtigung für zwei Schalter. Nicht dafür.
+- **Cross-Tenant-Domänenliste**: die B2B-Collaboration-Allowlist hängt an einem
+  Legacy-Policy-Objekt ohne saubere dokumentierte Schnittstelle.
+- **Alert Policy `BP_UserRequestReleaseStatus`**: unverändert das Snippet.
+  Security-&-Compliance-PowerShell läuft laut Microsoft nicht auf Linux, das
+  Backend ist ein Linux-Container. Der Ausweg wäre ein Windows-Runner — das ist
+  Infrastruktur, kein Code, und steht bewusst hinten an.
+- **ESP-Zuweisung**, **Cloud Kerberos Trust** (on-prem gegen das AD).
+
+Alle fünf stehen als Liste im neuen Bereich, damit die Checkliste vollständig
+ist — nicht, damit sie jemand übersieht.
+
 ## Version 2.29 - Eingebaute Warnungsrichtlinie wird erkannt statt beschrieben (2026-09-02)
 
 Im Kundentenant nachgemessen: `User restricted from sending email` ist

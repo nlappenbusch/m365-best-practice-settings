@@ -4,8 +4,16 @@
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
-  const oibIcon = { assigned: '✅', skipped: '⏭️', failed: '❌' }
-  const oibText = { assigned: 'zugewiesen', skipped: 'war bereits zugewiesen', failed: 'Fehler' }
+  const oibIcon = { assigned: '✅', updated: '🔄', skipped: '⏭️', failed: '❌' }
+  const oibText = {
+    assigned: 'zugewiesen',
+    // 'updated' heisst: Gruppe war schon zugewiesen, aber mit einem anderen
+    // Filter. Frueher fiel genau das unter 'skipped' — die Aenderung, um die
+    // es beim Filter geht, waere unsichtbar verschluckt worden.
+    updated: 'Filter geändert',
+    skipped: 'war bereits zugewiesen',
+    failed: 'Fehler'
+  }
 
   // Bekannte Break-Risiken aus der OIB-Doku: koennen bestehenden Zugriff
   // brechen, wenn ungetestet scharf ausgerollt. Matching auf den vollen
@@ -60,6 +68,40 @@
   let assigning = $state(false)
   let assignResult = $state(null)  // { error } | { results, gname }
   let lastTenantId = null
+
+  // ---------- Zuweisungsfilter (24H2) ----------
+  // OIB liefert einige Richtlinien doppelt: eine Variante fuer Windows 11 24H2
+  // und neuer, eine fuer aeltere Builds. Ohne Filter braeuchte man dafuer zwei
+  // Geraetegruppen und muesste Geraete beim Build-Wechsel umhaengen. Mit Filter
+  // bleibt es eine Gruppe: die 24H2-Variante mit Einschluss, die Alt-Variante
+  // mit Ausschluss.
+  let filterAnwenden = $state(true)
+  let filterBusy = $state(false)
+
+  const win11Filter = $derived((data?.filters || []).find(f => f.istUnserer) || null)
+  const variantPairs = $derived(data?.variantPairs || [])
+
+  // policyId -> 'include' | 'exclude'. Nur Policies, die wirklich als Paar
+  // vorliegen; eine einzelne 24H2-Policy ohne Gegenstueck braucht keinen Filter.
+  const filterRolle = $derived.by(() => {
+    const map = new Map()
+    for (const pair of variantPairs) {
+      pair.neu.forEach(p => map.set(p.id, 'include'))
+      pair.alt.forEach(p => map.set(p.id, 'exclude'))
+    }
+    return map
+  })
+
+  async function filterAnlegen() {
+    filterBusy = true
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/assignmentfilters/win11`, {})
+      data = { ...data, filters: [...(data.filters || []).filter(f => f.id !== r.filter.id), r.filter] }
+    } catch (e) {
+      loadError = e.message
+    }
+    filterBusy = false
+  }
 
   // ---------- Baseline-Import (OpenIntuneBaseline -> Tenant) ----------
   let importOpen = $state(false)
@@ -509,7 +551,12 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
   async function assign() {
     const selectedPolicies = data.policies.filter(p => checked[p.id])
     if (!selectedPolicies.length) { alert('Keine Policies ausgewählt.'); return }
-    const selected = selectedPolicies.map(p => ({ id: p.id, apiType: p.apiType }))
+    const nutzeFilter = filterAnwenden && !!win11Filter
+    const selected = selectedPolicies.map(p => {
+      const rolle = nutzeFilter ? filterRolle.get(p.id) : null
+      return { id: p.id, apiType: p.apiType, ...(rolle ? { filter: { id: win11Filter.id, type: rolle } } : {}) }
+    })
+    const mitFilter = selected.filter(s => s.filter)
     const gname = data.groups.find(g => g.id === selectedGroupId)?.displayName || selectedGroupId
 
     const risky = selectedPolicies.map(p => ({ p, risk: breakRiskFor(p.name) })).filter(x => x.risk)
@@ -522,7 +569,12 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
       const avLines = avHits.map(p => `• ${p.name}`).join('\n')
       if (!confirm(`🛡️ ${avHits.length} ausgewählte Policy/Policies konfigurieren Microsoft Defender Antivirus:\n\n${avLines}\n\nBei Bitdefender-Kunden gehört das normalerweise NICHT ausgerollt — Defender läuft dort passiv, die Policy greift nicht oder stört.\n\nTrotzdem der Gruppe "${gname}" zuweisen?`)) return
     }
-    if (!confirm(`${selected.length} Policy/Policies der Gruppe "${gname}" zuweisen?\n\nBestehende Assignments bleiben erhalten (Merge).`)) return
+    const filterZeile = mitFilter.length
+      ? `\n\n${mitFilter.length} davon bekommen den Filter „${win11Filter.displayName}":`
+        + ` ${mitFilter.filter(s => s.filter.type === 'include').length}× Einschluss (24H2-Variante),`
+        + ` ${mitFilter.filter(s => s.filter.type === 'exclude').length}× Ausschluss (Alt-Variante).`
+      : ''
+    if (!confirm(`${selected.length} Policy/Policies der Gruppe "${gname}" zuweisen?\n\nBestehende Assignments bleiben erhalten (Merge).${filterZeile}`)) return
     assigning = true
     assignResult = null
     try {
@@ -1192,6 +1244,37 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
           <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={selectAll}>Alle auswählen</button>
           <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={selectNone}>Keine</button>
         </div>
+
+        <!-- Zuweisungsfilter 24H2: nur zeigen, wenn dieser Tenant überhaupt
+             doppelt gelieferte Varianten hat. Wo es keine gibt, braucht es den
+             Filter nicht — und ein Kasten, der immer da steht, wird übersehen. -->
+        {#if variantPairs.length}
+          <div class="ld-banner {win11Filter ? 'ok' : 'warn'}">
+            <div>
+              <b>{variantPairs.length} Richtlinie{variantPairs.length === 1 ? '' : 'n'} liegt doppelt vor — 24H2-Variante und Alt-Variante</b>
+              <div>
+                Statt zweier Gerätegruppen bekommt dieselbe Gruppe beide: die 24H2-Variante mit dem Filter als
+                <b>Einschluss</b>, die Alt-Variante mit demselben Filter als <b>Ausschluss</b>. Regel:
+                <code>(device.osVersion -startsWith "10.0.26")</code> — das deckt 24H2 und 25H2 ab.
+              </div>
+              {#if win11Filter}
+                <label class="ld-oib-row" style="margin-top:0.35rem;">
+                  <input type="checkbox" bind:checked={filterAnwenden} />
+                  <span class="ld-oib-name">Filter „{win11Filter.displayName}" beim Zuweisen anwenden</span>
+                  <small class="ld-oib-assigned">Betrifft nur die {filterRolle.size} Richtlinien, die als Paar vorliegen — alle anderen werden ohne Filter zugewiesen.</small>
+                </label>
+              {:else}
+                <div style="margin-top:0.35rem;">
+                  <button class="btn btn-primary" style="padding:0.25rem 0.7rem; font-size:0.8rem;"
+                          disabled={filterBusy} onclick={filterAnlegen}>
+                    {filterBusy ? '…' : 'Filter anlegen'}
+                  </button>
+                  <small style="margin-left:0.5rem; color:var(--text-dim);">Legt ihn einmalig im Tenant an (Mandantenadministration → Filter).</small>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
         <p class="ld-section-hint">„Alle auswählen“ lässt drei Sorten bewusst aus: veraltete Versionen,
           ⚠ Break-Risiko und 🛡 Defender-Antivirus (wir fahren Bitdefender). Die sind einzeln anhakbar —
           nur eben nicht versehentlich.</p>
@@ -1218,6 +1301,12 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
                 {/if}
                 {#if risk}
                   <span class="ld-oib-risk" title="Break-Risiko: {risk} — wird bei „Alle auswählen“ bewusst NICHT mit ausgewählt, Haken muss hier explizit gesetzt werden.">⚠ Break-Risiko</span>
+                {/if}
+                {#if win11Filter && filterAnwenden && filterRolle.get(p.id)}
+                  <span class="ld-oib-outdated-tag"
+                        title="Diese Richtlinie liegt doppelt vor. Sie wird mit dem 24H2-Filter zugewiesen — {filterRolle.get(p.id) === 'include' ? 'Einschluss: nur auf Geräten ab Build 10.0.26.' : 'Ausschluss: auf allen Geräten ausser denen ab Build 10.0.26.'}">
+                    {filterRolle.get(p.id) === 'include' ? '⊕ Filter: nur 24H2+' : '⊖ Filter: ohne 24H2+'}
+                  </span>
                 {/if}
                 <small class="ld-oib-assigned">
                   {already ? '✓ bereits dieser Gruppe zugewiesen · ' : ''}{(p.assignments || []).length ? '→ ' + p.assignments.map(a => a.label).join(', ') : '→ nicht zugewiesen'}

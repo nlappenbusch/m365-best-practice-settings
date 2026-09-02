@@ -29,6 +29,67 @@ function buildDomainAuthExoBody() {
   ].join("\r\n");
 }
 
+/**
+ * DKIM fuer EINE Domain einschalten.
+ *
+ * Der Ablauf ist derselbe wie im Portal, nur ohne Klickweg: Gibt es noch keine
+ * Signierungs-Konfiguration, wird sie mit 2048 Bit angelegt (New-...), sonst
+ * nur aktiviert (Set-...).
+ *
+ * Reihenfolge ist hier keine Geschmacksfrage: Exchange verweigert das
+ * Einschalten, solange die beiden CNAME-Records nicht im oeffentlichen DNS
+ * stehen ("CNAME record does not exist"). Genau deshalb prueft das Tool die
+ * CNAMEs vorher selbst und bietet diesen Knopf erst an, wenn sie da sind — die
+ * Fehlermeldung von Exchange wird trotzdem durchgereicht, falls das DNS
+ * zwischenzeitlich wieder anders aussieht.
+ *
+ * Die Schluessellaenge einer BESTEHENDEN Konfiguration wird bewusst nicht
+ * angefasst: Ein Wechsel auf 2048 Bit ist eine Rotation
+ * (Rotate-DkimSigningConfig) mit eigenem Zeitfenster, kein Nebeneffekt eines
+ * Aktivieren-Klicks. Der gelesene Wert kommt zurueck, damit die Oberflaeche
+ * darauf hinweisen kann.
+ */
+function buildDkimEnableExoBody(domain) {
+  const d = String(domain || "").trim().toLowerCase();
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d)) {
+    throw Object.assign(new Error("Ungültiger Domainname."), { status: 400 });
+  }
+  // Einfachquotes verdoppeln waere hier ueberfluessig (die Regex oben laesst
+  // kein Quote durch), steht aber bewusst da: Wer die Pruefung spaeter lockert,
+  // soll nicht gleichzeitig eine Injektionsluecke aufmachen.
+  const lit = "'" + d.replace(/'/g, "''") + "'";
+  return [
+    "function Get-Safe([scriptblock]$sb) { try { & $sb } catch { $null } }",
+    `$d = ${lit}`,
+    "$cfg = Get-Safe { Get-DkimSigningConfig -Identity $d -ErrorAction Stop }",
+    "$created = $false",
+    "$err = $null",
+    "try {",
+    "    if ($null -eq $cfg) {",
+    "        New-DkimSigningConfig -DomainName $d -KeySize 2048 -Enabled $true -ErrorAction Stop | Out-Null",
+    "        $created = $true",
+    "    } elseif (-not $cfg.Enabled) {",
+    "        Set-DkimSigningConfig -Identity $d -Enabled $true -ErrorAction Stop | Out-Null",
+    "    }",
+    "} catch {",
+    "    $err = $_.Exception.Message",
+    "}",
+    "$after = Get-Safe { Get-DkimSigningConfig -Identity $d -ErrorAction Stop }",
+    "$res = @{",
+    "    ok = ($null -eq $err)",
+    "    error = $err",
+    "    created = $created",
+    "    domain = $d",
+    "    enabled = [bool]$after.Enabled",
+    "    status = [string]$after.Status",
+    "    keySize = $after.KeySize",
+    "    selector1CNAME = [string]$after.Selector1CNAME",
+    "    selector2CNAME = [string]$after.Selector2CNAME",
+    "}",
+    "Write-Output ('BEGINJSON' + ($res | ConvertTo-Json -Compress -Depth 4) + 'ENDJSON')"
+  ].join("\r\n");
+}
+
 // SPF-Kette rekursiv aufloesen: include:/redirect= nachschlagen, a/mx (die
 // laut RFC ebenfalls Lookups kosten) best effort zu IPs aufloesen. Haelt sich
 // ans 10-Lookup-Limit — was darueber liegt, bleibt unaufgeloest und wird als
@@ -179,4 +240,4 @@ async function checkDomains(domains, dkimConfigs) {
   }));
 }
 
-module.exports = { buildDomainAuthExoBody, lookupSpf, lookupDmarc, lookupDkimCname, checkDomains };
+module.exports = { buildDomainAuthExoBody, buildDkimEnableExoBody, lookupSpf, lookupDmarc, lookupDkimCname, checkDomains, DKIM_SELECTORS };

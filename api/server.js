@@ -72,6 +72,12 @@ const MAESTER_HTML = require("./lib/maesterHtml");
 const ENTRADEV = require("./lib/entraDeviceSettings");
 const OFFICE = require("./lib/officeSuite");
 const MDMENROLL = require("./lib/mdmEnrollment");
+const HARDENING = require("./lib/tenantHardening");
+const ENROLLRESTRICT = require("./lib/enrollmentRestrictions");
+const AFILTERS = require("./lib/assignmentFilters");
+const APPHYGIENE = require("./lib/appHygiene");
+const REMEDIATIONS = require("./lib/remediations");
+const LOCALADMIN = require("./lib/localAdminSetup");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -104,7 +110,12 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // Reparieren komplett blockieren, nur weil eine Zusatzfunktion nicht ginge.
 // Tolerant aufgeloest heisst: fehlt sie, laeuft alles andere weiter und nur der
 // LAPS-Abschnitt meldet fehlende Berechtigung.
-const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration"];
+// Policy.ReadWrite.Authorization kam mit der Tenant-Haertung dazu (Bereich
+// "Tenant-Härtung": Selbstregistrierung, App-Registrierung, Tenant-Erstellung,
+// Gastrechte). Aus demselben Grund optional wie die Zeile davor: Fehlt sie im
+// Graph-Service-Principal, soll das Onboarding trotzdem durchlaufen und nur
+// dieser eine Bereich melden, dass er nicht darf.
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
@@ -1858,6 +1869,12 @@ app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
     });
   }
 
+  // Optionaler Zuweisungsfilter. Zwei Formen: global fuer alle gewaehlten
+  // Policies (b.filter) oder je Policy (p.filter) — Letzteres ist der Fall aus
+  // Kap. 9.3, wo die 24H2-Variante den Filter als Einschluss bekommt und die
+  // Alt-Variante denselben Filter als Ausschluss.
+  const globalFilter = b.filter && b.filter.id ? b.filter : null;
+
   const results = [];
   for (const p of policies) {
     if (!p || !p.id || !["configurationPolicies", "intents"].includes(p.apiType)) {
@@ -1865,13 +1882,37 @@ app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
       continue;
     }
     try {
-      const status = await OIB.assignPolicyToGroup(t, certPemPath(t.tenantId), p, groupId);
+      const filter = (p.filter && p.filter.id) ? p.filter : globalFilter;
+      const status = await OIB.assignPolicyToGroup(t, certPemPath(t.tenantId), p, groupId, filter);
       results.push({ id: p.id, status });
     } catch (e) {
       results.push({ id: p.id, status: "failed", error: e.message });
     }
   }
   res.json({ ok: true, results });
+}));
+
+// ---------- Zuweisungsfilter ----------
+// Der Filter aus Kap. 9.3: OIB liefert einige Richtlinien doppelt (24H2+ und
+// aeltere Builds). Statt zweier Geraetegruppen bekommt dieselbe Gruppe beide
+// Varianten — die eine mit dem Filter als Einschluss, die andere als Ausschluss.
+app.get("/api/tenants/:id/assignmentfilters", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, filters: [{ id: "f1", displayName: AFILTERS.WIN11_24H2.displayName, platform: "windows10AndLater", rule: AFILTERS.WIN11_24H2.rule, istUnserer: true }] });
+  }
+  const filters = await AFILTERS.list(t, certPemPath(t.tenantId));
+  res.json({ ok: true, filters });
+}));
+
+app.post("/api/tenants/:id/assignmentfilters/win11", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, created: true, filter: { id: "f1", displayName: AFILTERS.WIN11_24H2.displayName, rule: AFILTERS.WIN11_24H2.rule, istUnserer: true } });
+  }
+  const r = await AFILTERS.ensureWin11Filter(t, certPemPath(t.tenantId));
+  console.log(`Zuweisungsfilter "${r.filter.displayName}" in Tenant ${t.name}${r.created ? " angelegt" : " war schon vorhanden"}.`);
+  res.json({ ok: true, ...r });
 }));
 
 // ---------- OIB-Baseline-Import (OIBDeployer-Port) ----------
@@ -5056,6 +5097,352 @@ app.post("/api/tenants/:id/m365apps/deploy", wrap(async (req, res) => {
     appGroup: appGroup.displayName, appGroupCreated: appGroup.created,
     groups: chosen.map(g => g.groupName), intent: b.intent === "available" ? "available" : "required"
   });
+}));
+
+// ---------- Tenant-Haertung (Entra-Standardberechtigungen) ----------
+// Die Punkte aus der Onboarding-Checkliste, die bisher Handarbeit im Portal
+// waren: Selbstregistrierung, App-Registrierung, Tenant-Erstellung,
+// Sicherheitsgruppen-Self-Service, Gastrechte, wer einladen darf. Graph fasst
+// sie in /policies/authorizationPolicy zusammen — ein PATCH, kein Vollersatz.
+function hardeningError(e, res) {
+  if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+    res.status(403).json({ error: "Die Tenant-Härtung braucht Policy.ReadWrite.Authorization — im Tab 'Tenants' einmal Reparieren ausführen." });
+    return true;
+  }
+  return false;
+}
+
+app.get("/api/tenants/:id/hardening", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    const fake = HARDENING.summarize({
+      allowedToSignUpEmailBasedSubscriptions: true,
+      allowEmailVerifiedUsersToJoinOrganization: false,
+      allowInvitesFrom: "adminsGuestInvitersAndAllMembers",
+      guestUserRoleId: "10dae51f-b6af-4016-8d66-8c2a99b929b3",
+      allowedToUseSSPR: true, blockMsolPowerShell: false,
+      defaultUserRolePermissions: { allowedToCreateApps: true, allowedToCreateSecurityGroups: true, allowedToCreateTenants: false, allowedToReadOtherUsers: true }
+    });
+    return res.json({ ok: true, settings: fake, score: HARDENING.score(fake) });
+  }
+  try {
+    const pol = await HARDENING.readPolicy(t, certPemPath(t.tenantId));
+    const settings = HARDENING.summarize(pol);
+    res.json({ ok: true, settings, score: HARDENING.score(settings) });
+  } catch (e) {
+    if (!hardeningError(e, res)) throw e;
+  }
+}));
+
+app.post("/api/tenants/:id/hardening/switch", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await HARDENING.setSwitch(t, certPemPath(t.tenantId), String(b.key || ""), !!b.value);
+    console.log(`Tenant-Haertung in ${t.name}: ${b.key} = ${!!b.value}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.settings, score: HARDENING.score(r.settings) });
+  } catch (e) {
+    if (!hardeningError(e, res)) throw e;
+  }
+}));
+
+app.post("/api/tenants/:id/hardening/guestrole", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const key = String((req.body || {}).role || "");
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await HARDENING.setGuestRole(t, certPemPath(t.tenantId), key);
+    console.log(`Tenant-Haertung in ${t.name}: Gastrolle = ${key}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.settings, score: HARDENING.score(r.settings) });
+  } catch (e) {
+    if (!hardeningError(e, res)) throw e;
+  }
+}));
+
+app.post("/api/tenants/:id/hardening/invites", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const value = String((req.body || {}).value || "");
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await HARDENING.setInvitesFrom(t, certPemPath(t.tenantId), value);
+    console.log(`Tenant-Haertung in ${t.name}: Einladungen = ${value}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.settings, score: HARDENING.score(r.settings) });
+  } catch (e) {
+    if (!hardeningError(e, res)) throw e;
+  }
+}));
+
+// Alles auf einmal — ein PATCH statt sechs. Die Bestaetigung passiert im
+// Frontend; hier steht nur, was tatsaechlich anders war.
+app.post("/api/tenants/:id/hardening/defaults", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, geaendert: ["Beispiel"] });
+  try {
+    const r = await HARDENING.applyDefaults(t, certPemPath(t.tenantId));
+    console.log(`Tenant-Haertung in ${t.name}: Managed-Default angewendet — ${r.changed ? r.geaendert.join("; ") : "nichts zu aendern"}.`);
+    res.json({ ok: true, changed: r.changed, geaendert: r.geaendert, settings: r.settings, score: HARDENING.score(r.settings) });
+  } catch (e) {
+    if (!hardeningError(e, res)) throw e;
+  }
+}));
+
+// ---------- Entra-Geraeteeinstellungen: Join, lokale Admins, Kontingent ----------
+// Dieselbe Seite wie der LAPS-Schalter weiter oben, dieselbe Schutzregel
+// (read-modify-write in lib/entraDeviceSettings.js). Ab Werk darf jeder
+// Benutzer bis zu 20 Geraete selbst joinen — so landen private Geraete im
+// Tenant, sobald sich jemand mit Firmen-Anmeldedaten anmeldet.
+function deviceSettingsError(e, res) {
+  if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+    res.status(403).json({ error: "Die Geräteeinstellungen brauchen Policy.ReadWrite.DeviceConfiguration — im Tab 'Tenants' einmal Reparieren ausführen." });
+    return true;
+  }
+  return false;
+}
+
+app.post("/api/tenants/:id/entra/devicesettings/join", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await ENTRADEV.setJoinAllowed(t, certPemPath(t.tenantId), {
+      mode: String(b.mode || ""), groupIds: b.groupIds, userIds: b.userIds
+    });
+    console.log(`Entra-Geraeteeinstellungen in ${t.name}: Beitritt = ${b.mode}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.policy });
+  } catch (e) {
+    if (!deviceSettingsError(e, res)) throw e;
+  }
+}));
+
+app.post("/api/tenants/:id/entra/devicesettings/localadmins", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await ENTRADEV.setLocalAdmins(t, certPemPath(t.tenantId), {
+      globalAdmins: typeof b.globalAdmins === "boolean" ? b.globalAdmins : undefined,
+      registeringUsers: b.registeringUsers || null,
+      groupIds: b.groupIds
+    });
+    console.log(`Entra-Geraeteeinstellungen in ${t.name}: lokale Admins beim Join geaendert${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.policy });
+  } catch (e) {
+    if (!deviceSettingsError(e, res)) throw e;
+  }
+}));
+
+app.post("/api/tenants/:id/entra/devicesettings/quota", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true });
+  try {
+    const r = await ENTRADEV.setDeviceQuota(t, certPemPath(t.tenantId), (req.body || {}).quota);
+    console.log(`Entra-Geraeteeinstellungen in ${t.name}: Geraetekontingent = ${(req.body || {}).quota}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, settings: r.policy });
+  } catch (e) {
+    if (!deviceSettingsError(e, res)) throw e;
+  }
+}));
+
+// ---------- Intune-Registrierungseinschraenkungen ----------
+// Die Geraeteseite zum Entra-Join-Schalter: dort der Entra-Join, hier die
+// MDM-Einschreibung. Wer nur eines setzt, laesst die andere Tuer offen.
+app.get("/api/tenants/:id/enrollmentrestrictions", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, items: [{ id: "e1", displayName: "Alle Benutzer (Standard)", priority: 0, istStandard: true, platformBlocked: false, personalDeviceEnrollmentBlocked: false, konform: false }] });
+  }
+  res.json({ ok: true, items: await ENROLLRESTRICT.list(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/enrollmentrestrictions/:configId/personal", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const blocked = !!(req.body || {}).blocked;
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, items: [] });
+  const r = await ENROLLRESTRICT.setPersonalBlocked(t, certPemPath(t.tenantId), req.params.configId, blocked);
+  console.log(`Registrierungseinschraenkung in ${t.name}: private Geraete ${blocked ? "gesperrt" : "erlaubt"}${r.changed ? "" : " (stand schon so)"}.`);
+  res.json({ ok: true, changed: r.changed, items: r.items });
+}));
+
+// ---------- App-Hygiene ----------
+// Rein lesende Pruefung der Win32-Apps gegen das gemeinsame Grundgeruest:
+// Kundenname im App-Namen, doppelter Installer in der Kommandozeile, fremdes
+// GravityZone-Token, Hersteller-Tippfehler, leeres Mindest-Betriebssystem,
+// Zuweisung am 1:1-Prinzip vorbei.
+app.get("/api/tenants/:id/apphygiene", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, apps: [], zusammenfassung: { gesamt: 0, fehler: 0, warn: 0, hinweis: 0, ok: 0, agents: 0, detailFehlt: 0 } });
+  }
+  const r = await APPHYGIENE.pruefeTenant(t, certPemPath(t.tenantId));
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- Remediations (Erkennen und Beheben) ----------
+app.get("/api/remediations/katalog", (req, res) => {
+  res.json({ ok: true, katalog: REMEDIATIONS.katalogUebersicht() });
+});
+
+app.get("/api/remediations/katalog/:key", wrap(async (req, res) => {
+  res.json({ ok: true, ...REMEDIATIONS.katalogSkripte(req.params.key) });
+}));
+
+app.get("/api/tenants/:id/remediations", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, scripts: [] });
+  res.json({ ok: true, scripts: await REMEDIATIONS.list(t, certPemPath(t.tenantId)) });
+}));
+
+app.post("/api/tenants/:id/remediations", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, scriptId: "rem-1", displayName: REMEDIATIONS.displayNameFor(t, "SSO-Hinweis"), aktualisiert: false, gruppen: 1 });
+  }
+  const r = await REMEDIATIONS.deployKatalog(t, certPemPath(t.tenantId), {
+    key: String(b.key || ""), groupIds: b.groupIds, taeglich: b.taeglich
+  });
+  console.log(`Remediation '${r.displayName}' in Tenant ${t.name} ${r.aktualisiert ? "aktualisiert" : "angelegt"}, ${r.gruppen} Gruppe(n) zugewiesen.`);
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- DKIM aktivieren ----------
+// Der Audit prueft SPF/DKIM/DMARC schon lange; was fehlte, war der Knopf
+// daneben. Exchange verweigert das Einschalten, solange die beiden CNAMEs nicht
+// im oeffentlichen DNS stehen — deshalb wird der Zustand vorher geprueft und
+// die Fehlermeldung von Exchange im Zweifel unveraendert durchgereicht.
+app.post("/api/tenants/:id/dkim/enable", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const domain = String((req.body || {}).domain || "").trim().toLowerCase();
+  if (!domain) return res.status(400).json({ error: "Keine Domain angegeben." });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, domain, enabled: true, created: false, status: "Valid" });
+  }
+
+  // Vorpruefung im oeffentlichen DNS: Ohne die beiden CNAMEs schlaegt Exchange
+  // ohnehin fehl — die eigene Meldung ist an dieser Stelle die brauchbarere.
+  const [c1, c2] = await Promise.all([
+    DOMAINAUTH.lookupDkimCname(domain, DOMAINAUTH.DKIM_SELECTORS[0]),
+    DOMAINAUTH.lookupDkimCname(domain, DOMAINAUTH.DKIM_SELECTORS[1])
+  ]);
+  if (!c1 || !c2) {
+    return res.status(412).json({
+      error: `Die DKIM-CNAME-Records für ${domain} sind im öffentlichen DNS nicht auffindbar `
+        + `(selector1._domainkey: ${c1 || "fehlt"}, selector2._domainkey: ${c2 || "fehlt"}). `
+        + "Exchange lehnt das Aktivieren ohne sie ab — zuerst beim Registrar setzen lassen."
+    });
+  }
+
+  const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+  const r = await EXO.runExo(auth, DOMAINAUTH.buildDkimEnableExoBody(domain), 90000);
+  if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
+  const d = r.data || {};
+  if (d.ok === false) return res.status(502).json({ error: d.error || "DKIM-Aktivierung fehlgeschlagen." });
+
+  console.log(`DKIM fuer ${domain} in Tenant ${t.name} ${d.created ? "angelegt und " : ""}aktiviert (Status ${d.status || "?"}).`);
+  res.json({ ok: true, ...d });
+}));
+
+// ---------- Lokale Administratoren: Einfuehrungsphase ----------
+// Befristete, eng zugewiesene Ausnahme ueber Intune (CSP LocalUsersAndGroups) —
+// bewusst NICHT ueber den tenantweiten Entra-Schalter, der fuer alle
+// Entra-joined Geraete gilt und sich nicht eingrenzen laesst.
+app.get("/api/tenants/:id/localadmins", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, profiles: [], group: null, members: [], vorgeschlagenerName: NAMING.name("localAdminGroup", {}, t.id) });
+  const cert = certPemPath(t.tenantId);
+  const profiles = await LOCALADMIN.listProfiles(t, cert);
+
+  // Die Gruppe wird hier nur GESUCHT, nicht angelegt: Ein GET darf im
+  // Kundentenant nichts erzeugen.
+  let group = null, members = [];
+  const namen = NAMING.candidates("localAdminGroup", {}, t.id).map(n => n.toLowerCase());
+  try {
+    const alle = await GRAPHLIB.graphAllPages(t, cert, "/groups?$filter=securityEnabled eq true&$select=id,displayName&$top=100", { retryTransient: true });
+    const hit = alle.find(g => namen.includes(String(g.displayName || "").toLowerCase()));
+    if (hit) {
+      group = { id: hit.id, displayName: hit.displayName };
+      members = await LOCALADMIN.listMembers(t, cert, hit.id);
+    }
+  } catch (e) { /* ohne Gruppe zeigt die Oberflaeche den Anlegen-Knopf */ }
+
+  res.json({ ok: true, profiles, group, members, vorgeschlagenerName: NAMING.name("localAdminGroup", {}, t.id) });
+}));
+
+app.post("/api/tenants/:id/localadmins/group", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, created: true, group: { id: "g-la", displayName: NAMING.name("localAdminGroup", {}, t.id) } });
+  const r = await LOCALADMIN.ensureGroup(t, certPemPath(t.tenantId));
+  console.log(`Rollengruppe '${r.group.displayName}' in Tenant ${t.name}${r.created ? " angelegt" : " war schon vorhanden"}.`);
+  res.json({ ok: true, ...r });
+}));
+
+app.post("/api/tenants/:id/localadmins/deploy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") {
+    LOCALADMIN.pruefeEnddatum(b.enddatum); // Validierung auch im Fake-Modus echt laufen lassen
+    return res.json({ ok: true, profileId: "la-1", displayName: "WIN - LocalAdmins - Einfuehrung", updated: false, gruppen: 1 });
+  }
+  const r = await LOCALADMIN.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName, groupId: b.groupId,
+    deviceGroupIds: b.deviceGroupIds, enddatum: b.enddatum
+  });
+  console.log(`Lokale-Admin-Ausnahme '${r.displayName}' in Tenant ${t.name} ${r.updated ? "aktualisiert" : "angelegt"} — befristet bis ${r.enddatum}.`);
+  res.json({ ok: true, ...r });
+}));
+
+app.post("/api/tenants/:id/localadmins/remove", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const profileId = String((req.body || {}).profileId || "");
+  if (!profileId) return res.status(400).json({ error: "profileId fehlt." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, removed: true });
+  await LOCALADMIN.removeProfile(t, certPemPath(t.tenantId), profileId);
+  console.log(`Lokale-Admin-Ausnahme in Tenant ${t.name} zurueckgebaut (Profil entfernt).`);
+  res.json({ ok: true, removed: true });
+}));
+
+app.post("/api/tenants/:id/localadmins/cleargroup", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const groupId = String((req.body || {}).groupId || "");
+  if (!groupId) return res.status(400).json({ error: "groupId fehlt." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, entfernt: 0 });
+  const r = await LOCALADMIN.clearGroup(t, certPemPath(t.tenantId), groupId);
+  console.log(`Rollengruppe der lokalen Admins in Tenant ${t.name} geleert (${r.entfernt} Mitglied(er) entfernt).`);
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- Browser-Erweiterungen: Chrome und Firefox ----------
+// Edge laeuft ueber ein Konfigurationsprofil (OMA-URI, siehe oben). Chrome und
+// Firefox lesen ihre Richtlinien direkt aus HKLM — deshalb hier derselbe Weg
+// wie bei der Bitwarden-Region: ein Registry-Plattformskript.
+app.post("/api/tenants/:id/browserext/chrome", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const entries = BROWSEREXT.buildChromeForcelistEntries(b.extensions);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, scriptId: "rp-c", displayName: "WIN - RegistryPolicy - Chrome-Erweiterungen", updated: false, entries });
+  const r = await REGPOLICY.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName || "Chrome-Erweiterungen",
+    entries,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  console.log(`Chrome-Erweiterungen in Tenant ${t.name} ausgerollt (${entries.length} Eintraege).`);
+  res.json({ ok: true, ...r, entries });
+}));
+
+app.post("/api/tenants/:id/browserext/firefox", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const entries = BROWSEREXT.buildFirefoxEntries(b.addons);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, scriptId: "rp-f", displayName: "WIN - RegistryPolicy - Firefox-Erweiterungen", updated: false, entries });
+  const r = await REGPOLICY.deployProfile(t, certPemPath(t.tenantId), {
+    profileName: b.profileName || "Firefox-Erweiterungen",
+    entries,
+    groupIds: Array.isArray(b.groupIds) ? b.groupIds : []
+  });
+  console.log(`Firefox-Erweiterungen in Tenant ${t.name} ausgerollt (${entries.length} Eintraege).`);
+  res.json({ ok: true, ...r, entries });
 }));
 
 // ---------- Conditional Access ----------

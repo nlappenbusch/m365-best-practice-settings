@@ -1,11 +1,16 @@
 {
   "meta": {
-    "version": "1.1",
-    "gueltigAb": "2026-09-01",
+    "version": "1.2",
+    "gueltigAb": "2026-09-02",
     "titel": "igeeks Managed-Setup — Baseline",
     "zweck": "Maschinenlesbare Fassung der Betriebsrichtlinien. Werkzeug, Wissensseiten und Dokumentation speisen sich aus dieser Quelle, damit eine Regeländerung überall gleichzeitig wirkt.",
     "hinweis": "Keine Kundendaten, keine Geheimnisse — reine Richtlinien. Das Namensschema steht NICHT hier, sondern kommt live aus lib/naming.js; die API führt beides zusammen.",
     "changelog": [
+      {
+        "version": "1.2",
+        "am": "2026-09-02",
+        "was": "Tenant-Grundhaertung als eigener Abschnitt (Standardberechtigungen, Gastzugriff, Geraete-Beitritt, Registrierungseinschraenkungen, befristete lokale Administratoren). Dazu nachgezogen, was das Werkzeug inzwischen selbst kann: Zuweisungsfilter, Remediation-Katalog, DKIM-Aktivierung, Chrome- und Firefox-Erweiterungen."
+      },
       {
         "version": "1.1",
         "am": "2026-09-01",
@@ -330,7 +335,8 @@
     "assignmentFilter": {
       "name": "Windows 11 24H2 Device Filter",
       "regel": "(device.osVersion -startsWith \"10.0.26\")",
-      "zweck": "OIB liefert manche Policies doppelt (24H2+ und ältere Builds). Die 24H2-Variante wird mit dem Filter als Include zugewiesen, die Alt-Variante mit demselben Filter als Exclude — statt eigener Versionsgruppen."
+      "zweck": "OIB liefert manche Policies doppelt (24H2+ und ältere Builds). Die 24H2-Variante wird mit dem Filter als Include zugewiesen, die Alt-Variante mit demselben Filter als Exclude — statt eigener Versionsgruppen.",
+      "werkzeug": "Tab Intune: Der Filter wird einmalig angelegt und beim Zuweisen automatisch richtig herum gesetzt - 24H2-Variante als Einschluss, Alt-Variante als Ausschluss. Das Werkzeug erkennt die doppelt gelieferten Paare an ihren Namen; wo es keine gibt, wird der Filter auch nicht angeboten."
     },
     "zuweisungslogik": "Policies werden nie pro Gerät zugewiesen, sondern an die dynamischen Gerätegruppen aus der GroupTag-Kette. Break-Risk-Policies zuerst an den Pilot-Ring, dann Uat, dann breit."
   },
@@ -366,6 +372,10 @@
     {
       "punkt": "Gerätegruppen und GroupTags",
       "vorgabe": "Pro GroupTag eine dynamische Gerätegruppe. Ohne passende Gruppe läuft ein GroupTag ins Leere — das Gerät bekommt weder Profil noch Policies."
+    },
+    {
+      "punkt": "Tenant-Grundhaertung",
+      "vorgabe": "Standardberechtigungen, Gastzugriff, Geraete-Beitritt und Registrierungseinschraenkungen auf den Managed-Default ziehen (Abschnitt Tenant-Haertung). Was ohne Schnittstelle bleibt, steht dort als Liste - inklusive des Lizenz-Schalters fuer Remediations."
     }
   ],
   "mailHaertung": {
@@ -561,7 +571,8 @@
       {
         "mechanismus": "DKIM",
         "soll": "Pro Domain aktivieren (2048 bit): zuerst die zwei CNAMEs selector1/selector2._domainkey, dann Signierung einschalten.",
-        "wo": "DNS manuell, Aktivierung automatisierbar"
+        "wo": "DNS manuell, Aktivierung im Werkzeug (Tab Audit, Knopf je Domain)",
+        "werkzeug": "Der Audit prueft beides zusammen: Aktivierungsstatus in Exchange Online und die zwei CNAMEs im oeffentlichen DNS. Stehen die CNAMEs und ist DKIM aus, gibt es den Aktivieren-Knopf direkt daneben. Fehlen sie, wird er nicht angeboten - Exchange lehnt das Aktivieren dann ohnehin ab. Die Schluessellaenge einer bestehenden Konfiguration bleibt unangetastet: der Wechsel auf 2048 Bit ist eine Rotation mit eigenem Zeitfenster."
       },
       {
         "mechanismus": "DMARC",
@@ -764,6 +775,98 @@
       "Run in 64-bit PowerShell: Yes.",
       "Wiederkehrend laufen lassen, nicht einmalig: Windows-Updates setzen manche Änderungen zurück, die Detection erkennt den Rückfall."
     ],
-    "abgrenzung": "Eine Remediation ist der Weg für alles, was kein Konfigurationsprofil abbilden kann. Was der Installer einer App nicht kann, gehört ebenfalls hierher — nicht in Pre- oder Post-Install-Skripte der App selbst."
+    "abgrenzung": "Eine Remediation ist der Weg für alles, was kein Konfigurationsprofil abbilden kann. Was der Installer einer App nicht kann, gehört ebenfalls hierher — nicht in Pre- oder Post-Install-Skripte der App selbst.",
+    "werkzeug": "Tab Remediations: Vorlagen aus dem Katalog werden als Skriptpaar angelegt und den dynamischen Geraetegruppen zugewiesen, wiederkehrend (taeglich 03:00). Der Lizenz-Schalter unter Connectors und Token bleibt Handarbeit - dafuer gibt es keine Schnittstelle.",
+    "zuweisungsfalle": "Immer direkt an die dynamische GroupTag-Geraetegruppe. Intune loest verschachtelte Gruppen nur beim App-Assignment auf - eine Wartung auf einer App-Zielgruppe erreicht kein einziges Geraet."
+  },
+  "tenantHaertung": {
+    "titel": "Tenant-Grundhaertung",
+    "zweck": "Grundeinstellungen, die bei jedem Managed-Tenant vor dem Regelbetrieb gesetzt werden - sie verhindern Shadow-IT, unkontrollierte Identitaeten und ungeplante Geraete im Tenant. Alles davon wirkt tenantweit.",
+    "werkzeug": "Tab Tenant-Haertung. Standardberechtigungen und Gastzugriff kommen aus einem einzigen Graph-Objekt (authorizationPolicy, PATCH); Geraete-Beitritt und lokale Administratoren aus der deviceRegistrationPolicy (PUT - deshalb ausschliesslich read-modify-write, siehe Warnung unten); die Registrierungseinschraenkungen aus Intune.",
+    "standardberechtigungen": [
+      {
+        "einstellung": "Selbstregistrierung fuer E-Mail-basierte Abonnements",
+        "soll": "aus",
+        "warum": "Sonst legen Benutzer sich eigenstaendig Abonnements an - unkontrollierte Identitaeten ohne Onboarding-Prozess. In Academic-Tenants oft ab Werk an."
+      },
+      {
+        "einstellung": "Beitritt ueber verifizierte E-Mail-Adresse",
+        "soll": "aus",
+        "warum": "Wer eine Adresse einer Tenant-Domain nachweisen kann, waere sonst selbst Mitglied - an jedem Onboarding vorbei."
+      },
+      {
+        "einstellung": "Benutzer duerfen Anwendungen registrieren",
+        "soll": "aus",
+        "warum": "App-Registrierungen sind genehmigungspflichtig und laufen ueber benannte Konten."
+      },
+      {
+        "einstellung": "Nicht-Administratoren duerfen Tenants erstellen",
+        "soll": "aus",
+        "warum": "Verhindert Shadow-Tenants neben dem betreuten Verzeichnis."
+      },
+      {
+        "einstellung": "Benutzer duerfen Sicherheitsgruppen erstellen",
+        "soll": "aus",
+        "warum": "Das Gruppenkonzept wird zentral gesteuert. Unified Groups bleiben davon unberuehrt - dort greifen Namensrichtlinie und Ablauf."
+      },
+      {
+        "einstellung": "Benutzer duerfen andere Benutzer lesen",
+        "soll": "ein",
+        "warum": "Bleibt an. Das Abschalten unterstuetzt Microsoft nur in Sonderfaellen; aus bricht Adressbuch, Teams-Suche und Delegierung. Das Werkzeug schaltet diesen Punkt bewusst nicht um."
+      }
+    ],
+    "gaeste": [
+      "Gastzugriff auf die restriktivste Stufe: beschraenkt auf Eigenschaften und Mitgliedschaften eigener Verzeichnisobjekte - Gaeste sehen das Verzeichnis nicht.",
+      "Einladungen nur durch Administratoren und benannte Gasteinlader. Dem Kunden die Auswirkung auf die Zusammenarbeit mit Dritten bewusst machen.",
+      "Cross-Tenant-Zugriff auf Partnerdomaenen begrenzen - bleibt Handarbeit im Portal."
+    ],
+    "geraeteBeitritt": [
+      {
+        "einstellung": "Wer darf Geraete joinen",
+        "soll": "Niemand oder eine benannte Koordinatoren-Gruppe",
+        "warum": "Ab Werk darf jeder Benutzer bis zu 20 Geraete selbst joinen - so landen private Geraete im Tenant, sobald sich jemand mit Firmen-Anmeldedaten anmeldet. Im Managed-Setup kommen Geraete ueber Autopilot."
+      },
+      {
+        "einstellung": "Globale Administratoren werden lokale Admins",
+        "soll": "nein",
+        "warum": "Tier-Trennung - globale Administratoren haben auf Endgeraeten nichts verloren."
+      },
+      {
+        "einstellung": "Registrierender Benutzer wird lokaler Admin",
+        "soll": "niemand",
+        "warum": "Benutzer bleiben Standardbenutzer. Lokale Rechte laufen ueber LAPS und, befristet, ueber die Ausnahme der Einfuehrungsphase."
+      },
+      {
+        "einstellung": "Windows LAPS",
+        "soll": "ein",
+        "warum": "Verwaltete, rotierte lokale Administratorkennwoerter mit Hinterlegung in Entra. Ohne den Schalter laeuft die LAPS-Policy in Intune ins Leere - ohne Fehlermeldung."
+      },
+      {
+        "einstellung": "Registrierungseinschraenkungen (Intune)",
+        "soll": "private Geraete sperren",
+        "warum": "Der Entra-Schalter regelt den Entra-Join, diese Einschraenkung die MDM-Einschreibung. Wer nur eines setzt, laesst die andere Tuer offen."
+      }
+    ],
+    "warnungPut": "Die Geraeteeinstellungen sind bei Graph ein PUT: Das Update ersetzt das ganze Objekt, und fehlt userDeviceQuota im Koerper, setzt Graph sie auf 0 - dann kann tenantweit niemand mehr ein Geraet joinen, ohne Fehlermeldung. Deshalb ausschliesslich read-modify-write; sieht der gelesene Stand unvollstaendig aus, wird gar nicht geschrieben.",
+    "lokaleAdminsEinfuehrung": {
+      "these": "Keine zusaetzlichen lokalen Administratoren ist das Zielbild und der Endzustand. Waehrend des Aufbaus eines Kunden ist er nicht durchhaltbar: Ersteinrichtung, Migration und Nacharbeiten verlangen laufend lokale Rechte. Wer dafuer jedes Mal das LAPS-Kennwort im Portal nachschlaegt und abtippt, sorgt dafuer, dass genau dieses Kennwort notiert und weitergegeben wird.",
+      "weg": "Nicht ueber den tenantweiten Entra-Schalter - der gilt fuer alle Entra-joined Geraete und laesst sich nicht auf eine Geraetegruppe eingrenzen. Sondern ueber Intune, CSP LocalUsersAndGroups: lokale Gruppe Administratoren, Aktion Add (Update), Mitglied ist eine Entra-Gruppe.",
+      "regeln": [
+        "Eigene, benannte Rollengruppe - keine Sammelgruppe, keine Rolle \"alle Benutzer\".",
+        "Zuweisung nur auf die Geraetegruppe der Einfuehrungsphase, nie auf den ganzen Bestand.",
+        "Enddatum ist Pflicht und steht in der Beschreibung des Profils. Das Werkzeug laesst hoechstens ein halbes Jahr zu - befristet mit einem Datum in zwei Jahren ist keine Befristung.",
+        "LAPS bleibt die ganze Zeit aktiv und ist nach dem Rueckbau der einzige Weg zu lokalen Rechten; Dauer-Ausnahmen laufen ueber PIM, nicht ueber diese Gruppe.",
+        "Rueckbau ist Teil der Abnahme: Profil entfernen, Gruppe leeren, im Delta-Register nachweisen."
+      ],
+      "preis": "Ein lokaler Administrator kann Sicherheitsagenten abschalten (Bitdefender-Tamper-Protection, RMM-Dienst) und Teile der Baseline lokal aushebeln. Kurz halten, eng zuweisen, nicht auf Geraeten laufen lassen, die bereits im Regelbetrieb mit Kundendaten sind.",
+      "stolperfalle": "Entra-Gruppen werden in dieser Policy ueber ihre Gruppen-SID referenziert, nicht ueber die Objekt-Id. Der Intune-Picker rechnet sie im Portal selbst um; wer die Policy per API baut, muss es selbst tun."
+    },
+    "bleibtManuell": [
+      "Remediations freischalten: Intune > Mandantenadministration > Connectors und Token > Windows-Daten.",
+      "Zugriff aufs Entra Admin Center einschraenken.",
+      "LinkedIn-Kontoverbindungen - im Zweifel aus, Compliance und Datenschutz bewerten.",
+      "Office-Selbstinstallation abschalten (M365 Admin Center > Einstellungen > Dienste > Software-Download).",
+      "Cross-Tenant-Zugriff: Einladungen nur fuer angegebene Domaenen zulassen."
+    ]
   }
 }

@@ -1,8 +1,35 @@
 <script>
   import { session } from '../lib/session.js'
   import { dlApi } from '../lib/downloads.js'
+  import { apiGet } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import AppDeployModal from '../lib/AppDeployModal.svelte'
+
+  // ---------- App-Hygiene ----------
+  // Rein lesende Prüfung der vorhandenen Win32-Apps gegen das gemeinsame
+  // Grundgerüst: Kundenname im App-Namen, derselbe Installer zweimal in der
+  // Kommandozeile, ein fremdes GravityZone-Token, Hersteller-Tippfehler, leeres
+  // Mindest-Betriebssystem, Zuweisung am 1:1-Prinzip vorbei. Nichts davon fällt
+  // im Portal auf, jedes einzelne kostet später Zeit.
+  let hyg = $state(null)
+  let hygBusy = $state(false)
+  let hygError = $state(null)
+  let hygNurBefunde = $state(true)
+
+  const hygSichtbar = $derived(
+    !hyg ? [] : (hygNurBefunde ? hyg.apps.filter(a => a.funde.length) : hyg.apps)
+  )
+
+  async function loadHyg() {
+    if (!$activeTenant) { hygError = 'Kein Tenant ausgewählt — oben im Header einen wählen.'; return }
+    hygBusy = true; hygError = null
+    try {
+      hyg = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/apphygiene`)
+    } catch (e) {
+      hygError = e.message
+    }
+    hygBusy = false
+  }
 
   let deployModal = $state(null) // { vendor, appNameDefault, source } | null
 
@@ -184,6 +211,89 @@
       <button type="button" class="dl-subtab" class:active={sub === 'rmm'} onclick={() => switchSub('rmm')}>🖥️ N-sight RMM</button>
       <button type="button" class="dl-subtab" class:active={sub === 'fc'} onclick={() => switchSub('fc')}>🔴 FortiClient</button>
       <button type="button" class="dl-subtab" class:active={sub === 'bw'} onclick={() => switchSub('bw')}>🔐 Bitwarden</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'hyg'} onclick={() => { sub = 'hyg'; if (!hyg && !hygBusy) loadHyg() }}>🔎 App-Hygiene</button>
+    </div>
+
+    <!-- App-Hygiene -->
+    <div class="dl-panel" class:active={sub === 'hyg'}>
+      <div class="alert alert-info">
+        <strong>Was hier geprüft wird:</strong> die vorhandenen Win32-Apps des aktiven Tenants gegen das gemeinsame
+        Grundgerüst — Anzeigename ohne Kundennamen, genau eine Nennung des Installers, ein Token passend zur
+        hochgeladenen Datei, korrekter Hersteller, gesetztes Mindest-Betriebssystem, genau eine Required-Gruppe.
+        Rein lesend: Das Werkzeug ändert hier nichts, es sagt nur, was zu ändern ist.
+      </div>
+
+      <div class="dl-toolbar">
+        <button class="btn btn-primary" disabled={hygBusy} onclick={loadHyg}>{hygBusy ? 'Prüfe…' : (hyg ? 'Erneut prüfen' : 'Prüfen')}</button>
+        {#if hyg}
+          <label class="rm-check" style="margin:0">
+            <input type="checkbox" bind:checked={hygNurBefunde} />
+            <span>Nur Apps mit Befund</span>
+          </label>
+          <span class="dl-count">
+            {hyg.zusammenfassung.gesamt} Apps · {hyg.zusammenfassung.fehler} Fehler ·
+            {hyg.zusammenfassung.warn} Warnungen · {hyg.zusammenfassung.hinweis} Hinweise
+          </span>
+        {/if}
+      </div>
+
+      {#if hygError}<div class="alert alert-warning">❌ {hygError}</div>{/if}
+
+      {#if hyg}
+        {#if hyg.zusammenfassung.detailFehlt}
+          <div class="alert alert-warning">
+            Für {hyg.zusammenfassung.detailFehlt} App(s) konnten die Details nicht geladen werden — bei sehr vielen Apps
+            wird die Detailrunde begrenzt, damit die Prüfung nicht in einen Timeout läuft. Erkennungsregeln und
+            Kommandozeile fehlen dort in der Bewertung.
+          </div>
+        {/if}
+
+        {#if !hygSichtbar.length}
+          <div class="dl-empty">
+            {hyg.zusammenfassung.gesamt ? 'Kein Befund — alle geprüften Apps entsprechen dem Grundgerüst.' : 'Keine Win32-Apps in diesem Tenant.'}
+          </div>
+        {/if}
+
+        {#each hygSichtbar as a (a.id)}
+          <div class="ah-app {a.schwere}">
+            <div class="ah-app-head">
+              <b>{a.displayName}</b>
+              <span class="ah-sev {a.schwere}">{a.schwere === 'ok' ? 'in Ordnung' : a.schwere}</span>
+              {#if a.agent}<span class="hd-tag">{a.agent.label}</span>{/if}
+              {#if a.publisher}<span class="hd-why" style="margin:0">{a.publisher}</span>{/if}
+            </div>
+
+            {#if a.installCommandLine}<div class="ah-meta">{a.installCommandLine}</div>{/if}
+
+            {#if a.bitdefender}
+              <div class="ah-meta">
+                {#each a.bitdefender.tokens as t (t.token)}
+                  <div>
+                    Token {t.token}
+                    {#if t.lesbar}→ Paket {t.paketId || '?'} · Sprache {t.sprache || '?'}{:else}→ {t.grund}{/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if a.assignments.length}
+              <div class="hd-why">
+                Zuweisung: {a.assignments.map(x => `${x.gruppe} (${x.intent}${x.mitgliederBekannt ? `, ${x.mitglieder} Mitglied(er)` : ''})`).join(' · ')}
+              </div>
+            {:else}
+              <div class="hd-why">Keine Zuweisung.</div>
+            {/if}
+
+            {#each a.funde as f}
+              <div class="ah-fund">
+                <b>{f.schwere === 'fehler' ? '❌' : f.schwere === 'warn' ? '⚠️' : 'ℹ️'} {f.titel}</b>
+                {f.text}
+                {#if f.empfehlung}<div class="ah-emp">→ {f.empfehlung}</div>{/if}
+              </div>
+            {/each}
+          </div>
+        {/each}
+      {/if}
     </div>
 
     <!-- Bitdefender -->

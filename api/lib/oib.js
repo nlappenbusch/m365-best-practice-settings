@@ -15,6 +15,7 @@
  * bestehende Assignments entfernt. Hier werden bestehende Targets gemerged.
  */
 const { graphReq, graphAllPages } = require("./graph");
+const FILTERS = require("./assignmentFilters");
 
 const POLICY_PREFIX = "Win - OIB";
 
@@ -101,9 +102,14 @@ async function loadOibOverview(tenant, certPemPath) {
   const toPolicy = (id, name, apiType, assignments) => ({
     id, name, apiType,
     type: nameType(name),
+    // Doppelt gelieferte Build-Varianten kennzeichnen (Kap. 9.3): Die Sicht
+    // braucht das, um beim Zuweisen den 24H2-Filter richtig herum anzubieten.
+    variant: FILTERS.is24H2Variant(name) ? "24h2" : "legacy",
     assignments: (assignments || []).map(a => ({
       groupId: (a.target && a.target.groupId) || null,
-      label: describeTarget(a.target, groupNames)
+      label: describeTarget(a.target, groupNames),
+      filterId: (a.target && a.target.deviceAndAppManagementAssignmentFilterId) || null,
+      filterType: (a.target && a.target.deviceAndAppManagementAssignmentFilterType) || "none"
     }))
   });
 
@@ -112,33 +118,77 @@ async function loadOibOverview(tenant, certPemPath) {
     ...oibIntents.map(p => toPolicy(p.id, p.displayName, "intents", intentAssignments.get(p.id)))
   ].sort((a, b) => a.name.localeCompare(b.name));
 
+  // Zuweisungsfilter des Tenants dazu — fehlertolerant: ohne sie bleibt die
+  // normale Zuweisung nutzbar, es fehlt nur die Filter-Spalte.
+  let filters = [], filtersError = null;
+  try {
+    filters = await FILTERS.list(tenant, certPemPath);
+  } catch (e) {
+    filtersError = e.message;
+  }
+
   return {
     groups: groups
       .map(g => ({ id: g.id, displayName: g.displayName, membershipRule: g.membershipRule || "", state: g.membershipRuleProcessingState || "" }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName)),
     policies,
+    filters,
+    filtersError,
+    // Paare aus 24H2- und Alt-Variante: genau die Faelle, fuer die der Filter
+    // gedacht ist. Ist die Liste leer, braucht dieser Tenant ihn gar nicht.
+    variantPairs: FILTERS.findVariantPairs(policies).map(pair => ({
+      key: pair.key,
+      neu: pair.neu.map(p => ({ id: p.id, name: p.name, apiType: p.apiType })),
+      alt: pair.alt.map(p => ({ id: p.id, name: p.name, apiType: p.apiType }))
+    })),
     intentsError
   };
 }
 
 /**
  * Eine Policy der Zielgruppe zuweisen — bestehende Assignments bleiben erhalten
- * (Merge). Rueckgabe: 'assigned' | 'skipped'.
+ * (Merge). Rueckgabe: 'assigned' | 'skipped' | 'updated'.
+ *
+ * `filter` ist optional: { id, type: 'include' | 'exclude' }. Damit bekommt
+ * dieselbe Gerätegruppe die 24H2-Variante einer Richtlinie mit Einschluss und
+ * die Alt-Variante mit Ausschluss (Kap. 9.3 der Wissensbasis) — statt zweier
+ * Gruppen, die man beim Build-Wechsel pflegen muesste.
+ *
+ * 'updated' heisst: Die Gruppe war schon zugewiesen, aber mit einem anderen
+ * Filter. Das stumpfe 'skipped' von frueher haette hier genau die Aenderung
+ * verschluckt, um die es geht.
  */
-async function assignPolicyToGroup(tenant, certPemPath, policy, groupId) {
+async function assignPolicyToGroup(tenant, certPemPath, policy, groupId, filter) {
   const beta = { beta: true };
   const base = policy.apiType === "intents" ? "/deviceManagement/intents" : "/deviceManagement/configurationPolicies";
 
+  const wantFilterId = filter && filter.id ? filter.id : null;
+  const wantFilterType = wantFilterId ? (filter.type === "exclude" ? "exclude" : "include") : "none";
+
   const current = await graphReq(tenant, certPemPath, "GET", `${base}/${policy.id}/assignments`, null, beta);
   const existing = current.value || [];
-  if (existing.some(a => a.target && a.target.groupId === groupId)) return "skipped";
+  const mine = existing.find(a => a.target && a.target.groupId === groupId);
 
-  // Bestehende Targets 1:1 uebernehmen (inkl. Assignment-Filtern), neue Gruppe ergaenzen
-  const assignments = existing.map(a => ({ target: a.target }));
-  assignments.push({ target: { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId } });
+  if (mine) {
+    const istFilterId = mine.target.deviceAndAppManagementAssignmentFilterId || null;
+    const istFilterType = mine.target.deviceAndAppManagementAssignmentFilterType || "none";
+    if (istFilterId === wantFilterId && istFilterType === wantFilterType) return "skipped";
+  }
+
+  // Bestehende Targets 1:1 uebernehmen (inkl. ihrer Assignment-Filter), das
+  // eigene Target ersetzen oder ergaenzen.
+  const target = { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId };
+  if (wantFilterId) {
+    target.deviceAndAppManagementAssignmentFilterId = wantFilterId;
+    target.deviceAndAppManagementAssignmentFilterType = wantFilterType;
+  }
+  const assignments = existing
+    .filter(a => !(a.target && a.target.groupId === groupId))
+    .map(a => ({ target: a.target }));
+  assignments.push({ target });
 
   await graphReq(tenant, certPemPath, "POST", `${base}/${policy.id}/assign`, { assignments }, beta);
-  return "assigned";
+  return mine ? "updated" : "assigned";
 }
 
-module.exports = { loadOibOverview, assignPolicyToGroup, POLICY_PREFIX };
+module.exports = { loadOibOverview, assignPolicyToGroup, POLICY_PREFIX, nameType };

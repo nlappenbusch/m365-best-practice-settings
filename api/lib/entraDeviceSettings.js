@@ -80,18 +80,20 @@ function summarize(policy) {
 }
 
 /**
- * LAPS ein- oder ausschalten. Idempotent: steht der Wert schon richtig, wird
- * nicht geschrieben (changed:false) — ein PUT nur zum Bestaetigen waere unnoetiges
- * Risiko an einem tenantweiten Objekt.
+ * Gemeinsamer Schreibweg fuer alle Schalter dieser Seite: lesen, den vollen
+ * schreibbaren Koerper bauen, `mutate` genau ein Feld aendern lassen, schreiben.
+ * Meldet `mutate` false zurueck ("steht schon so"), wird gar nicht geschrieben.
+ *
+ * Warum nicht jede Funktion fuer sich: Es gibt hier nur einen einzigen sicheren
+ * Ablauf (read-modify-write mit Vollstaendigkeitspruefung). Jede Kopie davon
+ * waere eine Stelle, an der die userDeviceQuota-Falle wieder aufgehen kann.
  */
-async function setLapsEnabled(tenant, certPemPath, enabled) {
+async function updatePolicy(tenant, certPemPath, mutate) {
   const before = await readPolicy(tenant, certPemPath);
   const body = writableBody(before);
-  const want = !!enabled;
-  if (body.localAdminPassword.isEnabled === want) {
+  if (mutate(body, before) === false) {
     return { changed: false, before: summarize(before), policy: summarize(before) };
   }
-  body.localAdminPassword = { isEnabled: want };
   const updated = await graphReq(tenant, certPemPath, "PUT", POLICY_PATH, body);
   // PUT liefert laut Doku das aktualisierte Objekt zurueck; falls doch leer,
   // den Stand frisch lesen statt den Wunschwert zu behaupten.
@@ -99,4 +101,121 @@ async function setLapsEnabled(tenant, certPemPath, enabled) {
   return { changed: true, before: summarize(before), policy: summarize(after) };
 }
 
-module.exports = { readPolicy, summarize, setLapsEnabled, writableBody, describeMembership, POLICY_PATH };
+/**
+ * LAPS ein- oder ausschalten. Idempotent: steht der Wert schon richtig, wird
+ * nicht geschrieben (changed:false) — ein PUT nur zum Bestaetigen waere unnoetiges
+ * Risiko an einem tenantweiten Objekt.
+ */
+async function setLapsEnabled(tenant, certPemPath, enabled) {
+  const want = !!enabled;
+  return updatePolicy(tenant, certPemPath, (body) => {
+    if (body.localAdminPassword.isEnabled === want) return false;
+    body.localAdminPassword = { isEnabled: want };
+  });
+}
+
+// ---------------------------------------------------------------- Mitgliedschaften
+// Die polymorphen "wer darf?"-Felder kennen drei Auspraegungen. Sie werden hier
+// gebaut statt an den Aufrufstellen zusammengesteckt, weil ein falscher
+// @odata.type von Graph nicht als Fehler, sondern als "niemand" interpretiert
+// werden kann — und das faellt erst auf, wenn kein Geraet mehr joint.
+const MEMBERSHIP_TYPES = {
+  all: "#microsoft.graph.allDeviceRegistrationMembership",
+  none: "#microsoft.graph.noDeviceRegistrationMembership",
+  selected: "#microsoft.graph.enumeratedDeviceRegistrationMembership"
+};
+
+function buildMembership(mode, groupIds, userIds) {
+  if (mode === "all" || mode === "none") return { "@odata.type": MEMBERSHIP_TYPES[mode] };
+  if (mode !== "selected") throw Object.assign(new Error("Unbekannter Modus: " + mode), { status: 400 });
+  const groups = (groupIds || []).filter(Boolean);
+  const users = (userIds || []).filter(Boolean);
+  if (!groups.length && !users.length) {
+    throw Object.assign(new Error("Für „Ausgewählte“ mindestens eine Gruppe oder einen Benutzer angeben — sonst darf faktisch niemand, ohne dass es so dasteht."), { status: 400 });
+  }
+  return { "@odata.type": MEMBERSHIP_TYPES.selected, users, groups };
+}
+
+/** Zwei Mitgliedschaften vergleichen, um ein PUT ohne Wirkung zu vermeiden. */
+function sameMembership(a, b) {
+  const ta = String((a || {})["@odata.type"] || ""), tb = String((b || {})["@odata.type"] || "");
+  if (ta.toLowerCase() !== tb.toLowerCase()) return false;
+  if (!/enumerated/i.test(ta)) return true;
+  const norm = x => [...new Set(x || [])].map(String).sort().join(",");
+  return norm((a || {}).groups) === norm((b || {}).groups) && norm((a || {}).users) === norm((b || {}).users);
+}
+
+/**
+ * Wer Geraete per Entra-Join in den Tenant bringen darf.
+ * Managed-Default: "Ausgewählte" (IT-Koordinatoren) oder "Niemand" — Geraete
+ * kommen kontrolliert ueber Autopilot. Ab Werk duerfen alle Benutzer bis zu
+ * 20 Geraete selbst joinen; so landen private Geraete im Tenant, sobald sich
+ * jemand mit Firmen-Anmeldedaten anmeldet.
+ */
+async function setJoinAllowed(tenant, certPemPath, { mode, groupIds, userIds }) {
+  const want = buildMembership(mode, groupIds, userIds);
+  return updatePolicy(tenant, certPemPath, (body) => {
+    const join = body.azureADJoin || {};
+    if (sameMembership(join.allowedToJoin, want)) return false;
+    body.azureADJoin = Object.assign({}, join, { allowedToJoin: want });
+  });
+}
+
+/** Dasselbe fuer die Geraete-Registrierung (BYOD/Workplace Join). */
+async function setRegisterAllowed(tenant, certPemPath, { mode, groupIds, userIds }) {
+  const want = buildMembership(mode, groupIds, userIds);
+  return updatePolicy(tenant, certPemPath, (body) => {
+    const reg = body.azureADRegistration || {};
+    if (sameMembership(reg.allowedToRegister, want)) return false;
+    body.azureADRegistration = Object.assign({}, reg, { allowedToRegister: want });
+  });
+}
+
+/**
+ * Lokale Administratoren beim Entra-Join.
+ * Managed-Default: Globale Administratoren NEIN (Tier-Trennung — GAs haben auf
+ * Endgeraeten nichts verloren), registrierender Benutzer NIEMAND (Benutzer
+ * bleiben Standardbenutzer). Lokale Rechte laufen ueber LAPS und, befristet,
+ * ueber die Intune-Policy fuer die Einfuehrungsphase.
+ */
+async function setLocalAdmins(tenant, certPemPath, { globalAdmins, registeringUsers, groupIds }) {
+  return updatePolicy(tenant, certPemPath, (body) => {
+    const join = body.azureADJoin || {};
+    const local = Object.assign({}, join.localAdmins || {});
+    let touched = false;
+
+    if (typeof globalAdmins === "boolean" && !!local.enableGlobalAdmins !== globalAdmins) {
+      local.enableGlobalAdmins = globalAdmins;
+      touched = true;
+    }
+    if (registeringUsers) {
+      const want = buildMembership(registeringUsers, groupIds, null);
+      if (!sameMembership(local.registeringUsers, want)) { local.registeringUsers = want; touched = true; }
+    }
+    if (!touched) return false;
+    body.azureADJoin = Object.assign({}, join, { localAdmins: local });
+  });
+}
+
+/**
+ * Geraetekontingent pro Benutzer. Microsofts Vorgabe ist 20; im Managed-Setup
+ * mit Autopilot braucht ein Benutzer keines, weil nicht er das Geraet einbringt.
+ * 0 ist erlaubt und heisst wirklich null — deshalb der explizite Typcheck statt
+ * einer Wahrheitswertpruefung.
+ */
+async function setDeviceQuota(tenant, certPemPath, quota) {
+  const n = Number(quota);
+  if (!Number.isInteger(n) || n < 0 || n > 20) {
+    throw Object.assign(new Error("Gerätekontingent muss eine ganze Zahl zwischen 0 und 20 sein."), { status: 400 });
+  }
+  return updatePolicy(tenant, certPemPath, (body) => {
+    if (body.userDeviceQuota === n) return false;
+    body.userDeviceQuota = n;
+  });
+}
+
+module.exports = {
+  readPolicy, summarize, writableBody, describeMembership, POLICY_PATH,
+  updatePolicy, setLapsEnabled, setJoinAllowed, setRegisterAllowed, setLocalAdmins, setDeviceQuota,
+  buildMembership, sameMembership, MEMBERSHIP_TYPES
+};
