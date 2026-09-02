@@ -481,17 +481,28 @@ function buildAlertPolicySnippet(cfg) {
     "$restricted = Get-ProtectionAlert -Identity 'User restricted from sending email' -ErrorAction SilentlyContinue",
     "if ($null -eq $restricted) {",
     "    Write-Host 'Warnungsrichtlinie \"User restricted from sending email\" nicht gefunden — im Defender-Portal pruefen.' -ForegroundColor Yellow",
+    // Am 02.09.2026 im Kundentenant nachgemessen: Diese Richtlinie ist
+    // IsSystemRule = True. Set-ProtectionAlert lehnt sie ab — mit dem
+    // Anzeigenamen, mit dem vollen DN und mit der Identity aus dem Objekt.
+    // Exchange baut die Identity intern zu "<tenantguid>\\<name>" um und
+    // findet sie dann selbst nicht. Es gibt keine Cmdlet-Variante, die
+    // funktioniert; deshalb wird es gar nicht erst versucht.
+    // Wichtig ausserdem: das EXO-REST-Modul meldet solche Fehler NICHT
+    // terminierend (Write-ErrorMessage), try/catch greift also nicht — eine
+    // Erfolgsmeldung nach dem Aufruf waere schlicht gelogen.
+    "} elseif ($restricted.IsSystemRule) {",
+    "    Write-Host 'Die Richtlinie \"User restricted from sending email\" ist eingebaut und systemverwaltet (IsSystemRule = True).' -ForegroundColor Cyan",
+    "    Write-Host \"Sie ist aktiv und benachrichtigt: $($restricted.NotifyUser -join ', ')\" -ForegroundColor Cyan",
+    "    Write-Host 'Damit ist die Anforderung erfuellt. Zusaetzliche Empfaenger lassen sich per PowerShell NICHT setzen —' -ForegroundColor Cyan",
+    "    Write-Host 'falls gewuenscht: Defender-Portal > Richtlinien und Regeln > Warnungsrichtlinie > Richtlinie oeffnen.' -ForegroundColor Cyan",
     "} else {",
     "    $empf = @($restricted.NotifyUser) + " + notify + " | Where-Object { $_ } | Sort-Object -Unique",
-    // Set-ProtectionAlert braucht die Identity aus dem gefundenen Objekt. Mit dem
-    // Anzeigenamen scheitert es bei den EINGEBAUTEN Richtlinien mit "There is no
-    // rule matching identity ..." — Get findet sie ueber den Namen, Set nicht.
     "    try {",
-    "        Set-ProtectionAlert -Identity $restricted.Identity -NotifyUser $empf -NotificationEnabled $true -Confirm:$false",
+    "        Set-ProtectionAlert -Identity $restricted.Identity -NotifyUser $empf -NotificationEnabled $true -Confirm:$false -ErrorAction Stop",
     "        Write-Host \"Empfaenger gesetzt: $($empf -join ', ')\" -ForegroundColor Green",
     "    } catch {",
-    "        Write-Host \"Konnte die eingebaute Warnungsrichtlinie nicht aendern: $($_.Exception.Message)\" -ForegroundColor Yellow",
-    "        Write-Host 'Dann im Defender-Portal unter Richtlinien > Warnungsrichtlinie die Empfaenger von Hand ergaenzen.' -ForegroundColor Yellow",
+    "        Write-Host \"Konnte die Warnungsrichtlinie nicht aendern: $($_.Exception.Message)\" -ForegroundColor Yellow",
+    "        Write-Host 'Dann im Defender-Portal unter Richtlinien und Regeln > Warnungsrichtlinie ergaenzen.' -ForegroundColor Yellow",
     "    }",
     "}",
     "Disconnect-ExchangeOnline -Confirm:$false"

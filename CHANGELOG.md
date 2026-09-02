@@ -1,5 +1,28 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.29 - Eingebaute Warnungsrichtlinie wird erkannt statt beschrieben (2026-09-02)
+
+Im Kundentenant nachgemessen: `User restricted from sending email` ist
+**`IsSystemRule = True`**. `Set-ProtectionAlert` lehnt sie ab — mit dem
+Anzeigenamen, mit dem vollen DN und mit der Identity aus dem Objekt. Exchange
+baut die Identity intern zu `<tenantguid>\<name>` um und findet sie dann selbst
+nicht mehr. Es gibt keine funktionierende Cmdlet-Variante. Der Fix aus 2.28
+(Identity statt Name) war die richtige Idee am falschen Objekt.
+
+Schwerwiegender war der zweite Fehler in 2.28: Das EXO-REST-Modul meldet solche
+Fehler **nicht terminierend** (`Write-ErrorMessage`). Ohne `-ErrorAction Stop`
+greift `try/catch` nicht — das Snippet gab nach dem fehlgeschlagenen Aufruf
+"Empfaenger gesetzt" aus. Eine Erfolgsmeldung fuer etwas, das nicht passiert ist,
+ist schlimmer als der Fehler selbst.
+
+Jetzt drei Wege statt zwei: nicht gefunden, Systemrichtlinie, aenderbar.
+Bei `IsSystemRule` wird gar nicht erst geschrieben, sondern gemeldet, dass die
+Richtlinie aktiv ist, wen sie benachrichtigt (im Testtenant `TenantAdmins`) und
+dass zusaetzliche Empfaenger nur ueber das Defender-Portal gehen. Die
+CIS-Anforderung ist damit erfuellt — nur eben nicht per Skript erweiterbar.
+Der verbleibende Set-Pfad hat `-ErrorAction Stop`.
+
+
 ## Version 2.28 - Alert-Policy-Snippet: Set-ProtectionAlert braucht die Identity (2026-09-02)
 
 Der zweite Teil des Alert-Policy-Snippets scheiterte im Kundentenant mit
