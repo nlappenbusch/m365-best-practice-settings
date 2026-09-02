@@ -15,4 +15,16 @@ spec:
       env: [ { name: helm_args, value: "-f values-igeeks-prod.yaml" } ]
   destination: { server: https://kubernetes.default.svc, namespace: m365-configurator }
   syncPolicy:
-    syncOptions: [ CreateNamespace=true, ApplyOutOfSyncOnly=true ]   # kein automated (Prod-Gate)
+    syncOptions: [ CreateNamespace=true, ApplyOutOfSyncOnly=true ]
+    # Bis 02.09.2026 stand hier bewusst kein automated ("Prod-Gate"): die
+    # Pipeline schrieb den neuen imageTag nur nach Git, ausgerollt wurde erst,
+    # wenn jemand in Argo auf Sync drueckte. In der Praxis blieb igeeks-prod
+    # dadurch hinter nerdag zurueck, ohne dass es jemandem auffiel — der
+    # Deploy-Commit sah nach getaner Arbeit aus, war aber nur ein Tag-Bump.
+    automated:
+      # Nur automatisches Nachziehen bei Aenderungen in Git. Bewusst OHNE
+      # prune (nichts wird geloescht, was aus dem Chart faellt) und ohne
+      # selfHeal (Aenderungen direkt am Cluster werden nicht ueberschrieben) —
+      # das sind eigene Entscheidungen, nicht Teil von "push deployt".
+      prune: false
+      selfHeal: false
