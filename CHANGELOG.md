@@ -1,5 +1,25 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.28 - Alert-Policy-Snippet: Set-ProtectionAlert braucht die Identity (2026-09-02)
+
+Der zweite Teil des Alert-Policy-Snippets scheiterte im Kundentenant mit
+**"There is no rule matching identity 'User restricted from sending email'"**.
+Das Snippet verwendete den Anzeigenamen zweimal: zum Suchen und zum Schreiben.
+`Get-ProtectionAlert` findet die eingebaute Richtlinie ueber den Namen — deshalb
+lief das Skript in den else-Zweig und nicht in die vorgesehene Warnung —,
+`Set-ProtectionAlert` verlangt aber die **Identity** des gefundenen Objekts.
+
+Jetzt `-Identity $restricted.Identity`, dazu ein try/catch: Laesst sich die
+eingebaute Richtlinie gar nicht per Cmdlet aendern (bei systemverwalteten
+Richtlinien kommt das vor), gibt es eine lesbare Zeile plus den Verweis aufs
+Defender-Portal statt eines Fehlerblocks. Der Erfolgsfall bestaetigt jetzt
+ausserdem, welche Empfaenger gesetzt wurden.
+
+Betraf jeden Tenant, nicht nur den, an dem es auffiel — der erste Teil des
+Snippets (`BP_UserRequestReleaseStatus`) war davon nicht betroffen und lief
+durch.
+
+
 ## Version 2.27 - Admin-Benachrichtigungsadresse gehoert zum Tenant, nicht in die Vorlage (2026-09-02)
 
 **Der Fund:** Bei aktivem Tenant SGVP stand im Alert-Snippet

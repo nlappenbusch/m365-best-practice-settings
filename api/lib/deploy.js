@@ -483,7 +483,16 @@ function buildAlertPolicySnippet(cfg) {
     "    Write-Host 'Warnungsrichtlinie \"User restricted from sending email\" nicht gefunden — im Defender-Portal pruefen.' -ForegroundColor Yellow",
     "} else {",
     "    $empf = @($restricted.NotifyUser) + " + notify + " | Where-Object { $_ } | Sort-Object -Unique",
-    "    Set-ProtectionAlert -Identity 'User restricted from sending email' -NotifyUser $empf -NotificationEnabled $true -Confirm:$false",
+    // Set-ProtectionAlert braucht die Identity aus dem gefundenen Objekt. Mit dem
+    // Anzeigenamen scheitert es bei den EINGEBAUTEN Richtlinien mit "There is no
+    // rule matching identity ..." — Get findet sie ueber den Namen, Set nicht.
+    "    try {",
+    "        Set-ProtectionAlert -Identity $restricted.Identity -NotifyUser $empf -NotificationEnabled $true -Confirm:$false",
+    "        Write-Host \"Empfaenger gesetzt: $($empf -join ', ')\" -ForegroundColor Green",
+    "    } catch {",
+    "        Write-Host \"Konnte die eingebaute Warnungsrichtlinie nicht aendern: $($_.Exception.Message)\" -ForegroundColor Yellow",
+    "        Write-Host 'Dann im Defender-Portal unter Richtlinien > Warnungsrichtlinie die Empfaenger von Hand ergaenzen.' -ForegroundColor Yellow",
+    "    }",
     "}",
     "Disconnect-ExchangeOnline -Confirm:$false"
   ].join("\r\n");
