@@ -494,7 +494,37 @@
 
   const rpSafeName = $derived(intuneSafe(rpProfileName))
   const rpTarget = $derived(rpSafeName ? nmName('scriptRegistry', { name: rpSafeName }, `WIN - RegistryPolicy - ${rpSafeName}`) : '')
-  const rpContentOk = $derived(rpEntries.length > 0)
+  // Zeilenpruefung, gleiche Regeln wie das Backend (lib/registryPolicy.js), nur
+  // frueher und in Klartext. Vorher pruefte Schritt 2 nur, OB eine Zeile da ist:
+  // eine leere Zeile zaehlte als "1 Wert(e)", liess sich bis zur Vorschau
+  // durchklicken und scheiterte dort am Generator ("Zeile 1: Registry-Pfad
+  // ungueltig") — an einer Stelle, an der man nichts korrigieren kann.
+  const RP_PATH_RE = /^[A-Za-z0-9 _.\\-]+$/
+  const RP_NAME_RE = /^[A-Za-z0-9 _.-]+$/
+  function rpCleanPath(v) {
+    // Aus regedit kopierte Pfade kommen als "Computer\HKEY_LOCAL_MACHINE\..."
+    // -- die Praefixe hier genauso wegnehmen wie das Backend, sonst landet der
+    // Wert still unter HKLM:\HKEY_LOCAL_MACHINE\...
+    return String(v || '').trim()
+      .replace(/^Computer\\/i, '')
+      .replace(/^(HKEY_LOCAL_MACHINE|HKLM):?\\?/i, '')
+      .replace(/\\+$/, '')
+  }
+  function rpRowError(e) {
+    const p = rpCleanPath(e.path)
+    if (!p) return 'Pfad fehlt'
+    if (!RP_PATH_RE.test(p)) return 'Pfad enthält unerlaubte Zeichen (erlaubt: Buchstaben, Ziffern, Leerzeichen, . _ - \\)'
+    const n = String(e.name || '').trim()
+    if (!n) return 'Name des Werts fehlt'
+    if (!RP_NAME_RE.test(n)) return 'Name enthält unerlaubte Zeichen'
+    const v = String(e.value ?? '').trim()
+    if (!v) return 'Wert fehlt'
+    if ((e.type === 'DWORD' || e.type === 'QWORD') && !/^\d+$/.test(v)) return e.type + ' muss eine Zahl sein'
+    return null
+  }
+  const rpRowErrors = $derived(rpEntries.map(rpRowError))
+  const rpValidCount = $derived(rpRowErrors.filter(x => !x).length)
+  const rpContentOk = $derived(rpEntries.length > 0 && rpRowErrors.every(x => !x))
 
   function rpJump(n) {
     if (n > 1 && !rpSafeName) return
@@ -1224,7 +1254,7 @@
       </div>
 
       <div class="wizard-step" class:on={rpStep === 2}>
-        {@render wizHead(2, 'Registry-Werte definieren', rpStep, rpJump, rpContentOk ? `${rpEntries.length} Wert(e)` : null)}
+        {@render wizHead(2, 'Registry-Werte definieren', rpStep, rpJump, rpContentOk ? `${rpEntries.length} Wert(e)` : (rpEntries.length ? `${rpEntries.length - rpValidCount} Zeile(n) unvollständig` : null))}
         {#if rpStep === 2}
           <div class="wiz-body">
             {#if rpPresets.length}
@@ -1241,7 +1271,8 @@
                   <thead><tr><th>Pfad (unter HKLM:\)</th><th>Name</th><th style="width:100px;">Typ</th><th>Wert</th><th style="width:44px;"></th></tr></thead>
                   <tbody>
                     {#each rpEntries as e, i}
-                      <tr>
+                      {@const rowErr = rpRowErrors[i]}
+                      <tr style={rowErr ? "background: var(--warn-wash);" : ""}>
                         <td><input type="text" bind:value={e.path} placeholder="SOFTWARE\Policies\Microsoft\Windows\AAD" /></td>
                         <td><input type="text" bind:value={e.name} placeholder="AutoAcceptSsoPermission" /></td>
                         <td>
@@ -1260,6 +1291,11 @@
               </div>
             {:else}
               <p class="ld-section-hint">Noch kein Registry-Wert hinzugefügt — Vorlage übernehmen oder manuell anlegen.</p>
+            {/if}
+            {#if rpEntries.length && !rpContentOk}
+              <div class="ld-banner warn">Noch nicht vollständig — diese Zeilen lassen sich so nicht ausrollen:
+                {#each rpRowErrors as err, i}{#if err}<br />Zeile {i + 1}: {err}{/if}{/each}
+              </div>
             {/if}
             <button class="btn btn-secondary" style="margin-top:0.5rem;" onclick={rpAddRow}>+ Zeile hinzufügen</button>
             <div class="ld-confirm-actions">
@@ -1289,7 +1325,7 @@
               <table class="gt-table"><tbody>
                 <tr><td style="width:160px;">Intune-Objekt</td><td><code>{rpTarget}</code> (PowerShell-Plattformskript)</td></tr>
                 <tr><td>Ausführung</td><td>Als SYSTEM; schreibt direkt unter <code>HKLM</code> auf dem Gerät</td></tr>
-                <tr><td>Inhalt</td><td>{rpEntries.map(e => `${e.name} = ${e.value} (${e.type})`).join(' · ')}</td></tr>
+                <tr><td>Inhalt</td><td>{rpEntries.map(e => `${rpCleanPath(e.path) || '(kein Pfad)'}\\${e.name || '(kein Name)'} = ${e.value || '(kein Wert)'} (${e.type})`).join(' · ')}</td></tr>
                 <tr><td>Zuweisung</td><td>{selNames(rpSelGroups).length ? selNames(rpSelGroups).join(', ') : '⚠️ keine — Profil wird ohne Zuweisung angelegt'}</td></tr>
               </tbody></table>
             </div>

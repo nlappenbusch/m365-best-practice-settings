@@ -1,5 +1,45 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.24 - Microsoft 365 Apps ausrollen, OneDrive/KFM-Vorlage, Registry-Wizard prueft frueher (2026-09-02)
+
+**Microsoft 365 Apps (Office) als Intune-App.** Neuer Abschnitt im Tab Intune:
+Suite benennen, Apps anhaken, Architektur/Kanal/Sprachen setzen, dynamische
+Gerätegruppen auswaehlen, anlegen. Vorbelegt mit dem, was wir bei Kunden fahren:
+64 Bit, monatlicher Enterprise-Kanal, keine Aktivierung fuer gemeinsam genutzte
+Computer, de-de + en-us, alte Office-Versionen entfernen.
+
+Graph kennt dafuer `officeSuiteApp` (nur beta). Die Falle dabei: `excludedApps`
+ist eine **Negativ**-Liste — true heisst "nicht installieren". Wer die Auswahl aus
+dem Portal direkt durchreicht, installiert genau das Gegenteil. `lib/officeSuite.js`
+nimmt deshalb die Positiv-Auswahl entgegen und dreht sie einmal um; die Liste der
+bestehenden Suiten wird zum Anzeigen wieder zurueckgedreht. Zugewiesen wird ueber
+eine App-Zielgruppe mit den dynamischen Gruppen als Mitglieder — derselbe Weg wie
+bei den Agent-Apps.
+
+**OneDrive/KFM bekommt bewusst KEINE Registry-Vorlage.** Erst gebaut, dann beim
+Abgleich mit der Baseline wieder verworfen: `Win - OIB - SC - Microsoft OneDrive -
+D - Configuration` setzt SilentAccountConfig, KFMOptInNoWizard (Desktop/Dokumente/
+Bilder, Tenant ueber `%OrganizationId%` — das ersetzt Intune selbst), KFMBlockOptOut,
+FilesOnDemandEnabled und AllowTenantList; die Benutzer-Policy zusaetzlich
+DisablePersonalSync. Beide Wege schreiben nach `HKLM\SOFTWARE\Policies\Microsoft\
+OneDrive` — nebeneinander betrieben gewinnt, wer zuletzt laeuft, und niemand kann
+es spaeter nachvollziehen. Der richtige Weg ist, die beiden OIB-Policies
+zuzuweisen. Ein Kommentar in `lib/registryPolicy.js` haelt die Begruendung fest.
+
+**Registry-Wizard meldet Fehler dort, wo man sie beheben kann.** Schritt 2 prueft
+bisher nur, OB eine Zeile existiert. Eine leere Zeile zaehlte als "1 Wert(e)",
+liess sich bis Schritt 4 durchklicken und scheiterte dort am Generator
+("Zeile 1: Registry-Pfad ungueltig") — an einer Stelle ohne Eingabefelder. Jetzt
+prueft Schritt 2 jede Zeile mit denselben Regeln wie das Backend, markiert die
+betroffene Zeile und nennt im Klartext, was fehlt; "Weiter" bleibt bis dahin
+gesperrt. Die Vorschau zeigt zusaetzlich den Pfad, nicht nur `Name = Wert`.
+
+Ausserdem schneidet das Backend jetzt `Computer\` und `HKEY_LOCAL_MACHINE\` vom
+Pfad ab. Genau das liefert regedit beim Kopieren eines Schluessels, und beides
+bestand die Zeichenpruefung — der Wert waere still unter
+`HKLM:\HKEY_LOCAL_MACHINE\...` gelandet, wo ihn nie jemand liest.
+
+
 ## Version 2.23 - LAPS-Schalter im Tool, Defender-AV nicht mehr blind mitausgerollt (2026-09-02)
 
 **Entra-Geraeteeinstellungen: LAPS.** Der Schalter aus *Entra ID > Geraete >

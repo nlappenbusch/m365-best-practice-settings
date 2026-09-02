@@ -103,6 +103,13 @@ function bitwardenExtensionEntries({ region, base, notifications }) {
   ]);
 }
 
+// Bewusst NICHT als Vorlage enthalten: OneDrive-Autoanmeldung und Known
+// Folder Move. Die OpenIntuneBaseline deckt beides bereits vollstaendig ab
+// ("Win - OIB - SC - Microsoft OneDrive - D/U - Configuration"): SilentAccountConfig,
+// KFMOptInNoWizard (mit %OrganizationId%, das Intune selbst ersetzt), KFMBlockOptOut,
+// FilesOnDemandEnabled, dazu DisablePersonalSync in der Benutzer-Policy. Eine
+// zweite Quelle fuer dieselben HKLM-Werte waere Drift mit Ansage — wer zuletzt
+// laeuft, gewinnt. Stattdessen die beiden OIB-Policies zuweisen (Tab Intune).
 const PRESETS = [
   {
     key: "dma-sso-autoaccept",
@@ -146,10 +153,19 @@ function sanitizeEntries(raw) {
   const list = Array.isArray(raw) ? raw : [];
   if (!list.length) throw new Error("Mindestens einen Registry-Wert angeben.");
   return list.map((e, i) => {
-    const p = String(e.path || "").trim().replace(/^HKLM:?\\?/i, "").replace(/\\+$/, "");
-    if (!p || !PATH_RE.test(p)) throw new Error(`Zeile ${i + 1}: Registry-Pfad ungueltig.`);
+    // "Computer\HKEY_LOCAL_MACHINE\..." ist genau das, was regedit beim
+    // Kopieren eines Schluessels liefert. Ohne dieses Abschneiden bestuende
+    // der Pfad die Zeichenpruefung und landete still unter
+    // HKLM:\HKEY_LOCAL_MACHINE\... — ein Wert, den nie jemand liest.
+    const p = String(e.path || "").trim()
+      .replace(/^Computer\\/i, "")
+      .replace(/^(HKEY_LOCAL_MACHINE|HKLM):?\\?/i, "")
+      .replace(/\\+$/, "");
+    if (!p) throw new Error(`Zeile ${i + 1}: Registry-Pfad fehlt.`);
+    if (!PATH_RE.test(p)) throw new Error(`Zeile ${i + 1}: Registry-Pfad enthaelt unerlaubte Zeichen: ${p}`);
     const name = String(e.name || "").trim();
-    if (!name || !NAME_RE.test(name)) throw new Error(`Zeile ${i + 1}: Werte-Name ungueltig.`);
+    if (!name) throw new Error(`Zeile ${i + 1}: Name des Werts fehlt.`);
+    if (!NAME_RE.test(name)) throw new Error(`Zeile ${i + 1}: Name des Werts enthaelt unerlaubte Zeichen: ${name}`);
     const type = String(e.type || "DWORD").trim();
     if (!REG_TYPES.has(type)) throw new Error(`Zeile ${i + 1}: Typ muss DWORD, QWORD oder String sein.`);
     const value = String(e.value ?? "").trim();

@@ -190,7 +190,11 @@
       devSettings = null
       devError = null
       devNotice = null
-      if (id) { load(); loadDevSettings() }
+      m365 = null
+      form = null
+      m365Result = null
+      m365Error = null
+      if (id) { load(); loadDevSettings(); loadM365() }
     }
   })
 
@@ -244,6 +248,80 @@ Aus heisst: bereits gesicherte Kennwörter bleiben in Entra, neue werden nicht m
       devError = e.message
     }
     devBusy = false
+  }
+
+  // ---------- Microsoft 365 Apps (Office) ----------
+  // Legt die Office-Suite als Intune-App an und weist sie ueber eine
+  // App-Zielgruppe den dynamischen Geraetegruppen zu — derselbe Weg wie bei
+  // den Agent-Apps, damit die Zuordnung an einer Stelle nachvollziehbar bleibt.
+  let m365 = $state(null)
+  let m365Loading = $state(false)
+  let m365Busy = $state(false)
+  let m365Error = $state(null)
+  let m365Result = $state(null)
+  let m365FormOpen = $state(false)
+  let form = $state(null)
+
+  async function loadM365() {
+    if (!$activeTenant) return
+    m365Loading = true
+    m365Error = null
+    try {
+      m365 = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/m365apps`)
+      if (!form) resetForm()
+    } catch (e) {
+      m365Error = e.message
+    }
+    m365Loading = false
+  }
+
+  function resetForm() {
+    const d = m365?.defaults
+    if (!d) return
+    form = { ...d, apps: [...d.apps], locales: d.locales.join(', '), targetVersion: '', groupTags: [] }
+  }
+
+  function toggleIn(list, value) {
+    return list.includes(value) ? list.filter(x => x !== value) : [...list, value]
+  }
+
+  const m365Payload = $derived(form ? {
+    ...form,
+    locales: String(form.locales || '').split(/[,;\s]+/).filter(Boolean)
+  } : null)
+
+  async function deployM365() {
+    if (!form) return
+    const p = m365Payload
+    const groupNames = (m365.groups || []).filter(g => form.groupTags.includes(g.groupTag)).map(g => g.groupName)
+    if (!groupNames.length) { alert('Mindestens eine Zielgruppe auswählen.'); return }
+    const appLabels = (m365.catalog || []).filter(a => form.apps.includes(a.key)).map(a => a.label)
+    const kanal = (m365.channels.find(c => c.value === form.updateChannel) || {}).label
+    if (!confirm(`Microsoft 365 Apps in ${$activeTenant.name} anlegen?
+
+App-Suite: ${form.displayName}
+Installiert wird: ${appLabels.join(', ') || '—'}
+${form.architecture} · ${kanal}
+Sprachen: ${p.locales.join(', ')}
+Andere Office-Versionen entfernen: ${form.removeOtherVersions ? 'ja' : 'nein'}
+Gemeinsam genutzter PC: ${form.sharedComputerActivation ? 'ja' : 'nein'}
+
+Zuweisung (${form.intent === 'available' ? 'verfügbar' : 'erforderlich'}) an:
+${groupNames.map(n => '• ' + n).join('\n')}
+
+Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitglied.`)) return
+    m365Busy = true
+    m365Error = null
+    m365Result = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/m365apps/deploy`, p)
+      m365Result = r
+      m365FormOpen = false
+      await loadM365()
+    } catch (e) {
+      m365Error = e.message
+    }
+    m365Busy = false
   }
 
   async function load() {
@@ -578,6 +656,155 @@ Aus heisst: bereits gesicherte Kennwörter bleiben in Entra, neue werden nicht m
           </tbody>
         </table>
       </details>
+    {/if}
+  </div>
+
+  <div class="settings-group">
+    <h4>Microsoft 365 Apps <small>(Office)</small>
+      <button class="btn btn-secondary" style="margin-left:auto; padding:0.15rem 0.55rem; font-size:0.75rem; font-weight:500;"
+              onclick={loadM365} disabled={m365Loading || m365Busy} title="Neu laden">↻</button>
+    </h4>
+    <p class="ld-section-hint">Legt die Office-Suite als Intune-App an (Portal: Apps → Windows → Microsoft 365 Apps) und weist sie
+      über eine App-Zielgruppe deinen dynamischen Gerätegruppen zu — derselbe Weg wie bei den Agent-Apps.</p>
+
+    {#if m365Loading && !m365}
+      <div class="ld-step running"><span class="ld-spinner"></span> Lese vorhandene App-Suiten…</div>
+    {:else if m365Error && !m365}
+      <div class="alert alert-warning">❌ {m365Error}</div>
+    {:else if m365}
+      {#if m365Result}
+        <div class="ld-banner ok"><b>{m365Result.appName} angelegt.</b>
+          Zielgruppe <code>{m365Result.appGroup}</code>{m365Result.appGroupCreated ? ' (neu erstellt)' : ''},
+          zugewiesen als <b>{m365Result.intent === 'available' ? 'verfügbar' : 'erforderlich'}</b> an:
+          {m365Result.groups.join(', ')}.
+        </div>
+      {/if}
+      {#if m365Error}<div class="alert alert-warning">❌ {m365Error}</div>{/if}
+
+      {#if m365.suites.length}
+        <div class="gt-table-wrap">
+          <table class="gt-table">
+            <thead><tr><th>App-Suite</th><th>Ausstattung</th><th>Zugewiesen an</th></tr></thead>
+            <tbody>
+              {#each m365.suites as s (s.id)}
+                <tr>
+                  <td><strong>{s.displayName}</strong><br /><small style="color:var(--text-dim);">{s.includedApps.join(', ') || '—'}</small></td>
+                  <td><small>{s.architecture} · {s.updateChannelLabel}<br />
+                    {s.locales.join(', ')}{s.targetVersion ? ' · feste Version ' + s.targetVersion : ''}
+                    {#if s.sharedComputerActivation}<br /><span class="tbadge warn">gemeinsam genutzter PC</span>{/if}</small></td>
+                  <td><small>{s.assignments.length
+                    ? s.assignments.map(a => a.groupName + ' (' + (a.intent === 'available' ? 'verfügbar' : a.intent) + ')').join(', ')
+                    : '— nicht zugewiesen'}</small></td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <div class="ld-step pending"><span class="ld-ico">○</span> Noch keine Microsoft-365-Apps-Suite in diesem Tenant.</div>
+      {/if}
+
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.6rem;">
+        <button class="btn {m365FormOpen ? 'btn-secondary' : 'btn-primary'}"
+                onclick={() => { m365FormOpen = !m365FormOpen; if (m365FormOpen) { resetForm(); m365Result = null } }}>
+          {m365FormOpen ? '✕ Schliessen' : '➕ Office ausrollen'}
+        </button>
+      </div>
+
+      {#if m365FormOpen && form}
+        <div class="obj-sub" style="border-bottom:none;">
+          <div class="ld-oib-target">
+            <label for="m365name"><strong>Name der App-Suite:</strong></label>
+            <input id="m365name" type="text" bind:value={form.displayName} style="min-width:16rem;" />
+            <select bind:value={form.productId}>
+              {#each m365.products as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
+            </select>
+          </div>
+          <p class="ld-section-hint">{(m365.products.find(p => p.value === form.productId) || {}).hint}</p>
+
+          <div class="ld-phase complete">
+            <div class="ld-phase-title">🧩 Diese Apps werden installiert</div>
+            {#each m365.catalog as a (a.key)}
+              <label class="ld-oib-row">
+                <input type="checkbox" checked={form.apps.includes(a.key)}
+                       onchange={() => (form.apps = toggleIn(form.apps, a.key))} />
+                <span class="ld-oib-name">{a.label}</span>
+                {#if a.hint}<small class="ld-oib-assigned">{a.hint}</small>{/if}
+              </label>
+            {/each}
+            <p class="ld-section-hint">Nicht angehakt heisst: wird nicht installiert. InfoPath, SharePoint Designer und der
+              alte OneDrive-for-Business-Client sind fest ausgeschlossen — abgekündigt.</p>
+          </div>
+
+          <div class="ld-oib-target" style="flex-wrap:wrap;">
+            <label>Architektur
+              <select bind:value={form.architecture}><option value="x64">64 Bit</option><option value="x86">32 Bit</option></select>
+            </label>
+            <label>Updatekanal
+              <select bind:value={form.updateChannel}>
+                {#each m365.channels as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+              </select>
+            </label>
+            <label>Standarddateiformat
+              <select bind:value={form.fileFormat}>
+                {#each m365.fileFormats as f (f.value)}<option value={f.value}>{f.label}</option>{/each}
+              </select>
+            </label>
+          </div>
+          <p class="ld-section-hint">{(m365.channels.find(c => c.value === form.updateChannel) || {}).hint}</p>
+
+          <div class="ld-oib-target" style="flex-wrap:wrap;">
+            <label>Sprachen <input type="text" bind:value={form.locales} style="min-width:12rem;" placeholder="de-de, en-us" /></label>
+            <label>Feste Version <input type="text" bind:value={form.targetVersion} style="min-width:11rem;" placeholder="leer = immer neueste" /></label>
+          </div>
+
+          <label class="ld-oib-row"><input type="checkbox" bind:checked={form.removeOtherVersions} />
+            <span class="ld-oib-name">Andere Office-Versionen entfernen</span>
+            <small class="ld-oib-assigned">Räumt alte MSI-Installationen weg — sonst stehen zwei Office nebeneinander.</small></label>
+          <label class="ld-oib-row"><input type="checkbox" bind:checked={form.sharedComputerActivation} />
+            <span class="ld-oib-name">Aktivierung für gemeinsam genutzte Computer</span>
+            <small class="ld-oib-assigned">Nur für Terminalserver/VDI mit wechselnden Anmeldungen.</small></label>
+          <label class="ld-oib-row"><input type="checkbox" bind:checked={form.installBingSearch} />
+            <span class="ld-oib-name">Hintergrunddienst „Microsoft Search in Bing" installieren</span>
+            <small class="ld-oib-assigned">Setzt Bing als Suchmaschine in Chrome — normalerweise nicht gewollt.</small></label>
+          <label class="ld-oib-row"><input type="checkbox" bind:checked={form.includeVisio} />
+            <span class="ld-oib-name">Visio mitinstallieren</span>
+            <small class="ld-oib-assigned">Nur mit eigener Visio-Lizenz — sonst landet es im Testmodus.</small></label>
+          <label class="ld-oib-row"><input type="checkbox" bind:checked={form.includeProject} />
+            <span class="ld-oib-name">Project mitinstallieren</span>
+            <small class="ld-oib-assigned">Nur mit eigener Project-Lizenz.</small></label>
+
+          <div class="ld-phase complete" style="margin-top:0.6rem;">
+            <div class="ld-phase-title">🎯 Zielgruppen (dynamische Gerätegruppen)</div>
+            {#if !m365.groups.length}
+              <div class="ld-banner warn">Keine dynamischen Gerätegruppen gefunden — zuerst im Tab GroupTags anlegen.</div>
+            {:else}
+              {#each m365.groups as g (g.groupId)}
+                <label class="ld-oib-row">
+                  <input type="checkbox" checked={form.groupTags.includes(g.groupTag)}
+                         onchange={() => (form.groupTags = toggleIn(form.groupTags, g.groupTag))} />
+                  <span class="ld-oib-name">{g.groupName}</span>
+                  <small class="ld-oib-assigned">GroupTag {g.groupTag}</small>
+                </label>
+              {/each}
+            {/if}
+            <div class="ld-oib-target">
+              <label>Zuweisungsart
+                <select bind:value={form.intent}>
+                  <option value="required">erforderlich (wird installiert)</option>
+                  <option value="available">verfügbar (Nutzer holt es im Firmenportal)</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="ld-confirm-actions">
+            <button class="btn btn-primary" onclick={deployM365} disabled={m365Busy}>
+              {m365Busy ? 'Lege an…' : 'Anlegen & zuweisen'}
+            </button>
+          </div>
+        </div>
+      {/if}
     {/if}
   </div>
 

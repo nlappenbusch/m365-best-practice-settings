@@ -70,6 +70,7 @@ const MAESTER_EXPLAIN = require("./lib/maesterExplain");
 const MAESTER_PDF = require("./lib/maesterPdf");
 const MAESTER_HTML = require("./lib/maesterHtml");
 const ENTRADEV = require("./lib/entraDeviceSettings");
+const OFFICE = require("./lib/officeSuite");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -4848,6 +4849,74 @@ app.post("/api/tenants/:id/entra/devicesettings/laps", wrap(async (req, res) => 
     }
     throw e;
   }
+}));
+
+// ---------- Microsoft 365 Apps (Office als Intune-App) ----------
+// Portal-Aequivalent: Intune > Apps > Windows > Microsoft 365 Apps. Anders als
+// die Agent-Apps braucht das keinen Installer-Upload — nur ein JSON-Objekt plus
+// Zuweisung. Deshalb synchron statt ueber die Job-Maschinerie.
+app.get("/api/tenants/:id/m365apps", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const meta = {
+    catalog: OFFICE.OFFICE_APPS, channels: OFFICE.UPDATE_CHANNELS, products: OFFICE.PRODUCTS,
+    fileFormats: OFFICE.FILE_FORMATS, defaults: OFFICE.DEFAULTS
+  };
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, ...meta,
+      groups: [{ groupTag: "DEV-STD", groupName: "AAD-DEV-STD", groupId: "fake-g1" }],
+      suites: [{ id: "fake-office-1", displayName: "Microsoft 365 Apps", architecture: "x64",
+        updateChannel: "monthlyEnterprise", updateChannelLabel: "Monatlicher Enterprise-Kanal",
+        productIds: ["o365ProPlusRetail"], locales: ["de-de", "en-us"], sharedComputerActivation: false,
+        removeOtherVersions: true, targetVersion: null, includedApps: ["Word", "Excel"],
+        assignments: [{ intent: "required", groupId: "fake-g1", targetType: "groupAssignmentTarget" }] }] });
+  }
+  const cert = certPemPath(t.tenantId);
+  const [suites, groups] = await Promise.all([
+    OFFICE.listOfficeSuiteApps(t, cert),
+    AUTOPILOT.loadGroupTags(t, cert)
+  ]);
+  // Gruppennamen fuer die Anzeige der bestehenden Zuweisungen aufloesen. Die
+  // App haengt an der App-Zielgruppe, nicht direkt an der dynamischen Gruppe —
+  // deshalb reichen die GroupTag-Gruppen allein hier nicht.
+  const nameById = new Map(groups.map(g => [g.groupId, g.groupName]));
+  for (const g of await APPGROUPS.listAppGroups(t, cert).catch(() => [])) nameById.set(g.id, g.displayName);
+  for (const s of suites) for (const a of s.assignments) a.groupName = nameById.get(a.groupId) || a.groupId;
+  res.json({ ok: true, ...meta, suites, groups });
+}));
+
+// Schreibender Eingriff im Kundentenant: legt die App an, erzeugt die
+// App-Zielgruppe, nestet die gewaehlten dynamischen Gruppen hinein und weist zu.
+// Genau der Ablauf der Agent-Apps — eine App haengt nie direkt an einer
+// dynamischen Gruppe, damit die Zuordnung an einer Stelle sichtbar bleibt.
+app.post("/api/tenants/:id/m365apps/deploy", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const payload = OFFICE.buildOfficeSuiteApp(b);   // wirft mit 400 bei Unsinn
+  const wantTags = Array.isArray(b.groupTags) ? b.groupTags.map(String) : [];
+  if (!wantTags.length) return res.status(400).json({ error: "Mindestens eine Zielgruppe (GroupTag) auswaehlen." });
+
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, appId: "fake-office-neu", appGroup: "APP-" + payload.displayName, groups: wantTags });
+  }
+  const cert = certPemPath(t.tenantId);
+  const tags = await AUTOPILOT.loadGroupTags(t, cert);
+  const chosen = wantTags.map(tag => {
+    const hit = tags.find(g => g.groupTag === tag);
+    if (!hit) { const e = new Error("GroupTag '" + tag + "' nicht (mehr) unter den dynamischen Gruppen gefunden."); e.status = 400; throw e; }
+    return hit;
+  });
+
+  const appGroup = await APPGROUPS.ensureAppGroup(t, cert, payload.displayName);
+  for (const g of chosen) await APPGROUPS.nestGroupAsMember(t, cert, appGroup.id, g.groupId);
+
+  const created = await OFFICE.createOfficeSuiteApp(t, cert, payload);
+  await OFFICE.assignToGroups(t, cert, created.id, [appGroup.id], b.intent);
+  console.log(`Microsoft 365 Apps '${payload.displayName}' in Tenant ${t.name} angelegt und ${chosen.length} Gruppe(n) zugewiesen.`);
+  res.json({
+    ok: true, appId: created.id, appName: created.displayName,
+    appGroup: appGroup.displayName, appGroupCreated: appGroup.created,
+    groups: chosen.map(g => g.groupName), intent: b.intent === "available" ? "available" : "required"
+  });
 }));
 
 // ---------- Conditional Access ----------
