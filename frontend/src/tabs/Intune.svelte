@@ -194,9 +194,64 @@
       form = null
       m365Result = null
       m365Error = null
-      if (id) { load(); loadDevSettings(); loadM365() }
+      mdm = null
+      mdmError = null
+      mdmNotice = null
+      if (id) { load(); loadDevSettings(); loadM365(); loadMdm() }
     }
   })
+
+  // ---------- Automatische MDM-Einschreibung ----------
+  // Der Benutzerbereich aus Entra > Mobilitaet (MDM und MAM). Steht er auf
+  // "Keine", wird ein Geraet zwar Entra-beigetreten, aber nie in Intune
+  // eingeschrieben — auch per Autopilot nicht.
+  let mdm = $state(null)
+  let mdmLoading = $state(false)
+  let mdmBusy = $state(false)
+  let mdmError = $state(null)
+  let mdmNotice = $state(null)
+
+  async function loadMdm() {
+    if (!$activeTenant) return
+    mdmLoading = true
+    mdmError = null
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment`)
+      mdm = r.mdm
+    } catch (e) {
+      mdmError = e.message
+    }
+    mdmLoading = false
+  }
+
+  async function enableMdm() {
+    if (!mdm) return
+    if (!confirm(`Automatische Einschreibung in ${$activeTenant.name} auf „Alle" stellen?
+
+Ab dann schreibt sich JEDES künftig Entra-beigetretene oder -registrierte Windows-Gerät automatisch in Intune ein — auch die per Autopilot.
+Bereits vorhandene Geräte werden nicht rückwirkend eingeschrieben.
+
+Ausserdem wird „MDM-Registrierung beim Hinzufügen eines Arbeits- oder Schulkontos deaktivieren" auf Nein gesetzt.
+
+Nur für einen Pilotkreis? Dann hier abbrechen und im Portal „Einige" mit einer Gruppe wählen.`)) return
+    mdmBusy = true
+    mdmError = null
+    mdmNotice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/mdm-enrollment`,
+        { scope: 'all', blockDuringRegistration: false })
+      mdm = r.mdm
+      mdmNotice = r.changed
+        ? 'Automatische Einschreibung steht jetzt auf „Alle".'
+        : 'Stand war schon so — nichts geschrieben.'
+      if (r.regFlagSkipped) {
+        mdmNotice += ' Der Registrierungs-Schalter ist in diesem Tenant nicht verfügbar (Public Preview) und wurde nicht angefasst.'
+      }
+    } catch (e) {
+      mdmError = e.message
+    }
+    mdmBusy = false
+  }
 
   // ---------- Entra-Geraeteeinstellungen: LAPS ----------
   // Der Schalter aus Entra ID > Geraete > Geraeteeinstellungen. Ohne ihn sichert
@@ -597,10 +652,59 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
 
 <TenantContext>
   <div class="settings-group">
-    <h4>Entra-Geräteeinstellungen
+    <h4>Tenant-Voraussetzungen <small>(Entra)</small>
       <button class="btn btn-secondary" style="margin-left:auto; padding:0.15rem 0.55rem; font-size:0.75rem; font-weight:500;"
-              onclick={loadDevSettings} disabled={devLoading || devBusy} title="Ist-Stand neu lesen">↻</button>
+              onclick={() => { loadDevSettings(); loadMdm() }} disabled={devLoading || devBusy || mdmLoading || mdmBusy}
+              title="Ist-Stand neu lesen">↻</button>
     </h4>
+    <p class="ld-section-hint">Zwei Schalter, ohne die der Rest ins Leere läuft: die automatische Einschreibung in Intune
+      (Entra → Mobilität) und LAPS (Entra → Geräte → Geräteeinstellungen).</p>
+
+    {#if mdmLoading && !mdm}
+      <div class="ld-step running"><span class="ld-spinner"></span> Lese Einschreibungs-Einstellungen…</div>
+    {:else if mdmError && !mdm}
+      <div class="alert alert-warning">❌ {mdmError}
+        {#if /Policy.ReadWrite.MobilityManagement/i.test(mdmError)}
+          <br /><small>Diese Berechtigung ist neu — im Tab „Tenants" einmal 🔧 Reparieren ausführen.</small>
+        {/if}
+      </div>
+    {:else if mdm}
+      {#if mdmNotice}<div class="ld-banner ok">{mdmNotice}</div>{/if}
+      {#if mdmError}<div class="alert alert-warning">❌ {mdmError}</div>{/if}
+      <div class="ld-banner {mdm.autoEnrollActive ? 'ok' : 'warn'}"
+           style="display:flex; gap:1rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+        <div style="flex:1 1 22rem;">
+          <b>Automatische Einschreibung in Intune: {mdm.scopeLabel}</b>
+          <div><small>
+            {#if mdm.scope === 'all'}
+              Jedes Gerät, das Entra beitritt oder sich registriert, landet automatisch in Intune. Das ist die
+              Voraussetzung, ohne die auch Autopilot nur einen Entra-Beitritt macht und das Gerät unverwaltet bleibt.
+            {:else if mdm.scope === 'some'}
+              Nur die ausgewählte Gruppe schreibt sich automatisch ein. Wer nicht drin ist, bekommt beim Entra-Beitritt
+              keine Intune-Verwaltung — auch per Autopilot nicht. Die Gruppenauswahl selbst bleibt im Portal.
+            {:else}
+              Kein Gerät schreibt sich ein. Ein Entra-Beitritt macht das Gerät nicht verwaltet, Autopilot bleibt wirkungslos,
+              und in den Windows-Einstellungen fehlt beim Arbeitskonto der „Info"-Knopf zum Synchronisieren.
+            {/if}
+          </small></div>
+        </div>
+        {#if mdm.scope !== 'all'}
+          <button class="btn btn-primary" onclick={enableMdm} disabled={mdmBusy}>
+            {mdmBusy ? '…' : 'Auf „Alle" stellen'}
+          </button>
+        {/if}
+      </div>
+      {#if !mdm.urlsComplete}
+        <div class="ld-banner warn">An dieser Richtlinie fehlen die Standard-URLs (Ermittlung, Nutzungsbedingungen, Konformität).
+          Das deutet darauf hin, dass sie nie eingerichtet wurde — im Portal einmal „Standard MDM URLs wiederherstellen".</div>
+      {/if}
+      {#if mdm.regFlagSupported}
+        <p class="ld-section-hint">„MDM-Registrierung beim Hinzufügen eines Arbeits- oder Schulkontos deaktivieren" steht auf
+          <b>{mdm.regFlagDisabled ? 'Ja — Einschreibung blockiert' : 'Nein'}</b>. Betrifft nur das Hinzufügen über Edge oder eine
+          App wie Teams; über <i>Einstellungen → Konten</i> hinzugefügte Konten sind davon nicht betroffen.</p>
+      {/if}
+    {/if}
+
 
     {#if devLoading && !devSettings}
       <div class="ld-step running"><span class="ld-spinner"></span> Lese Geräteeinstellungen…</div>

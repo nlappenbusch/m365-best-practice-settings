@@ -1,5 +1,43 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.25 - Automatische Einschreibung per Klick, Microsoft-365-Apps-Liste repariert (2026-09-02)
+
+**Fix: die Microsoft-365-Apps-Liste war seit 2.24 kaputt** ("(intermediate value)
+is not iterable"). `APPGROUPS.listAppGroups()` liefert `{ groups, assignmentsOk }`
+und nicht das Array selbst — die Aufloesung der Gruppennamen lief mit `for...of`
+direkt auf das Objekt. Der Abschnitt zeigte damit gar nichts an.
+
+**Automatische MDM-Einschreibung, ein Klick.** Neuer Abschnitt "Tenant-
+Voraussetzungen" oben im Tab Intune: zeigt den Benutzerbereich aus Entra >
+Mobilitaet (MDM und MAM) und stellt ihn auf "Alle". Das ist der Schalter, ohne
+den ein Geraet zwar Entra beitritt, aber nie in Intune landet — Autopilot
+inklusive; Microsoft fuehrt "Configure Microsoft Entra automatic enrollment"
+unter den Autopilot-Pflichtvoraussetzungen. Fehlen an der Richtlinie die
+Standard-URLs, sagt das Tool das ebenfalls: dann wurde sie nie eingerichtet.
+
+Zwei Dinge werden bewusst nicht geraten (`lib/mdmEnrollment.js`):
+
+- Die Richtlinien-Id wird **gesucht**, nicht hart verdrahtet. Ein PATCH auf eine
+  erratene Id im Kundentenant ist die Abkuerzung nicht wert.
+- `isMdmEnrollmentDuringRegistrationDisabled` ist Public Preview und in der
+  Ressourcen-Doku nicht aufgefuehrt. Das Feld wird nur geschrieben, wenn der GET
+  es tatsaechlich zurueckliefert, und die Antwort sagt, wenn es uebersprungen
+  wurde — sonst glaubt man, man haette einen Schalter gesetzt, den es nicht gibt.
+
+"Einige" lehnt das Backend ab: das braucht eine Gruppenauswahl, die es hier nicht
+gibt, und ein stiller Wechsel von "Einige" auf "Alle" waere eine Ausweitung, die
+niemand bestellt hat. Die Rueckfrage im Frontend nennt die Reichweite beim Namen.
+
+Ausserdem im Text festgehalten, weil es leicht zu verwechseln ist: der Schalter
+"MDM-Registrierung beim Hinzufuegen eines Arbeits- oder Schulkontos deaktivieren"
+greift laut Microsoft **nicht** beim Hinzufuegen ueber Einstellungen > Konten,
+sondern nur ueber Edge oder eine App wie Teams.
+
+Neue optionale Permission: `Policy.ReadWrite.MobilityManagement` — tolerant
+aufgeloest wie die LAPS-Berechtigung, bestehende Tenants brauchen einmal
+"Reparieren".
+
+
 ## Version 2.24 - Microsoft 365 Apps ausrollen, OneDrive/KFM-Vorlage, Registry-Wizard prueft frueher (2026-09-02)
 
 **Microsoft 365 Apps (Office) als Intune-App.** Neuer Abschnitt im Tab Intune:

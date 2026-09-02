@@ -71,6 +71,7 @@ const MAESTER_PDF = require("./lib/maesterPdf");
 const MAESTER_HTML = require("./lib/maesterHtml");
 const ENTRADEV = require("./lib/entraDeviceSettings");
 const OFFICE = require("./lib/officeSuite");
+const MDMENROLL = require("./lib/mdmEnrollment");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -103,7 +104,7 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // Reparieren komplett blockieren, nur weil eine Zusatzfunktion nicht ginge.
 // Tolerant aufgeloest heisst: fehlt sie, laeuft alles andere weiter und nur der
 // LAPS-Abschnitt meldet fehlende Berechtigung.
-const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration"];
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.MobilityManagement"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
@@ -4851,6 +4852,53 @@ app.post("/api/tenants/:id/entra/devicesettings/laps", wrap(async (req, res) => 
   }
 }));
 
+// ---------- Automatische MDM-Einschreibung ----------
+// Portal: Entra ID > Mobilitaet (MDM und MAM) > Microsoft Intune. Der
+// Benutzerbereich ist die Voraussetzung dafuer, dass Geraete nach dem
+// Entra-Beitritt ueberhaupt in Intune landen — auch bei Autopilot.
+app.get("/api/tenants/:id/mdm-enrollment", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, mdm: MDMENROLL.summarize({
+      id: "0000000a-0000-0000-c000-000000000000", displayName: "Microsoft Intune", appliesTo: "none",
+      discoveryUrl: "https://enrollment.manage.microsoft.com/enrollmentserver/discovery.svc",
+      termsOfUseUrl: "https://portal.manage.microsoft.com/TermsofUse.aspx",
+      complianceUrl: "https://portal.manage.microsoft.com/?portalAction=Compliance",
+      isMdmEnrollmentDuringRegistrationDisabled: false
+    }) });
+  }
+  try {
+    res.json({ ok: true, mdm: await MDMENROLL.read(t, certPemPath(t.tenantId)) });
+  } catch (e) {
+    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+      return res.status(403).json({ error: "Die Einschreibungs-Einstellungen brauchen Policy.ReadWrite.MobilityManagement — im Tab 'Tenants' einmal Reparieren ausfuehren." });
+    }
+    throw e;
+  }
+}));
+
+// Schreibender Eingriff im Kundentenant mit Reichweite: ab "Alle" schreibt sich
+// JEDES kuenftig Entra-beigetretene Windows-Geraet automatisch in Intune ein.
+// Die Bestaetigung passiert im Frontend, "Einige" wird serverseitig abgelehnt
+// (braucht eine Gruppenauswahl, die es hier nicht gibt).
+app.post("/api/tenants/:id/mdm-enrollment", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, mdm: { scope: b.scope || "all" } });
+  try {
+    const r = await MDMENROLL.apply(t, certPemPath(t.tenantId), {
+      scope: b.scope, blockDuringRegistration: b.blockDuringRegistration
+    });
+    console.log(`MDM-Einschreibung in Tenant ${t.name}: Benutzerbereich ${r.policy.scope}${r.changed ? "" : " (stand schon so)"}.`);
+    res.json({ ok: true, changed: r.changed, regFlagSkipped: r.regFlagSkipped, mdm: r.policy, before: r.before });
+  } catch (e) {
+    if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
+      return res.status(403).json({ error: "Einschreibung umschalten braucht Policy.ReadWrite.MobilityManagement — im Tab 'Tenants' einmal Reparieren ausfuehren." });
+    }
+    throw e;
+  }
+}));
+
 // ---------- Microsoft 365 Apps (Office als Intune-App) ----------
 // Portal-Aequivalent: Intune > Apps > Windows > Microsoft 365 Apps. Anders als
 // die Agent-Apps braucht das keinen Installer-Upload — nur ein JSON-Objekt plus
@@ -4879,7 +4927,9 @@ app.get("/api/tenants/:id/m365apps", wrap(async (req, res) => {
   // App haengt an der App-Zielgruppe, nicht direkt an der dynamischen Gruppe —
   // deshalb reichen die GroupTag-Gruppen allein hier nicht.
   const nameById = new Map(groups.map(g => [g.groupId, g.groupName]));
-  for (const g of await APPGROUPS.listAppGroups(t, cert).catch(() => [])) nameById.set(g.id, g.displayName);
+  // listAppGroups liefert { groups, assignmentsOk } — nicht das Array selbst.
+  const appGroups = await APPGROUPS.listAppGroups(t, cert).catch(() => ({ groups: [] }));
+  for (const g of (appGroups.groups || [])) nameById.set(g.id, g.displayName);
   for (const s of suites) for (const a of s.assignments) a.groupName = nameById.get(a.groupId) || a.groupId;
   res.json({ ok: true, ...meta, suites, groups });
 }));
