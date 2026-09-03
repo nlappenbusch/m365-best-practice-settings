@@ -29,6 +29,7 @@ spec:
             - { name: SDP_BASE_URL, value: {{ .Values.api.sdpBaseUrl | quote }} }
             - { name: SDP_OWNER_ID, value: {{ .Values.api.sdpOwnerId | quote }} }
             - { name: ANTHROPIC_MODEL, value: {{ .Values.api.anthropicModel | quote }} }
+            - { name: ZOHO_REGION, value: {{ .Values.api.zohoRegion | quote }} }
             - name: ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ADMIN_PASSWORD } }
             - name: BD_API_KEY
@@ -39,6 +40,12 @@ spec:
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: SDP_API_KEY } }
             - name: ANTHROPIC_API_KEY
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ANTHROPIC_API_KEY } }
+            - name: ZOHO_CLIENT_ID
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_ID } }
+            - name: ZOHO_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_SECRET } }
+            - name: ZOHO_REFRESH_TOKEN
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_REFRESH_TOKEN } }
           volumeMounts:
             - { name: state, mountPath: {{ .Values.api.persistence.mountPath }} }
           readinessProbe: { httpGet: { path: /api/health, port: http }, initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 5 }

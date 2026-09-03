@@ -27,7 +27,8 @@
   .tabs button.on{background:var(--panel2);color:var(--ink);border:1px solid var(--accent2)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
   .muted{color:var(--muted)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
-  .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-left:6px;text-decoration:none}
+  a.pill{cursor:pointer}
   .pill.done{color:var(--good);border-color:var(--good)}
   .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent2);color:var(--ink);padding:9px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
   .toast.show{opacity:1}.toast.err{border-color:var(--bad)}
@@ -49,29 +50,51 @@
   .grow{display:flex;align-items:center}
   .glabel{flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .gcell{flex:1;position:relative;height:100%}
-  /* Kundenplan (Druck) */
-  .plan{background:#fff;color:#222;border-radius:var(--r);padding:34px 40px;font-family:"Segoe UI",Aptos,Arial,sans-serif;max-width:1000px;margin:0 auto}
-  .plan h1{color:#045a78;font-size:24px;margin:8px 0 2px}
-  .plan h2{color:#045a78;font-size:17px;border-left:5px solid #0081ad;padding-left:10px;margin:26px 0 10px}
-  .plan .top{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #0081ad;padding-bottom:10px;margin-bottom:6px}
-  .plan .logo{font-size:30px;font-weight:800;color:#0081ad;letter-spacing:-1px;line-height:1}
-  .plan .logo small{display:block;font-size:11px;font-weight:400;color:#666;letter-spacing:0;margin-top:2px}
-  .plan .meta{text-align:right;color:#666;font-size:12.5px}
-  .plan table{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0 14px}
-  .plan th{text-align:left;color:#0081ad;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;border-bottom:2px solid #0081ad;padding:6px 8px}
-  .plan td{border-bottom:1px solid #dde3e5;padding:7px 8px;vertical-align:top}
-  .plan td.num{text-align:right;white-space:nowrap}
-  .plan .ms{margin-top:18px;break-inside:avoid}
-  .plan .msh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .plan .msn{background:#0081ad;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;white-space:nowrap}
-  .plan .mst{font-weight:700;font-size:15px;color:#222;flex:1}
-  .plan .msd{color:#666;font-size:12px;white-space:nowrap}
-  .plan .chk{color:#2e8b57;font-weight:700}
-  .plan .foot{margin-top:28px;padding-top:10px;border-top:1px solid #dde3e5;color:#666;font-size:11px;display:flex;justify-content:space-between}
-  .plan .gantt{border:1px solid #dde3e5;border-radius:6px;padding:12px 14px;margin:10px 0}
+  /* Kundenplan: 1:1 die Styles des SDP-Trackers (build_plan) */
+  .plan{background:#fff;color:#232a31;max-width:210mm;margin:0 auto;padding:16mm 15mm;box-shadow:0 2px 14px rgba(0,0,0,.25);border-radius:4px;font-family:"Segoe UI",Arial,sans-serif;font-size:10.5pt;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .plan *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .plan .top{border-bottom:3px solid #0081ad;padding-bottom:10px;margin-bottom:18px;display:flex;align-items:flex-end;justify-content:space-between}
+  .plan .top img{height:40px;width:auto;display:block}
+  .plan .meta{text-align:right;font-size:9pt;color:#5a6b78}
+  .plan h1{font-size:15pt;margin:0 0 2px;color:#232a31}
+  .plan .sub{color:#5a6b78;font-size:10pt;margin-bottom:16px}
+  .plan h2{color:#0081ad;font-size:12.5pt;margin:20px 0 8px;border:none;padding:0;break-after:avoid;page-break-after:avoid}
+  .plan h2 + .ms, .plan h2 + .gantt{break-before:avoid;page-break-before:avoid}
+  .plan .desc{font-size:10.5pt;white-space:pre-line}
+  .plan .gantt{margin:10px 0 4px;border:1px solid #e3e8ec;border-radius:6px;padding:4px 8px 8px}
+  .plan .grow{display:flex;align-items:center;height:25px;border-radius:3px}
+  .plan .ghead{height:30px}
+  .plan .gkw{position:absolute;top:15px;font-size:6.5pt;color:#aeb8c0;transform:translateX(-50%);font-variant-numeric:tabular-nums}
+  .plan .glabel{width:42%;font-size:9pt;padding-right:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .plan .gtrack{flex:1;position:relative;height:100%}
+  .plan .gdate{width:128px;font-size:8pt;color:#5a6b78;text-align:right;padding-left:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .plan .gwk{position:absolute;top:0;bottom:0;width:1px;background:#eff3f5}
+  .plan .gml{position:absolute;top:0;bottom:0;width:1px;background:#ccd5db}
+  .plan .gm{position:absolute;top:2px;font-size:8pt;color:#5a6b78;font-weight:700;transform:translateX(-50%);letter-spacing:.02em}
+  .plan .gbar{position:absolute;top:6px;height:13px;background:linear-gradient(180deg,#1fa3cd,#0081ad);border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+  .plan .gbar.done{background:linear-gradient(180deg,#4cc38a,#2da44e);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+  .plan .gtoday{position:absolute;top:0;bottom:0;width:0;border-left:1.4px dashed #d29922;z-index:4}
+  .plan .gtoday span{position:absolute;top:1px;left:3px;font-size:7pt;color:#d29922;font-weight:700;white-space:nowrap}
+  .plan .ms{page-break-inside:avoid;break-inside:avoid;margin-bottom:12px}
+  .plan .msh{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #d7dee3;padding-bottom:3px;margin-bottom:5px}
+  .plan .msn{font-size:8pt;font-weight:700;color:#fff;background:#0081ad;padding:1px 7px;border-radius:3px}
+  .plan .mst{font-weight:700;font-size:11pt}
+  .plan .msd{margin-left:auto;font-size:9pt;color:#5a6b78}
+  .plan .mtab{width:100%;border-collapse:collapse;margin:0}
+  .plan .mtab th{text-align:left;font-size:8pt;text-transform:uppercase;letter-spacing:.03em;color:#8a97a2;border-bottom:1px solid #e3e8ec;padding:3px 6px;background:none}
+  .plan .mtab td{padding:4px 6px;vertical-align:top;border-bottom:1px solid #eef2f4;font-size:9.5pt}
+  .plan .tt{font-weight:600;width:30%}
+  .plan .td{color:#3a454e}
+  .plan .th{width:64px;text-align:right;white-space:nowrap;color:#5a6b78}
+  .plan .chk{color:#2da44e;font-weight:800}
+  .plan .msdone{font-size:7.5pt;font-weight:700;color:#2da44e;background:#eaf6ee;border:1px solid #bfe3cb;padding:1px 7px;border-radius:10px;margin-left:8px;white-space:nowrap}
+  .plan .rdone .tt{color:#5a6b78}
+  .plan .foot{margin-top:22px;border-top:1px solid #d7dee3;padding-top:6px;font-size:8pt;color:#8a97a2;display:flex;justify-content:space-between}
+  .plan .tot{font-size:9pt;color:#5a6b78;margin-top:6px}
+  @page{size:A4;margin:16mm 15mm 18mm}
   @media print{
     body{background:#fff}header,.row,.noprint{display:none!important}main{padding:0;max-width:none}
-    .plan{border-radius:0;padding:0;max-width:none}
+    .plan{border-radius:0;padding:0;max-width:none;box-shadow:none}
     .plan table,.plan tr,.plan .ms,.plan .gantt{break-inside:avoid;page-break-inside:avoid}
     .plan h2{break-after:avoid;page-break-after:avoid}
   }
@@ -131,6 +154,23 @@
   }
 
   let me={canEdit:false}, projects=[], pid=null, view="board", cur=null, allData=null;
+  let crmData=null, crmLoading=false;
+  async function ensureCrm(){
+    if(!me.crm||crmData||crmLoading) return;
+    crmLoading=true;
+    try{ crmData=await api("/api/plan/crm-matches"); }
+    catch(e){ crmData={enabled:false,matches:{},error:e.message}; }
+    crmLoading=false; render();
+  }
+  function crmChip(id){
+    if(!me.crm) return "";
+    if(!crmData) return '<span class="pill" title="Zoho-Deal wird geprüft …">CRM …</span>';
+    const m=crmData.matches[id];
+    if(!m) return "";
+    if(m.status==="matched") return `<a href="${m.deal.url}" target="_blank" rel="noopener" class="pill done" title="Zoho-Deal: ${esc(m.deal.name)} (${Math.round(m.score*100)}% Übereinstimmung)">Deal ✓</a>`;
+    const hint=m.suggestion?`Ähnlichster Deal: ${esc(m.suggestion.name)} (${Math.round(m.score*100)}%) — vermutlich kein Match`:"Kein ähnlicher Deal in Zoho gefunden";
+    return `<span class="pill" style="border-color:var(--bad);color:var(--bad)" title="${hint}">kein Deal</span>`;
+  }
 
   async function boot(){
     try{ me=await api("/api/plan/me"); }
@@ -138,6 +178,7 @@
     $("who").textContent=(me.user||"").replace(/^sso:/,"")+(me.canEdit?" · bearbeiten":" · nur lesen");
     if(!me.sdp){$("nosdp").hidden=false;return;}
     $("app").hidden=false;
+    ensureCrm();
     await loadProjects();
     const q=new URLSearchParams(location.search);
     const want=q.get("pid")||localStorage.getItem("plan.pid");
@@ -164,7 +205,7 @@
   }
   $("tabs").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setTab(b.dataset.v);});
   $("projSel").addEventListener("change",()=>{pid=parseInt($("projSel").value,10);localStorage.setItem("plan.pid",pid);cur=null;render();});
-  $("reload").addEventListener("click",()=>{cur=null;allData=null;render();});
+  $("reload").addEventListener("click",()=>{cur=null;allData=null;crmData=null;ensureCrm();render();});
   $("print").addEventListener("click",()=>window.print());
 
   async function render(){
@@ -201,7 +242,7 @@
     let cols=col("",`<span style="color:var(--warn)">Ohne Meilenstein</span>`,"nicht zugeordnet","var(--warn)",un,false);
     MS.forEach(m=>cols+=col(m.id,esc(m.title)+(m.done?'<span class="pill done">erledigt</span>':""),`${m.start||"?"} – ${m.end||"offen"} · ${esc(m.status)}`,m.color,m.tasks,true));
     const tot=cur.tasks.reduce((s,t)=>s+(t.est||0),0);
-    v.innerHTML=`<div class="card" style="margin-bottom:12px"><b>${esc(cur.name)}</b> <span class="muted">· #${cur.id} · ${esc(cur.owner)} · ${cur.tasks.length} Tasks · ${hDec(tot)} geplant${cur.due?" · fällig "+esc(cur.due):""}</span>
+    v.innerHTML=`<div class="card" style="margin-bottom:12px"><b>${esc(cur.name)}</b> <span class="muted">· #${cur.id} · ${esc(cur.owner)} · ${cur.tasks.length} Tasks · ${hDec(tot)} geplant${cur.due?" · fällig "+esc(cur.due):""}</span> ${crmChip(cur.id)}
       ${cur.description?`<div class="muted" style="font-size:13px;margin-top:6px;white-space:pre-line">${esc(cur.description)}</div>`:""}</div>
       ${me.canEdit?`<div class="row noprint"><input id="nmTitle" placeholder="Neuer Meilenstein" style="min-width:260px"><input id="nmStart" type="date"><input id="nmEnd" type="date"><button id="nmAdd" class="primary">Anlegen</button><span class="muted" style="font-size:12px">Karten zwischen Spalten ziehen = Zuordnung schreibt nach SDP</span></div>`:""}
       <div class="board">${cols}</div>`;
@@ -279,29 +320,69 @@
     const groups=allData.map(p=>({label:p.name,milestones:p.milestones})).filter(g=>g.milestones.some(m=>m._s&&m._e));
     const missing=allData.filter(p=>!p.milestones.some(m=>m._s&&m._e)).map(p=>"#"+p.id+" "+p.name);
     v.innerHTML=`<div class="card"><div style="margin-bottom:10px"><b>Alle offenen Projekte</b> <span class="muted">· ${allData.length} Projekte, ${groups.length} mit terminierten Meilensteinen</span></div><div class="gwrap">${ganttHTML(groups,true)}</div>
-      ${missing.length?`<div class="muted" style="font-size:12px;margin-top:12px">Ohne terminierte Meilensteine: ${esc(missing.join(" · "))}</div>`:""}</div>`;
+      ${missing.length?`<div class="muted" style="font-size:12px;margin-top:12px">Ohne terminierte Meilensteine: ${esc(missing.join(" · "))}</div>`:""}</div>
+      ${crmOverviewHTML()}`;
+  }
+  function crmOverviewHTML(){
+    if(!me.crm) return "";
+    if(!crmData) return `<div class="card" style="margin-top:12px"><b>CRM-Abgleich</b> <span class="muted">wird geladen …</span></div>`;
+    if(!crmData.enabled) return `<div class="card" style="margin-top:12px"><b>CRM-Abgleich</b> <span class="muted">Zoho ist nicht konfiguriert.</span></div>`;
+    const rows=allData.map(p=>({p,m:crmData.matches[p.id]})).filter(x=>x.m);
+    const missing=rows.filter(x=>x.m.status!=="matched");
+    const have=rows.filter(x=>x.m.status==="matched");
+    const line=({p,m})=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line)">
+        <span class="mono muted" style="width:52px;flex:none">#${p.id}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.name)}">${esc(p.name)}</span>
+        ${crmChip(p.id)}</div>`;
+    return `<div class="card" style="margin-top:12px">
+      <div style="margin-bottom:8px"><b>CRM-Abgleich</b> <span class="muted">· ${have.length} mit Deal, ${missing.length} ohne — Serges Vorgabe: kein Angebot ohne Zoho-Deal</span></div>
+      ${missing.length?`<div style="margin-bottom:10px">${missing.map(line).join("")}</div>`:'<div class="muted" style="font-size:13px">Alle offenen Projekte haben einen erkannten Deal.</div>'}
+      ${have.length?`<details><summary class="muted" style="cursor:pointer;font-size:12.5px">${have.length} mit erkanntem Deal anzeigen</summary>${have.map(line).join("")}</details>`:""}
+    </div>`;
   }
 
-  // ---------- Kundenplan ----------
+  // ---------- Kundenplan (1:1 nach sdp-tracker build_plan) ----------
+  const DE_MON=["","Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+  function isoWeek(d){const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));const day=t.getUTCDay()||7;t.setUTCDate(t.getUTCDate()+4-day);const y0=new Date(Date.UTC(t.getUTCFullYear(),0,1));return Math.ceil(((t-y0)/86400000+1)/7);}
+  function planGantt(mss){
+    const dated=mss.filter(m=>m._s&&m._e); if(!dated.length) return '<div style="color:#888;font-size:10pt">— noch keine terminierten Meilensteine —</div>';
+    const DAY=86400000; let mn=Math.min(...dated.map(m=>m._s)), mx=Math.max(...dated.map(m=>m._e));
+    const padv=Math.floor((mx-mn)*0.05)||DAY; mn-=padv; mx+=padv; const span=(mx-mn)||1; const X=ms=>(ms-mn)/span*100;
+    const nWeeks=Math.max(1,Math.floor((mx-mn)/(7*DAY))), wkEvery=nWeeks<=18?1:(nWeeks<=36?2:4);
+    const nMonths=Math.max(1,Math.floor((mx-mn)/(30.4*DAY))), monEvery=nMonths<=6?1:(nMonths<=14?2:3);
+    let d0=new Date(mn); d0=new Date(d0.getFullYear(),d0.getMonth(),d0.getDate()); d0.setDate(d0.getDate()-((d0.getDay()+6)%7));
+    let weeks="",wkl="",wi=0,t=d0;
+    while(t.getTime()<mx){const p=X(t.getTime()); if(p>=0&&p<=100){weeks+=`<div class="gwk" style="left:${p.toFixed(2)}%"></div>`; if(wi%wkEvery===0) wkl+=`<div class="gkw" style="left:${p.toFixed(2)}%">KW${isoWeek(t)}</div>`;} t=new Date(t.getTime()+7*DAY); wi++;}
+    let d=new Date(mn); d=new Date(d.getFullYear(),d.getMonth(),1); let months="",labels="",mi=0;
+    while(d.getTime()<mx){const nd=new Date(d.getFullYear(),d.getMonth()+1,1); const dms=d.getTime(),ndms=nd.getTime(); const p=X(dms);
+      if(p>=0&&p<=100) months+=`<div class="gml" style="left:${p.toFixed(2)}%"></div>`;
+      const mid=(Math.max(dms,mn)+Math.min(ndms,mx))/2, visible=(Math.min(ndms,mx)-Math.max(dms,mn))/(ndms-dms);
+      if(mi%monEvery===0&&visible>=0.45) labels+=`<div class="gm" style="left:${X(mid).toFixed(2)}%">${DE_MON[d.getMonth()+1]} ${String(d.getFullYear()).slice(2)}</div>`;
+      d=nd; mi++;}
+    const grid=weeks+months, now=Date.now();
+    const today=(mn<=now&&now<=mx)?`<div class="gtoday" style="left:${X(now).toFixed(2)}%"><span>heute</span></div>`:"";
+    let rows=""; dated.forEach((m,i)=>{const L=X(m._s),W=Math.max(X(m._e)-X(m._s),1.2); const zebra=(i%2===1)?' style="background:#f6f8fa"':"";
+      rows+=`<div class="grow"${zebra}><div class="glabel">${m.done?'<span class="chk">&#10003;</span> ':""}${i+1}. ${esc(m.title)}</div><div class="gtrack">${grid}${today}<div class="gbar${m.done?" done":""}" style="left:${L.toFixed(2)}%;width:${W.toFixed(2)}%"></div></div><div class="gdate">${m.start}–${m.end}</div></div>`;});
+    return `<div class="gantt"><div class="grow ghead"><div class="glabel"></div><div class="gtrack">${grid}${labels}${wkl}${today}</div><div class="gdate"></div></div>${rows}</div>`;
+  }
   function renderPlan(v){
-    const mss=cur.milestones; const tot=cur.tasks.reduce((s,t)=>s+(t.est||0),0);
+    const mss=cur.milestones, dated=mss.filter(m=>m._s&&m._e), list=dated.length?dated:mss;
+    const CHK='<span class="chk">&#10003;</span> ';
+    let total=0, blocks="";
+    list.forEach((m,i)=>{const mt=m.tasks||[]; const h=mt.reduce((s,t)=>s+(t.est||0),0); total+=h;
+      const rows=mt.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${esc(t.scope||"")||"&ndash;"}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("")||'<tr><td colspan=3 class=td>&ndash;</td></tr>';
+      blocks+=`<div class="ms"><div class="msh"><span class="msn">Meilenstein ${i+1}</span><span class="mst">${esc(m.title)}</span>${m.done?'<span class="msdone">&#10003; erledigt</span>':""}<span class="msd">${m.start?m.start+" – "+m.end:""} · ${hDec(h)}</span></div><table class="mtab"><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th>Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;});
+    const uz=cur.unassigned.filter(t=>t.scope);
+    if(uz.length){const rows=uz.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${esc(t.scope)}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("");
+      blocks+=`<div class="ms"><div class="msh"><span class="mst">Projektbegleitend</span></div><table class="mtab"><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th>Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`; total+=uz.reduce((s,t)=>s+(t.est||0),0);}
     const today=fmtD(Date.now());
-    let secs=""; mss.forEach((m,i)=>{
-      const rows=(m.tasks||[]).map(t=>`<tr><td style="width:28%">${t.done?'<span class="chk">✓</span> ':""}${esc(t.title)}</td><td>${esc(t.scope||"")||"–"}</td><td class="num">${t.est?hDec(t.est):"–"}</td></tr>`).join("")||`<tr><td colspan="3" style="color:#888">–</td></tr>`;
-      secs+=`<div class="ms"><div class="msh"><span class="msn">Meilenstein ${i+1}</span><span class="mst">${esc(m.title)}</span>${m.done?'<span class="chk">✓ erledigt</span>':""}<span class="msd">${m.start||"?"} – ${m.end||"offen"} · ${hDec(m.est)}</span></div>
-        <table><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th style="text-align:right">Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    });
-    if(cur.unassigned.length){
-      const rows=cur.unassigned.map(t=>`<tr><td style="width:28%">${esc(t.title)}</td><td>${esc(t.scope||"")||"–"}</td><td class="num">${t.est?hDec(t.est):"–"}</td></tr>`).join("");
-      secs+=`<div class="ms"><div class="msh"><span class="msn">Weitere</span><span class="mst">Ohne Meilenstein</span></div><table><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th style="text-align:right">Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    }
     v.innerHTML=`<div class="plan">
-      <div class="top"><div class="logo">igeeks<small>Managed Services &amp; Security</small></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
-      <h1>${esc(cur.name)}</h1><div style="color:#666;font-size:13px">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner)}</div>
-      <h2>1. Projektbeschreibung &amp; Ziel</h2><div style="white-space:pre-line">${cur.description?esc(cur.description):'<span style="color:#888">— (in der SDP-Projektbeschreibung pflegen)</span>'}</div>
-      <h2>2. Zeitplan</h2><div class="gantt">${ganttHTML([{label:cur.name,milestones:mss}],false)}</div>
-      <h2>3. Meilensteine &amp; Arbeitspakete</h2>${secs}
-      <div style="margin-top:14px;font-size:13px">Geplanter Gesamtaufwand: <b>${hDec(tot)}</b> (Richtwert, Abrechnung nach effektivem Aufwand)</div>
+      <div class="top"><div><img src="/plan/igeeks_logo.svg" alt="igeeks"><div style="font-size:8.5pt;color:#747373;margin-top:4px">Managed Services &amp; Security</div></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
+      <h1>${esc(cur.name)}</h1><div class="sub">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner||"igeeks AG")}</div>
+      <h2>1. Projektbeschreibung &amp; Ziel</h2>${cur.description?`<div class="desc">${esc(cur.description)}</div>`:'<div class="desc" style="color:#888">— (in SDP-Projektbeschreibung pflegen)</div>'}
+      <h2>2. Zeitplan</h2>${planGantt(mss)}
+      <h2>3. Meilensteine &amp; Arbeitspakete</h2>${blocks}
+      <div class="tot">Geplanter Gesamtaufwand: <b>${hDec(total)}</b> (Richtwert, Abrechnung nach effektivem Aufwand)</div>
       <div class="foot"><span>igeeks AG · Räffelstrasse 24 · 8045 Zürich · info@igeeks.ch</span><span>${esc(cur.name)}</span></div>
     </div>`;
   }

@@ -1,5 +1,23 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.32 - SDP-CRM-Matcher im Projektplan-Dashboard (2026-09-03)
+
+Ergänzt `/plan/` um den Abgleich, ob ein offenes SDP-Projekt bereits einen
+Zoho-Deal hat (Serges Vorgabe "kein Angebot ohne Deal"). Reiner Namensabgleich
+(Kunde/Projektname gegen Deal- und Kontoname, keine externe Bibliothek) über
+die letzten Zoho-Deals, 10 Minuten gecacht.
+
+Im Board erscheint neben dem Projektnamen ein Chip — grün mit Link zum Deal,
+oder rot "kein Deal". In der Ansicht "Alle Projekte" steht zusätzlich eine
+Liste aller Projekte ohne erkannten Deal. Nur lesend, es wird nichts nach
+Zoho geschrieben. Ohne `ZOHO_CLIENT_ID`/`ZOHO_CLIENT_SECRET`/`ZOHO_REFRESH_TOKEN`
+bleibt der Abgleich einfach inaktiv, kein Fehler.
+
+Technik: `api/lib/zoho.js` (OAuth-Self-Client, gleiches Muster wie im
+bestehenden `offerten-tool/lib/zoho.js`, aber bewusst read-only-Scope),
+`api/lib/crmMatch.js` (Namensabgleich per Wortmengen-Containment, Schwelle
+60 %), Route `GET /api/plan/crm-matches`.
+
 ## Version 2.31 - Projektplan-Dashboard unter /plan/ (2026-09-03)
 
 Eigenstaendige kleine Anwendung neben dem Konfigurator: `https://<host>/plan/`

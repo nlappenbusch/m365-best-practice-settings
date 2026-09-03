@@ -1026,6 +1026,8 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
 // Tickets-Bereich auf TICKETS_ALLOWED_UPN und lokalen Login beschraenkt.
 // Bewusst NICHT unter /api/sdp, weil das dort der Lese-Zugriff ebenfalls sperren wuerde.
 const SDPPROJ = require("./lib/sdpProjects");
+const ZOHO = require("./lib/zoho");
+const CRMMATCH = require("./lib/crmMatch");
 
 function requirePlanWrite(req, res, next) {
   if (isTicketsAllowed(req)) return next();
@@ -1033,8 +1035,15 @@ function requirePlanWrite(req, res, next) {
 }
 
 app.get("/api/plan/me", (req, res) => {
-  res.json({ ok: true, user: req.session.user, canEdit: isTicketsAllowed(req), sdp: SDP.config().enabled });
+  res.json({ ok: true, user: req.session.user, canEdit: isTicketsAllowed(req), sdp: SDP.config().enabled, crm: ZOHO.config().enabled });
 });
+
+// SDP-CRM-Matcher: pro offenem Projekt, ob ein Zoho-Deal existiert (Namensabgleich,
+// siehe api/lib/crmMatch.js). Nur lesend, gecacht -- kein Schreibzugriff auf Zoho.
+app.get("/api/plan/crm-matches", wrap(async (req, res) => {
+  const projects = await SDPPROJ.listProjects();
+  res.json(await CRMMATCH.matchAll(projects));
+}));
 
 app.get("/api/plan/projects", wrap(async (req, res) => {
   res.json({ ok: true, projects: await SDPPROJ.listProjects() });

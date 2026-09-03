@@ -47,6 +47,12 @@ services:
       # KI-Vorschlag im Ticket-Copilot (Anthropic Messages API).
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      # SDP-CRM-Matcher im Projektplan-Dashboard (/plan/): Zoho-Self-Client, nur lesend.
+      # Ohne diese drei bleibt der CRM-Abgleich einfach inaktiv (kein Fehler).
+      - ZOHO_REGION=${ZOHO_REGION:-eu}
+      - ZOHO_CLIENT_ID=${ZOHO_CLIENT_ID:-}
+      - ZOHO_CLIENT_SECRET=${ZOHO_CLIENT_SECRET:-}
+      - ZOHO_REFRESH_TOKEN=${ZOHO_REFRESH_TOKEN:-}
     volumes:
       - api-state:/app/state
     networks:

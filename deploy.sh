@@ -12,9 +12,10 @@ git reset --hard origin/main
 # und wird von docker compose interpoliert. Ist es leer (z.B. manueller Lauf auf
 # dem Server), behaelt das Backend das bestehende Passwort aus seinem State.
 #
-# Genauso BD_API_KEY / RMM_API_KEY (Agent-Downloads) und SDP_API_KEY
-# (Ticket-Copilot) als Secrets und optional BD_HOST / RMM_SERVER /
-# SDP_BASE_URL / SDP_OWNER_ID als Variables. ACHTUNG: die haben KEINEN State-Fallback —
+# Genauso BD_API_KEY / RMM_API_KEY (Agent-Downloads), SDP_API_KEY
+# (Ticket-Copilot) und ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN
+# (SDP-CRM-Matcher im /plan/-Dashboard) als Secrets und optional BD_HOST / RMM_SERVER /
+# SDP_BASE_URL / SDP_OWNER_ID / ZOHO_REGION als Variables. ACHTUNG: die haben KEINEN State-Fallback —
 # bei einem manuellen Lauf ohne diese Env-Vars werden die Container ohne Keys neu
 # erzeugt und der Downloads-Tab ist bis zum naechsten Pipeline-Deploy inaktiv.
 # Wer manuell deployen will: Vars vorher exportieren oder in /opt/m365-security/.env

@@ -352,6 +352,17 @@ Voraussetzung ist `SDP_API_KEY` (wie beim Ticket-Copilot). Lesen darf jeder
 angemeldete Nutzer, Ändern nur `TICKETS_ALLOWED_UPN` bzw. der lokale Login.
 Deep-Link: `/plan/?pid=409&view=plan`.
 
+**SDP-CRM-Matcher:** Im Board und in "Alle Projekte" zeigt ein Chip, ob ein
+Zoho-Deal zum Projekt existiert (grün mit Link) oder fehlt (rot). Reiner
+Namensabgleich gegen die letzten Zoho-Deals, keine Schreibrechte auf Zoho.
+Voraussetzung ist ein Zoho-Self-Client mit Lese-Scope auf Deals:
+
+1. In der [Zoho API Console](https://api-console.zoho.eu) einen **Self Client** anlegen.
+2. Scope: `ZohoCRM.modules.deals.READ,ZohoCRM.settings.modules.READ`.
+3. Den erzeugten Code binnen 3 Minuten gegen ein Refresh-Token tauschen:
+   `curl -X POST "https://accounts.zoho.eu/oauth/v2/token" -d grant_type=authorization_code -d client_id=... -d client_secret=... -d code=...`
+4. `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN` setzen (Refresh-Token läuft nicht ab). Ohne diese drei bleibt der CRM-Abgleich inaktiv, kein Fehler.
+
 ## 🔐 Bitwarden-Desktop-App per Intune verteilen
 
 Tab **📦 Apps & Agents → 🔐 Bitwarden**. Kein API-Key nötig — der Windows-Client

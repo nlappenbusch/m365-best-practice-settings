@@ -38,14 +38,22 @@ jobs:
           SDP_API_KEY: ${{ secrets.SDP_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
+          # --- SDP-CRM-Matcher (/plan/-Dashboard): Zoho-Self-Client, nur lesend (Secrets) ---
+          # Leer/nicht gesetzt = der CRM-Abgleich im Dashboard bleibt inaktiv, kein Fehler.
+          ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+          ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+          ZOHO_REFRESH_TOKEN: ${{ secrets.ZOHO_REFRESH_TOKEN }}
+
           # --- Optional (Variables, nicht sensibel) ---
           # Leer lassen ist der Normalfall: BD_HOST faellt auf den GravityZone-
           # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung,
           # SDP_BASE_URL/SDP_OWNER_ID fallen auf die iGeeks-Standardwerte zurueck,
-          # ANTHROPIC_MODEL faellt auf einen aktuellen Claude-Sonnet-Stand zurueck.
+          # ANTHROPIC_MODEL faellt auf einen aktuellen Claude-Sonnet-Stand zurueck,
+          # ZOHO_REGION faellt auf das EU-Rechenzentrum zurueck.
           BD_HOST: ${{ vars.BD_HOST }}
           RMM_SERVER: ${{ vars.RMM_SERVER }}
           SDP_BASE_URL: ${{ vars.SDP_BASE_URL }}
           SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          ZOHO_REGION: ${{ vars.ZOHO_REGION }}
         run: bash /opt/m365-security/deploy.sh
