@@ -1018,6 +1018,49 @@ app.post("/api/sdp/tickets/:id/ai-suggest", wrap(async (req, res) => {
   res.json({ ok: true, suggestion, runbookId: runbook ? runbook.id : null, autoPreview });
 }));
 
+// ---------------------------------------------------------------------------
+// Projektplan-Dashboard (/plan/): SDP-Projekte mit Meilensteinen und Tasks.
+// Lesen darf jeder angemeldete Nutzer (Session-Guard oben) — das Dashboard ist
+// dafuer gedacht, Kollegen und Verkauf auf einen Projektstand zu zeigen.
+// Schreiben (Task verschieben, Meilenstein anlegen/terminieren) bleibt wie der
+// Tickets-Bereich auf TICKETS_ALLOWED_UPN und lokalen Login beschraenkt.
+// Bewusst NICHT unter /api/sdp, weil das dort der Lese-Zugriff ebenfalls sperren wuerde.
+const SDPPROJ = require("./lib/sdpProjects");
+
+function requirePlanWrite(req, res, next) {
+  if (isTicketsAllowed(req)) return next();
+  res.status(403).json({ error: "Nur lesend. Aenderungen an Meilensteinen und Tasks sind fuer dieses Konto nicht freigegeben." });
+}
+
+app.get("/api/plan/me", (req, res) => {
+  res.json({ ok: true, user: req.session.user, canEdit: isTicketsAllowed(req), sdp: SDP.config().enabled });
+});
+
+app.get("/api/plan/projects", wrap(async (req, res) => {
+  res.json({ ok: true, projects: await SDPPROJ.listProjects() });
+}));
+
+app.get("/api/plan/projects/:id", wrap(async (req, res) => {
+  const withScope = String(req.query.scope || "") === "1";
+  res.json({ ok: true, project: await SDPPROJ.projectFull(req.params.id, withScope) });
+}));
+
+app.get("/api/plan/gantt", wrap(async (req, res) => {
+  res.json({ ok: true, projects: await SDPPROJ.gantt() });
+}));
+
+app.post("/api/plan/projects/:id/tasks/:tid/milestone", requirePlanWrite, wrap(async (req, res) => {
+  const mid = req.body && req.body.mid ? String(req.body.mid) : null;
+  await SDPPROJ.setTaskMilestone(req.params.id, req.params.tid, mid);
+  res.json({ ok: true });
+}));
+
+app.post("/api/plan/projects/:id/milestones", requirePlanWrite, wrap(async (req, res) => {
+  const b = req.body || {};
+  const id = await SDPPROJ.saveMilestone(req.params.id, b.mid || null, b.title, b.start || "", b.end || "");
+  res.json({ ok: true, id });
+}));
+
 // Maester-Finding als SDP-Ticket anlegen. Liegt unter /api/sdp und ist damit
 // automatisch auf den Tickets-Nutzer beschraenkt (Middleware oben). Nutzt die
 // deutsche KI-Erklaerung des Laufs, falls vorhanden — sonst die englischen

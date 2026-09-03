@@ -192,4 +192,4 @@ async function createRequest({ subject, description }) {
   return { id: String(created.id || ""), subject: created.subject || request.subject };
 }
 
-module.exports = { config, getTicketDetails, getTicketNotes, getTicketTasks, downloadAttachment, getTicketFull, htmlToText, createRequest };
+module.exports = { config, sdpJson, getTicketDetails, getTicketNotes, getTicketTasks, downloadAttachment, getTicketFull, htmlToText, createRequest };

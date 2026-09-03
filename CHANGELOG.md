@@ -1,5 +1,33 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.31 - Projektplan-Dashboard unter /plan/ (2026-09-03)
+
+Eigenstaendige kleine Anwendung neben dem Konfigurator: `https://<host>/plan/`
+zeigt die offenen ServiceDesk-Plus-Projekte mit Meilensteinen und Tasks, so
+wie sie im lokalen SDP-Tracker gepflegt werden — gedacht, um Kollegen und
+Verkauf auf einen Projektstand zu zeigen, ohne den Tracker vom Notebook
+freizugeben.
+
+Vier Ansichten je Projekt: **Board** (Meilenstein-Spalten mit Task-Karten,
+Drag-and-drop schreibt `task.milestone` nach SDP), **Zeitplan** (Gantt mit
+Meilenstein- und Task-Balken, Tasks nach Schaetzung im Meilenstein verteilt),
+**Alle Projekte** (Gantt ueber alle offenen Projekte, nach Kunde gruppiert)
+und **Kundenplan** (druckfertige Fassung mit Zeitplan und Arbeitspaketen;
+zeigt aus der Task-Beschreibung nur den `Scope:`-Teil, interne Notizen und
+Voraussetzung/Input/Umsetzung werden herausgefiltert).
+
+Lesen darf jeder angemeldete Nutzer (lokal oder SSO). Aendern — Task
+verschieben, Meilenstein anlegen, umbenennen, terminieren — bleibt wie der
+Tickets-Bereich auf den freigeschalteten Nutzer beschraenkt; fuer alle
+anderen ist das Board reine Anzeige. Ohne `SDP_API_KEY` meldet die Seite das
+klar, statt leer zu bleiben.
+
+Technik: `api/lib/sdpProjects.js` (Projekte, Meilensteine, Tasks, Zuordnung,
+Meilenstein speichern), Routen unter `/api/plan/*` (bewusst nicht unter
+`/api/sdp`, weil dort auch das Lesen gesperrt ist), Frontend als statische
+Seite `frontend/public/plan/index.html` ohne Build-Abhaengigkeit — nginx
+liefert sie ueber die bestehende SPA-Regel aus.
+
 ## Version 2.30 - Kapitel 9 der Wissensbasis nachgezogen (2026-09-02)
 
 Der Namenskonventionen-Abgleich markiert in Kapitel 9 an einem Dutzend Stellen

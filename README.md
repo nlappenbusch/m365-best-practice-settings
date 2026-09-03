@@ -335,6 +335,23 @@ App-Assignment* auf. Ein Plattformskript (Drive-/Printer-Mapping,
 Registry-Richtlinie) muss deshalb direkt an die Gerätegruppe zugewiesen werden,
 nie an eine App-Gruppe — sonst erreicht es kein Gerät.
 
+## 📅 Projektplan-Dashboard (`/plan/`)
+
+Eigenständige kleine Seite neben dem Konfigurator, um Kollegen und Verkauf einen
+Projektstand aus ServiceDesk Plus zu zeigen: `https://<host>/plan/`.
+
+- **Board** — Meilenstein-Spalten mit Task-Karten; Drag-and-drop schreibt die
+  Zuordnung nach SDP (nur für den freigeschalteten Nutzer, sonst reine Anzeige).
+- **Zeitplan** — Gantt des gewählten Projekts (Meilensteine dick, Tasks dünn).
+- **Alle Projekte** — Gantt über alle offenen Projekte, nach Kunde gruppiert.
+- **Kundenplan** — druckfertige Fassung (Drucken / PDF) mit Zeitplan und
+  Arbeitspaketen. Aus der Task-Beschreibung erscheint nur der `Scope:`-Teil;
+  `Voraussetzung`, `Input Kunde`, `Umsetzung` und `--- Nils ---`-Notizen bleiben intern.
+
+Voraussetzung ist `SDP_API_KEY` (wie beim Ticket-Copilot). Lesen darf jeder
+angemeldete Nutzer, Ändern nur `TICKETS_ALLOWED_UPN` bzw. der lokale Login.
+Deep-Link: `/plan/?pid=409&view=plan`.
+
 ## 🔐 Bitwarden-Desktop-App per Intune verteilen
 
 Tab **📦 Apps & Agents → 🔐 Bitwarden**. Kein API-Key nötig — der Windows-Client

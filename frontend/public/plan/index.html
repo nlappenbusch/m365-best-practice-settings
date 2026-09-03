@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projektplan · igeeks</title>
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root{--bg:#0e1116;--panel:#161b22;--panel2:#1c222b;--line:#2a313c;--ink:#e6edf3;--muted:#8b98a5;--accent:#0081ad;--accent2:#3aa8cd;--good:#3fb950;--warn:#d29922;--bad:#f85149;--r:12px;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:14.5px;line-height:1.5}
+  a{color:var(--accent2)}
+  header{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+  header .brand{font-weight:700;letter-spacing:.2px}
+  header .brand span{color:var(--accent2)}
+  header .sp{flex:1}
+  header .who{font-size:12px;color:var(--muted)}
+  main{padding:18px 22px 60px;max-width:1500px;margin:0 auto}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,input,button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;font-size:13.5px}
+  select{min-width:340px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.5;cursor:default}
+  .tabs{display:flex;gap:4px;border:1px solid var(--line);border-radius:10px;padding:3px;background:var(--panel)}
+  .tabs button{border:none;background:transparent;color:var(--muted);padding:6px 14px;border-radius:8px}
+  .tabs button.on{background:var(--panel2);color:var(--ink);border:1px solid var(--accent2)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+  .muted{color:var(--muted)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  .pill.done{color:var(--good);border-color:var(--good)}
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent2);color:var(--ink);padding:9px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+  .toast.show{opacity:1}.toast.err{border-color:var(--bad)}
+  /* Board */
+  .board{display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;align-items:flex-start}
+  .mscol{flex:0 0 262px;background:var(--bg);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:10px;padding:10px;display:flex;flex-direction:column;max-height:70vh;transition:border-color .15s}
+  .mscol.over{border-color:var(--accent2)}
+  .mscol h4{margin:0;font-size:13px;line-height:1.3}
+  .mscol h4.edit{cursor:pointer}
+  .mscol .sub{font-size:11px;color:var(--muted);margin:5px 0 9px}
+  .mscol .cards{overflow-y:auto;flex:1;min-height:60px}
+  .tcard{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent2);border-radius:8px;padding:8px 10px;margin-bottom:7px}
+  .tcard.drag{cursor:grab}.tcard.done{border-left-color:var(--good);opacity:.75}
+  .tcard .t{font-weight:600;font-size:12.5px;line-height:1.35}
+  .tcard .m{color:var(--muted);font-size:11px;margin-top:3px}
+  .empty{font-size:11px;color:var(--muted);padding:14px 6px;text-align:center;border:1px dashed var(--line);border-radius:8px}
+  /* Gantt */
+  .gwrap{overflow-x:auto}
+  .grow{display:flex;align-items:center}
+  .glabel{flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gcell{flex:1;position:relative;height:100%}
+  /* Kundenplan (Druck) */
+  .plan{background:#fff;color:#222;border-radius:var(--r);padding:34px 40px;font-family:"Segoe UI",Aptos,Arial,sans-serif;max-width:1000px;margin:0 auto}
+  .plan h1{color:#045a78;font-size:24px;margin:8px 0 2px}
+  .plan h2{color:#045a78;font-size:17px;border-left:5px solid #0081ad;padding-left:10px;margin:26px 0 10px}
+  .plan .top{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #0081ad;padding-bottom:10px;margin-bottom:6px}
+  .plan .logo{font-size:30px;font-weight:800;color:#0081ad;letter-spacing:-1px;line-height:1}
+  .plan .logo small{display:block;font-size:11px;font-weight:400;color:#666;letter-spacing:0;margin-top:2px}
+  .plan .meta{text-align:right;color:#666;font-size:12.5px}
+  .plan table{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0 14px}
+  .plan th{text-align:left;color:#0081ad;font-size:10.5px;letter-spacing:.8px;text-transform:uppercase;border-bottom:2px solid #0081ad;padding:6px 8px}
+  .plan td{border-bottom:1px solid #dde3e5;padding:7px 8px;vertical-align:top}
+  .plan td.num{text-align:right;white-space:nowrap}
+  .plan .ms{margin-top:18px;break-inside:avoid}
+  .plan .msh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .plan .msn{background:#0081ad;color:#fff;font-size:11px;padding:2px 8px;border-radius:4px;white-space:nowrap}
+  .plan .mst{font-weight:700;font-size:15px;color:#222;flex:1}
+  .plan .msd{color:#666;font-size:12px;white-space:nowrap}
+  .plan .chk{color:#2e8b57;font-weight:700}
+  .plan .foot{margin-top:28px;padding-top:10px;border-top:1px solid #dde3e5;color:#666;font-size:11px;display:flex;justify-content:space-between}
+  .plan .gantt{border:1px solid #dde3e5;border-radius:6px;padding:12px 14px;margin:10px 0}
+  @media print{
+    body{background:#fff}header,.row,.noprint{display:none!important}main{padding:0;max-width:none}
+    .plan{border-radius:0;padding:0;max-width:none}
+    .plan table,.plan tr,.plan .ms,.plan .gantt{break-inside:avoid;page-break-inside:avoid}
+    .plan h2{break-after:avoid;page-break-after:avoid}
+  }
+  .login{max-width:520px;margin:60px auto;text-align:center}
+  .login h2{margin-top:0}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">igeeks <span>Projektplan</span></div>
+  <div class="muted" style="font-size:12.5px">ServiceDesk Plus · Meilensteine und Arbeitspakete</div>
+  <div class="sp"></div>
+  <div class="who" id="who"></div>
+  <a href="/" style="font-size:12.5px;margin-left:12px">zum Konfigurator</a>
+</header>
+<main>
+  <div id="login" class="login card" hidden>
+    <h2>Anmeldung nötig</h2>
+    <p class="muted">Das Dashboard nutzt die Anmeldung des Konfigurators. Nach dem Login hierher zurückkehren.</p>
+    <p><a class="primary" href="/api/auth/sso/start"><button class="primary">Mit igeeks-Konto anmelden</button></a>
+       <a href="/"><button>Lokaler Login</button></a></p>
+  </div>
+  <div id="nosdp" class="card" hidden>
+    <b>Keine Verbindung zu ServiceDesk Plus.</b> <span class="muted">Auf dieser Instanz ist kein SDP-Schlüssel hinterlegt (SDP_API_KEY). Das Dashboard bleibt leer, bis der Schlüssel im Deploy gesetzt ist.</span>
+  </div>
+  <div id="app" hidden>
+    <div class="row">
+      <select id="projSel"></select>
+      <div class="tabs" id="tabs">
+        <button data-v="board" class="on">Board</button>
+        <button data-v="gantt">Zeitplan</button>
+        <button data-v="all">Alle Projekte</button>
+        <button data-v="plan">Kundenplan</button>
+      </div>
+      <button id="reload" title="Neu aus SDP laden">↻</button>
+      <button id="print" class="noprint" hidden>Drucken / PDF</button>
+      <span id="hint" class="muted" style="font-size:12px"></span>
+    </div>
+    <div id="view"></div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const pad=x=>String(x).padStart(2,"0");
+  const hDec=h=>{const m=Math.round((h||0)*60);return Math.floor(m/60)+"h"+(m%60?" "+(m%60)+"m":"");};
+  const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const fmtD=ms=>{const d=new Date(ms);return pad(d.getDate())+"."+pad(d.getMonth()+1)+"."+d.getFullYear();};
+  function toast(m,err){const t=$("toast");t.textContent=m;t.className="toast show"+(err?" err":"");setTimeout(()=>t.className="toast",2600);}
+  async function api(path,body){
+    const r=await fetch(path,{method:body?"POST":"GET",credentials:"same-origin",headers:body?{"Content-Type":"application/json"}:{},body:body?JSON.stringify(body):undefined});
+    let d=null; try{d=await r.json();}catch{}
+    if(r.status===401){const e=new Error("Nicht angemeldet");e.status=401;throw e;}
+    if(!r.ok){throw new Error((d&&d.error)||("HTTP "+r.status));}
+    return d;
+  }
+
+  let me={canEdit:false}, projects=[], pid=null, view="board", cur=null, allData=null;
+
+  async function boot(){
+    try{ me=await api("/api/plan/me"); }
+    catch(e){ if(e.status===401){$("login").hidden=false;return;} toast("Fehler: "+e.message,true);return; }
+    $("who").textContent=(me.user||"").replace(/^sso:/,"")+(me.canEdit?" · bearbeiten":" · nur lesen");
+    if(!me.sdp){$("nosdp").hidden=false;return;}
+    $("app").hidden=false;
+    await loadProjects();
+    const q=new URLSearchParams(location.search);
+    const want=q.get("pid")||localStorage.getItem("plan.pid");
+    if(want&&projects.some(p=>String(p.id)===String(want))) pid=parseInt(want,10);
+    else if(projects.length) pid=projects[0].id;
+    view=q.get("view")||localStorage.getItem("plan.view")||"board";
+    $("projSel").value=pid; setTab(view,true);
+  }
+  async function loadProjects(){
+    const d=await api("/api/plan/projects"); projects=d.projects||[];
+    const sel=$("projSel"); sel.innerHTML="";
+    let lastCust=null, grp=null;
+    projects.forEach(p=>{
+      if(p.customer!==lastCust){grp=document.createElement("optgroup");grp.label=p.customer;sel.appendChild(grp);lastCust=p.customer;}
+      const o=document.createElement("option");o.value=p.id;o.textContent="#"+p.id+" · "+p.name+(p.owner?" · "+p.owner:"");grp.appendChild(o);
+    });
+    if(!projects.length) sel.innerHTML="<option>Keine offenen Projekte</option>";
+  }
+  function setTab(v,silent){
+    view=v; localStorage.setItem("plan.view",v);
+    document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+    $("print").hidden=(v!=="plan");
+    render();
+  }
+  $("tabs").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setTab(b.dataset.v);});
+  $("projSel").addEventListener("change",()=>{pid=parseInt($("projSel").value,10);localStorage.setItem("plan.pid",pid);cur=null;render();});
+  $("reload").addEventListener("click",()=>{cur=null;allData=null;render();});
+  $("print").addEventListener("click",()=>window.print());
+
+  async function render(){
+    const v=$("view"); const url=new URL(location);url.searchParams.set("pid",pid||"");url.searchParams.set("view",view);history.replaceState(null,"",url);
+    $("hint").textContent="";
+    if(view==="all"){ v.innerHTML="<div class='card muted'>Lade alle Projekte aus SDP …</div>";
+      try{ if(!allData){const d=await api("/api/plan/gantt");allData=d.projects||[];} renderAll(v); }catch(e){v.innerHTML="<div class='card'>Fehler: "+esc(e.message)+"</div>";}
+      return; }
+    if(!pid){v.innerHTML="<div class='card muted'>Kein Projekt gewählt.</div>";return;}
+    const needScope=(view==="plan");
+    if(!cur||cur.id!==pid||(needScope&&!cur._scope)){
+      v.innerHTML="<div class='card muted'>Lade Projekt #"+pid+" aus SDP …</div>";
+      try{ const d=await api("/api/plan/projects/"+pid+(needScope?"?scope=1":"")); cur=d.project; cur._scope=needScope; }
+      catch(e){ v.innerHTML="<div class='card'>Fehler: "+esc(e.message)+"</div>"; return; }
+    }
+    if(view==="board") renderBoard(v); else if(view==="gantt") renderGantt(v); else renderPlan(v);
+  }
+
+  // ---------- Board ----------
+  function card(t){
+    return `<div class="tcard${me.canEdit?" drag":""}${t.done?" done":""}" ${me.canEdit?`draggable="true" data-tid="${t.id}"`:""}>
+      <div class="t">${t.done?"✓ ":""}${esc(t.title)}</div>
+      <div class="m"><span class="mono">#${t.id}</span>${t.est?" · "+hDec(t.est):" · —"}${t.owner?" · "+esc(t.owner):""}</div></div>`;
+  }
+  function col(mid,title,sub,color,tasks,editable){
+    const sum=tasks.reduce((s,t)=>s+(t.est||0),0);
+    return `<div class="mscol" data-mid="${mid}" style="border-top-color:${color}">
+      <h4 class="${editable&&me.canEdit?"edit":""}" ${editable&&me.canEdit?`data-edit="${mid}" title="Titel oder Termine bearbeiten"`:""}>${title}${editable&&me.canEdit?' <span class="muted">✎</span>':""}</h4>
+      <div class="sub">${sub} · ${tasks.length} Task(s)${sum?" · "+hDec(sum):""}</div>
+      <div class="cards">${tasks.map(card).join("")||`<div class="empty">${me.canEdit?"Karte hierher ziehen":"keine Tasks"}</div>`}</div></div>`;
+  }
+  function renderBoard(v){
+    const MS=cur.milestones, un=cur.unassigned;
+    let cols=col("",`<span style="color:var(--warn)">Ohne Meilenstein</span>`,"nicht zugeordnet","var(--warn)",un,false);
+    MS.forEach(m=>cols+=col(m.id,esc(m.title)+(m.done?'<span class="pill done">erledigt</span>':""),`${m.start||"?"} – ${m.end||"offen"} · ${esc(m.status)}`,m.color,m.tasks,true));
+    const tot=cur.tasks.reduce((s,t)=>s+(t.est||0),0);
+    v.innerHTML=`<div class="card" style="margin-bottom:12px"><b>${esc(cur.name)}</b> <span class="muted">· #${cur.id} · ${esc(cur.owner)} · ${cur.tasks.length} Tasks · ${hDec(tot)} geplant${cur.due?" · fällig "+esc(cur.due):""}</span>
+      ${cur.description?`<div class="muted" style="font-size:13px;margin-top:6px;white-space:pre-line">${esc(cur.description)}</div>`:""}</div>
+      ${me.canEdit?`<div class="row noprint"><input id="nmTitle" placeholder="Neuer Meilenstein" style="min-width:260px"><input id="nmStart" type="date"><input id="nmEnd" type="date"><button id="nmAdd" class="primary">Anlegen</button><span class="muted" style="font-size:12px">Karten zwischen Spalten ziehen = Zuordnung schreibt nach SDP</span></div>`:""}
+      <div class="board">${cols}</div>`;
+    if(me.canEdit){
+      let dragTid=null;
+      v.querySelectorAll(".tcard[draggable]").forEach(el=>{
+        el.addEventListener("dragstart",e=>{dragTid=parseInt(el.dataset.tid,10);e.dataTransfer.effectAllowed="move";el.style.opacity=".4";});
+        el.addEventListener("dragend",()=>el.style.opacity="1");
+      });
+      v.querySelectorAll(".mscol").forEach(c=>{
+        c.addEventListener("dragover",e=>{e.preventDefault();c.classList.add("over");});
+        c.addEventListener("dragleave",()=>c.classList.remove("over"));
+        c.addEventListener("drop",async e=>{e.preventDefault();c.classList.remove("over");const tid=dragTid;dragTid=null;if(tid==null)return;
+          const mid=c.dataset.mid||null;
+          try{ await api(`/api/plan/projects/${pid}/tasks/${tid}/milestone`,{mid}); toast("Zugeordnet ✓"); cur=null; allData=null; render(); }
+          catch(err){ toast(err.message,true); }
+        });
+      });
+      v.querySelectorAll("h4[data-edit]").forEach(h=>h.addEventListener("click",()=>editMs(h.dataset.edit)));
+      const add=$("nmAdd"); if(add) add.addEventListener("click",async()=>{
+        const title=$("nmTitle").value.trim(); if(!title){toast("Titel fehlt",true);return;}
+        try{ await api(`/api/plan/projects/${pid}/milestones`,{title,start:$("nmStart").value,end:$("nmEnd").value}); toast("Meilenstein angelegt ✓"); cur=null; allData=null; render(); }
+        catch(err){ toast(err.message,true); }
+      });
+    }
+  }
+  async function editMs(mid){
+    const m=cur.milestones.find(x=>x.id===mid); if(!m)return;
+    const title=prompt("Meilenstein-Titel (schreibt in SDP):",m.title); if(title===null)return;
+    const iso=ms=>{if(!ms)return "";const d=new Date(ms);return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());};
+    const start=prompt("Start (JJJJ-MM-TT, leer = unverändert):",iso(m._s)); if(start===null)return;
+    const end=prompt("Ende (JJJJ-MM-TT, leer = unverändert):",iso(m._e)); if(end===null)return;
+    try{ await api(`/api/plan/projects/${pid}/milestones`,{mid,title:title.trim()||m.title,start,end}); toast("Gespeichert ✓"); cur=null; allData=null; render(); }
+    catch(err){ toast(err.message,true); }
+  }
+
+  // ---------- Gantt ----------
+  function ganttHTML(groups,dark){
+    let all=[]; groups.forEach(g=>g.milestones.forEach(m=>{ if(m._s&&m._e) all.push(m); }));
+    if(!all.length) return `<div class="${dark?"muted":""}" style="font-size:13px">Keine Meilensteine mit Terminen.</div>`;
+    const now=Date.now();
+    let min=Math.min(now,...all.map(m=>m._s)), max=Math.max(now,...all.map(m=>m._e));
+    const pd=(max-min)*0.04||86400000; min-=pd; max+=pd; const span=(max-min)||1;
+    const X=t=>((t-min)/span*100), LBL=dark?240:220;
+    const C={line:dark?"var(--line)":"#e3e8ea",muted:dark?"var(--muted)":"#666",ink:dark?"var(--ink)":"#222",bad:dark?"var(--bad)":"#c0392b",acc:dark?"var(--accent)":"#0081ad",acc2:dark?"var(--accent2)":"#3aa8cd",good:dark?"var(--good)":"#2e8b57",group:dark?"var(--accent2)":"#045a78"};
+    let ticks=[],d=new Date(min); d=new Date(d.getFullYear(),d.getMonth(),1);
+    while(d.getTime()<max){ ticks.push({t:d.getTime(),l:d.toLocaleDateString("de-CH",{month:"short",year:"2-digit"})}); d=new Date(d.getFullYear(),d.getMonth()+1,1); }
+    const grid=ticks.map(tk=>`<div style="position:absolute;left:${X(tk.t)}%;top:0;bottom:0;width:1px;background:${C.line}"></div>`).join("");
+    const nowM=`<div style="position:absolute;left:${X(now)}%;top:0;bottom:0;width:2px;background:${C.bad};z-index:2"></div>`;
+    const cell=inner=>`<div class="gcell">${grid}${nowM}${inner||""}</div>`;
+    const axis=`<div class="grow" style="height:22px;align-items:flex-end"><div class="glabel" style="width:${LBL}px"></div><div style="flex:1;position:relative;height:16px">${ticks.map(tk=>`<div style="position:absolute;left:${X(tk.t)}%;font-size:10px;color:${C.muted};white-space:nowrap">${tk.l}</div>`).join("")}</div></div>`;
+    let body="";
+    groups.forEach(g=>{
+      const mss=g.milestones.filter(m=>m._s&&m._e); if(!mss.length) return;
+      if(groups.length>1) body+=`<div class="grow" style="height:24px;margin-top:10px"><div class="glabel" style="width:${LBL}px;font-weight:700;font-size:12.5px;color:${C.group}" title="${esc(g.label)}">${esc(g.label)}</div>${cell()}</div>`;
+      mss.forEach(m=>{
+        const overdue=m._e<now&&!m.done, colr=m.done?C.good:(overdue?C.bad:C.acc);
+        const bar=`<div title="${esc(m.title)} · ${m.start} – ${m.end}" style="position:absolute;left:${X(m._s)}%;width:${Math.max(X(m._e)-X(m._s),1)}%;top:5px;height:16px;background:${colr};opacity:.85;border-radius:5px"></div>`;
+        body+=`<div class="grow" style="height:26px"><div class="glabel" style="width:${LBL}px;font-size:12px;font-weight:600;color:${C.ink}" title="${esc(m.title)}">${m.done?"✓ ":""}${esc(m.title)}</div>${cell(bar)}</div>`;
+        const tasks=m.tasks||[], tot=tasks.reduce((s,t)=>s+(t.est||0),0)||tasks.length||1; let acc=0;
+        tasks.forEach(t=>{
+          const w=t.est||(tot/tasks.length); let ts,te;
+          if(t.ts&&t.te){ts=t.ts;te=t.te;} else {ts=m._s+(acc/tot)*(m._e-m._s); acc+=w; te=m._s+(acc/tot)*(m._e-m._s);}
+          const tb=`<div title="${esc(t.title)}${t.est?" · "+hDec(t.est):""} · ${fmtD(ts)}–${fmtD(te)}" style="position:absolute;left:${X(ts)}%;width:${Math.max(X(te)-X(ts),0.6)}%;top:7px;height:9px;background:${t.done?C.good:C.acc2};opacity:.8;border-radius:4px"></div>`;
+          body+=`<div class="grow" style="height:21px"><div class="glabel" style="width:${LBL}px;font-size:11px;color:${C.muted};padding-left:18px" title="${esc(t.title)}">${esc(t.title)}</div>${cell(tb)}</div>`;
+        });
+      });
+    });
+    return `<div style="min-width:820px">${axis}${body}<div style="margin-top:14px;font-size:11px;color:${C.muted}">rote Linie = heute · dicke Balken = Meilensteine · dünne = Tasks (eigener Termin oder nach Schätzung im Meilenstein verteilt) · grün = erledigt · rot = Termin überschritten</div></div>`;
+  }
+  function renderGantt(v){
+    v.innerHTML=`<div class="card"><div style="margin-bottom:10px"><b>${esc(cur.name)}</b> <span class="muted">· Zeitplan</span></div><div class="gwrap">${ganttHTML([{label:cur.name,milestones:cur.milestones}],true)}</div></div>`;
+  }
+  function renderAll(v){
+    const groups=allData.map(p=>({label:p.name,milestones:p.milestones})).filter(g=>g.milestones.some(m=>m._s&&m._e));
+    const missing=allData.filter(p=>!p.milestones.some(m=>m._s&&m._e)).map(p=>"#"+p.id+" "+p.name);
+    v.innerHTML=`<div class="card"><div style="margin-bottom:10px"><b>Alle offenen Projekte</b> <span class="muted">· ${allData.length} Projekte, ${groups.length} mit terminierten Meilensteinen</span></div><div class="gwrap">${ganttHTML(groups,true)}</div>
+      ${missing.length?`<div class="muted" style="font-size:12px;margin-top:12px">Ohne terminierte Meilensteine: ${esc(missing.join(" · "))}</div>`:""}</div>`;
+  }
+
+  // ---------- Kundenplan ----------
+  function renderPlan(v){
+    const mss=cur.milestones; const tot=cur.tasks.reduce((s,t)=>s+(t.est||0),0);
+    const today=fmtD(Date.now());
+    let secs=""; mss.forEach((m,i)=>{
+      const rows=(m.tasks||[]).map(t=>`<tr><td style="width:28%">${t.done?'<span class="chk">✓</span> ':""}${esc(t.title)}</td><td>${esc(t.scope||"")||"–"}</td><td class="num">${t.est?hDec(t.est):"–"}</td></tr>`).join("")||`<tr><td colspan="3" style="color:#888">–</td></tr>`;
+      secs+=`<div class="ms"><div class="msh"><span class="msn">Meilenstein ${i+1}</span><span class="mst">${esc(m.title)}</span>${m.done?'<span class="chk">✓ erledigt</span>':""}<span class="msd">${m.start||"?"} – ${m.end||"offen"} · ${hDec(m.est)}</span></div>
+        <table><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th style="text-align:right">Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    });
+    if(cur.unassigned.length){
+      const rows=cur.unassigned.map(t=>`<tr><td style="width:28%">${esc(t.title)}</td><td>${esc(t.scope||"")||"–"}</td><td class="num">${t.est?hDec(t.est):"–"}</td></tr>`).join("");
+      secs+=`<div class="ms"><div class="msh"><span class="msn">Weitere</span><span class="mst">Ohne Meilenstein</span></div><table><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th style="text-align:right">Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    v.innerHTML=`<div class="plan">
+      <div class="top"><div class="logo">igeeks<small>Managed Services &amp; Security</small></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
+      <h1>${esc(cur.name)}</h1><div style="color:#666;font-size:13px">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner)}</div>
+      <h2>1. Projektbeschreibung &amp; Ziel</h2><div style="white-space:pre-line">${cur.description?esc(cur.description):'<span style="color:#888">— (in der SDP-Projektbeschreibung pflegen)</span>'}</div>
+      <h2>2. Zeitplan</h2><div class="gantt">${ganttHTML([{label:cur.name,milestones:mss}],false)}</div>
+      <h2>3. Meilensteine &amp; Arbeitspakete</h2>${secs}
+      <div style="margin-top:14px;font-size:13px">Geplanter Gesamtaufwand: <b>${hDec(tot)}</b> (Richtwert, Abrechnung nach effektivem Aufwand)</div>
+      <div class="foot"><span>igeeks AG · Räffelstrasse 24 · 8045 Zürich · info@igeeks.ch</span><span>${esc(cur.name)}</span></div>
+    </div>`;
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
