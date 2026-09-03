@@ -27,6 +27,11 @@
   .tabs button.on{background:var(--panel2);color:var(--ink);border:1px solid var(--accent2)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
   .muted{color:var(--muted)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  /* Formatierung aus SDP-Projekt-/Task-Beschreibungen (Ueberschriften, Fett, Absaetze, Listen) sichtbar lassen */
+  .desc :first-child{margin-top:0}.desc :last-child{margin-bottom:0}
+  .desc h1,.desc h2,.desc h3,.desc h4{font-size:1em;font-weight:700;margin:.7em 0 .25em}
+  .desc p{margin:.4em 0}.desc ul,.desc ol{margin:.3em 0;padding-left:1.3em}
+  .desc a{color:inherit;text-decoration:underline}
   .pill{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-left:6px;text-decoration:none}
   a.pill{cursor:pointer}
   .pill.done{color:var(--good);border-color:var(--good)}
@@ -243,7 +248,7 @@
     MS.forEach(m=>cols+=col(m.id,esc(m.title)+(m.done?'<span class="pill done">erledigt</span>':""),`${m.start||"?"} – ${m.end||"offen"} · ${esc(m.status)}`,m.color,m.tasks,true));
     const tot=cur.tasks.reduce((s,t)=>s+(t.est||0),0);
     v.innerHTML=`<div class="card" style="margin-bottom:12px"><b>${esc(cur.name)}</b> <span class="muted">· #${cur.id} · ${esc(cur.owner)} · ${cur.tasks.length} Tasks · ${hDec(tot)} geplant${cur.due?" · fällig "+esc(cur.due):""}</span> ${crmChip(cur.id)}
-      ${cur.description?`<div class="muted" style="font-size:13px;margin-top:6px;white-space:pre-line">${esc(cur.description)}</div>`:""}</div>
+      ${cur.description?`<div class="muted desc" style="font-size:13px;margin-top:6px">${cur.description}</div>`:""}</div>
       ${me.canEdit?`<div class="row noprint"><input id="nmTitle" placeholder="Neuer Meilenstein" style="min-width:260px"><input id="nmStart" type="date"><input id="nmEnd" type="date"><button id="nmAdd" class="primary">Anlegen</button><span class="muted" style="font-size:12px">Karten zwischen Spalten ziehen = Zuordnung schreibt nach SDP</span></div>`:""}
       <div class="board">${cols}</div>`;
     if(me.canEdit){
@@ -370,16 +375,16 @@
     const CHK='<span class="chk">&#10003;</span> ';
     let total=0, blocks="";
     list.forEach((m,i)=>{const mt=m.tasks||[]; const h=mt.reduce((s,t)=>s+(t.est||0),0); total+=h;
-      const rows=mt.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${esc(t.scope||"")||"&ndash;"}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("")||'<tr><td colspan=3 class=td>&ndash;</td></tr>';
+      const rows=mt.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${t.scope||"&ndash;"}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("")||'<tr><td colspan=3 class=td>&ndash;</td></tr>';
       blocks+=`<div class="ms"><div class="msh"><span class="msn">Meilenstein ${i+1}</span><span class="mst">${esc(m.title)}</span>${m.done?'<span class="msdone">&#10003; erledigt</span>':""}<span class="msd">${m.start?m.start+" – "+m.end:""} · ${hDec(h)}</span></div><table class="mtab"><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th>Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`;});
     const uz=cur.unassigned.filter(t=>t.scope);
-    if(uz.length){const rows=uz.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${esc(t.scope)}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("");
+    if(uz.length){const rows=uz.map(t=>`<tr class="${t.done?"rdone":""}"><td class="tt">${t.done?CHK:""}${esc(t.title)}</td><td class="td">${t.scope}</td><td class="th">${hDec(t.est||0)}</td></tr>`).join("");
       blocks+=`<div class="ms"><div class="msh"><span class="mst">Projektbegleitend</span></div><table class="mtab"><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th>Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`; total+=uz.reduce((s,t)=>s+(t.est||0),0);}
     const today=fmtD(Date.now());
     v.innerHTML=`<div class="plan">
       <div class="top"><div><img src="/plan/igeeks_logo.svg" alt="igeeks"><div style="font-size:8.5pt;color:#747373;margin-top:4px">Managed Services &amp; Security</div></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
       <h1>${esc(cur.name)}</h1><div class="sub">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner||"igeeks AG")}</div>
-      <h2>1. Projektbeschreibung &amp; Ziel</h2>${cur.description?`<div class="desc">${esc(cur.description)}</div>`:'<div class="desc" style="color:#888">— (in SDP-Projektbeschreibung pflegen)</div>'}
+      <h2>1. Projektbeschreibung &amp; Ziel</h2>${cur.description?`<div class="desc">${cur.description}</div>`:'<div class="desc" style="color:#888">— (in SDP-Projektbeschreibung pflegen)</div>'}
       <h2>2. Zeitplan</h2>${planGantt(mss)}
       <h2>3. Meilensteine &amp; Arbeitspakete</h2>${blocks}
       <div class="tot">Geplanter Gesamtaufwand: <b>${hDec(total)}</b> (Richtwert, Abrechnung nach effektivem Aufwand)</div>

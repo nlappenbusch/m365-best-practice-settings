@@ -13,7 +13,7 @@
  * im lokalen Tracker. Der SDP-Key kommt aus sdp.js (SDP_API_KEY), nie in den Browser.
  */
 
-const { sdpJson, htmlToText } = require("./sdp");
+const { sdpJson } = require("./sdp");
 
 const DONE_STATUS = new Set(["closed", "completed", "resolved", "cancelled", "canceled", "erledigt", "abgeschlossen", "done"]);
 
@@ -46,17 +46,42 @@ function tsOf(v) {
 }
 function dispOf(v) { return (v && v.display_value) ? String(v.display_value).split(" ")[0] : ""; }
 
-/** --- Nils · Datum --- ... ------ Bloecke (interne Notizen) aus der Beschreibung entfernen. */
+/**
+ * Formatierung bleibt erhalten (Fettschrift, Absaetze, Ueberschriften aus dem
+ * SDP-Rich-Text-Editor) -- 1:1 wie im lokalen sdp-tracker (backend.py:
+ * strip_nils_notes/strip_internal_links/scope_of geben HTML zurueck, keinen
+ * Klartext). htmlToText() waere hier falsch: es zerstoert genau die Struktur
+ * (Zwischentitel wie "Ziel"/"Umfang"/"Vorgehen"), die die Beschreibung tragen soll.
+ */
+
+/** --- Nils · Datum --- ... ------ -Bloecke samt umschliessendem Kasten (interne Notizen) entfernen. */
 function stripNotes(html) {
-  return String(html || "").replace(/---\s*Nils[\s\S]*?------/g, "").trim();
+  return String(html || "")
+    .replace(/<div style="[^"]*border-left[^"]*">\s*<div style="[^"]*">\s*---\s*Nils\s*·[\s\S]*?------\s*<\/div>\s*<\/div>/gi, "")
+    .replace(/---\s*Nils\s*·[\s\S]*?------/gi, "") // Fallback ohne den Kasten
+    .trim();
+}
+
+/** Interne Links (Zoho-CRM-Deal, SDP-Ticket) aus dem kundentauglichen Text entfernen. */
+function stripInternalLinks(html) {
+  return String(html || "").replace(/<a\s[^>]*href="[^"]*(?:crm\.zoho|zoho\.|sdp\.igeeks|servicedesk|manageengine)[^"]*"[^>]*>.*?<\/a>/gis, "");
+}
+
+/** SDP haengt manchmal feste Schriftgroessen/-familien an -- die eigene CSS soll gelten. */
+function stripInlineFonts(html) {
+  return String(html || "").replace(/font-(?:family|size)\s*:[^;"]*;?/gi, "");
+}
+
+function cleanHtml(html) {
+  return stripInlineFonts(stripInternalLinks(stripNotes(html)));
 }
 
 /** Nur den <b>Scope:</b>-Teil einer Task-Beschreibung (Kundenplan zeigt nie Voraussetzung/Input/Umsetzung). */
 function scopeOf(html) {
   const s = String(html || "");
   const m = /<b>\s*Scope:\s*<\/b>\s*([\s\S]*?)(?:<br\s*\/?>\s*<b|$)/i.exec(s);
-  const raw = m ? m[1] : (/<b>/.test(s) ? "" : s);
-  return htmlToText(stripNotes(raw));
+  const raw = m ? m[1].trim() : (/<b>/.test(s) ? "" : s);
+  return cleanHtml(raw).replace(/\s*\(falls beauftragt\)\s*/gi, "");
 }
 
 async function listProjects() {
@@ -89,8 +114,8 @@ async function projectHead(pid) {
     owner: (p.owner && p.owner.name) || "",
     status: (p.status && p.status.name) || "",
     due: dispOf(p.scheduled_end_time),
-    // Beschreibung ohne interne Notizen, als Text (kein {@html} im Frontend noetig)
-    description: htmlToText(stripNotes(p.description || ""))
+    // Bleibt HTML (Ueberschriften/Fett aus SDP bleiben erhalten) -- Frontend rendert es als {@html}.
+    description: cleanHtml(p.description || "")
   };
 }
 
