@@ -1,5 +1,29 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.33 - Neuer Tab "Bestandsaufnahme" (2026-09-04)
+
+Neuer Bereich in der Gruppe "Einrichtung", gedacht als erster grober IST-Überblick
+direkt nach dem Onboarding eines neuen Mandats: Benutzer, Lizenzen, Postfächer,
+Shared Mailboxes, Intune-Geräte und Entra-ID-Geräte in einem Lauf, rein lesend.
+
+Benutzer und Lizenzen laufen über die bestehende Lizenz-Auswertung
+(`licenses.js`), Intune-Geräte über denselben Graph-Endpoint wie im
+Kundenreport. Neu hinzugekommen sind zwei Datenquellen, die es im Tool bisher
+nirgends gab: Entra-ID-Geräte über `/devices` (neue optionale Permission
+`Device.Read.All` — Bestandstenants brauchen einmal "Reparieren") und
+Postfächer/Shared Mailboxes über Exchange Online (`Get-EXOMailbox`, neu in der
+exorunner-Whitelist). Anders als der Security-Report kappt die Bestandsaufnahme
+ihre Listen nicht auf 50 Zeilen — hier ist die vollständige Liste der Zweck,
+nicht nur ein Befund. Export als eigenständige HTML-Datei (druckbar), inklusive
+aller Listen.
+
+Technik: `api/lib/inventory.js` (neu), `api/lib/exorunner.js` (Get-EXOMailbox
+zur COMMANDS-Whitelist), Routen `/api/inventory/sections`,
+`/api/tenants/:id/inventory/run`, `/api/jobs/inventory/:jobId`,
+`/api/tenants/:id/inventory/latest` (gleiches appJobs-/State-Muster wie die
+Kundenreports), `frontend/src/tabs/Bestandsaufnahme.svelte`,
+`frontend/src/lib/inventoryDoc.js`.
+
 ## Version 2.32 - SDP-CRM-Matcher im Projektplan-Dashboard (2026-09-03)
 
 Ergänzt `/plan/` um den Abgleich, ob ein offenes SDP-Projekt bereits einen

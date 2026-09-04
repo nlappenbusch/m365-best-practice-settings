@@ -26,6 +26,8 @@ export const NAV_GROUPS = [
     items: [
       { id: 'tenants', icon: 'building', label: 'Tenants',
         desc: 'Kunden-Tenants onboarden, Status prüfen, geführter Einrichtungs-Assistent' },
+      { id: 'bestandsaufnahme', icon: 'users', label: 'Bestandsaufnahme', isNew: true,
+        desc: 'Erster IST-Überblick nach dem Onboarding: Benutzer, Lizenzen, Postfächer/Shared Mailboxes, Intune- und Entra-ID-Geräte' },
       { id: 'config', icon: 'sliders', label: 'Vorlage',
         desc: 'Baseline: Domains, Admin-/MSP-Adressen, Policy-Werte — Grundlage für alle Werkzeuge' },
       { id: 'naming', icon: 'tag', label: 'Namenskonvention', isNew: true,

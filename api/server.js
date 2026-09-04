@@ -40,6 +40,7 @@ const BITWARDEN = require("./lib/bitwarden");
 const WIN32APP = require("./lib/win32app");
 const MIGRATION = require("./lib/migrationPackage");
 const REPORT = require("./lib/report");
+const INVENTORY = require("./lib/inventory");
 const GROUPTAGS = require("./lib/groupTags");
 const ADMINROLES = require("./lib/adminRoles");
 const APPGROUPS = require("./lib/appGroups");
@@ -115,7 +116,12 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // Gastrechte). Aus demselben Grund optional wie die Zeile davor: Fehlt sie im
 // Graph-Service-Principal, soll das Onboarding trotzdem durchlaufen und nur
 // dieser eine Bereich melden, dass er nicht darf.
-const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization"];
+// Device.Read.All kam mit der IST-Bestandsaufnahme dazu (Bereich
+// "Bestandsaufnahme": Entra-ID-Geraete ueber /devices). Aus demselben Grund
+// optional wie die beiden Zeilen darueber: fehlt sie im Graph-Service-
+// Principal, soll das Onboarding trotzdem durchlaufen und nur die
+// Entra-Geraete-Sektion der Bestandsaufnahme meldet fehlende Berechtigung.
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization", "Device.Read.All"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
@@ -4330,6 +4336,93 @@ app.get("/api/reports/overview", (req, res) => {
     };
   });
   res.json({ ok: true, tenants: rows });
+});
+
+// ---------- IST-Bestandsaufnahme ----------
+// Erster grober Ueberblick bei einem neuen Mandat: Benutzer, Lizenzen,
+// Postfaecher/Shared Mailboxes, Intune- und Entra-ID-Geraete in einem Lauf.
+// Gleiches Job-/Speicherprinzip wie die Kundenreports oben (appJobs-Polling,
+// schlanke Kennzahlen im State, vollstaendige Listen als eigene Datei je
+// Tenant) -- eine Bestandsaufnahme mit hunderten Postfaechern/Geraeten wuerde
+// state.json sonst unnoetig aufblaehen.
+app.get("/api/inventory/sections", (req, res) => res.json({ ok: true, sections: INVENTORY.SECTIONS }));
+
+const INVENTORY_DIR = path.join(STATE_DIR, "inventory");
+
+function inventoryDetailsPath(tenantRecId) {
+  return path.join(INVENTORY_DIR, String(tenantRecId).replace(/[^A-Za-z0-9_-]/g, "") + ".json");
+}
+
+function loadInventoryDetails(tenantRecId) {
+  try { return JSON.parse(fs.readFileSync(inventoryDetailsPath(tenantRecId), "utf8")); }
+  catch (e) { return null; }
+}
+
+function storeInventory(tenantRecId, inv) {
+  const s = loadState();
+  const idx = (s.tenants || []).findIndex(x => x.id === tenantRecId);
+  if (idx < 0) return;
+  const slim = { generatedAt: inv.generatedAt, summary: inv.summary, sections: {} };
+  const detailed = { generatedAt: inv.generatedAt, summary: inv.summary, sections: {} };
+  for (const [id, sec] of Object.entries(inv.sections)) {
+    slim.sections[id] = { ok: sec.ok, label: sec.label, metrics: sec.metrics || [], error: sec.error || null };
+    detailed.sections[id] = { ...slim.sections[id], lists: sec.lists || [] };
+  }
+  s.tenants[idx].inventory = slim;
+  saveState(s);
+  try {
+    fs.mkdirSync(INVENTORY_DIR, { recursive: true });
+    fs.writeFileSync(inventoryDetailsPath(tenantRecId), JSON.stringify(detailed, null, 2), "utf8");
+  } catch (e) { console.log("Bestandsaufnahme-Details nicht speicherbar: " + e.message); }
+}
+
+async function runInventoryJob(job, t) {
+  const onProgress = appJobProgress(job);
+  const cert = certPemPath(t.tenantId);
+  try {
+    onProgress(REPORT_PHASES_PREFIX);
+    const inv = await INVENTORY.runInventory(t, cert, job.sections, (label) => onProgress(label));
+    job.inventory = inv;
+    storeInventory(t.id, inv);
+    const failed = inv.summary.failedSections;
+    finishAppJob(job, true, null, failed.length
+      ? "Nicht abrufbar: " + failed.join(", ") + " — fehlende Berechtigung oder Lizenz im Tenant."
+      : null);
+  } catch (e) {
+    finishAppJob(job, false, e.message, e.hint || null);
+  }
+}
+
+app.post("/api/tenants/:id/inventory/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  for (const j of appJobs.values()) {
+    if (j.tenantId === t.id && j.status === "running") {
+      return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Job.", jobId: j.id });
+    }
+  }
+  const sections = Array.isArray(req.body && req.body.sections) ? req.body.sections : [];
+  const labels = [REPORT_PHASES_PREFIX, ...INVENTORY.SECTIONS
+    .filter(s => !sections.length || sections.includes(s.id))
+    .map(s => s.label)];
+  const job = createAppJob(t, labels);
+  job.sections = sections;
+  runInventoryJob(job, t);
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// Vollstaendige Bestandsaufnahme inklusive Rohdaten — nur solange der Job im
+// Speicher liegt. Was den Neustart ueberlebt, ist die schlanke Fassung im State.
+app.get("/api/jobs/inventory/:jobId", (req, res) => {
+  const job = appJobs.get(req.params.jobId);
+  if (!job || !job.inventory) return res.status(404).json({ error: "Bestandsaufnahme nicht (mehr) verfuegbar — bitte neu erzeugen." });
+  res.json({ ok: true, inventory: job.inventory });
+});
+
+app.get("/api/tenants/:id/inventory/latest", (req, res) => {
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden" });
+  res.json({ ok: true, inventory: loadInventoryDetails(t.id) || t.inventory || null });
 });
 
 // ---------- Maester-Security-Audit (maester.dev) ----------

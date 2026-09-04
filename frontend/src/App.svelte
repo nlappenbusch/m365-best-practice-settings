@@ -14,6 +14,7 @@
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Config from './tabs/Config.svelte'
   import TenantsOverview from './tabs/TenantsOverview.svelte'
+  import Bestandsaufnahme from './tabs/Bestandsaufnahme.svelte'
   import MailSecurity from './tabs/MailSecurity.svelte'
   import Audit from './tabs/Audit.svelte'
   import Intune from './tabs/Intune.svelte'
@@ -119,6 +120,7 @@
       <div class="content-card">
         <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
         <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
+        <div class:tab-hidden={$activeTab !== 'bestandsaufnahme'}><Bestandsaufnahme /></div>
         <div class:tab-hidden={$activeTab !== 'mailsec'}><MailSecurity /></div>
         <div class:tab-hidden={$activeTab !== 'audit'}><Audit /></div>
         <div class:tab-hidden={$activeTab !== 'intune'}><Intune /></div>

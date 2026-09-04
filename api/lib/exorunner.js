@@ -18,6 +18,10 @@ const PWSH = process.env.PWSH_PATH || "pwsh";
 // Alle Cmdlets, die der Deploy-Body verwenden darf (haelt die EXO-Session schlank).
 const COMMANDS = [
   "Get-AcceptedDomain",
+  // IST-Bestandsaufnahme (inventory.js): Postfaecher + Shared Mailboxes.
+  // Get-EXOMailbox statt Get-Mailbox -- laeuft ueber REST, deutlich schneller
+  // bei vielen Postfaechern, gleicher Berechtigungsumfang.
+  "Get-EXOMailbox",
   "Get-QuarantinePolicy", "New-QuarantinePolicy", "Set-QuarantinePolicy",
   "Get-AntiPhishPolicy", "New-AntiPhishPolicy", "Set-AntiPhishPolicy",
   "Get-AntiPhishRule", "New-AntiPhishRule", "Set-AntiPhishRule",
