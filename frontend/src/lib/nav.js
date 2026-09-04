@@ -98,7 +98,10 @@ export const NAV_GROUPS = [
         desc: 'SDP-Ticket-Copilot: offene Tickets, Runbooks, Worklogs' },
       { id: 'diagnose', icon: 'stethoscope', label: 'Diagnose',
         desc: 'Server-Log der laufenden Instanz und Erreichbarkeitstest der Microsoft-Endpunkte' },
-      { id: 'secrets', icon: 'key', label: 'Geheimnisse',
+      // gated wie Tickets: der Bereich zeigt Zertifikats-Privatschlüssel ALLER
+      // Kundentenants. Durchgesetzt wird das serverseitig (403 auf /api/admin/secrets),
+      // hier nur die Sichtbarkeit.
+      { id: 'secrets', icon: 'key', label: 'Geheimnisse', gated: 'ticketsAllowed',
         desc: 'Welche Schlüssel und Zugangsdaten dieses Werkzeug hält — Zustand, Gültigkeit, gezieltes Einblenden' }
     ]
   },

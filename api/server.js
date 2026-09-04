@@ -1308,7 +1308,19 @@ function logMcpAction(entry) {
 // Admin-Panel: Uebersicht ueber die Geheimnisse, die dieses Werkzeug haelt.
 // Liegt in einer eigenen Datei, weil server.js ohnehin gross genug ist und der
 // Umgang mit Zertifikats-Privatschluesseln fuer sich stehen soll.
-require("./lib/adminSecrets").mountAdminSecrets(app, { loadState, saveState, certPemPath, logMcpAction });
+// requireSecretsAccess: Der Bereich zeigt und aendert Zertifikats-Privatschluessel
+// ALLER Kundentenants sowie API-Keys. Er stand bisher jedem angemeldeten Nutzer
+// offen -- auf igeeks-prod also jedem Kollegen mit SSO-Konto. Dieselbe Schranke
+// wie beim Tickets-Bereich (isTicketsAllowed): der lokale Deploy-Login zaehlt
+// weiterhin, SSO nur fuer den freigeschalteten Nutzer.
+require("./lib/adminSecrets").mountAdminSecrets(app, {
+  loadState, saveState, certPemPath, logMcpAction,
+  requireSecretsAccess: (req, res) => {
+    if (isTicketsAllowed(req)) return true;
+    res.status(403).json({ error: "Kein Zugriff auf den Bereich Geheimnisse. Er ist auf den Werkzeug-Verantwortlichen beschränkt." });
+    return false;
+  }
+});
 
 // Session-gated: Admin-Panel verwaltet Keys + sieht das Audit-Log -- das ist
 // bewusst NICHT ueber einen API-Key erreichbar (sonst koennte ein kompromittierter

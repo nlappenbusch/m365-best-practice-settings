@@ -37,10 +37,14 @@
   import Haertung from './tabs/Haertung.svelte'
   import Remediations from './tabs/Remediations.svelte'
 
-  // Tickets nur fuer den freigeschalteten Nutzer -- die Durchsetzung passiert
-  // serverseitig (403 auf /api/sdp, /api/runbooks), das hier ist nur die Sicht.
+  // Tickets und Geheimnisse nur fuer den freigeschalteten Nutzer -- die Durchsetzung
+  // passiert serverseitig (403 auf /api/sdp, /api/runbooks, /api/admin/secrets),
+  // das hier ist nur die Sicht. Wichtig auch wegen des gemerkten letzten Tabs:
+  // ohne diesen Sprung landet ein nicht berechtigter Nutzer nach dem Login direkt
+  // in einem Bereich, der ihm nur Fehler zeigt.
   $effect(() => {
-    if ($activeTab === 'tickets' && $session.ready && !$session.ticketsAllowed) {
+    const restricted = $activeTab === 'tickets' || $activeTab === 'secrets'
+    if (restricted && $session.ready && !$session.ticketsAllowed) {
       activeTab.set('tenants')
     }
   })
@@ -138,7 +142,9 @@
         <div class:tab-hidden={$activeTab !== 'reports'}><Reports /></div>
         <div class:tab-hidden={$activeTab !== 'maester'}><Maester /></div>
         <div class:tab-hidden={$activeTab !== 'diagnose'}><Diagnose /></div>
-        <div class:tab-hidden={$activeTab !== 'secrets'}><Secrets /></div>
+        {#if $session.ticketsAllowed}
+          <div class:tab-hidden={$activeTab !== 'secrets'}><Secrets /></div>
+        {/if}
         <div class:tab-hidden={$activeTab !== 'naming'}><Naming /></div>
         <div class:tab-hidden={$activeTab !== 'browserext'}><BrowserExtensions /></div>
         <div class:tab-hidden={$activeTab !== 'haertung'}><Haertung /></div>

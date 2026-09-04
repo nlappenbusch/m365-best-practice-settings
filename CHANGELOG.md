@@ -1,5 +1,60 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.38 - Azubi-Tauglichkeit: Schutz vor den teuersten Fehlgriffen (2026-09-04)
+
+Erste Umsetzung aus dem UX-Audit (Perspektive: Lernender im 2. Lehrjahr richtet
+allein einen Kunden nach Blueprint ein). Bewusst nur Stellen, an denen die
+Oberfläche einen Fehler zulässt, den der Server nicht abfängt.
+
+**Falscher Kunde durch den Assistenten.** „Assistent" hatte `stopPropagation` und
+wählte die Zeile deshalb nicht als aktiven Tenant; „Öffnen →" sprang nur in den
+Tab. Wer den Assistenten von Kunde B öffnete, während oben Kunde A aktiv war,
+deployte auf Kunde A. Beide Knöpfe setzen jetzt den Tenant aktiv, und wenn
+Assistent und aktiver Tenant auseinanderlaufen (Umschalten bei offenem
+Assistenten), steht das als Warnung im Assistenten-Kopf — mit Knopf zum
+Geraderücken.
+
+**Onboarding in den eigenen Tenant.** Das Ziel-Tenant-Feld war „(optional)"; leer
+lief die Anmeldung gegen den Multi-Tenant-Endpunkt `organizations`. Wer im Browser
+noch mit dem igeeks-Konto angemeldet war, legte die App-Registrierung im eigenen
+Tenant an. Feld ist jetzt Pflicht, der Start-Knopf bleibt ohne Eingabe gesperrt.
+
+**Was das Onboarding wirklich anlegt.** Der Hinweis nannte „App-Registrierung mit
+Exchange.ManageAsApp + Zertifikat". Tatsächlich sind es 15 Graph-Application-
+Permissions (inkl. `User.ReadWrite.All`, `RoleManagement.ReadWrite.Directory`),
+`Sites.FullControl.All`, drei Entra-Admin-Rollen und zwei Dienst-Prinzipale. Neu:
+aufklappbares „Das wird im Kundentenant angelegt" mit vier Blöcken und je einer
+Begründung, plus dem Hinweis, das dem Kunden zu sagen.
+
+**Betriebsunterbruch ohne Vorwarnung.** Der Deploy-Bestätigungsdialog liess die
+Phase „Ausgehend & Organisation" komplett weg, obwohl Auto-Forward-Sperre und
+Direct-Send-Ablehnung standardmässig mitlaufen und Drucker, Scan-to-Mail und
+gewollte Weiterleitungen abschneiden. Beides steht jetzt einzeln im Dialog, mit
+Rückfrage, ob das vorher erhoben wurde. Das „alles idempotent" sagt jetzt dazu,
+dass idempotent nicht rückgängig heisst.
+
+**Vorlage des vorherigen Kunden.** Beim Wechsel auf einen Tenant ohne gespeicherte
+Vorlage bleiben die Werte des vorherigen stehen (Absicht: keine Eingaben
+wegwerfen) — nur war das unsichtbar, und genau daraus entstand der Fall, dass
+Richtlinien des einen Kunden an den Administrator des anderen meldeten. Der Store
+merkt sich jetzt, zu wem die Werte gehören, und der Vorlage-Bereich warnt beim
+Auseinanderfallen. Dazu „Standardwerte laden" als Ausweg, und „Verwerfen" heisst
+jetzt „Gespeicherte Vorlage löschen" — es löschte nie die Änderungen, sondern den
+gespeicherten Stand.
+
+**Geheimnisse waren offen.** `/api/admin/secrets` und `/reveal` hatten keine
+Zugriffsprüfung: jeder angemeldete Nutzer konnte die Zertifikats-Privatschlüssel
+aller Kundentenants einblenden. Jetzt dieselbe Schranke wie beim Tickets-Bereich
+(serverseitig 403, Tab ausgeblendet, gemerkter Tab springt zurück). **Achtung:**
+Auf igeeks-prod (SSO) sperrt das Kollegen aus diesem Bereich aus — gewollt, aber
+es ändert deren Sicht.
+
+Technik: `frontend/src/tabs/TenantsOverview.svelte`, `MailSecurity.svelte`,
+`Config.svelte`, `Intune.svelte` (leerer Knopf ohne Beschriftung), `nav.js`,
+`App.svelte`, `app.css`, `frontend/src/lib/tenantConfig.js` (`ownerId`,
+`resetToDefaults`), `api/lib/adminSecrets.js` + `api/server.js`
+(`requireSecretsAccess`).
+
 ## Version 2.37 - Safe Links & Safe Attachments deploybar (2026-09-04)
 
 Safe Links / Safe Attachments (Defender for Office 365) war bisher nur im
