@@ -10,12 +10,17 @@ import { apiGet, apiPut, apiDelete } from './api.js'
 import { config, defaultConfig } from './config.js'
 import { tenants } from './tenantStore.js'
 
-// { tenantId, savedAt, dirtySince } — Grundlage der Statuszeile im Vorlage-Bereich
-export const tenantConfigState = writable({ tenantId: null, savedAt: null, loading: false, error: null })
+// { tenantId, savedAt, loading, error, ownerId }
+//   ownerId = zu welchem Tenant die Werte gehoeren, die GERADE im config-Store stehen.
+//   Weicht er von tenantId ab, sieht der Anwender die Vorlage eines ANDEREN Kunden —
+//   das muss sichtbar sein: genau daraus entstand der Fall, dass die Richtlinien des
+//   einen Kunden an den Administrator des anderen meldeten (siehe mailAdminEmail).
+//   null = Standardwerte, gehoeren niemandem.
+export const tenantConfigState = writable({ tenantId: null, savedAt: null, loading: false, error: null, ownerId: null })
 
 export async function loadTenantConfig(tenantId) {
   if (!tenantId) {
-    tenantConfigState.set({ tenantId: null, savedAt: null, loading: false, error: null })
+    tenantConfigState.update(s => ({ ...s, tenantId: null, savedAt: null, loading: false, error: null }))
     return { loaded: false }
   }
   tenantConfigState.update(s => ({ ...s, tenantId, loading: true, error: null }))
@@ -25,21 +30,30 @@ export async function loadTenantConfig(tenantId) {
       // Fehlende Abschnitte aus den Standardwerten auffuellen: eine aeltere
       // gespeicherte Vorlage darf nach einem Update nicht halb leer ankommen.
       config.set({ ...defaultConfig(), ...r.config })
-      tenantConfigState.set({ tenantId, savedAt: r.savedAt || null, loading: false, error: null })
+      tenantConfigState.set({ tenantId, savedAt: r.savedAt || null, loading: false, error: null, ownerId: tenantId })
       return { loaded: true, savedAt: r.savedAt }
     }
-    tenantConfigState.set({ tenantId, savedAt: null, loading: false, error: null })
+    // Kein gespeicherter Stand: die Werte im Store bleiben absichtlich stehen (sonst
+    // wuerde ein Tenantwechsel unbemerkt Eingaben wegwerfen) — ownerId bleibt deshalb
+    // ebenfalls stehen und zeigt an, von wem sie stammen.
+    tenantConfigState.update(s => ({ ...s, tenantId, savedAt: null, loading: false, error: null }))
     return { loaded: false }
   } catch (e) {
-    tenantConfigState.set({ tenantId, savedAt: null, loading: false, error: e.message })
+    tenantConfigState.update(s => ({ ...s, tenantId, savedAt: null, loading: false, error: e.message }))
     return { loaded: false, error: e.message }
   }
+}
+
+/** Standardwerte laden und die Herkunft zuruecksetzen (Knopf "Standardwerte laden"). */
+export function resetToDefaults(tenantId) {
+  config.set(defaultConfig())
+  tenantConfigState.update(s => ({ ...s, tenantId: tenantId ?? s.tenantId, ownerId: null }))
 }
 
 export async function saveTenantConfig(tenantId) {
   if (!tenantId) throw new Error('Kein Tenant gewählt.')
   const r = await apiPut(`/api/tenants/${encodeURIComponent(tenantId)}/config`, { config: get(config) })
-  tenantConfigState.set({ tenantId, savedAt: r.savedAt || new Date().toISOString(), loading: false, error: null })
+  tenantConfigState.set({ tenantId, savedAt: r.savedAt || new Date().toISOString(), loading: false, error: null, ownerId: tenantId })
   // Liste aktualisieren, damit die Tenant-Übersicht den Stand mitbekommt
   tenants.update(list => list.map(t => (t.id === tenantId ? { ...t, hasConfig: true, configSavedAt: r.savedAt } : t)))
   return r.savedAt
@@ -48,6 +62,6 @@ export async function saveTenantConfig(tenantId) {
 export async function clearTenantConfig(tenantId) {
   if (!tenantId) return
   await apiDelete(`/api/tenants/${encodeURIComponent(tenantId)}/config`)
-  tenantConfigState.set({ tenantId, savedAt: null, loading: false, error: null })
+  tenantConfigState.update(s => ({ ...s, tenantId, savedAt: null, loading: false, error: null }))
   tenants.update(list => list.map(t => (t.id === tenantId ? { ...t, hasConfig: false, configSavedAt: null } : t)))
 }

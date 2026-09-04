@@ -988,7 +988,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
 
       <div class="ld-oib-toolbar">
         <button class="btn btn-primary" onclick={startBackup} disabled={bkBusy}>{bkBusy ? 'Läuft…' : '📸 Backup jetzt erstellen'}</button>
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={loadBackups} disabled={bkLoading}></button>
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={loadBackups} disabled={bkLoading}>{bkLoading ? 'Lädt…' : '↺ Liste aktualisieren'}</button>
       </div>
 
       {#if bkJob}

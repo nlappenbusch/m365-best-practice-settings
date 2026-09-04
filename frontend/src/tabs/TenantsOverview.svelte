@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte'
   import { session } from '../lib/session.js'
   import { apiGet, apiPost, apiDelete } from '../lib/api.js'
-  import { tenants, tenantsLoaded, activeTenantId, loadTenants, selectTenant, removeTenant, tenantReady, tenantMissing } from '../lib/tenantStore.js'
+  import { tenants, tenantsLoaded, activeTenantId, activeTenant, loadTenants, selectTenant, removeTenant, tenantReady, tenantMissing } from '../lib/tenantStore.js'
   import { goToTab } from '../lib/tabStore.js'
 
   // ---------- Einrichtungs-Assistent (gefuehrte Checkliste fuer neue Tenants) ----------
@@ -477,7 +477,11 @@
               <div class="trow-meta">{t.organization || t.tenantId} · App {(t.appId || '').slice(0, 8)}…</div>
             </div>
             <div class="trow-actions">
-              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleWizard(t) }}
+              <!-- selectTenant() gehoert hier zwingend dazu: der Assistent springt per
+                   "Oeffnen" in Tabs, die immer auf den AKTIVEN Tenant schreiben. Ohne das
+                   liesse sich der Assistent von Kunde B oeffnen, waehrend oben noch Kunde A
+                   aktiv ist -- der Deploy landet dann beim falschen Kunden. -->
+              <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); selectTenant(t.id); toggleWizard(t) }}
                       title="Schritt-für-Schritt-Checkliste für das komplette Tenant-Setup">🧭 Assistent</button>
               <button class="btn btn-secondary" onclick={(e) => { e.stopPropagation(); toggleAiPermPanel(t) }}
                       title="Steuert, welche automatisierten Schreib-Aktionen (z.B. aus dem Ticket-Copilot) für diesen Tenant erlaubt sind">🤖 KI-Schreibrechte</button>
@@ -509,6 +513,17 @@
         </div>
         <p class="ld-section-hint">Feste Reihenfolge für neue/wenig erfahrene Kolleg:innen beim Tenant-Setup — jeder
           Haken wird pro Tenant gespeichert, „Öffnen" springt direkt in den passenden Tab.</p>
+        <!-- Kann nur noch auftreten, wenn oben im Header waehrend des offenen Assistenten
+             umgeschaltet wird. Die Ziel-Tabs schreiben immer auf den AKTIVEN Tenant, also
+             muss die Abweichung hier sichtbar und mit einem Klick behebbar sein. -->
+        {#if $activeTenantId !== wt.id}
+          <div class="ld-banner fail" style="margin-bottom:0.9rem">
+            <strong>Achtung:</strong> Aktiv ist gerade <strong>{$activeTenant?.name || '—'}</strong>, dieser Assistent gehört zu
+            <strong>{wt.name}</strong>. Alles, was du über „Öffnen" ausrollst, landet beim aktiven Tenant.
+            <button class="btn btn-secondary" style="margin-left:0.5rem; padding:0.2rem 0.6rem; font-size:0.78rem;"
+                    onclick={() => selectTenant(wt.id)}>{wt.name} aktiv setzen</button>
+          </div>
+        {/if}
         <div class="ld-progress" style="margin-bottom:0.9rem;">
           <div class="ld-progress-fill" style="width:{Math.round(doneCount / ONBOARDING_STEPS.length * 100)}%"></div>
         </div>
@@ -533,7 +548,7 @@
               <div class="wizard-step-title" class:done={done}>{step.icon} {step.title}</div>
               <div class="wizard-step-desc">{step.desc}</div>
             </div>
-            <button class="btn btn-secondary wizard-step-jump" onclick={() => goToTab(step.tab)}>Öffnen →</button>
+            <button class="btn btn-secondary wizard-step-jump" onclick={() => { selectTenant(wt.id); goToTab(step.tab) }}>Öffnen →</button>
           </div>
         {/each}
       </div>
@@ -719,14 +734,42 @@
 
   <div class="settings-group">
     <h4>Neuen Tenant onboarden</h4>
-    <p class="ld-section-hint">Legt im Ziel-Tenant eine App-Registrierung mit Exchange.ManageAsApp + Zertifikat an (Device-Code-Anmeldung als Admin).</p>
+    <p class="ld-section-hint">Legt im Ziel-Tenant eine App-Registrierung samt Zertifikat an und erteilt ihr die
+      Berechtigungen, mit denen dieses Werkzeug arbeitet. Anmeldung per Device-Code als Administrator des Kunden.</p>
+    <!-- Pflichtfeld, nicht optional: leer laeuft die Anmeldung gegen den Multi-Tenant-
+         Endpunkt "organizations". Wer im Browser noch mit dem igeeks-Konto angemeldet ist,
+         legt die App-Registrierung dann im EIGENEN Tenant an statt beim Kunden. -->
     <div class="input-group" style="max-width:420px; margin-bottom:0.75rem;">
-      <label for="tOnboardTenant">Tenant-Domain oder Tenant-ID <small>(optional)</small></label>
+      <label for="tOnboardTenant">Tenant-Domain oder Tenant-ID des Kunden</label>
       <input id="tOnboardTenant" type="text" placeholder="kunde.onmicrosoft.com" bind:value={onboardTenant} disabled={onboardBusy || !!onboardStep} />
+      <small>Pflichtangabe — sie bestimmt, in welchem Tenant die App-Registrierung entsteht. Ohne sie könnte die
+        Anmeldung im igeeks-Tenant landen statt beim Kunden.</small>
     </div>
-    <button class="btn btn-primary" onclick={startOnboard} disabled={onboardBusy || !!onboardStep}>
+
+    <details class="onboard-what" style="max-width:640px; margin-bottom:0.9rem;">
+      <summary>Das wird im Kundentenant angelegt</summary>
+      <div class="onboard-what-body">
+        <p><strong>App-Registrierung „M365-Security-Policy-Manager"</strong> mit einem Zertifikat (2 Jahre gültig).
+          Darüber läuft jeder spätere Zugriff — ohne Benutzerkonto, ohne Passwort.</p>
+        <p><strong>Exchange- und Compliance-Rechte</strong> (Exchange.ManageAsApp, Exchange-Administrator,
+          Compliance-Administrator): damit rollt „Ausrollen" die BP_-Mail-Policies aus und „Audit" liest sie zurück.</p>
+        <p><strong>Graph-Berechtigungen</strong> für Intune, Gruppen und Conditional Access: Grundlage für
+          OIB-Policies, Mappings, Autopilot und den CA-Rollout. Enthält auch schreibende Rechte auf Benutzer und
+          Rollen — die nutzt der Ticket-Copilot, wenn du ihn pro Tenant freischaltest.</p>
+        <p><strong>Leserechte für das Security-Audit</strong> (Maester), inklusive Teams-Administrator und
+          SharePoint-Zugriff. Werden ausschliesslich lesend verwendet.</p>
+        <p class="onboard-what-note">Kurz: Das Werkzeug bekommt weitreichende Rechte im Kundentenant. Frag im Zweifel
+          eine erfahrene Kollegin, bevor du das bei einem Kunden ausführst — und sag dem Kunden, was da entsteht.
+          Rückgängig machen geht später über „🧹 Offboarden".</p>
+      </div>
+    </details>
+
+    <button class="btn btn-primary" onclick={startOnboard} disabled={onboardBusy || !!onboardStep || !onboardTenant.trim()}>
       {onboardBusy && !onboardStep ? '…' : '🚀 Onboarding starten'}
     </button>
+    {#if !onboardTenant.trim()}
+      <small style="display:block; margin-top:0.4rem; opacity:0.75;">Trag zuerst die Tenant-Domain des Kunden ein.</small>
+    {/if}
 
     {#if onboardStep}
       <div class="ld-job" style="margin-top:1rem">

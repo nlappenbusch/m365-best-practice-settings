@@ -405,6 +405,7 @@
     {@const am = $config.antiMalware}
     {@const sl = $config.safeLinks}
     {@const sa = $config.safeAttach}
+    {@const ob = $config.outbound || {}}
     {@const fileTypeCount = String(am.customFileTypes || '').split(',').map(s => s.trim()).filter(Boolean).length}
     {@const recipients = [effectiveAdminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
     {@const domains = [...g.domains, g.onmicrosoftDomain].filter(Boolean)}
@@ -425,8 +426,39 @@
           <li><strong>Safe Links / Safe Attachments:</strong> deaktiviert — wird nicht deployt</li>
         {/if}
         <li><strong>Quarantäne-Benachrichtigungen + Alert Policy an:</strong> {recipients}</li>
+        <!-- Die Phase "Ausgehend & Organisation" fehlte hier lange komplett, obwohl drei
+             ihrer vier Schritte standardmaessig mitlaufen und laufenden Betrieb unterbrechen
+             koennen. Wer den Dialog liest, muss genau das sehen. -->
+        <li><strong>Ausgehende Limits:</strong> {ob.limitExternalPerHour ?? 500} Empfänger/Stunde extern,
+          {ob.limitPerDay ?? 1000}/Tag · bei Überschreitung {ob.thresholdAction === 'BlockUser' ? 'Sperre bis zur manuellen Freigabe' : 'Sperre bis Tagesende'}</li>
+        {#if ob.externalTagging || ob.blockAutoForward || ob.rejectDirectSend}
+          <li><strong>Organisationsweite Schalter:</strong>
+            <ul class="ld-confirm-sub">
+              {#if ob.externalTagging}
+                <li>Externe Absender werden in Outlook gekennzeichnet (wirkt mit bis zu 48 h Verzögerung)</li>
+              {/if}
+              {#if ob.blockAutoForward}
+                <li>Automatische Weiterleitung nach aussen wird abgelehnt
+                  <span class="ld-warn">← bricht bestehende gewollte Weiterleitungen</span></li>
+              {/if}
+              {#if ob.rejectDirectSend}
+                <li>Direct Send wird abgewiesen
+                  <span class="ld-warn">← schneidet Drucker, Scan-to-Mail und Fachanwendungen ab, ohne Fehlermeldung an den Absender</span></li>
+              {/if}
+            </ul>
+          </li>
+        {/if}
       </ul>
-      <small>Alles idempotent: Vorhandene BP_-Policies werden aktualisiert, fehlende angelegt.</small>
+      {#if ob.blockAutoForward || ob.rejectDirectSend}
+        <div class="ld-banner warn" style="margin:0.6rem 0">
+          <strong>Vor diesem Deploy erhoben?</strong> Auto-Forward-Sperre und Direct Send greifen sofort und
+          betriebsstörend. Wurden Weiterleitungen und Einlieferungen dieses Kunden vorher ausgewertet? Wenn nicht:
+          abbrechen und die beiden Schalter im Bereich „Vorlage" für diesen Tenant abwählen.
+        </div>
+      {/if}
+      <small>Alles idempotent: Vorhandene BP_-Policies werden aktualisiert, fehlende angelegt.
+        Das heisst <em>nicht</em> rückgängig machbar — was die Schalter oben abschalten, bleibt abgeschaltet,
+        bis es jemand von Hand zurücksetzt.</small>
       <div class="ld-confirm-actions">
         <button class="btn btn-primary" onclick={startDeploy}>Jetzt deployen</button>
         <button class="btn btn-secondary" onclick={() => (confirmOpen = false)}>Abbrechen</button>

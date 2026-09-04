@@ -1,8 +1,8 @@
 <script>
   import { config } from '../lib/config.js'
-  import { activeTenant } from '../lib/tenantStore.js'
+  import { activeTenant, tenants } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
-  import { tenantConfigState, loadTenantConfig, saveTenantConfig, clearTenantConfig } from '../lib/tenantConfig.js'
+  import { tenantConfigState, loadTenantConfig, saveTenantConfig, clearTenantConfig, resetToDefaults } from '../lib/tenantConfig.js'
 
   // ---------- Vorlage pro Tenant ----------
   // Beim Umschalten die gespeicherte Vorlage des Tenants laden. Gibt es keine,
@@ -59,6 +59,25 @@
     $tenantConfigState.savedAt ? new Date($tenantConfigState.savedAt).toLocaleString('de-CH') : null
   )
 
+  // Stehen hier gerade die Werte eines ANDEREN Kunden? Das passiert, sobald man auf
+  // einen Tenant ohne gespeicherte Vorlage umschaltet: die Eingaben bleiben absichtlich
+  // stehen. Unsichtbar ist das gefaehrlich — die Admin-Adresse und die Domains landen
+  // sonst beim naechsten Deploy im falschen Kundentenant.
+  const inheritedFrom = $derived.by(() => {
+    const st = $tenantConfigState
+    if (!st.ownerId || !$activeTenant || st.ownerId === $activeTenant.id) return null
+    const owner = $tenants.find(t => t.id === st.ownerId)
+    return owner ? owner.name : 'einem anderen Tenant'
+  })
+
+  function useDefaults() {
+    if (!confirm('Standardwerte laden?\n\nDie aktuell angezeigten Werte werden durch die Best-Practice-Vorgaben ersetzt. '
+      + 'Eine bereits gespeicherte Vorlage dieses Tenants bleibt unberührt, bis du speicherst.')) return
+    resetToDefaults($activeTenant?.id ?? null)
+    saveMsg = { ok: true, text: 'Standardwerte geladen — noch nicht gespeichert.' }
+    setTimeout(() => (saveMsg = null), 4000)
+  }
+
   // Collapse-Zustand je Policy-Card (Vanilla: toggle-btn -> .expanded).
   let open = $state({ phish: false, spam: false, malware: false, safelinks: false, outbound: false, quarantine: false })
   const toggle = (k) => (open[k] = !open[k])
@@ -100,13 +119,27 @@
       </button>
       {#if savedAtText}
         <button class="btn btn-secondary" onclick={reloadForTenant}>↺ Gespeicherte laden</button>
-        <button class="btn btn-secondary" onclick={forgetForTenant}>Verwerfen</button>
+      {/if}
+      <button class="btn btn-secondary" onclick={useDefaults}>Standardwerte laden</button>
+      {#if savedAtText}
+        <!-- Hiess "Verwerfen" und klang nach "meine Aenderungen verwerfen". Der Knopf
+             loescht aber den GESPEICHERTEN Stand am Tenant. -->
+        <button class="btn btn-secondary" onclick={forgetForTenant}>Gespeicherte Vorlage löschen</button>
       {/if}
       {#if saveMsg}
         <span class="tcfg-msg {saveMsg.ok ? 'ok' : 'err'}">{saveMsg.ok ? '✅' : '⚠️'} {saveMsg.text}</span>
       {/if}
     </div>
   </div>
+
+  {#if inheritedFrom}
+    <div class="alert alert-warning" style="margin-bottom:1rem">
+      ⚠️ <strong>Diese Werte stammen von {inheritedFrom}</strong>, nicht von {$activeTenant.name} — für diesen Tenant
+      ist noch keine Vorlage gespeichert, deshalb ist der vorherige Stand stehen geblieben.
+      Prüfe vor dem Ausrollen besonders die <strong>Admin-Adresse</strong> und die <strong>Domains</strong>, oder
+      lade die Standardwerte.
+    </div>
+  {/if}
 {/if}
 
 <!-- Globale Einstellungen -->

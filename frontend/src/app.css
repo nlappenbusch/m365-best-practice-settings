@@ -758,6 +758,23 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .tbadge.crit { background: var(--crit-wash); color: var(--crit); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
+/* Unterliste im Deploy-Bestaetigungsdialog (organisationsweite Schalter) */
+.ld-confirm-sub { margin: 0.3rem 0 0 0; padding-left: 1.1rem; font-size: 0.82rem; }
+.ld-confirm-sub li { margin: 0.15rem 0; }
+
+/* "Das wird im Kundentenant angelegt" (Onboarding, Tenants-Tab) — aufklappbar,
+   damit die Vollerklaerung nicht das Formular erschlaegt, aber vor dem Start
+   erreichbar ist. */
+.onboard-what { border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--bg-inset); }
+.onboard-what > summary { cursor: pointer; padding: 0.55rem 0.75rem; font-size: 0.85rem; font-weight: 600; }
+.onboard-what > summary:hover { color: var(--accent); }
+.onboard-what[open] > summary { border-bottom: 1px solid var(--rule); }
+.onboard-what-body { padding: 0.7rem 0.85rem 0.85rem; font-size: 0.83rem; line-height: 1.5; color: var(--text-dim); }
+.onboard-what-body p { margin: 0 0 0.55rem; }
+.onboard-what-body p:last-child { margin-bottom: 0; }
+.onboard-what-body strong { color: var(--text); }
+.onboard-what-note { border-left: 3px solid var(--warn); padding-left: 0.6rem; }
+
 /* Mehrfach-Lizenzierung (Lizenzen-Tab) */
 .license-row { border: 1px solid var(--rule); border-left: 3px solid var(--rule); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; margin-bottom: 0.5rem; }
 .license-row.bad { border-left-color: var(--crit); background: var(--crit-wash); }

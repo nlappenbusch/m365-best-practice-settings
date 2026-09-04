@@ -287,12 +287,17 @@ function updateSecret(id, value, deps) {
  */
 function mountAdminSecrets(app, deps) {
   const { loadState, saveState, certPemPath, logMcpAction } = deps;
+  // Zugriffsschranke fuer den ganzen Bereich. Faellt sie weg (aeltere Aufrufer),
+  // bleibt das Verhalten wie vorher -- der Server soll daran nicht starten-brechen.
+  const allowed = deps.requireSecretsAccess || (() => true);
 
   app.get("/api/admin/secrets", (req, res) => {
+    if (!allowed(req, res)) return;
     res.json({ ok: true, secrets: collectSecrets(loadState, certPemPath) });
   });
 
   app.post("/api/admin/secrets/reveal", (req, res) => {
+    if (!allowed(req, res)) return;
     const b = req.body || {};
     const id = String(b.id || "");
     if (b.confirm !== true) return res.status(400).json({ error: "Bestätigung fehlt (confirm: true)." });
@@ -308,6 +313,7 @@ function mountAdminSecrets(app, deps) {
   // Schreiben passiert ausschliesslich hier — beim ausdruecklichen Speichern.
   // Das Bearbeiten in der Oberflaeche aendert bis dahin nichts.
   app.post("/api/admin/secrets/update", (req, res) => {
+    if (!allowed(req, res)) return;
     const b = req.body || {};
     const id = String(b.id || "");
     const value = String(b.value != null ? b.value : "");
