@@ -220,6 +220,45 @@
       else bad(ga, 'Empfänger', soll.join(', '), (ap2.notifyUser || []).join(', ') || '(leer)')
     }
 
+    // Safe Links & Safe Attachments — Defender for Office 365 (P1/P2), kein BP_-Objekt:
+    // diese Vorlage deployt es nicht, aber bei einem Phishing-Verdacht ist "ist es
+    // überhaupt aktiv?" die erste Frage — deshalb reine Ist-Erhebung mit klarer Ampel.
+    const gsl = group('🔗', 'Safe Links & Safe Attachments')
+    const atp = audit.atpPolicyForO365
+    const slPolicies = audit.safeLinksPolicies || [], saPolicies = audit.safeAttachPolicies || []
+    const slRules = audit.safeLinksRules || [], saRules = audit.safeAttachRules || []
+    if (!atp && !slPolicies.length && !saPolicies.length) {
+      info(gsl, 'Lizenz', 'Keine Defender-for-Office-365-Funktion erkennbar (P1/P2 bzw. Business Premium bei kleinen Tenants erforderlich) — oder der App-Registrierung fehlt der Zugriff.')
+    } else {
+      if (atp) {
+        cmpBool(gsl, 'Safe Links für E-Mail', true, atp.EnableSafeLinksForEmail)
+        cmpBool(gsl, 'Safe Links für Office-Apps (Word/Excel/PowerPoint)', true, atp.EnableSafeLinksForOffice)
+        cmpBool(gsl, 'Safe Links für Teams', true, atp.EnableSafeLinksForTeams)
+        cmpBool(gsl, 'Safe Attachments für SharePoint/OneDrive/Teams', true, atp.EnableATPForSPOTeamsODB)
+      } else info(gsl, 'Tenant-weite Schalter (Get-AtpPolicyForO365)', 'nicht lesbar')
+
+      if (!slPolicies.length) bad(gsl, 'Safe-Links-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine vorhanden')
+      else {
+        const on = slPolicies.filter(p => p.IsEnabled).length
+        info(gsl, 'Safe-Links-Richtlinien (' + slPolicies.length + ')', on + ' von ' + slPolicies.length + ' aktiv: ' +
+          slPolicies.map(p => p.Name + (p.IsEnabled ? ' ✓' : ' ✗ inaktiv')).join(', '))
+      }
+      if (slPolicies.length && !slRules.length) info(gsl, 'Safe-Links-Regel (Empfänger-Scope)', 'keine Regel vorhanden — Richtlinie greift dadurch möglicherweise für keine Domain')
+      else if (slRules.length) {
+        const on = slRules.filter(r => r.State === 'Enabled').length
+        info(gsl, 'Safe-Links-Regeln (' + slRules.length + ')', on + ' von ' + slRules.length + ' aktiv, Scope: ' +
+          slRules.map(r => (r.RecipientDomainIs || []).join('/') || '(alle)').join(' · '))
+      }
+
+      if (!saPolicies.length) bad(gsl, 'Safe-Attachments-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine vorhanden')
+      else {
+        const on = saPolicies.filter(p => p.Enable).length
+        info(gsl, 'Safe-Attachments-Richtlinien (' + saPolicies.length + ')', on + ' von ' + saPolicies.length + ' aktiv: ' +
+          saPolicies.map(p => p.Name + '=' + (p.Action || '?')).join(', '))
+      }
+      if (saPolicies.length && !saRules.length) info(gsl, 'Safe-Attachments-Regel (Empfänger-Scope)', 'keine Regel vorhanden — Richtlinie greift dadurch möglicherweise für keine Domain')
+    }
+
     // Gewollte Abweichungen ueberschreiben bad/missing -> 'accepted'
     for (const grp of groups) {
       for (const c of grp.checks) {
@@ -583,7 +622,8 @@
     'Anti-Phishing': 'Richtlinie BP_AntiPhishing: Spoof Intelligence, Safety Tips, Kennzeichnung nicht authentifizierter Absender und DMARC-Durchsetzung. Der Empfänger-Scope läuft über BP_AntiPhishing_Rule; der Spoof-Quarantine-Tag ist nur per PowerShell setzbar (Portal-Limitierung).',
     'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Spam- und Phishing-Verdicts gehen in die Quarantäne, Bulk-Mail (Graymail/Newsletter ab BCL-Schwelle) in den Junk-Ordner; Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäß Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
     'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',
-    'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.'
+    'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.',
+    'Safe Links & Safe Attachments': 'Defender-for-Office-365-Funktion (P1/P2 bzw. in Business Premium enthalten) — reine Ist-Erhebung, diese Vorlage legt hier keine eigenen Richtlinien an. Safe Links prüft Links in E-Mail, Office-Apps und Teams beim Klick; Safe Attachments scannt Anhänge in einer Sandbox, bevor sie zugestellt werden.'
   }
 
   function ldDocStatusCell(c) {
@@ -623,7 +663,7 @@
       '<b>' + ldEsc(data.name) + '</b> gegenüber der Best-Practice-Vorlage des M365 Security Policy Manager. ' +
       'Alle Objekte tragen das Präfix <code>BP_</code> und sind über Regeln auf die Mail-Domains des Tenants eingeschränkt. ' +
       'Grundlage ist der Ist-Zustand vom ' + dateStr + ' (live aus dem Tenant gelesen, app-only Exchange Online / Graph).</p>' +
-      '<p class="note">Nicht Teil dieser Dokumentation: Defender-for-Office-Funktionen (Safe Links / Safe Attachments), Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>')
+      '<p class="note">Safe Links / Safe Attachments werden unten als Ist-Zustand ausgewiesen, aber nicht von dieser Vorlage konfiguriert (lizenzabhängige Defender-for-Office-365-Funktion). Nicht Teil dieser Dokumentation: Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>')
 
     const globals = sec('Globale Parameter',
       '<table>' +

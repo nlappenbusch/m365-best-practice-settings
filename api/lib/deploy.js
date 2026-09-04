@@ -531,6 +531,14 @@ function buildAuditBody() {
     "  externalTagging  = Get-Safe { Get-ExternalInOutlook | Select-Object -First 1 | Select-Object Enabled, AllowList }",
     "  orgConfig        = Get-Safe { Get-OrganizationConfig | Select-Object Name, RejectDirectSend }",
     "  autoForwardRule  = Get-Safe { Get-TransportRule -Identity 'BP_Block-AutoForwarding' -ErrorAction SilentlyContinue | Select-Object Name, State, Mode, FromScope, SentToScope, MessageTypeMatches }",
+    // Safe Links / Safe Attachments (Defender for Office 365, P1/P2) — reine Ist-Erhebung,
+    // kein BP_-Objekt, diese Vorlage deployt nichts davon. $null (statt leer), wenn der
+    // Tenant keine passende Lizenz hat -- Get-Safe faengt den Cmdlet-Fehler ab.
+    "  atpPolicyForO365   = Get-Safe { Get-AtpPolicyForO365 -ErrorAction SilentlyContinue | Select-Object -First 1 EnableSafeLinksForEmail, EnableSafeLinksForOffice, EnableSafeLinksForTeams, EnableATPForSPOTeamsODB, TrackClicks, AllowClickThrough }",
+    "  safeLinksPolicies  = @(Get-Safe { Get-SafeLinksPolicy -ErrorAction SilentlyContinue | Select-Object Name, IsEnabled, ScanUrls, DeliverMessageAfterScan, DoNotRewriteUrls })",
+    "  safeLinksRules     = @(Get-Safe { Get-SafeLinksRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeLinksPolicy })",
+    "  safeAttachPolicies = @(Get-Safe { Get-SafeAttachmentPolicy -ErrorAction SilentlyContinue | Select-Object Name, Enable, Action, ActionOnError })",
+    "  safeAttachRules    = @(Get-Safe { Get-SafeAttachmentRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeAttachmentPolicy })",
     "}",
     "Write-Output ('BEGINJSON' + (@{ ok = $true; audit = $audit } | ConvertTo-Json -Compress -Depth 8) + 'ENDJSON')"
   ].join("\r\n");

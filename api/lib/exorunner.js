@@ -40,7 +40,11 @@ const COMMANDS = [
   "Get-OrganizationConfig", "Set-OrganizationConfig",
   "Get-HostedOutboundSpamFilterPolicy", "Set-HostedOutboundSpamFilterPolicy",
   "Get-ExternalInOutlook", "Set-ExternalInOutlook",
-  "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule"
+  "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule",
+  // Safe Links / Safe Attachments (Defender for Office 365, P1/P2) — nur lesend fuer den
+  // Audit-Tab. Diese Vorlage deployt/aendert nichts hier, lizenzabhaengiges Feature.
+  "Get-SafeLinksPolicy", "Get-SafeLinksRule", "Get-SafeAttachmentPolicy", "Get-SafeAttachmentRule",
+  "Get-AtpPolicyForO365"
 ].join(",");
 
 
