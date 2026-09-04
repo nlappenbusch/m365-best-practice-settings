@@ -161,7 +161,7 @@ export function recoHtml(adminEmail) {
             <li><strong>Quartalweise Review:</strong> Policies alle 3 Monate auf Aktualität prüfen</li>
             <li><strong>Allow/Block List Cleanup:</strong> Veraltete Einträge monatlich entfernen</li>
             <li><strong>File Type List Update:</strong> Neue Bedrohungen in Custom File Types aufnehmen</li>
-            <li><strong>Microsoft Updates:</strong> Neue EOP-Features regelmäßig evaluieren</li>
+            <li><strong>Microsoft Updates:</strong> Neue EOP-Features regelmässig evaluieren</li>
         </ul>
 
         <h3>⚡ Quick Wins</h3>
@@ -194,7 +194,7 @@ export function recoHtml(adminEmail) {
             <ul>
                 <li><strong>Zu viele Allow-List Einträge:</strong> Reduziert Schutz erheblich - nur wenn absolut notwendig</li>
                 <li><strong>Bulk Threshold zu hoch:</strong> Werte über 7 lassen zu viel Spam durch</li>
-                <li><strong>Quarantine ohne Monitoring:</strong> Quarantine muss regelmäßig überprüft werden</li>
+                <li><strong>Quarantine ohne Monitoring:</strong> Quarantine muss regelmässig überprüft werden</li>
                 <li><strong>Default Quarantine Policy:</strong> Immer eigene Policies verwenden für Kontrolle</li>
                 <li><strong>Fehlende DMARC Records:</strong> Eigene Domains ohne DMARC sind anfällig für Spoofing</li>
             </ul>

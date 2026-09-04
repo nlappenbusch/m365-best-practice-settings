@@ -549,7 +549,7 @@
             <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:0.5rem;">{t.description}</p>
             <p style="font-size:0.78rem; color:var(--text-faint); margin-bottom:0.7rem;">📄 {t.policyCount} Policies · {t.license}</p>
             <button class="btn btn-primary" style="width:100%;" onclick={() => togglePreview(key)} disabled={deploying}>
-              {previewOpen[key] ? '✕ Vorschau schließen' : '👁 Vorschau & Ausrollen'}
+              {previewOpen[key] ? '✕ Vorschau schliessen' : '👁 Vorschau & Ausrollen'}
             </button>
           </div>
         </div>

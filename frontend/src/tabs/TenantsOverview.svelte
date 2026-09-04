@@ -509,7 +509,7 @@
         <div class="ld-job-head">
           <strong>Einrichtungs-Assistent: {wt.name}</strong>
           <span class="ld-job-meta">{doneCount}/{ONBOARDING_STEPS.length} erledigt</span>
-          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (wizardTargetId = null)}>✕ schließen</button>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (wizardTargetId = null)}>✕ schliessen</button>
         </div>
         <p class="ld-section-hint">Feste Reihenfolge für neue/wenig erfahrene Kolleg:innen beim Tenant-Setup — jeder
           Haken wird pro Tenant gespeichert, „Öffnen" springt direkt in den passenden Tab.</p>
@@ -561,10 +561,10 @@
       <div class="ld-job" style="margin-bottom:1.5rem">
         <div class="ld-job-head">
           <strong>KI-Schreibrechte: {apt.name}</strong>
-          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (aiPermTargetId = null)}>✕ schließen</button>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (aiPermTargetId = null)}>✕ schliessen</button>
         </div>
         <p class="ld-section-hint">Steuert PRO TENANT, welche automatisierten Schreib-Aktionen aus dem Ticket-Copilot
-          ausgeführt werden dürfen. Standardmäßig alles AUS — nur gezielt für Tenants aktivieren, bei denen das
+          ausgeführt werden dürfen. Standardmässig alles AUS — nur gezielt für Tenants aktivieren, bei denen das
           gewünscht ist. Jede Aktion schreibt echt in den Tenant.</p>
         {#each AI_WRITE_CAPS as cap (cap.key)}
           {@const enabled = !!apt.aiWritePermissions?.[cap.key]}
@@ -615,7 +615,7 @@
       <div class="ld-job" style="margin-bottom:1.5rem">
         <div class="ld-job-head">
           <strong>MCP-Zugriff: {mpt.name}</strong>
-          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (mcpPermTargetId = null)}>✕ schließen</button>
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={() => (mcpPermTargetId = null)}>✕ schliessen</button>
         </div>
         <p class="ld-section-hint">Steuert, was externe MCP-Clients mit einem gueltigen API-Key (siehe oben) fuer
           DIESEN Tenant duerfen. Komplett getrennt von den KI-Schreibrechten oben -- hier gibt es KEINEN
@@ -639,7 +639,7 @@
     <div class="ld-job" style="margin-bottom:1.5rem">
       <div class="ld-job-head">
         <strong>Offboarding: {offTargetName}</strong>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeOffPanel}>schließen</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeOffPanel}>schliessen</button>
       </div>
       {#if offStep}
         <div class="ld-step"><small>
@@ -679,7 +679,7 @@
     <div class="ld-job" style="margin-bottom:1.5rem">
       <div class="ld-job-head">
         <strong>App-Registrierung reparieren: {fixTargetName}</strong>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>schließen</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={closeFixPanel}>schliessen</button>
       </div>
       {#if fixStep}
         <div class="ld-step"><small>
@@ -877,7 +877,7 @@
       <button class="btn btn-secondary" onclick={removeSso} disabled={ssoBusy}>SSO-Konfiguration entfernen</button>
     {:else}
       <button class="btn btn-primary" onclick={() => (ssoFormOpen = !ssoFormOpen)} disabled={ssoBusy}>
-        {ssoFormOpen ? '✕ Schließen' : '🔗 iGeeks-Tenant verheiraten'}
+        {ssoFormOpen ? '✕ Schliessen' : '🔗 iGeeks-Tenant verheiraten'}
       </button>
     {/if}
 

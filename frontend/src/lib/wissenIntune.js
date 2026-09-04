@@ -199,7 +199,7 @@ Benchmark-Umsetzung ab.</p>
 <div class="alert alert-info">
   <strong>Kernaussage:</strong> Die Abweichungen (das „Delta") sind keine Sicherheitslücken, sondern bewusste
   Architekturentscheidungen — vollständig dokumentiert, fachlich begründet und durch alternative
-  Sicherheitsmaßnahmen kompensiert.
+  Sicherheitsmassnahmen kompensiert.
 </div>
 
 <div class="tool-tie-in">
@@ -262,15 +262,15 @@ Benchmark-Umsetzung ab.</p>
 </table>
 
 <h3>📋 Das CIS-Delta (Auszug — bewusste Abweichungen)</h3>
-<p>Jede Abweichung erfüllt drei Kriterien: dokumentiert, fachlich begründet, durch alternative Maßnahmen
+<p>Jede Abweichung erfüllt drei Kriterien: dokumentiert, fachlich begründet, durch alternative Massnahmen
 kompensiert.</p>
 <p class="note">📐 <strong>Werte stehen in der Baseline.</strong> Die vollständige Liste der Abweichungen mit Begründung und Kompensation steht unten in der Baseline-Fassung — dort wird sie gepflegt, hier stand sie bisher als Kopie.</p>
 <p class="note">CIS plant, die klassischen Passwort-Richtlinien im nächsten Benchmark selbst zu entfernen — sie
 gelten für moderne Cloud-Umgebungen als überholt.</p>
 
-<h3>🧩 Kompensierende Maßnahmen im Überblick</h3>
+<h3>🧩 Kompensierende Massnahmen im Überblick</h3>
 <table class="comparison-table">
-  <thead><tr><th>Maßnahme</th><th>Kompensiert</th></tr></thead>
+  <thead><tr><th>Massnahme</th><th>Kompensiert</th></tr></thead>
   <tbody>
     <tr><td>Microsoft Defender for Endpoint (EDR)</td><td>PowerShell-/Command-Line-Logging, Malware Detection</td></tr>
     <tr><td>Conditional Access</td><td>Passwort-Policies, Netzwerk-Controls</td></tr>
@@ -298,7 +298,7 @@ gelten für moderne Cloud-Umgebungen als überholt.</p>
 <details class="wissen-accordion"><summary>Warum nicht 100&nbsp;% CIS?</summary>
 <p>CIS ist ein Empfehlungskatalog, kein zwingender Standard. Alle Controls
 wurden bewertet und an die cloud-native Architektur angepasst; nicht anwendbare oder geschäftskritische Controls
-sind dokumentiert und durch alternative Maßnahmen ersetzt — CIS selbst empfiehlt dieses Vorgehen.</p></details>
+sind dokumentiert und durch alternative Massnahmen ersetzt — CIS selbst empfiehlt dieses Vorgehen.</p></details>
 <details class="wissen-accordion"><summary>Ist das Sicherheitsniveau wirklich gleichwertig?</summary>
 <p>Ja — lokale Controls werden durch überlegene zentrale
 Mechanismen ersetzt (Entra ID, Defender for Endpoint, Conditional Access, WHfB). In vielen Bereichen ist das
@@ -351,7 +351,7 @@ Schritten arbeiten — <b>Importieren → Zuweisen (Pilot) → Ausweiten (Rollou
   <li><b>Konflikt- &amp; Wirkungsprüfung:</b> Intune Policy Conflicts/Device Status, Defender ASR-Events/Alerts,
     Autopilot Pre-Provisioning + User-Phase stabil durchtesten.</li>
   <li><b>Delta bewusst verwalten:</b> Passt eine Policy nicht, nicht „wild" ändern, sondern Abweichung
-    dokumentieren, Risiko bewerten, kompensierende Maßnahme festhalten (auditfähiges Delta-Register).</li>
+    dokumentieren, Risiko bewerten, kompensierende Massnahme festhalten (auditfähiges Delta-Register).</li>
   <li><b>Rollout in Wellen:</b> Pilot → Early Adopters → breite Masse, je Welle mit Erfolgskriterien (Autopilot-
     Erfolgsquote, Supportfälle, Defender-Findings).</li>
 </ol>
@@ -366,7 +366,7 @@ Schritten arbeiten — <b>Importieren → Zuweisen (Pilot) → Ausweiten (Rollou
 <h3>📝 Offizielles Audit-Statement</h3>
 <p>Die implementierte Sicherheitsbaseline stellt eine risikobasierte, vollständig dokumentierte und an
 anerkannten Frameworks orientierte Umsetzung von Sicherheitsstandards dar. Abweichungen zu CIS Benchmarks sind
-bewusst entschieden, technisch begründet und durch alternative Maßnahmen kompensiert. Die Architektur
+bewusst entschieden, technisch begründet und durch alternative Massnahmen kompensiert. Die Architektur
 gewährleistet ein hohes Sicherheitsniveau bei gleichzeitiger Betriebsstabilität und Praxistauglichkeit.</p>
 <p class="note">Quelle: <a href="https://github.com/SkipToTheEndpoint/OpenIntuneBaseline" target="_blank">OpenIntuneBaseline</a> ·
 <a href="https://learn.microsoft.com/en-us/mem/intune/protect/security-baseline-settings-mdm-all" target="_blank">Microsoft Intune Security Baseline</a></p>
@@ -571,7 +571,7 @@ laufend aktuell — ohne dass man jede App-Version manuell neu paketieren muss.<
 </div>
 
 <h3>🧾 Individuelle App-Konfiguration (Custom Apps)</h3>
-<p>Neben dem großen Katalog vorgefertigter Drittanbieter-Apps erlaubt Patch My PC auch eigene <b>Custom-App</b>-
+<p>Neben dem grossen Katalog vorgefertigter Drittanbieter-Apps erlaubt Patch My PC auch eigene <b>Custom-App</b>-
 Einträge — z.&nbsp;B. für den eigenen RMM-Agent, der pro Kunde anders benannt bzw. paketiert werden muss. Das
 „App Info"-Formular dafür fragt genau die Metadaten ab, die später 1:1 in der Intune-App landen:</p>
 <table class="comparison-table">
@@ -592,7 +592,7 @@ Einträge — z.&nbsp;B. für den eigenen RMM-Agent, der pro Kunde anders benann
   <strong>ℹ️ „Allow Available Uninstall" hat kein 1:1-Gegenstück im Win32-App-Schema.</strong> Im rohen Intune-/
   Graph-Datenmodell für Win32-Apps (<code>win32LobApp</code>) gibt es kein Feld dieses Namens — es greift nur bei
   Apps, die (zusätzlich) mit Zuweisungs-Intent <code>Available</code> im Company Portal bereitgestellt werden und
-  steuert dort, ob Nutzer die App selbst deinstallieren dürfen. Unser Tool weist Agents ausschließlich mit Intent
+  steuert dort, ob Nutzer die App selbst deinstallieren dürfen. Unser Tool weist Agents ausschliesslich mit Intent
   <code>Required</code> zu (siehe „🛠️ Bezug zum Tool" unten) — dort gibt es ohnehin kein Self-Service-Uninstall
   im Company Portal, das Feld wäre also nicht anwendbar.
 </div>
