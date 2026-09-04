@@ -255,6 +255,16 @@ async function runLicenseReport(tenant, cert) {
 
   const unusedPaidSeats = skus.filter(s => !s.free && !s.consumption && s.capabilityStatus === "Enabled" && s.available > 0);
 
+  // Wer hat welche Lizenz(en) -- als eigene Liste, nicht nur die SKU-Aggregation
+  // oben. Gebraucht u.a. von der IST-Bestandsaufnahme (inventory.js).
+  const userLicenses = licensed
+    .map(u => ({
+      displayName: u.displayName, upn: u.userPrincipalName,
+      enabled: u.accountEnabled !== false,
+      licenses: userLicNames(u).map(l => l.name)
+    }))
+    .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
+
   return {
     generatedAt: new Date().toISOString(),
     inactiveDays: INACTIVE_DAYS,
@@ -272,6 +282,7 @@ async function runLicenseReport(tenant, cert) {
       multiSuiteTotal: multiSuite.length
     },
     skus,
+    userLicenses,
     findings: { disabledWithLicense, inactiveWithLicense, multiSuite, unusedPaidSeats }
   };
 }

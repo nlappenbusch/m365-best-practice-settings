@@ -1,5 +1,23 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.35 - Bestandsaufnahme: Intune-Geräte-Fix + Benutzer→Lizenzen (2026-09-04)
+
+Zwei Nachbesserungen an der neuen Bestandsaufnahme (v2.33), aufgefallen beim
+ersten Testlauf gegen einen echten Tenant:
+
+- **Fix:** Die Intune-Geräte-Sektion scheiterte mit `Could not find a
+  property named 'ownerType' on type 'microsoft.graph.managedDevice'` — das
+  Graph-Feld heisst `managedDeviceOwnerType`, nicht `ownerType`. Betraf nur
+  diese eine Sektion, der Rest der Bestandsaufnahme lief bereits.
+- **Neu:** Die Lizenzen-Sektion zeigt jetzt zusätzlich zur SKU-Aggregation
+  eine Liste "Benutzer → Lizenzen" (wer hat welche Lizenz(en), inkl.
+  Kontostatus).
+
+Technik: `api/lib/inventory.js` (`managedDeviceOwnerType` statt `ownerType`,
+neue Liste `userLicenses` in `sectionLicenses`), `api/lib/licenses.js`
+(`runLicenseReport` liefert jetzt zusätzlich `userLicenses` — kommt allen
+Verbrauchern des Moduls zugute, nicht nur der Bestandsaufnahme).
+
 ## Version 2.34 - Fix: Safe Links & Safe Attachments im Audit liefen stumm ins Leere (2026-09-04)
 
 Der Audit-Tab zeigt seit dem 02.09. einen Bereich "Safe Links & Safe

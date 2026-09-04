@@ -80,6 +80,7 @@ async function sectionLicenses(tenant, cert) {
   const r = await LICENSES.runLicenseReport(tenant, cert);
   const t = r.totals || {};
   const skus = (r.skus || []).filter(s => s.assigned > 0 || s.purchased > 0);
+  const userLic = r.userLicenses || [];
   return {
     metrics: [
       metric("Lizenzierte Benutzer", t.licensedUsers),
@@ -88,7 +89,9 @@ async function sectionLicenses(tenant, cert) {
     ],
     lists: [
       list("skus", "Lizenzbestand", ["Lizenz", "Zugewiesen", "Gekauft", "Frei"],
-        skus.map(s => [s.name, s.assigned, s.purchased, s.available]))
+        skus.map(s => [s.name, s.assigned, s.purchased, s.available])),
+      list("userLicenses", "Benutzer → Lizenzen", ["Benutzer", "UPN", "Status", "Lizenzen"],
+        userLic.map(u => [u.displayName, u.upn, u.enabled ? "aktiv" : "deaktiviert", (u.licenses || []).join(", ")]))
     ],
     data: r
   };
@@ -149,8 +152,11 @@ function sectionSharedMailboxesFrom(mailboxes) {
 }
 
 async function sectionIntuneDevices(tenant, cert) {
+  // Property heisst im Graph-Schema von managedDevice "managedDeviceOwnerType",
+  // nicht "ownerType" -- die falsche Bezeichnung liess $select mit einem
+  // OData-Parse-Fehler scheitern und die ganze Sektion ausfallen.
   const devices = await graphAllPages(tenant, cert,
-    "/deviceManagement/managedDevices?$select=id,deviceName,operatingSystem,osVersion,manufacturer,model,serialNumber,complianceState,lastSyncDateTime,userPrincipalName,ownerType,enrolledDateTime",
+    "/deviceManagement/managedDevices?$select=id,deviceName,operatingSystem,osVersion,manufacturer,model,serialNumber,complianceState,lastSyncDateTime,userPrincipalName,managedDeviceOwnerType,enrolledDateTime",
     { retryTransient: true });
   const compliant = devices.filter(d => d.complianceState === "compliant").length;
   const byOs = {};
@@ -169,7 +175,7 @@ async function sectionIntuneDevices(tenant, cert) {
         sorted.map(d => [
           d.deviceName, d.operatingSystem, d.osVersion,
           [d.manufacturer, d.model].filter(Boolean).join(" "),
-          d.userPrincipalName, d.ownerType, d.complianceState,
+          d.userPrincipalName, d.managedDeviceOwnerType, d.complianceState,
           d.lastSyncDateTime ? fmtDate(d.lastSyncDateTime) : "nie"
         ]))
     ],
