@@ -1,5 +1,42 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.39 - CA-Vorschau sagt, welche Policy aussperrt (2026-09-04)
+
+Die Conditional-Access-Vorschau listete bisher nur Policy-Namen, alle
+vorausgewählt. Für einen Lernenden ist „Require Strong Auth" nicht erkennbar als
+„verlangt FIDO2 oder Windows Hello, Authenticator genügt nicht" — und „Block
+Device Code Flow" nicht als „sperrt genau den Weg, über den dieses Werkzeug den
+Tenant erreicht". Die Begründungen dazu existierten im Modul (`SELECTION_META`),
+erreichten die Oberfläche aber nie.
+
+Neu liefert `/api/conditionalaccess/tiers` je Policy Risiko-Flags mit, **aus dem
+Policy-Objekt abgeleitet** statt über Nummern hartkodiert — bleibt damit korrekt,
+wenn sich die Vorlagen upstream ändern:
+
+- `strongAuth`: `grantControls.authenticationStrength.id` ist Microsofts
+  phishing-resistente Stärke (`…0004`). Trifft 5 Policies in „Bare minimum",
+  7 in P1, 11 in P1+P2 — und 0 in „Gerät statt Standort", was die Kuratierung
+  dieser Zusammenstellung bestätigt.
+- `deviceCode`: `conditions.authenticationFlows.transferMethods` enthält
+  `deviceCodeFlow` (Policy 307).
+
+In der Vorschau: farblich markierte Zeile mit Badge und einem Satz, was das
+konkret heisst, dazu eine Warnbox über der Liste, die die Passkey-Frage einmal
+gross stellt. **Die Device-Code-Sperre startet abgewählt** (sie sperrt das
+Werkzeug selbst aus, deshalb fehlt sie auch in den kuratierten Sets). Die
+Strong-Auth-Policies bleiben angehakt — sie sind in den P1-Sets die Kernmechanik,
+sie stillschweigend abzuwählen würde ein schwächeres Set ausrollen als
+beabsichtigt.
+
+Ausserdem: „Warum N Vorlagen hier bewusst fehlen" als aufklappbare Liste unter
+der Vorschau der kuratierten Zusammenstellungen — die `excluded`-Begründungen
+aus `SELECTION_META`, jetzt sichtbar.
+
+Technik: `api/server.js` (`policyRisks()`, Route `/api/conditionalaccess/tiers`
+um `policyRisks` und `excluded` erweitert), `frontend/src/tabs/
+ConditionalAccess.svelte` (`riskCount()`, Vorauswahl in `togglePreview()`),
+`app.css`.
+
 ## Version 2.38 - Azubi-Tauglichkeit: Schutz vor den teuersten Fehlgriffen (2026-09-04)
 
 Erste Umsetzung aus dem UX-Audit (Perspektive: Lernender im 2. Lehrjahr richtet

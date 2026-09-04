@@ -155,8 +155,15 @@
     previewOpen = { ...previewOpen, [tierKey]: opening }
     if (opening && !previewSelected[tierKey]) {
       const names = tiers[tierKey].policyNames || []
+      const risks = tiers[tierKey].policyRisks || []
       const all = {}
-      names.forEach((_, i) => (all[i] = true))
+      // Nur die Device-Code-Sperre startet ABGEWAEHLT: sie sperrt dieses Werkzeug
+      // selbst aus, das ist nie der gewollte Standard (deshalb fehlt sie auch in
+      // den kuratierten Zusammenstellungen). Die Strong-Auth-Policies bleiben
+      // angehakt -- sie sind in den P1-Sets die Kernmechanik, sie abzuwaehlen
+      // wuerde still ein schwaecheres Set ausrollen als beabsichtigt. Sie werden
+      // stattdessen markiert und erklaert, damit die Passkey-Frage bewusst faellt.
+      names.forEach((_, i) => (all[i] = !(risks[i] || []).some(r => r.key === 'deviceCode')))
       previewSelected = { ...previewSelected, [tierKey]: all }
     }
     if (opening && !ringChoice[tierKey]) {
@@ -176,6 +183,12 @@
   function previewSelectedCount(tierKey) {
     const sel = previewSelected[tierKey] || {}
     return Object.values(sel).filter(Boolean).length
+  }
+  // Wie viele Policies dieser Zusammenstellung tragen ein bestimmtes Aussperr-Risiko?
+  // Grundlage der Warnbox ueber der Liste (policyRisks kommt aus /api/conditionalaccess/tiers).
+  function riskCount(tierKey, riskKey) {
+    const risks = (tiers[tierKey] && tiers[tierKey].policyRisks) || []
+    return risks.filter(r => (r || []).some(x => x.key === riskKey)).length
   }
 
   async function deployTier(tierKey) {
@@ -571,17 +584,59 @@
           </div>
           <p class="ld-section-hint">Der Ring-Name ersetzt <code>&lt;RING&gt;</code> im Policy-Namen — dasselbe Set kann so mehrfach nebeneinander existieren (z.B. erst PILOT ring-getargetet testen, später BROAD für alle ausrollen).</p>
 
+          <!-- Die Passkey-Frage einmal gross stellen, statt sie auf Einzelzeilen zu
+               verteilen: "Strong Auth" im Policy-Namen sagt einem Azubi nicht, dass
+               damit FIDO2/Hello gemeint ist und ein Authenticator-Code NICHT reicht. -->
+          {#if riskCount(key, 'strongAuth')}
+            <div class="ld-banner warn" style="margin:0.6rem 0">
+              <strong>{riskCount(key, 'strongAuth')} {riskCount(key, 'strongAuth') === 1 ? 'Policy verlangt' : 'Policies verlangen'} phishing-resistente Anmeldung.</strong>
+              Das heisst FIDO2-Schlüssel, Windows Hello oder Zertifikat — ein Code aus der Authenticator-App genügt
+              dafür <em>nicht</em>. Sind die beim Kunden nicht ausgerollt, sperrst du beim späteren Scharfschalten
+              alle Betroffenen aus. Im Zweifel diese Zeilen abwählen und später nachziehen, oder die Zusammenstellung
+              „Gerät statt Standort" nehmen — die kommt ohne aus.
+            </div>
+          {/if}
+          {#if riskCount(key, 'deviceCode')}
+            <div class="ld-banner warn" style="margin:0.6rem 0">
+              <strong>Device-Code-Sperre ist abgewählt.</strong> Sie blockiert genau den Anmeldeweg, über den dieses
+              Werkzeug den Kundentenant erreicht (Onboarding, Reparieren). Nur anhaken, wenn du weisst, dass du
+              danach hier nicht mehr reinkommst.
+            </div>
+          {/if}
+
           <div class="ld-oib-toolbar">
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, true)}>Alle</button>
             <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => previewSelectAll(key, false)}>Keine</button>
           </div>
           {#each (t.policyNames || []) as name, i}
-            <label class="ld-oib-row">
+            {@const risks = (t.policyRisks || [])[i] || []}
+            <label class="ld-oib-row" class:ca-risky={risks.length}>
               <input type="checkbox" checked={!!previewSelected[key]?.[i]}
                      onchange={(e) => setPreviewChecked(key, i, e.target.checked)} />
-              <span class="ld-oib-name">{name.replace(/<RING>/g, ringFor(key) || '<RING>')}</span>
+              <span class="ld-oib-name">
+                {name.replace(/<RING>/g, ringFor(key) || '<RING>')}
+                {#each risks as r}
+                  <span class="ca-risk-badge">⚠ {r.label}</span>
+                {/each}
+                {#each risks as r}
+                  <small class="ca-risk-detail">{r.detail}</small>
+                {/each}
+              </span>
             </label>
           {/each}
+          {#if (t.excluded && Object.keys(t.excluded).length)}
+            <!-- Die Begruendungen aus SELECTION_META: warum einzelne Vorlagen in
+                 dieser Zusammenstellung bewusst fehlen. Beantwortet die Frage
+                 "wieso ist Policy X hier nicht dabei?", ohne den Code zu lesen. -->
+            <details class="ca-excluded">
+              <summary>Warum {Object.keys(t.excluded).length} Vorlagen hier bewusst fehlen</summary>
+              <ul>
+                {#each Object.entries(t.excluded) as [num, reason]}
+                  <li><strong>{num}</strong> — {reason}</li>
+                {/each}
+              </ul>
+            </details>
+          {/if}
           <div class="ld-confirm-actions">
             <button class="btn btn-primary" onclick={() => deployTier(key)} disabled={deploying || previewSelectedCount(key) === 0}>
               {deploying ? '…' : `🚀 ${previewSelectedCount(key)} Policies ausrollen (Report-only)`}
