@@ -728,7 +728,7 @@
             </div>
             <div class="ld-oib-toolbar">
               <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={addRow}>+ Laufwerk</button>
-              <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => (importOpen = !importOpen)}>{importOpen ? '✕ Import schließen' : '📥 Bestehendes Skript einlesen'}</button>
+              <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" onclick={() => (importOpen = !importOpen)}>{importOpen ? '✕ Import schliessen' : '📥 Bestehendes Skript einlesen'}</button>
             </div>
             {#if importOpen}
               <div class="input-group" style="margin-bottom:0.75rem;">

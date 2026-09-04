@@ -320,7 +320,7 @@
           <button class="btn btn-secondary" onclick={close}>Abbrechen</button>
           <button class="btn btn-primary" onclick={start} disabled={starting || !tenantId}>{starting ? 'Starte…' : '🚀 Bereitstellen'}</button>
         {:else}
-          <button class="btn btn-secondary" onclick={close}>Schließen</button>
+          <button class="btn btn-secondary" onclick={close}>Schliessen</button>
         {/if}
       </div>
     </div>

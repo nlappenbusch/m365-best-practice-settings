@@ -966,16 +966,16 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
       <button class="btn btn-primary" onclick={toggleImport} disabled={importBusy}>
-        {importOpen ? '✕ Import schließen' : '⬇️ Baseline importieren'}
+        {importOpen ? '✕ Import schliessen' : '⬇️ Baseline importieren'}
       </button>
       <button class="btn btn-secondary" onclick={toggleCheck} disabled={checkLoading}>
-        {checkOpen ? '✕ Check schließen' : '🔍 Assignment-Check'}
+        {checkOpen ? '✕ Check schliessen' : '🔍 Assignment-Check'}
       </button>
       <button class="btn btn-secondary" onclick={toggleBulkDelete} disabled={bdLoading}>
-        {bdOpen ? '✕ Aufräumen schließen' : '🗑️ Aufräumen (Bulk-Löschung)'}
+        {bdOpen ? '✕ Aufräumen schliessen' : '🗑️ Aufräumen (Bulk-Löschung)'}
       </button>
       <button class="btn btn-secondary" onclick={toggleBackup} disabled={bkBusy}>
-        {bkOpen ? '✕ Backup schließen' : '💾 Backup & Restore'}
+        {bkOpen ? '✕ Backup schliessen' : '💾 Backup & Restore'}
       </button>
     </div>
   </div>
@@ -1048,7 +1048,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
             <div class="ld-step"><small>{(bkList.categories || []).map(c => `${c.label}: ${b.counts[c.key] ?? 0}`).join(' · ')}</small></div>
             <div class="ld-oib-target" style="margin-top:0;">
               <button class="btn btn-secondary" onclick={() => downloadBackup(b.backupId)}>⬇️ JSON herunterladen</button>
-              <button class="btn btn-secondary" onclick={() => openRestore(b.backupId)}>{bkRestoreOpen === b.backupId ? '✕ Restore schließen' : '♻️ Restore öffnen'}</button>
+              <button class="btn btn-secondary" onclick={() => openRestore(b.backupId)}>{bkRestoreOpen === b.backupId ? '✕ Restore schliessen' : '♻️ Restore öffnen'}</button>
             </div>
             {#if bkRestoreOpen === b.backupId}
               {#if !bkItems}
@@ -1346,7 +1346,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
         <strong>Aufräumen: {$activeTenant.name}</strong>
         <span class="ld-job-meta">{bdObjects.length} Objekte gefunden</span>
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={loadBulkDeleteObjects} disabled={bdLoading}>Neu laden</button>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={toggleBulkDeleteLog}>{bdLogOpen ? '✕ Log schließen' : '📜 Log'}</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem;" onclick={toggleBulkDeleteLog}>{bdLogOpen ? '✕ Log schliessen' : '📜 Log'}</button>
       </div>
       <p class="ld-section-hint">⚠️ Löscht Objekte UNWIDERRUFLICH aus dem Tenant (inkl. Zuweisungen). Erst prüfen, dann auswählen, dann löschen — es gibt kein Undo.</p>
 

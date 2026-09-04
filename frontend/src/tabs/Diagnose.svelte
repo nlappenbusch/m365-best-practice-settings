@@ -82,7 +82,7 @@
 {:else}
   <div class="settings-group">
     <h4>Erreichbarkeit der Gegenstellen</h4>
-    <p class="ld-section-hint">Testet aus dem Container heraus alle Hosts, die das Tool nach draußen anspricht —
+    <p class="ld-section-hint">Testet aus dem Container heraus alle Hosts, die das Tool nach draussen anspricht —
       Onboarding und Graph, die Quellen für die App-Installer (Bitwarden, Bitdefender, N-sight, FortiClient),
       die Intune-Baselines und die optionalen Dienste. Schlägt hier etwas fehl, liegt es an Egress, DNS oder einem
       TLS-abfangenden Proxy — nicht am Tool. <b>Jede HTTP-Antwort zählt als erreichbar</b>, auch 401/403/404:

@@ -92,7 +92,7 @@ Berechtigungswerte kodieren die im Portal wählbaren Aktionen.</p>
     <td class="p">BP_Quarantine-<br>SelfReleaseNotification</td>
     <td class="v">Ein</td>
     <td class="v">59 = AllowSender + BlockSender + RequestRelease + Preview + Delete</td>
-    <td>Standard-Tag für Spam/Spoof/Phishing. Endnutzer darf selbst freigeben. Benachrichtigung schließt Nachrichten blockierter Absender ein (<code>IncludeMessagesFromBlockedSenderAddress = true</code>).</td>
+    <td>Standard-Tag für Spam/Spoof/Phishing. Endnutzer darf selbst freigeben. Benachrichtigung schliesst Nachrichten blockierter Absender ein (<code>IncludeMessagesFromBlockedSenderAddress = true</code>).</td>
   </tr>
   <tr>
     <td class="p">BP_Quarantine-<br>RequestReleaseNotification</td>
@@ -245,7 +245,7 @@ abgekündigt, die Meldung läuft künftig über diesen Weg. Bestehende Empfänge
 <h2>10&nbsp;&nbsp;Hinweise zur Anwendung</h2>
 <ul class="plain">
   <li>Alle <code>*_Rule</code>-Objekte laufen mit <code>Priority 0</code> und sind über <code>RecipientDomainIs</code> auf die Mail-Domains des Tenants eingeschränkt (Nicht-Mail-Domains werden ausgefiltert).</li>
-  <li>Der <code>SpoofQuarantineTag</code> wird ausschließlich per PowerShell gesetzt (im Portal nicht wählbar).</li>
+  <li>Der <code>SpoofQuarantineTag</code> wird ausschliesslich per PowerShell gesetzt (im Portal nicht wählbar).</li>
   <li>Quarantäne-Richtlinien und Warnungsrichtlinie müssen vor den referenzierenden Policies existieren; das Deploy legt sie in dieser Reihenfolge an.</li>
   <li>Idempotent: bestehende <code>BP_</code>-Objekte werden aktualisiert (<code>Set-*</code>), nicht doppelt angelegt.</li>
   <li>Bewusste Kundenabweichungen (z.&nbsp;B. Bulk in die Quarantäne statt Junk) werden pro Tenant im Audit als gewollte Abweichung markiert und in der Tenant-Konfig-Doku ausgewiesen.</li>

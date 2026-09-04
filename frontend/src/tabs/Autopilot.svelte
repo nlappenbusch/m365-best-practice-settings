@@ -42,7 +42,7 @@
   function onWlanChange(e) {
     const f = e.target.files && e.target.files[0]
     if (!f) { wlanXml = ''; wlanStatus = WLAN_IDLE; return }
-    if (f.size > 200000) { wlanXml = ''; wlanStatus = '❌ Datei zu groß — ist das ein netsh-WLAN-Export?'; return }
+    if (f.size > 200000) { wlanXml = ''; wlanStatus = '❌ Datei zu gross — ist das ein netsh-WLAN-Export?'; return }
     const reader = new FileReader()
     reader.onload = () => {
       const txt = String(reader.result || '')

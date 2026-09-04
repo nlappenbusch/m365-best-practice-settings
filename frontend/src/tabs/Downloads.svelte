@@ -457,7 +457,7 @@
           ~{mb(bwPkg.x64?.size)} lädt er <b>während der Installation</b> aus dem Internet nach. Auf einem verwalteten Gerät
           ist das die schlechte Variante: das Gerät braucht im SYSTEM-Kontext freien Zugriff auf
           <code>github.com</code>, und schlägt der Download fehl, zeigt der Installer eine Meldung an, die dort niemand
-          sieht — die Installation hängt bis zum Intune-Timeout. Deshalb packen wir das Offline-Paket standardmäßig
+          sieht — die Installation hängt bis zum Intune-Timeout. Deshalb packen wir das Offline-Paket standardmässig
           mit ins Intune-Paket: liegt es neben dem Installer, wird es (mit Prüfsummen-Kontrolle) direkt verwendet.
         </div>
 
