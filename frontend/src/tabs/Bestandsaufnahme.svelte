@@ -22,6 +22,7 @@
   let fullInventory = $state(null)
   let latestInventory = $state(null)   // gespeicherter Stand (inkl. Listen)
   let listOpen = $state({})            // "sectionId/listId" -> bool
+  let obsOpen = $state({})             // Beobachtungs-Titel -> bool (Betroffene aufgeklappt)
 
   // Angezeigt wird der frische Lauf, sonst der gespeicherte Stand.
   let shownInventory = $derived(fullInventory || latestInventory)
@@ -149,6 +150,56 @@
           {shownInventory.generatedAt ? shownInventory.generatedAt.slice(0, 16).replace('T', ' ') : '—'} —
           für frische Zahlen oben neu erzeugen.</p>
       {/if}
+
+      <!-- Beobachtungen zuerst: die Tabellen darunter sind Beleg, das hier ist
+           die Aussage. Frueher stand hier eine Ampel ("0 kritisch, 18 unauffaellig"),
+           die aus dem Security-Report stammte und wie eine geprüfte Entwarnung
+           las, obwohl nichts bewertet worden war. -->
+      {#if (shownInventory.observations || []).length}
+        <div class="inv-obs">
+          <div class="inv-obs-head">Beobachtungen mit Handlungsbedarf
+            <span class="inv-obs-count">{shownInventory.observations.length}</span></div>
+          <ol>
+            {#each shownInventory.observations as o}
+              <li>
+                <div class="inv-obs-title">{o.title}</div>
+                <p>{o.text}</p>
+                {#if o.detail?.length}
+                  <button class="linklike" onclick={() => (obsOpen[o.title] = !obsOpen[o.title])}>
+                    {obsOpen[o.title] ? '▾' : '▸'} Betroffene ({o.detail.length})
+                  </button>
+                  {#if obsOpen[o.title]}
+                    <ul class="inv-obs-detail">
+                      {#each o.detail as d}<li>{d}</li>{/each}
+                    </ul>
+                  {/if}
+                {/if}
+              </li>
+            {/each}
+          </ol>
+        </div>
+      {:else if shownInventory.counts}
+        <p class="ld-section-hint" style="margin-top:0.75rem">Keine Punkte mit Handlungsbedarf erkannt — geprüft
+          wurden Lizenzabdeckung, verwaiste Lizenzen, unverwaltete und veraltete Geräte, Doubletten, Postfächer
+          ohne Konto und Archivnutzung.</p>
+      {/if}
+
+      {#each (shownInventory.crossChecks || []) as l (l.id)}
+        {@const key = `cross/${l.id}`}
+        <button class="linklike" style="margin-top:0.5rem; display:block"
+                onclick={() => (listOpen[key] = !listOpen[key])}>
+          {listOpen[key] ? '▾' : '▸'} {l.label} ({l.rows.length})
+        </button>
+        {#if listOpen[key]}
+          <div class="gt-table-wrap" style="margin-top:0.35rem">
+            <table class="gt-table">
+              <thead><tr>{#each l.columns as c}<th>{c}</th>{/each}</tr></thead>
+              <tbody>{#each l.rows as r}<tr>{#each r as cell}<td>{cell}</td>{/each}</tr>{/each}</tbody>
+            </table>
+          </div>
+        {/if}
+      {/each}
+
       {#each Object.entries(shownInventory.sections) as [id, sec] (id)}
         <div class="rep-section-result">
           <div class="rep-section-title">{sec.ok ? '' : '⚠️ '}{sec.label}</div>

@@ -1,112 +1,321 @@
-// Bestandsaufnahme als eigenstaendige HTML-Datei — zum Weitergeben oder als
-// PDF drucken. Bewusst ohne externe Ressourcen (siehe reportDoc.js).
+// Bestandsaufnahme als eigenstaendiges, druckbares Dokument (A4, window.print
+// -> "Als PDF speichern"). Bewusst ohne externe Ressourcen: die Datei soll auch
+// in fuenf Jahren im Anhang einer Mail noch so aussehen wie heute.
 //
-// Anders als reportDoc.js (nur Kennzahlen): hier sind die LISTEN der eigentliche
-// Zweck — eine Bestandsaufnahme ohne die vollstaendige Liste aller Postfaecher/
-// Geraete waere nur ein Befund, kein Bestand.
-
-const ICON = { ok: '&#10003;', warn: '!', crit: '&#10007;' }
+// Kein pdfkit: dieses Dokument besteht fast nur aus Tabellen, und Seitenumbruch,
+// wiederholter Tabellenkopf und Spaltenbreiten sind in HTML/CSS geloest, waehrend
+// man sie in pdfkit von Hand zeichnen muesste. Dasselbe Muster wie configDoc.js
+// und der Audit-Report.
+//
+// Aufbau: Deckblatt -> Einordnung -> Beobachtungen -> Zahlen im Ueberblick ->
+// Querschnitte -> Bestandslisten -> Abgrenzung -> Methodik. Die Beobachtungen
+// stehen VOR den Tabellen: wer das Dokument nur ueberfliegt, soll die Aussage
+// mitnehmen, nicht die Rohdaten.
 
 function esc(s) {
-  return String(s ?? '')
+  return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 }
 
-function metricRow(m) {
-  return `<tr class="${esc(m.state)}">
-    <td class="ico">${ICON[m.state] || ''}</td>
-    <td class="lbl">${esc(m.label)}</td>
-    <td class="val">${esc(m.value ?? '—')}</td>
-    <td class="det">${esc(m.detail || '')}</td>
-  </tr>`
+function fmtNum(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return esc(n)
+  return v.toLocaleString('de-CH').replace(/ | /g, '’')
 }
 
-function listTable(l) {
+// Tabellenzellen kommen als fertige Strings aus dem Backend. Eine Zelle wird nur
+// dann als Zahl gruppiert, wenn sie AUSSCHLIESSLICH aus Ziffern besteht und gross
+// genug ist, dass die Gruppierung ueberhaupt hilft -- damit bleiben Versions-
+// nummern (10.0.22621.525), Datumsangaben und kleine Zahlen unangetastet.
+function cell(v) {
+  const s = String(v == null ? '' : v)
+  return /^\d{5,}$/.test(s) ? fmtNum(Number(s)) : esc(s)
+}
+
+function dateLong(iso) {
+  const d = new Date(iso)
+  if (isNaN(d)) return '—'
+  return d.toLocaleDateString('de-CH', { day: '2-digit', month: 'long', year: 'numeric' })
+    + ', ' + d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' }) + ' Uhr'
+}
+
+function table(columns, rows, opts) {
+  const cls = (opts && opts.cls) || ''
+  return `<table class="data ${cls}">
+    <thead><tr>${columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${cell(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table>`
+}
+
+function listBlock(l) {
+  if (!l || !l.rows || !l.rows.length) return ''
   return `<div class="list-block">
-    <h3>${esc(l.label)} <span class="count">(${l.rows.length}${l.more ? ` von ${l.rows.length + l.more}` : ''})</span></h3>
-    <table class="data">
-      <thead><tr>${l.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-      <tbody>${l.rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>
-    </table>
-    ${l.more ? `<p class="hint">… und ${l.more} weitere (Liste gekappt).</p>` : ''}
+    <h3>${esc(l.label)} <span class="count">${fmtNum(l.rows.length)}${l.more ? ` von ${fmtNum(l.rows.length + l.more)}` : ''}</span></h3>
+    ${table(l.columns, l.rows)}
+    ${l.more ? `<p class="hint">… und ${fmtNum(l.more)} weitere (Liste gekürzt).</p>` : ''}
   </div>`
 }
 
+// Einordnung in Prosa: was fuer ein Betrieb steht hinter diesen Zahlen. Wird aus
+// den Zaehlern gebaut, damit sie nie auseinanderlaufen koennen.
+function buildIntro(inv) {
+  const c = inv.counts || {}
+  const kinds = inv.accountKinds || {}
+  const parts = []
+
+  if (c.accounts != null) {
+    const kindText = Object.entries(kinds)
+      .filter(([k]) => k !== 'Benutzerkonto')
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${fmtNum(n)} ${esc(k)}${n === 1 ? '' : n && k.endsWith('e') ? 'n' : 'n'}`)
+    parts.push(`Der Tenant umfasst <b>${fmtNum(c.accounts)} Konten</b>` +
+      (kinds['Benutzerkonto'] ? `, davon ${fmtNum(kinds['Benutzerkonto'])} Benutzerkonten` : '') +
+      (kindText.length ? ` sowie ${kindText.join(', ')}` : '') + '.')
+  }
+  if (c.licensed != null) parts.push(`${fmtNum(c.licensed)} Konten tragen mindestens eine Lizenz.`)
+  if (c.mailboxes != null) parts.push(`In Exchange Online liegen <b>${fmtNum(c.mailboxes)} Postfächer</b>.`)
+  if (c.intuneDevices != null && c.entraDevices != null) {
+    parts.push(`Über Intune verwaltet werden <b>${fmtNum(c.intuneDevices)} Geräte</b>, im Verzeichnis stehen ` +
+      `${fmtNum(c.entraDevices)}.`)
+  }
+  return parts.join(' ')
+}
+
 export function buildInventoryHtml(inventory) {
-  const date = new Date(inventory.generatedAt)
-  const dateStr = date.toLocaleString('de-CH')
-  const s = inventory.summary || { crit: 0, warn: 0, ok: 0, failedSections: [] }
+  const inv = inventory || {}
+  const dateStr = dateLong(inv.generatedAt)
+  const observations = inv.observations || []
+  const crossChecks = inv.crossChecks || []
+  const kinds = inv.accountKinds || {}
+  const counts = inv.counts || {}
+  const failed = (inv.summary && inv.summary.failedSections) || []
 
-  const sections = Object.entries(inventory.sections || {}).map(([id, sec]) => {
+  // --- Beobachtungen: der Teil, den man in die Offerte kopiert.
+  const obsHtml = observations.length
+    ? `<ol class="obs">${observations.map(o => `<li>
+        <div class="obs-title">${esc(o.title)}</div>
+        <p>${esc(o.text)}</p>
+        ${o.detail && o.detail.length
+          ? `<p class="obs-detail">${o.detail.slice(0, 12).map(esc).join(' · ')}${o.detail.length > 12 ? ` … (${fmtNum(o.detail.length)} gesamt)` : ''}</p>`
+          : ''}
+      </li>`).join('')}</ol>`
+    : `<p class="hint">Keine Punkte mit Handlungsbedarf erkannt. Das heisst nicht, dass der Tenant vollständig
+       geprüft wurde — siehe Abschnitt „Was nicht Teil dieser Erhebung ist".</p>`
+
+  // --- Zahlen im Ueberblick: die Differenzen sind die Aussage, deshalb stehen
+  //     die Werte nebeneinander statt in vier getrennten Abschnitten.
+  const overviewRows = [
+    counts.accounts != null ? ['Konten im Verzeichnis', fmtNum(counts.accounts)] : null,
+    counts.licensed != null ? ['davon mit Lizenz', fmtNum(counts.licensed)] : null,
+    counts.mailboxes != null ? ['Postfächer in Exchange Online', fmtNum(counts.mailboxes)] : null,
+    counts.intuneDevices != null ? ['Geräte über Intune verwaltet', fmtNum(counts.intuneDevices)] : null,
+    counts.entraDevices != null ? ['Geräte im Verzeichnis (Entra ID)', fmtNum(counts.entraDevices)] : null
+  ].filter(Boolean)
+
+  const kindRows = Object.entries(kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, fmtNum(n)])
+
+  // Bereiche liegen INNERHALB des Kapitels "Bestand im Detail" -- deshalb h3,
+  // nicht h2. Mit h2 saehen sie aus wie eigene Kapitel und die Nummerierung
+  // haette einen Sprung (5 ... Benutzer ... Lizenzen ... 6).
+  const sectionNo = crossChecks.length ? 5 : 4
+  const sections = Object.entries(inv.sections || {}).map(([id, sec], i) => {
+    const no = `${sectionNo}.${i + 1}`
     if (!sec.ok) {
-      return `<section><h2>${esc(sec.label)}</h2>
+      return `<div class="subsection"><h3 class="sub">${no}&nbsp;&nbsp;${esc(sec.label)}</h3>
         <p class="fail">Nicht abrufbar: ${esc(sec.error)}</p>
-        <p class="hint">Meist fehlt dafür eine Berechtigung oder eine Lizenz im Tenant.</p></section>`
+        ${sec.hint ? `<p class="hint">${esc(sec.hint)}</p>` : ''}</div>`
     }
-    return `<section><h2>${esc(sec.label)}</h2>
-      <table class="metrics">${(sec.metrics || []).map(metricRow).join('')}</table>
-      ${(sec.lists || []).map(listTable).join('\n')}
-    </section>`
+    const metrics = (sec.metrics || []).filter(m => m.value != null)
+    return `<div class="subsection"><h3 class="sub">${no}&nbsp;&nbsp;${esc(sec.label)}</h3>
+      ${metrics.length ? `<div class="metrics">${metrics.map(m =>
+        `<div class="metric"><span class="mv">${fmtNum(m.value)}</span><span class="ml">${esc(m.label)}</span></div>`
+      ).join('')}</div>` : ''}
+      ${(sec.lists || []).map(listBlock).join('\n')}
+    </div>`
   }).join('\n')
-
-  const failed = (s.failedSections || []).length
-    ? `<p class="hint">Nicht auswertbar: ${esc((s.failedSections || []).join(', '))}</p>`
-    : ''
 
   return `<!doctype html>
 <html lang="de"><head><meta charset="utf-8" />
-<title>M365-Bestandsaufnahme — ${esc(inventory.tenantName)}</title>
-<style>
-  :root { --rule:#e1e5ec; --dim:#5b6472; --crit:#c6334b; --warn:#a15e06; --ok:#1f9d63; }
-  * { box-sizing: border-box; }
-  body { font-family: "Segoe UI", system-ui, sans-serif; color:#1b2430; line-height:1.5;
-         max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
-  header { border-bottom: 3px solid #2b5fe2; padding-bottom: 1rem; margin-bottom: 1.5rem; }
-  h1 { font-size: 1.5rem; margin: 0 0 .3rem; }
-  .meta { color: var(--dim); font-size: .85rem; }
-  .counts { display: flex; gap: 1rem; margin: 1.25rem 0; flex-wrap: wrap; }
-  .count { border: 1px solid var(--rule); border-radius: 8px; padding: .6rem 1rem; min-width: 7rem; }
-  .count b { display: block; font-size: 1.6rem; line-height: 1.1; }
-  .count.crit b { color: var(--crit); } .count.warn b { color: var(--warn); } .count.ok b { color: var(--ok); }
-  section { margin: 2rem 0; page-break-inside: avoid; }
-  h2 { font-size: 1.15rem; border-bottom: 1px solid var(--rule); padding-bottom: .3rem; margin-bottom: .5rem; }
-  h3 { font-size: .95rem; margin: 1rem 0 .4rem; }
-  .count-label, .list-block .count { color: var(--dim); font-weight: normal; font-size: .85rem; }
-  table.metrics { width: 100%; border-collapse: collapse; font-size: .9rem; }
-  table.metrics td { padding: .35rem .5rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
-  table.metrics td.ico { width: 1.5rem; font-weight: bold; }
-  table.metrics td.val { width: 6rem; text-align: right; font-variant-numeric: tabular-nums; }
-  table.metrics td.det { color: var(--dim); font-size: .82rem; }
-  tr.crit td.ico { color: var(--crit); } tr.warn td.ico { color: var(--warn); } tr.ok td.ico { color: var(--ok); }
-  table.data { width: 100%; border-collapse: collapse; font-size: .82rem; margin-bottom: .25rem; }
-  table.data th { text-align: left; border-bottom: 2px solid var(--rule); padding: .3rem .45rem; white-space: nowrap; }
-  table.data td { padding: .3rem .45rem; border-bottom: 1px solid var(--rule); }
-  table.data tr:nth-child(even) { background: rgba(43,95,226,.03); }
-  .fail { color: var(--crit); } .hint { color: var(--dim); font-size: .85rem; }
-  footer { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--rule);
-           color: var(--dim); font-size: .8rem; }
-  @media print { body { margin: 0; max-width: none; } section { page-break-inside: auto; } }
-</style></head>
+<title>M365-Bestandsaufnahme — ${esc(inv.tenantName)}</title>
+<style>${docCss()}</style></head>
 <body>
-<header>
-  <h1>M365-Bestandsaufnahme</h1>
-  <div class="meta"><strong>${esc(inventory.tenantName)}</strong>${inventory.organization ? ' · ' + esc(inventory.organization) : ''}<br />
-  Stand: ${esc(dateStr)}</div>
+<button class="no-print print-btn" onclick="window.print()">Als PDF speichern / Drucken</button>
+<div class="page">
+
+<header class="cover">
+  <div class="kicker">Microsoft 365 · Bestandsaufnahme</div>
+  <h1>${esc(inv.tenantName)}</h1>
+  ${inv.organization ? `<div class="org">${esc(inv.organization)}</div>` : ''}
+  <dl class="cover-meta">
+    <div><dt>Erhoben am</dt><dd>${esc(dateStr)}</dd></div>
+    <div><dt>Erhebungsart</dt><dd>Ausschliesslich lesend, app-only</dd></div>
+    <div><dt>Erstellt mit</dt><dd>igeeks M365 Security Policy Manager</dd></div>
+    <div><dt>Dokumenttyp</dt><dd>Momentaufnahme</dd></div>
+  </dl>
 </header>
 
-<div class="counts">
-  <div class="count crit"><b>${s.crit}</b>kritisch</div>
-  <div class="count warn"><b>${s.warn}</b>Hinweise</div>
-  <div class="count ok"><b>${s.ok}</b>unauffällig</div>
+<div class="section">
+<h2>1&nbsp;&nbsp;Einordnung</h2>
+<p>${buildIntro(inv)}</p>
+<p>Dieses Dokument hält fest, <em>was vorhanden ist</em> — Konten, Lizenzen, Postfächer und Geräte zum genannten
+Zeitpunkt. Es bewertet nicht den Sicherheitszustand des Tenants; welche Schutzrichtlinien greifen, ist nicht Teil
+dieser Erhebung (siehe Abschnitt&nbsp;6). Die Punkte, die aus dem Bestand heraus eine Entscheidung verlangen, stehen
+im nächsten Abschnitt.</p>
+${failed.length ? `<p class="fail">Nicht auswertbar: ${esc(failed.join(', '))} — die Zahlen sind insoweit unvollständig.</p>` : ''}
 </div>
-${failed}
 
+<div class="section">
+<h2>2&nbsp;&nbsp;Beobachtungen mit Handlungsbedarf</h2>
+${obsHtml}
+</div>
+
+<div class="section">
+<h2>3&nbsp;&nbsp;Zahlen im Überblick</h2>
+<p>Die Differenzen zwischen diesen Zahlen sind aussagekräftiger als die Zahlen selbst: mehr Geräte im Verzeichnis
+als in der Verwaltung bedeutet unverwaltete Geräte, mehr Konten als Lizenzen bedeutet Funktions- und
+Ressourcenkonten.</p>
+<div class="two-col">
+  ${table(['Kennzahl', 'Anzahl'], overviewRows, { cls: 'kv' })}
+  ${kindRows.length ? table(['Kontoart', 'Anzahl'], kindRows, { cls: 'kv' }) : ''}
+</div>
+${kindRows.length ? `<p class="hint">Kontoarten werden aus belastbaren Merkmalen abgeleitet — Telefonie-Ressourcen am
+Microsoft-Feld <code>department</code>, Funktionspostfächer am Postfachtyp, Break-Glass an der Namenskonvention.
+„Benutzerkonto" ist der Rückfall: darunter können weitere Funktionskonten sein, die sich technisch nicht von einem
+Mitarbeitendenkonto unterscheiden.</p>` : ''}
+</div>
+
+${crossChecks.length ? `<div class="section">
+<h2>4&nbsp;&nbsp;Querschnitte</h2>
+<p>Diese Listen entstehen aus der Verknüpfung mehrerer Bereiche — sie sind in keiner der Einzelaufstellungen
+weiter unten enthalten.</p>
+${crossChecks.map(listBlock).join('\n')}
+</div>` : ''}
+
+<div class="section">
+<h2>${crossChecks.length ? '5' : '4'}&nbsp;&nbsp;Bestand im Detail</h2>
 ${sections}
+</div>
+
+<div class="section">
+<h2>${crossChecks.length ? '6' : '5'}&nbsp;&nbsp;Was nicht Teil dieser Erhebung ist</h2>
+<p>Damit aus diesem Dokument keine Aussage abgeleitet wird, die es nicht trägt: Die folgenden Bereiche wurden
+<b>nicht</b> geprüft.</p>
+<ul class="plain">
+  <li><b>Schutzrichtlinien</b> — Conditional Access, Multi-Faktor-Authentifizierung, Mail-Security (Anti-Phishing,
+      Anti-Spam, Anti-Malware, Safe Links), Defender-Einstellungen.</li>
+  <li><b>Datenablage</b> — SharePoint, OneDrive, Teams: weder Struktur noch Freigaben noch externe Zugriffe.</li>
+  <li><b>Datensicherung und Aufbewahrung</b> — ob und wie Postfächer und Dateien gesichert werden.</li>
+  <li><b>Lokale Infrastruktur</b> — Server, Netzwerk, Drucker, Verzeichnisdienst vor Ort, hybride Kopplung.</li>
+  <li><b>Inhalte</b> — es wurden keine Postfächer, Dateien oder Nachrichten geöffnet oder gelesen.</li>
+</ul>
+<p class="hint">Ob Geräte konform sind, wird aus Intune übernommen; welche Regeln dieser Konformität zugrunde
+liegen, ist nicht Gegenstand dieser Erhebung.</p>
+</div>
+
+<div class="section">
+<h2>${crossChecks.length ? '7' : '6'}&nbsp;&nbsp;Methodik</h2>
+<p>Die Daten wurden über Microsoft Graph und Exchange Online ausgelesen, mit einer app-only-Anmeldung per
+Zertifikat — ohne Benutzerkonto und ohne Passwort. Es kamen ausschliesslich lesende Aufrufe zum Einsatz;
+am Tenant wurde nichts verändert.</p>
+<p>Alle Angaben sind eine Momentaufnahme vom ${esc(dateStr)}. Konten, Lizenzen und Geräte ändern sich laufend;
+für eine Entscheidung mit finanzieller oder vertraglicher Wirkung gehört der Stand kurz vorher erneut erhoben.</p>
+</div>
 
 <footer>
-  Erzeugt mit dem igeeks M365 Security Policy Manager. Die Zahlen sind eine Momentaufnahme zum
-  angegebenen Zeitpunkt und ausschliesslich lesend erhoben — es wurde nichts am Tenant verändert.
+  Erzeugt mit dem igeeks M365 Security Policy Manager · ${esc(dateStr)} ·
+  ${esc(inv.tenantName)}${inv.organization ? ' · ' + esc(inv.organization) : ''}
 </footer>
-</body></html>`
+
+</div></body></html>`
+}
+
+function docCss() {
+  return `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; color: #1a1a1a;
+         font-size: 10.5pt; line-height: 1.5; background: #f2f4f7; }
+  .page { max-width: 900px; margin: 24px auto; background: #fff; padding: 34px 38px 40px;
+          box-shadow: 0 2px 18px rgba(16,24,40,.12); border-radius: 6px; }
+
+  /* Deckblatt */
+  .cover { border-bottom: 3px solid #0081ad; padding-bottom: 16px; margin-bottom: 22px; }
+  .kicker { font-size: 10pt; letter-spacing: .12em; text-transform: uppercase; color: #0081ad; font-weight: 700; }
+  h1 { font-size: 24pt; font-weight: 700; margin: 6px 0 2px; letter-spacing: -0.01em; line-height: 1.15; }
+  .org { font-size: 11pt; color: #555; font-family: Consolas, monospace; }
+  .cover-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-top: 16px; font-size: 9.5pt; }
+  .cover-meta > div { border-bottom: 1px solid #eee; padding: 3px 0; display: flex; gap: 8px; }
+  .cover-meta dt { color: #667085; font-weight: 600; min-width: 8.5em; }
+  .cover-meta dd { color: #1a1a1a; font-weight: 600; }
+
+  h2 { font-size: 13pt; font-weight: 700; margin: 24px 0 8px; padding-bottom: 4px;
+       border-bottom: 2px solid #1a1a1a; }
+  h3 { font-size: 10.5pt; font-weight: 700; margin: 14px 0 5px; }
+  h3 .count { font-weight: 400; color: #667085; font-size: 9.5pt; }
+  /* Bereichs-Ueberschrift innerhalb von "Bestand im Detail" -- klar unter h2,
+     aber deutlich ueber den Listentiteln darin. */
+  h3.sub { font-size: 11.5pt; margin: 20px 0 6px; padding-bottom: 3px; border-bottom: 1px solid #d5d9e0; }
+  .subsection { break-inside: auto; }
+  p { margin: 0 0 9px; }
+  code { font-family: Consolas, monospace; font-size: 9.4pt; background: #f4f4f4; padding: 0 3px; border-radius: 2px; }
+
+  /* Beobachtungen */
+  ol.obs { margin: 0; padding-left: 0; list-style: none; counter-reset: obs; }
+  ol.obs li { counter-increment: obs; margin: 0 0 12px; padding: 10px 12px 10px 40px; position: relative;
+              background: #fafbfc; border: 1px solid #eaecf0; border-left: 3px solid #0081ad; border-radius: 4px;
+              break-inside: avoid; page-break-inside: avoid; }
+  ol.obs li::before { content: counter(obs); position: absolute; left: 12px; top: 10px;
+                      font-weight: 700; color: #0081ad; font-size: 11pt; }
+  .obs-title { font-weight: 700; margin-bottom: 3px; }
+  ol.obs p { margin: 0; font-size: 10pt; }
+  .obs-detail { margin-top: 5px !important; font-size: 9pt; color: #555;
+                font-family: Consolas, monospace; line-height: 1.45; }
+
+  /* Kennzahlen je Bereich */
+  .metrics { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+  .metric { border: 1px solid #eaecf0; border-radius: 5px; padding: 6px 12px; min-width: 6.5rem; background: #fcfcfd; }
+  .metric .mv { display: block; font-size: 15pt; font-weight: 700; line-height: 1.1;
+                font-variant-numeric: tabular-nums; }
+  .metric .ml { display: block; font-size: 8.6pt; color: #667085; margin-top: 1px; }
+
+  /* Tabellen */
+  table.data { width: 100%; border-collapse: collapse; font-size: 9.2pt; margin: 4px 0 8px; }
+  table.data th { text-align: left; background: #f3f3f3; font-weight: 600; padding: 5px 8px;
+                  border-bottom: 1.5px solid #bbb; white-space: nowrap; }
+  table.data td { padding: 4px 8px; border-bottom: 1px solid #e8e8e8; vertical-align: top;
+                  font-variant-numeric: tabular-nums; }
+  table.data tbody tr:nth-child(even) td { background: #fcfcfd; }
+  table.kv { width: 100%; }
+  table.kv td:last-child, table.kv th:last-child { text-align: right; width: 6rem; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+
+  .list-block { break-inside: auto; }
+  .hint { font-size: 9pt; color: #667085; }
+  .fail { color: #b42318; font-weight: 600; }
+  ul.plain { margin: 4px 0 10px; padding-left: 18px; }
+  ul.plain li { margin: 3px 0; }
+  footer { margin-top: 28px; padding-top: 9px; border-top: 1px solid #ccc; font-size: 8.5pt; color: #777; }
+
+  .print-btn { position: fixed; top: 16px; right: 16px; z-index: 9; background: #0081ad; color: #fff; border: none;
+               padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+               box-shadow: 0 3px 10px rgba(0,0,0,.3); }
+
+  /* Druck: Tabellenkopf je Seite wiederholen, nie mitten in einer Zeile oder
+     einem Absatz brechen, Ueberschriften nicht verwaist am Seitenende stehen
+     lassen. Lange Tabellen duerfen umbrechen -- sonst entstehen leere Seiten. */
+  thead { display: table-header-group; }
+  tr, p, li { break-inside: avoid; page-break-inside: avoid; }
+  h1, h2, h3 { break-after: avoid; page-break-after: avoid; break-inside: avoid; }
+  .section { break-inside: auto; }
+  .cover { break-inside: avoid; }
+
+  @media print {
+    body { background: #fff; }
+    .no-print { display: none !important; }
+    .page { box-shadow: none; margin: 0; max-width: none; border-radius: 0; padding: 0; }
+    .two-col { gap: 12px; }
+  }
+  @page { size: A4; margin: 16mm; }
+  `
 }

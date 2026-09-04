@@ -261,7 +261,12 @@ async function runLicenseReport(tenant, cert) {
     .map(u => ({
       displayName: u.displayName, upn: u.userPrincipalName,
       enabled: u.accountEnabled !== false,
-      licenses: userLicNames(u).map(l => l.name)
+      licenses: userLicNames(u).map(l => l.name),
+      // Rohe SKU-Partnummern zusaetzlich zu den Klarnamen: nur damit laesst sich
+      // verlaesslich pruefen, ob ein Konto eine bestimmte Faehigkeit hat (z.B.
+      // INTUNE_A oder AAD_PREMIUM, direkt oder in einer Suite enthalten).
+      // Ueber Klarnamen zu matchen waere raten.
+      parts: (u.assignedLicenses || []).map(l => skuById.get(l.skuId)).filter(Boolean).map(s => s.skuPartNumber)
     }))
     .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
 

@@ -758,6 +758,18 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .tbadge.crit { background: var(--crit-wash); color: var(--crit); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
+/* Bestandsaufnahme: Beobachtungen mit Handlungsbedarf. Stehen ueber den
+   Tabellen -- die Tabellen sind der Beleg, das hier ist die Aussage. */
+.inv-obs { margin-top: 1rem; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--bg-inset); padding: 0.85rem 1rem; }
+.inv-obs-head { font-weight: 700; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.5rem; }
+.inv-obs-count { font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--accent); color: #fff; }
+.inv-obs ol { margin: 0; padding-left: 1.2rem; }
+.inv-obs > ol > li { margin: 0 0 0.75rem; }
+.inv-obs > ol > li:last-child { margin-bottom: 0; }
+.inv-obs-title { font-weight: 600; }
+.inv-obs p { margin: 0.15rem 0 0; font-size: 0.86rem; color: var(--text-dim); line-height: 1.5; }
+.inv-obs-detail { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.8rem; color: var(--text-dim); line-height: 1.5; }
+
 /* CA-Vorschau: Policies mit Aussperr-Risiko (phishing-resistente Auth ohne
    ausgerollte Schluessel, Device-Code-Sperre). Starten abgewaehlt, siehe
    togglePreview() — die Markierung erklaert, warum. */

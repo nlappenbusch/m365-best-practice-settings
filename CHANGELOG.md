@@ -1,5 +1,57 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.40 - Bestandsaufnahme: Aussage statt Inventar (2026-09-04)
+
+Der erste Produktivlauf (Faltin Travel) hat gezeigt, dass der Bericht zwar
+vollständig ist, aber nichts sagt. Er meldete „0 kritisch · 18 unauffällig" —
+und übersah dabei, dass nur 3 von 15 aktiven Konten überhaupt eine Lizenz mit
+Intune und Entra ID P1 haben, dass 5 deaktivierte Konten noch Lizenzen tragen
+und dass 9 von 15 Verzeichnisgeräten unverwaltet sind, darunter das Notebook
+einer ausgeschiedenen Mitarbeiterin.
+
+**Die Ampel ist raus.** „0 kritisch / 18 unauffällig" stammte aus dem
+Security-Report und las sich wie eine geprüfte Entwarnung, obwohl nichts
+bewertet worden war. An ihre Stelle treten **Beobachtungen mit Handlungsbedarf**
+— je ein Satz mit Zahl, Bedeutung und Betroffenenliste, ganz oben im Dokument.
+
+**Querschnitte statt vier Silos.** Die Aussage entsteht erst aus der Verknüpfung
+der Bereiche; die Daten dafür lagen schon vor, wurden nur nie zusammengeführt:
+aktive Konten ohne Intune-/P1-Lizenz, deaktivierte Konten mit Lizenz, Geräte im
+Verzeichnis aber nicht in Intune, Benutzerpostfächer ohne aktives Konto. Dazu
+erkannt: Karteileichen (>180 Tage ohne Anmeldung), doppelte Geräteeinträge,
+ungenutzte Archivpostfächer.
+
+**Kontoarten getrennt.** Menschen, Funktionspostfächer, Telefonie-Ressourcen und
+Break-Glass standen alphabetisch gemischt in einer Liste — „25 Konten" las sich
+wie 25 Mitarbeitende. Die Zuordnung nutzt nur belastbare Merkmale (Microsofts
+`department`-Feld bei Ressourcenkonten, Postfachtyp, Namenskonvention);
+„Benutzerkonto" ist ausdrücklich der Rückfall, und das Dokument sagt das auch.
+
+**Das Dokument ist jetzt eines.** Deckblatt, Einordnung in Prosa, Beobachtungen,
+Zahlen im Überblick, Querschnitte, Bestand im Detail (5.1–5.5), **Abgrenzung**
+und Methodik. Die Abgrenzung ist der wichtigste neue Abschnitt: Er sagt
+ausdrücklich, was *nicht* geprüft wurde — Schutzrichtlinien, SharePoint/OneDrive,
+Datensicherung, lokale Infrastruktur. Ohne ihn liest ein Kunde „geprüft" als
+„alles geprüft".
+
+Kein pdfkit: Das Dokument besteht fast nur aus Tabellen, und Seitenumbruch,
+wiederholter Tabellenkopf und Spaltenbreiten sind in CSS gelöst, während man sie
+in pdfkit von Hand zeichnen müsste. Druckoptimiertes HTML plus „Als PDF
+speichern" — dasselbe Muster wie `configDoc.js` und der Audit-Report.
+
+Rohwerte übersetzt: `None` → „kein Archiv", `company`/`personal` → „Firma"/
+„privat", `compliant` → „konform". Zahlen ab fünf Stellen mit Schweizer
+Tausendertrennung, Versionsnummern und Datumsangaben davon ausgenommen.
+
+Technik: `api/lib/inventory.js` (`buildAnalysis()`, Übersetzungstabellen,
+`accountKind()`, Rohdaten in `data` für die Verknüpfung), `api/lib/licenses.js`
+(`userLicenses` liefert zusätzlich die SKU-Partnummern — nur damit lässt sich
+Intune-/P1-Fähigkeit verlässlich prüfen statt über Klarnamen zu raten),
+`api/server.js` (Beobachtungen und Querschnitte werden mitgespeichert),
+`frontend/src/lib/inventoryDoc.js` (neu aufgebaut),
+`frontend/src/tabs/Bestandsaufnahme.svelte`, `app.css`. Die Analyse ist gegen
+die echten Faltin-Zahlen getestet (7 Beobachtungen, 4 Querschnitte).
+
 ## Version 2.39 - CA-Vorschau sagt, welche Policy aussperrt (2026-09-04)
 
 Die Conditional-Access-Vorschau listete bisher nur Policy-Namen, alle

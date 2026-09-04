@@ -4375,7 +4375,14 @@ function storeInventory(tenantRecId, inv) {
   const idx = (s.tenants || []).findIndex(x => x.id === tenantRecId);
   if (idx < 0) return;
   const slim = { generatedAt: inv.generatedAt, summary: inv.summary, sections: {} };
-  const detailed = { generatedAt: inv.generatedAt, summary: inv.summary, sections: {} };
+  // Beobachtungen und Querschnitte sind der eigentliche Ertrag des Laufs -- sie
+  // muessen den Neustart ueberleben, sonst zeigt "letzter Stand" nur noch Tabellen.
+  const detailed = {
+    generatedAt: inv.generatedAt, summary: inv.summary, sections: {},
+    observations: inv.observations || [], crossChecks: inv.crossChecks || [],
+    accountKinds: inv.accountKinds || null, counts: inv.counts || null,
+    tenantName: inv.tenantName, organization: inv.organization
+  };
   for (const [id, sec] of Object.entries(inv.sections)) {
     slim.sections[id] = { ok: sec.ok, label: sec.label, metrics: sec.metrics || [], error: sec.error || null };
     detailed.sections[id] = { ...slim.sections[id], lists: sec.lists || [] };
