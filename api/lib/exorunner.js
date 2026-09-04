@@ -41,16 +41,17 @@ const COMMANDS = [
   "Get-HostedOutboundSpamFilterPolicy", "Set-HostedOutboundSpamFilterPolicy",
   "Get-ExternalInOutlook", "Set-ExternalInOutlook",
   "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule",
-  // Safe Links / Safe Attachments (Audit-Tab, buildAuditBody in deploy.js):
-  // reine Ist-Erhebung, die Vorlage deployt hier nichts, daher nur Get-*.
-  // Standen bisher NICHT in der Whitelist -- Connect-ExchangeOnline importierte
-  // die Cmdlets dadurch gar nicht erst, Get-Safe() im Audit-Body fing den
-  // "nicht erkannt"-Fehler still ab und zeigte "keine Defender-Funktion
-  // erkennbar", obwohl der Tenant Safe Links durchaus lizenziert haben kann --
-  // aufgefallen beim Acons-Phishing-Vorfall 04.09.2026 (Anish fragte nach dem
-  // Safe-Links-Status, das Audit haette es faelschlich verneint).
-  "Get-AtpPolicyForO365", "Get-SafeLinksPolicy", "Get-SafeLinksRule",
-  "Get-SafeAttachmentPolicy", "Get-SafeAttachmentRule"
+  // Safe Links / Safe Attachments (Defender for Office 365, P1/P2, lizenzabhaengig).
+  // Get-* stand hier zunaechst allein (Audit-Tab, reine Ist-Erhebung) -- aufgefallen
+  // beim Acons-Phishing-Vorfall 04.09.2026, wo die fehlende Whitelist den Cmdlet-
+  // Aufruf still scheitern liess und "keine Defender-Funktion erkennbar" zeigte,
+  // obwohl der Tenant lizenziert sein kann. New-/Set-* kamen mit dem Deploy-Baustein
+  // im "Ausrollen"-Tab dazu (BP_SafeLinks/BP_SafeAttachments, buildDeployBody).
+  "Get-AtpPolicyForO365", "Set-AtpPolicyForO365",
+  "Get-SafeLinksPolicy", "New-SafeLinksPolicy", "Set-SafeLinksPolicy",
+  "Get-SafeLinksRule", "New-SafeLinksRule", "Set-SafeLinksRule",
+  "Get-SafeAttachmentPolicy", "New-SafeAttachmentPolicy", "Set-SafeAttachmentPolicy",
+  "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule"
 ].join(",");
 
 

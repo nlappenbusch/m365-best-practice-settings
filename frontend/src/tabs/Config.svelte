@@ -60,7 +60,7 @@
   )
 
   // Collapse-Zustand je Policy-Card (Vanilla: toggle-btn -> .expanded).
-  let open = $state({ phish: false, spam: false, malware: false, outbound: false, quarantine: false })
+  let open = $state({ phish: false, spam: false, malware: false, safelinks: false, outbound: false, quarantine: false })
   const toggle = (k) => (open[k] = !open[k])
 
   function addDomain() { $config.global.domains = [...$config.global.domains, ''] }
@@ -279,6 +279,48 @@
         <div class="policy-info">
           <small>💡 <strong>Malware Quarantine:</strong> BP_Quarantine-RequestReleaseNotification</small><br>
           <small>💡 <strong>Blocked File Types:</strong> Rejected with NDR (not quarantined)</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Safe Links & Safe Attachments -->
+  <div class="policy-card" class:expanded={open.safelinks}>
+    <div class="policy-header" role="button" tabindex="0" onclick={() => toggle('safelinks')}
+         onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle('safelinks'))}>
+      <div class="policy-title">
+        <span class="policy-icon">🔗</span>
+        <div><h3>Safe Links &amp; Safe Attachments</h3><p class="policy-name">BP_SafeLinks · BP_SafeAttachments</p></div>
+      </div>
+      <span class="toggle-btn" aria-hidden="true">▾</span>
+    </div>
+    <div class="policy-details" class:active={open.safelinks}>
+      <div class="settings-group">
+        <h4>Voraussetzung</h4>
+        <label class="checkbox-label"><input type="checkbox" bind:checked={$config.safeLinks.enabled}><span>Beim Ausrollen mit deployen</span></label>
+        <div class="policy-info">
+          <small>💡 Braucht Defender for Office 365 Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in E5). Ohne passende Lizenz schlägt nur dieser eine Baustein fehl — der Rest des Deploys läuft trotzdem durch. Lizenz-Status vor dem Ausrollen im Audit-Tab prüfen.</small>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h4>Safe Links</h4>
+        <label class="checkbox-label"><input type="checkbox" bind:checked={$config.safeLinks.enableForInternalSenders}><span>Auch interne Mails scannen</span></label>
+        <label class="checkbox-label"><input type="checkbox" bind:checked={$config.safeLinks.allowClickThrough}><span>Durchklicken trotz Warnung erlauben (weniger sicher)</span></label>
+        <div class="policy-info">
+          <small>💡 <strong>Best Practice:</strong> beide Häkchen wie voreingestellt lassen — auch interne Mails scannen (bei einem bereits kompromittierten Konto sind es oft interne Empfänger), Durchklicken bei erkannt bösartigen Links nicht erlauben.</small>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h4>Safe Attachments</h4>
+        <div class="input-group"><label>Aktion bei erkanntem Schadcode</label>
+          <select bind:value={$config.safeAttach.action}>
+            <option value="Block">Block (Anhang zurückhalten bis der Scan fertig ist)</option>
+            <option value="Replace">Replace (Anhang entfernen, Rest zustellen)</option>
+            <option value="DynamicDelivery">Dynamic Delivery (Mail sofort ohne Anhang, Anhang nachreichen)</option>
+          </select></div>
+        <div class="policy-info">
+          <small>💡 <strong>Quarantäne-Tag:</strong> BP_Quarantine-RequestReleaseNotification</small><br>
+          <small>💡 Block ist Microsofts eigene Empfehlung — höchste Sicherheit, auf Kosten etwas längerer Zustellzeit.</small>
         </div>
       </div>
     </div>
