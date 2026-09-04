@@ -758,6 +758,18 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .tbadge.crit { background: var(--crit-wash); color: var(--crit); }
 .tbadge.bad { background: var(--crit-wash); color: var(--crit); }
 
+/* CA-Vorschau: Policies mit Aussperr-Risiko (phishing-resistente Auth ohne
+   ausgerollte Schluessel, Device-Code-Sperre). Starten abgewaehlt, siehe
+   togglePreview() — die Markierung erklaert, warum. */
+.ld-oib-row.ca-risky { background: var(--warn-wash); border-left: 3px solid var(--warn); padding-left: 0.5rem; border-radius: var(--radius-sm); }
+.ca-risk-badge { display: inline-block; margin-left: 0.4rem; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 999px; background: var(--warn); color: #fff; white-space: nowrap; }
+.ca-risk-detail { display: block; margin-top: 0.2rem; font-size: 0.78rem; color: var(--text-dim); line-height: 1.4; }
+.ca-excluded { margin-top: 0.8rem; border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--bg-inset); }
+.ca-excluded > summary { cursor: pointer; padding: 0.5rem 0.7rem; font-size: 0.82rem; font-weight: 600; }
+.ca-excluded > summary:hover { color: var(--accent); }
+.ca-excluded ul { margin: 0; padding: 0.2rem 0.7rem 0.7rem 1.6rem; font-size: 0.8rem; line-height: 1.5; color: var(--text-dim); }
+.ca-excluded li { margin: 0.3rem 0; }
+
 /* Unterliste im Deploy-Bestaetigungsdialog (organisationsweite Schalter) */
 .ld-confirm-sub { margin: 0.3rem 0 0 0; padding-left: 1.1rem; font-size: 0.82rem; }
 .ld-confirm-sub li { margin: 0.15rem 0; }

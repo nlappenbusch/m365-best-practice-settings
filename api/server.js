@@ -5603,8 +5603,40 @@ app.post("/api/tenants/:id/browserext/firefox", wrap(async (req, res) => {
 }));
 
 // ---------- Conditional Access ----------
+// Welche Policy kann beim Scharfschalten jemanden aussperren? Wird AUS DEM
+// POLICY-OBJEKT abgeleitet, nicht aus Nummern -- so bleibt es korrekt, wenn sich
+// die Vorlagen upstream aendern. Zwei Faelle, beide hart am Objekt belegbar:
+//   - phishing-resistente Authentication Strength (Microsofts eingebaute
+//     Staerke ...0004): ohne ausgerollte FIDO2-/Hello-Anmeldung sperrt das aus.
+//     Das Wort "Strong Auth" im Policy-Namen sagt einem Azubi genau nichts.
+//   - Sperre des Device-Code-Flusses: genau darueber laeuft Onboarding und
+//     Reparieren dieses Werkzeugs.
+const PHISHING_RESISTANT_STRENGTH_ID = "00000000-0000-0000-0000-000000000004";
+function policyRisks(p) {
+  const risks = [];
+  const gc = (p && p.grantControls) || {};
+  const cond = (p && p.conditions) || {};
+  const strengthId = gc.authenticationStrength && gc.authenticationStrength.id;
+  if (String(strengthId || "") === PHISHING_RESISTANT_STRENGTH_ID) {
+    risks.push({
+      key: "strongAuth",
+      label: "braucht Passkeys",
+      detail: "Verlangt phishing-resistente Anmeldung (FIDO2-Schlüssel, Windows Hello oder Zertifikat) — ein Authenticator-Code genügt nicht. Sind die nicht ausgerollt, sperrt das Scharfschalten alle Betroffenen aus."
+    });
+  }
+  const flows = cond.authenticationFlows && cond.authenticationFlows.transferMethods;
+  if (String(flows || "").includes("deviceCodeFlow")) {
+    risks.push({
+      key: "deviceCode",
+      label: "sperrt dieses Werkzeug aus",
+      detail: "Blockiert den Device-Code-Fluss. Genau über diesen Weg meldet sich dieses Werkzeug beim Onboarding und beim Reparieren am Kundentenant an — scharf geschaltet kommst du hier nicht mehr rein."
+    });
+  }
+  return risks;
+}
+
 app.get("/api/conditionalaccess/tiers", (req, res) => {
-  const { CA_POLICY_TEMPLATES } = require("./lib/conditionalAccessPolicies");
+  const { CA_POLICY_TEMPLATES, SELECTION_META } = require("./lib/conditionalAccessPolicies");
   const tiers = {};
   for (const key of Object.keys(CONDACCESS.TIER_META)) {
     const templates = CA_POLICY_TEMPLATES[key] || [];
@@ -5614,7 +5646,13 @@ app.get("/api/conditionalaccess/tiers", (req, res) => {
       // Namen mit <RING>-Platzhalter roh ausliefern — das Frontend ersetzt
       // live mit dem gewaehlten Ring, damit die Vorschau exakt zeigt, was
       // beim Deploy angelegt wird.
-      policyNames: templates.map(t => String(t.displayName || ""))
+      policyNames: templates.map(t => String(t.displayName || "")),
+      // Parallel zu policyNames: Risiko-Flags je Policy fuer die Vorschau.
+      policyRisks: templates.map(policyRisks),
+      // Bei den kuratierten Zusammenstellungen: warum einzelne Vorlagen bewusst
+      // NICHT enthalten sind. Stand bisher nur im Modul und erreichte die
+      // Oberflaeche nie -- dabei ist es der beste Erklaertext, den es dazu gibt.
+      excluded: (SELECTION_META && SELECTION_META[key] && SELECTION_META[key].excluded) || null
     };
   }
   res.json({ ok: true, tiers });
