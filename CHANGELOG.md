@@ -1,5 +1,22 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.36 - CA-Policy-Rename ohne Karteileiche bei Bestandstenants (2026-09-04)
+
+Der v2.9.1-Fix (Policy 200 umbenannt, siehe unten) hatte eine dort dokumentierte
+Lücke: `upsertPolicy` erkannte bestehende Policies am exakten `displayName`. Bei
+jedem Tenant, wo 200 schon unter dem alten Namen deployt war, hätte der nächste
+Lauf eine zweite Policy unter dem neuen Namen angelegt statt die alte
+umzubenennen — Aufräumen von Hand nötig, pro Tenant.
+
+- **Fix:** Matching läuft jetzt über den Nr+Ring-Präfix (z.B. `200 - BP`) statt
+  über den vollen Namen. Ein korrigierter Beschreibungstext wird beim nächsten
+  Deploy sauber in die bestehende Policy gePATCHt, keine Dublette mehr. Gilt
+  rückwirkend für jeden Tenant mit altem Policy-200-Namen und für jede
+  künftige Namenskorrektur, nicht nur für diesen einen Fall.
+
+Technik: `api/lib/conditionalAccess.js` (`policyKey()` neu, `existingByName` →
+`existingByKey` in `deployTier`/`upsertPolicy`).
+
 ## Version 2.35 - Bestandsaufnahme: Intune-Geräte-Fix + Benutzer→Lizenzen (2026-09-04)
 
 Zwei Nachbesserungen an der neuen Bestandsaufnahme (v2.33), aufgefallen beim

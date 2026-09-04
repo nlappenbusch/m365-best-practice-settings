@@ -194,6 +194,17 @@ function substitutePolicy(template, groupIds, ring, ringGroupId) {
 
 const MANAGED_NAME_RE = /^\d+ - [A-Za-z0-9]{1,12} - /;
 
+/** Nr+Ring-Praefix einer Policy als Matching-Key statt des vollen displayName.
+ *  Grund: wird der Beschreibungstext einer Vorlage korrigiert (z.B. Policy 200,
+ *  siehe docs/upstream-issue-ca200.md), aendert sich der displayName. Ein nach
+ *  exaktem Namen matchender Upsert wuerde das bei bereits ausgerollten Tenants
+ *  als neue Policy behandeln und eine zweite, veraltete daneben stehen lassen -
+ *  der Nr+Ring-Praefix bleibt bei so einer Korrektur stabil. */
+function policyKey(displayName) {
+  const m = String(displayName || "").match(/^(\d+ - [A-Za-z0-9]{1,12}) - /);
+  return m ? m[1] : displayName;
+}
+
 /** Bereits vorhandene, von diesem Tool verwaltete CA-Policies auflisten.
  *  Namensschema "<Nr> - <RING> - ..." — matcht jeden Ring (PILOT, BROAD, BP, ...),
  *  Fremd-Policies ohne dieses Schema werden nie angefasst. */
@@ -217,9 +228,10 @@ async function deletePolicy(tenant, certPemPath, policyId) {
   await graphReq(tenant, certPemPath, "DELETE", `/identity/conditionalAccess/policies/${encodeURIComponent(policyId)}`, null, { retryTransient: true });
 }
 
-/** Policy anlegen oder aktualisieren (idempotent nach displayName), immer im Report-only-Zustand. */
-async function upsertPolicy(tenant, certPemPath, policyJson, existingByName) {
-  const existing = existingByName.get(policyJson.displayName);
+/** Policy anlegen oder aktualisieren (idempotent nach Nr+Ring-Praefix, siehe policyKey),
+ *  immer im Report-only-Zustand. */
+async function upsertPolicy(tenant, certPemPath, policyJson, existingByKey) {
+  const existing = existingByKey.get(policyKey(policyJson.displayName));
   if (existing) {
     // Bewusst konservativ: beim erneuten Deploy wird NUR bei einer bereits im
     // Report-only-Zustand befindlichen Policy aktualisiert — eine bereits vom
@@ -258,7 +270,7 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress, opts) {
 
   notify("Bestehende Policies laden");
   const existing = await listManagedPolicies(tenant, certPemPath);
-  const existingByName = new Map(existing.map(p => [p.displayName, p]));
+  const existingByKey = new Map(existing.map(p => [policyKey(p.displayName), p]));
 
   const results = [];
   let i = 0;
@@ -267,7 +279,7 @@ async function deployTier(tenant, certPemPath, tierKey, onProgress, opts) {
     const policyJson = substitutePolicy(template, groupIds, ring, ringGroup ? ringGroup.id : null);
     notify(`Policy ${i}/${templates.length}: ${policyJson.displayName}`);
     try {
-      const r = await upsertPolicy(tenant, certPemPath, policyJson, existingByName);
+      const r = await upsertPolicy(tenant, certPemPath, policyJson, existingByKey);
       results.push({ name: policyJson.displayName, status: r.status, id: r.id });
     } catch (e) {
       results.push({ name: policyJson.displayName, status: "failed", error: e.message });
