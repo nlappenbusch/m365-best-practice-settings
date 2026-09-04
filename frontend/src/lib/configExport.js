@@ -18,6 +18,7 @@ function generateDocumentationHeader() {
     - Anti-Phishing Policy
     - Anti-Spam Inbound Policy
     - Anti-Malware Policy
+    - Safe Links / Safe Attachments (Defender for Office 365 P1/P2, falls lizenziert)
     - Quarantine Policies
     - Ausgehender Spam, Kennzeichnung externer Absender, Organisationseinstellungen
 
@@ -44,7 +45,7 @@ function generateOutboundSection() {
     const empf = [config.global.adminEmail, config.global.igeeksEmail].filter(Boolean);
     const L = [];
     L.push('# ============================================');
-    L.push('# 5. AUSGEHEND & ORGANISATION');
+    L.push('# 6. AUSGEHEND & ORGANISATION');
     L.push('# ============================================');
     L.push('Write-Host "Configuring outbound spam and organisation settings..." -ForegroundColor Yellow');
     L.push('');
@@ -135,6 +136,117 @@ function generateOutboundSection() {
     L.push('    }');
     L.push('} catch {');
     L.push('    Write-Host "FEHLER - Warnungsrichtlinie: $_" -ForegroundColor Red');
+    L.push('}');
+    return L.join('\n');
+}
+
+// Safe Links / Safe Attachments (Defender for Office 365 P1/P2) — lizenzabhaengig,
+// deshalb eigener enabled-Schalter statt harter Vorgabe wie bei den drei
+// Bereichen davor. Gleiches Array-Push-Muster wie generateOutboundSection().
+function generateSafeLinksSection() {
+    const sl = config.safeLinks || {};
+    const sa = config.safeAttach || {};
+    const domainList = generateDomainList();
+    const L = [];
+    L.push('# ============================================');
+    L.push('# 5. SAFE LINKS & SAFE ATTACHMENTS');
+    L.push('# ============================================');
+    if (sl.enabled === false) {
+        L.push('Write-Host "Safe Links / Safe Attachments: in der Vorlage deaktiviert, uebersprungen." -ForegroundColor Yellow');
+        return L.join('\n');
+    }
+    L.push('Write-Host "Configuring Safe Links / Safe Attachments (Defender for Office 365)..." -ForegroundColor Yellow');
+    L.push('Write-Host "Braucht Plan 1 (u.a. Business Premium) oder Plan 2 (u.a. E5) - ohne Lizenz schlagen die naechsten Schritte fehl." -ForegroundColor Cyan');
+    L.push('');
+    L.push('# Organisationsweite Freischaltung - ohne sie greift keine SafeLinksPolicy,');
+    L.push('# unabhaengig davon wie sie konfiguriert ist.');
+    L.push('try {');
+    L.push('    Set-AtpPolicyForO365 `');
+    L.push('        -EnableSafeLinksForEmail $true `');
+    L.push('        -EnableSafeLinksForTeams $true `');
+    L.push('        -EnableSafeLinksForOffice $true `');
+    L.push('        -EnableATPForSPOTeamsODB $true `');
+    L.push('        -TrackClicks $true `');
+    L.push('        -AllowClickThrough $' + (sl.allowClickThrough ? 'true' : 'false'));
+    L.push('    Write-Host "OK - organisationsweite Safe-Links-Schalter gesetzt" -ForegroundColor Green');
+    L.push('} catch {');
+    L.push('    Write-Host "FEHLER - Safe-Links-Org-Schalter (fehlt die Lizenz?): $_" -ForegroundColor Red');
+    L.push('}');
+    L.push('');
+    L.push('try {');
+    L.push('    $slp = Get-SafeLinksPolicy -Identity "BP_SafeLinks" -ErrorAction SilentlyContinue');
+    L.push('    if ($null -eq $slp) {');
+    L.push('        New-SafeLinksPolicy -Name "BP_SafeLinks" `');
+    L.push('            -IsEnabled $true `');
+    L.push('            -ScanUrls $true `');
+    L.push('            -EnableForInternalSenders $' + (sl.enableForInternalSenders !== false ? 'true' : 'false') + ' `');
+    L.push('            -DeliverMessageAfterScan $true `');
+    L.push('            -TrackClicks $true `');
+    L.push('            -AllowClickThrough $' + (sl.allowClickThrough ? 'true' : 'false'));
+    L.push('        Write-Host "OK - BP_SafeLinks angelegt" -ForegroundColor Green');
+    L.push('    } else {');
+    L.push('        Set-SafeLinksPolicy -Identity "BP_SafeLinks" `');
+    L.push('            -IsEnabled $true `');
+    L.push('            -ScanUrls $true `');
+    L.push('            -EnableForInternalSenders $' + (sl.enableForInternalSenders !== false ? 'true' : 'false') + ' `');
+    L.push('            -DeliverMessageAfterScan $true `');
+    L.push('            -TrackClicks $true `');
+    L.push('            -AllowClickThrough $' + (sl.allowClickThrough ? 'true' : 'false'));
+    L.push('        Write-Host "OK - BP_SafeLinks aktualisiert" -ForegroundColor Green');
+    L.push('    }');
+    L.push('} catch {');
+    L.push('    Write-Host "FEHLER - BP_SafeLinks: $_" -ForegroundColor Red');
+    L.push('}');
+    L.push('');
+    L.push('try {');
+    L.push('    $slr = Get-SafeLinksRule -Identity "BP_SafeLinks_Rule" -ErrorAction SilentlyContinue');
+    L.push('    if ($null -eq $slr) {');
+    L.push('        New-SafeLinksRule -Name "BP_SafeLinks_Rule" `');
+    L.push('            -SafeLinksPolicy "BP_SafeLinks" `');
+    L.push('            -RecipientDomainIs ' + domainList + ' `');
+    L.push('            -Priority 0');
+    L.push('        Write-Host "OK - BP_SafeLinks_Rule angelegt" -ForegroundColor Green');
+    L.push('    } else {');
+    L.push('        Write-Host "Hinweis - BP_SafeLinks_Rule existiert bereits, uebersprungen" -ForegroundColor Yellow');
+    L.push('    }');
+    L.push('} catch {');
+    L.push('    Write-Host "FEHLER - BP_SafeLinks_Rule: $_" -ForegroundColor Red');
+    L.push('}');
+    L.push('');
+    L.push('try {');
+    L.push('    $sap = Get-SafeAttachmentPolicy -Identity "BP_SafeAttachments" -ErrorAction SilentlyContinue');
+    L.push('    if ($null -eq $sap) {');
+    L.push('        New-SafeAttachmentPolicy -Name "BP_SafeAttachments" `');
+    L.push('            -Enable $true `');
+    L.push('            -Action ' + (sa.action || 'Block') + ' `');
+    L.push('            -ActionOnError $true `');
+    L.push('            -QuarantineTag "BP_Quarantine-RequestReleaseNotification"');
+    L.push('        Write-Host "OK - BP_SafeAttachments angelegt" -ForegroundColor Green');
+    L.push('    } else {');
+    L.push('        Set-SafeAttachmentPolicy -Identity "BP_SafeAttachments" `');
+    L.push('            -Enable $true `');
+    L.push('            -Action ' + (sa.action || 'Block') + ' `');
+    L.push('            -ActionOnError $true `');
+    L.push('            -QuarantineTag "BP_Quarantine-RequestReleaseNotification"');
+    L.push('        Write-Host "OK - BP_SafeAttachments aktualisiert" -ForegroundColor Green');
+    L.push('    }');
+    L.push('} catch {');
+    L.push('    Write-Host "FEHLER - BP_SafeAttachments: $_" -ForegroundColor Red');
+    L.push('}');
+    L.push('');
+    L.push('try {');
+    L.push('    $sar = Get-SafeAttachmentRule -Identity "BP_SafeAttachments_Rule" -ErrorAction SilentlyContinue');
+    L.push('    if ($null -eq $sar) {');
+    L.push('        New-SafeAttachmentRule -Name "BP_SafeAttachments_Rule" `');
+    L.push('            -SafeAttachmentPolicy "BP_SafeAttachments" `');
+    L.push('            -RecipientDomainIs ' + domainList + ' `');
+    L.push('            -Priority 0');
+    L.push('        Write-Host "OK - BP_SafeAttachments_Rule angelegt" -ForegroundColor Green');
+    L.push('    } else {');
+    L.push('        Write-Host "Hinweis - BP_SafeAttachments_Rule existiert bereits, uebersprungen" -ForegroundColor Yellow');
+    L.push('    }');
+    L.push('} catch {');
+    L.push('    Write-Host "FEHLER - BP_SafeAttachments_Rule: $_" -ForegroundColor Red');
     L.push('}');
     return L.join('\n');
 }
@@ -409,10 +521,12 @@ try {
     Write-Host "❌ Error creating BP_AntiMalware_Rule: $_" -ForegroundColor Red
 }
 
+${generateSafeLinksSection()}
+
 ${generateOutboundSection()}
 
 # ============================================
-# 6. ALERT POLICY FOR QUARANTINE REQUESTS
+# 7. ALERT POLICY FOR QUARANTINE REQUESTS
 # ============================================
 Write-Host "Configuring Alert Policy for Quarantine Requests..." -ForegroundColor Yellow
 
@@ -472,6 +586,12 @@ Get-HostedContentFilterPolicy -Identity "BP_AntiSpam_Inbound" | Format-List Name
 # Verify Anti-Malware
 Write-Host "\\nAnti-Malware Policy:" -ForegroundColor Yellow
 Get-MalwareFilterPolicy -Identity "BP_AntiMalware" | Format-List Name, EnableFileFilter, ZapEnabled, QuarantineTag
+
+# Verify Safe Links / Safe Attachments (nur falls lizenziert und aktiviert)
+Write-Host "\\nSafe Links / Safe Attachments:" -ForegroundColor Yellow
+Get-AtpPolicyForO365 | Format-List EnableSafeLinksForEmail, EnableSafeLinksForOffice, EnableSafeLinksForTeams
+Get-SafeLinksPolicy -Identity "BP_SafeLinks" -ErrorAction SilentlyContinue | Format-List Name, IsEnabled, ScanUrls, AllowClickThrough
+Get-SafeAttachmentPolicy -Identity "BP_SafeAttachments" -ErrorAction SilentlyContinue | Format-List Name, Enable, Action
 
 # Verify Alert Policy
 Write-Host "\\nAlert Policy:" -ForegroundColor Yellow
@@ -545,6 +665,19 @@ function generateMarkdownDocumentation() {
 | **Malware Action** | ${config.antiMalware.malwareAction} |
 
 **Blockierte Dateitypen:** ${config.antiMalware.customFileTypes}
+
+---
+
+## 🔗 Safe Links & Safe Attachments
+
+${(config.safeLinks && config.safeLinks.enabled === false) ? '❌ **In dieser Vorlage deaktiviert** — wird beim Deploy übersprungen.' : `Braucht Defender for Office 365 Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in E5) — ohne passende Lizenz schlägt nur dieser Baustein fehl, der Rest des Deploys läuft durch.
+
+| Einstellung | Wert |
+|-------------|------|
+| **Auch interne Mails scannen** | ${config.safeLinks?.enableForInternalSenders !== false ? '✅ Aktiviert' : '❌ Deaktiviert'} |
+| **Durchklicken trotz Warnung erlaubt** | ${config.safeLinks?.allowClickThrough ? '⚠️ Ja (weniger sicher)' : '❌ Nein (Best Practice)'} |
+| **Safe-Attachments-Aktion** | ${config.safeAttach?.action || 'Block'} |
+`}
 
 ---
 

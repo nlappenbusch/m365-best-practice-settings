@@ -63,6 +63,7 @@
     'Anti-Phishing': '🎣',
     'Anti-Spam': '📧',
     'Anti-Malware': '🦠',
+    'Safe Links & Safe Attachments': '🔗',
     'Alert Policy (Security & Compliance)': '🔔'
   }
   const LD_ACTION_DE = { created: 'angelegt', updated: 'aktualisiert' }
@@ -402,6 +403,8 @@
     {@const g = $config.global}
     {@const as = $config.antiSpam}
     {@const am = $config.antiMalware}
+    {@const sl = $config.safeLinks}
+    {@const sa = $config.safeAttach}
     {@const fileTypeCount = String(am.customFileTypes || '').split(',').map(s => s.trim()).filter(Boolean).length}
     {@const recipients = [effectiveAdminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
     {@const domains = [...g.domains, g.onmicrosoftDomain].filter(Boolean)}
@@ -416,6 +419,11 @@
         <li><strong>Spam / High-Conf-Spam / Bulk:</strong> {as.spamAction} / {as.highConfSpamAction} / {as.bulkAction} (Bulk-Schwelle {as.bulkThreshold})</li>
         <li><strong>Phishing / High-Conf-Phishing:</strong> {as.phishAction} / {as.highConfPhishAction}</li>
         <li><strong>Anhang-Filter:</strong> {fileTypeCount} blockierte Dateitypen · ZAP {am.zapMalware ? 'an' : 'aus'}</li>
+        {#if sl.enabled}
+          <li><strong>Safe Links / Safe Attachments:</strong> wird mit deployt · Anhang-Aktion {sa.action}{sl.allowClickThrough ? ' · Durchklicken erlaubt' : ''} <span class="ld-warn">← braucht Defender for O365 P1/P2, sonst schlägt nur dieser Baustein fehl</span></li>
+        {:else}
+          <li><strong>Safe Links / Safe Attachments:</strong> deaktiviert — wird nicht deployt</li>
+        {/if}
         <li><strong>Quarantäne-Benachrichtigungen + Alert Policy an:</strong> {recipients}</li>
       </ul>
       <small>Alles idempotent: Vorhandene BP_-Policies werden aktualisiert, fehlende angelegt.</small>

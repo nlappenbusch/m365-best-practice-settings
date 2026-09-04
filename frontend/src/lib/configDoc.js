@@ -25,6 +25,7 @@ const ASF_ROWS = [
 export function buildConfigDocHtml(config) {
   const g = config.global, ap = config.antiPhishing, as = config.antiSpam, am = config.antiMalware
   const ob = config.outbound || {}
+  const sl = config.safeLinks || {}, sa = config.safeAttach || {}
   const jaNein = (v) => v ? 'aktiviert' : 'nicht aktiviert'
   const now = new Date()
   const dateStr = now.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -65,10 +66,10 @@ werden pro Tenant im Tool als „gewollte Abweichung" mit Begründung dokumentie
   <li><code>BP_AntiPhishing</code> + <code>BP_AntiPhishing_Rule</code> — Anti-Phishing</li>
   <li><code>BP_AntiSpam_Inbound</code> + <code>BP_AntiSpam_Inbound_Rule</code> — Anti-Spam (eingehend)</li>
   <li><code>BP_AntiMalware</code> + <code>BP_AntiMalware_Rule</code> — Anti-Malware</li>
+  <li><code>BP_SafeLinks</code> + <code>BP_SafeLinks_Rule</code>, <code>BP_SafeAttachments</code> + <code>BP_SafeAttachments_Rule</code> — Safe Links / Safe Attachments (nur falls lizenziert und aktiviert, siehe Abschnitt 8)</li>
   <li><code>BP_UserRequestReleaseStatus</code> — Warnungsrichtlinie (Security &amp; Compliance)</li>
 </ul>
-<p class="note">Nicht Teil dieser Vorlage: Defender-for-Office-Funktionen (Safe Links / Safe Attachments),
-Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>
+<p class="note">Nicht Teil dieser Vorlage: Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>
 </div>
 
 <div class="section">
@@ -200,7 +201,29 @@ im Erhebungszeitraum liegen.</p>
 </div>
 
 <div class="section">
-<h2>8&nbsp;&nbsp;Warnungsrichtlinie <span class="obj">BP_UserRequestReleaseStatus</span></h2>
+<h2>8&nbsp;&nbsp;Safe Links &amp; Safe Attachments <span class="obj">BP_SafeLinks / BP_SafeAttachments</span></h2>
+<p>Anders als die Bereiche oben nicht bei jedem Tenant verfügbar: braucht Defender for Office 365 Plan 1
+(u.&nbsp;a. in Business Premium enthalten) oder Plan 2 (u.&nbsp;a. in Microsoft&nbsp;365&nbsp;E5). Der Baustein
+kann pro Vorlage abgewählt werden — fehlt er unten als „aktiviert", wird beim Deploy nichts davon angelegt.</p>
+${sl.enabled === false
+  ? '<p class="note"><b>In dieser Vorlage deaktiviert</b> — dieser Bereich wird beim Deploy übersprungen.</p>'
+  : `<table>
+  <tr><th style="width:40%">Parameter</th><th style="width:22%">Wert</th><th>Bedeutung</th></tr>
+  ${row3('Set-AtpPolicyForO365 (organisationsweit)', 'EnableSafeLinksForEmail/-Office/-Teams = $true', 'Tenant-weite Freischaltung — ohne sie greift keine Safe-Links-Policy, unabhängig von deren Konfiguration.')}
+  ${row3('IsEnabled (Set-SafeLinksPolicy)', '$true', 'Richtlinie selbst aktiv.')}
+  ${row3('ScanUrls', '$true', 'URLs werden beim Klick geprüft und ggf. umgeschrieben.')}
+  ${row3('EnableForInternalSenders', psBool(sl.enableForInternalSenders), 'Auch interne Mails scannen — relevant bei einem bereits kompromittierten Konto.')}
+  ${row3('DeliverMessageAfterScan', '$true', 'Nachricht erst nach abgeschlossenem Scan zustellen.')}
+  ${row3('AllowClickThrough', psBool(sl.allowClickThrough), sl.allowClickThrough ? 'Durchklicken trotz Warnung erlaubt — weniger sicher.' : 'Kein Durchklicken bei erkannt bösartigen Links (Best Practice).')}
+  ${row3('Action (Set-SafeAttachmentPolicy)', sa.action || 'Block', sa.action === 'Block' || !sa.action ? 'Anhang zurückhalten bis der Scan durch ist (Microsofts eigene Empfehlung, höchste Sicherheit).' : 'Abweichung von der empfohlenen Block-Aktion — kürzere Zustellzeit auf Kosten der Sicherheit.')}
+  ${row3('QuarantineTag', 'BP_Quarantine-RequestReleaseNotification', 'Blockierte Anhänge → Quarantäne mit Freigabe-Anfrage, gleiches Muster wie Anti-Malware.')}
+</table>
+<p><b>Regeln <span class="mono">BP_SafeLinks_Rule</span> / <span class="mono">BP_SafeAttachments_Rule</span>:</b> <code>RecipientDomainIs</code> = Mail-Domains des Tenants, <code>Priority 0</code>.</p>`
+}
+</div>
+
+<div class="section">
+<h2>9&nbsp;&nbsp;Warnungsrichtlinie <span class="obj">BP_UserRequestReleaseStatus</span></h2>
 <p>Eigene Warnungsrichtlinie (Security &amp; Compliance PowerShell), da die eingebaute Microsoft-Richtlinie
 schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin und MSP.</p>
 <table>
@@ -219,7 +242,7 @@ abgekündigt, die Meldung läuft künftig über diesen Weg. Bestehende Empfänge
 </div>
 
 <div class="section">
-<h2>9&nbsp;&nbsp;Hinweise zur Anwendung</h2>
+<h2>10&nbsp;&nbsp;Hinweise zur Anwendung</h2>
 <ul class="plain">
   <li>Alle <code>*_Rule</code>-Objekte laufen mit <code>Priority 0</code> und sind über <code>RecipientDomainIs</code> auf die Mail-Domains des Tenants eingeschränkt (Nicht-Mail-Domains werden ausgefiltert).</li>
   <li>Der <code>SpoofQuarantineTag</code> wird ausschließlich per PowerShell gesetzt (im Portal nicht wählbar).</li>

@@ -46,6 +46,19 @@ export const defaultConfig = () => ({
     customFileTypes: '.ace, .apk, .app, .appx, .arj, .bat, .cab, .cmd, .com, .deb, .dex, .dll, .dmg, .elf, .exe, .hta, .img, .iso, .jar, .jnlp, .kext, .lha, .lib, .library, .lnk, .lzh, .macho, .msc, .msi, .msix, .msp, .mst, .pif, .pkg, .prf, .ps1, .scr, .sct, .sys, .vb, .vbe, .vbs, .vxd, .wsc, .wsf, .wsh, .xll',
     malwareAction: 'Reject'
   },
+  // Safe Links / Safe Attachments (Defender for Office 365 P1/P2) — anders als
+  // die drei Bereiche oben nicht bei jedem Tenant lizenziert, deshalb ein
+  // eigener Schalter statt einer harten Vorgabe. Default an, weil die meisten
+  // igeeks-Kunden Business Premium (und damit P1) haben; fehlt die Lizenz,
+  // meldet der Deploy nur diese eine Phase als Fehler, der Rest laeuft durch.
+  safeLinks: {
+    enabled: true,
+    enableForInternalSenders: true,
+    allowClickThrough: false
+  },
+  safeAttach: {
+    action: 'Block'
+  },
   // Ausgehend & Organisation — CIS 2.1.6, 2.1.15, 6.2.1, 6.2.3, 6.5.5.
   // Anders als die BP_-Policies sind das organisationsweite Einstellungen an
   // der Standard-Richtlinie bzw. am Tenant; genau dort schauen auch die

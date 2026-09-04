@@ -1,5 +1,40 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.37 - Safe Links & Safe Attachments deploybar (2026-09-04)
+
+Safe Links / Safe Attachments (Defender for Office 365) war bisher nur im
+Audit-Tab als reine Ist-Erhebung sichtbar — jetzt auch als vollwertiger
+Deploy-Baustein im „Ausrollen"-Tab, nach demselben Muster wie Anti-Phishing/
+Anti-Spam/Anti-Malware: idempotent (`Invoke-BPStep`), auf die Mail-Domains
+des Tenants gescoped, mit Vorschau im Confirm-Dialog vor dem Deploy.
+
+Legt `BP_SafeLinks` + `BP_SafeLinks_Rule` sowie `BP_SafeAttachments` +
+`BP_SafeAttachments_Rule` an und schaltet die organisationsweiten Safe-Links-
+Schalter frei (`Set-AtpPolicyForO365` — ohne die greift keine Policy, egal
+wie sie konfiguriert ist). Safe-Attachments-Aktion standardmässig **Block**
+(Microsofts eigene Empfehlung: Anhang zurückhalten bis der Scan durch ist).
+
+Anders als die anderen Bausteine ist dieser **lizenzabhängig** (Defender for
+O365 Plan 1 — u.a. in Business Premium — oder Plan 2 — u.a. in E5) und
+deshalb per Konfigurationsschalter komplett abwählbar (Default: an, da die
+meisten igeeks-Kunden Business Premium haben). Fehlt die Lizenz trotzdem,
+schlägt nur dieser eine Baustein fehl, der Rest des Deploys läuft durch.
+
+Konsistent nachgezogen in beiden Nebenwegen: der eigenständige PowerShell-
+Export (`configExport.js`, für den Einsatz ohne das Tool) und die Vorlagen-
+Dokumentation (`configDoc.js`) — Letztere behauptete bisher explizit, Safe
+Links sei „nicht Teil dieser Vorlage", was jetzt nicht mehr stimmt.
+
+Technik: `api/lib/deploy.js` (`sanitizeConfig`, `buildDeployBody`,
+`DEPLOY_PLAN`/`deployPlan`), `api/lib/exorunner.js` (New-/Set-Cmdlets zur
+Whitelist), `frontend/src/lib/config.js` (Defaults `safeLinks`/`safeAttach`),
+`frontend/src/tabs/Config.svelte` (neue Policy-Card), `frontend/src/tabs/
+MailSecurity.svelte` (Confirm-Dialog-Zeile, Phase-Icon), `frontend/src/lib/
+configExport.js` + `configDoc.js` (PowerShell-Export bzw. Vorlagen-Doku).
+Backend-Logik (Defaults, bedingte Aktivierung, Custom-Werte, Validierung)
+mit einem eigenständigen Testskript gegen `sanitizeConfig`/`buildDeployBody`
+verifiziert — kein Test gegen einen echten Tenant.
+
 ## Version 2.36 - CA-Policy-Rename ohne Karteileiche bei Bestandstenants (2026-09-04)
 
 Der v2.9.1-Fix (Policy 200 umbenannt, siehe unten) hatte eine dort dokumentierte

@@ -24,6 +24,7 @@ const DMARC_R_ACTIONS = ["Reject", "Quarantine"];
 const SPAM_ACTIONS = ["Quarantine", "MoveToJmf"];
 const HC_PHISH_ACTIONS = ["Quarantine", "Reject", "MoveToJmf"];
 const THRESHOLD_ACTIONS = ["BlockUser", "BlockUserForToday"];
+const SAFE_ATTACH_ACTIONS = ["Block", "Replace", "DynamicDelivery"];
 
 // Ablehnungstext der Auto-Forward-Regel. Geht als NDR an den Absender, also
 // bewusst ohne Umlaute — der Text laeuft durch pwsh-stdin und soll unterwegs
@@ -70,6 +71,8 @@ function sanitizeConfig(raw) {
   const as = raw.antiSpam || {};
   const am = raw.antiMalware || {};
   const ob = raw.outbound || {};
+  const sl = raw.safeLinks || {};
+  const sa = raw.safeAttach || {};
 
   const domains = (Array.isArray(g.domains) ? g.domains : []).map(d => String(d || "").trim().toLowerCase()).filter(Boolean);
   for (const d of domains) if (!isDomain(d)) throw new Error("Ungueltige Domain: " + d.slice(0, 60));
@@ -128,6 +131,28 @@ function sanitizeConfig(raw) {
       commonAttachFilter: !!am.commonAttachFilter,
       zapMalware: !!am.zapMalware,
       fileTypes
+    },
+    // Safe Links / Safe Attachments (Defender for Office 365 P1/P2) — anders als
+    // die drei Bereiche oben NICHT bei jedem Tenant verfuegbar, deshalb ein
+    // eigener enabled-Schalter (weich mit Default true: die meisten igeeks-
+    // Kunden haben Business Premium und damit P1). Faellt die Lizenz, meldet
+    // Invoke-BPStep den fehlenden Cmdlet-Import als klaren, isolierten Fehler
+    // fuer genau diese Phase — der Rest des Deploys laeuft trotzdem durch.
+    safeLinks: {
+      enabled: boolOr(sl.enabled, true),
+      // Auch interne Mails scannen: bei einem bereits kompromittierten Konto
+      // sind es oft interne Empfaenger, die den naechsten bösartigen Link bekommen.
+      enableForInternalSenders: boolOr(sl.enableForInternalSenders, true),
+      // Best Practice: kein Durchklicken trotz Warnung erlauben. false ist die
+      // sicherere, aber sichtbarere Einstellung — Nutzer werden bei einem als
+      // boesartig erkannten Link tatsaechlich blockiert statt nur gewarnt.
+      allowClickThrough: boolOr(sl.allowClickThrough, false)
+    },
+    safeAttach: {
+      // Block haelt den Anhang zurueck, bis der Scan durch ist -- sicherste
+      // Einstellung, von Microsoft selbst empfohlen. Replace/DynamicDelivery
+      // liefern den Rest der Mail schneller aus, auf Kosten der Sicherheit.
+      action: pickOr(sa.action, SAFE_ATTACH_ACTIONS, "Block", "safeAttach.action")
     },
     // Ausgehend & Organisation. Zwei Schalter stehen absichtlich standardmaessig
     // auf false: Auto-Forward-Sperre und "Direct Send abweisen" koennen laufenden
@@ -211,31 +236,38 @@ const STEP_EXT_TAG = "Externe Absender kennzeichnen";
 const STEP_AUTOFWD = "Automatische Weiterleitung nach aussen sperren";
 const STEP_DIRECTSEND = "Direct Send abweisen";
 
+const SAFE_LINKS_STEPS = ["Safe-Links-Org-Schalter", "Safe-Links-Policy", "Safe-Links-Rule", "Safe-Attachments-Policy", "Safe-Attachments-Rule"];
+
 const DEPLOY_PLAN = [
   { phase: "Quarantine Policies", steps: ["Quarantine-Policy SelfRelease", "Quarantine-Policy RequestRelease"] },
   { phase: "Anti-Phishing", steps: ["Anti-Phishing-Policy", "Anti-Phishing-Rule"] },
   { phase: "Anti-Spam", steps: ["Anti-Spam-Policy", "Anti-Spam-Rule"] },
   { phase: "Anti-Malware", steps: ["Anti-Malware-Policy", "Anti-Malware-Rule"] },
+  { phase: "Safe Links & Safe Attachments", steps: SAFE_LINKS_STEPS },
   { phase: "Ausgehend & Organisation", steps: [STEP_OUTBOUND, STEP_EXT_TAG, STEP_AUTOFWD, STEP_DIRECTSEND] },
   { phase: "Alert Policy (Security & Compliance)", steps: ["Alert-Policy Quarantine-Release"] }
 ];
 
 /**
  * Der tatsaechliche Ablauf haengt an der Konfiguration: die drei optionalen
- * Organisationsschritte laufen nur, wenn sie angehakt sind. Ohne diese Filterung
- * stuenden sie in der Live-Anzeige dauerhaft auf "ausstehend" und der Anwender
- * wartet auf etwas, das nie kommt.
+ * Organisationsschritte laufen nur, wenn sie angehakt sind, und die Safe-Links-
+ * Phase komplett nur, wenn sie aktiviert ist (lizenzabhaengig, siehe
+ * sanitizeConfig). Ohne diese Filterung stuenden sie in der Live-Anzeige
+ * dauerhaft auf "ausstehend" und der Anwender wartet auf etwas, das nie kommt.
  */
 function deployPlan(cfg) {
   const ob = (cfg && cfg.outbound) || {};
-  return DEPLOY_PLAN.map(ph => {
-    if (ph.phase !== "Ausgehend & Organisation") return ph;
-    const steps = [STEP_OUTBOUND];
-    if (ob.externalTagging) steps.push(STEP_EXT_TAG);
-    if (ob.blockAutoForward) steps.push(STEP_AUTOFWD);
-    if (ob.rejectDirectSend) steps.push(STEP_DIRECTSEND);
-    return { phase: ph.phase, steps };
-  });
+  const sl = (cfg && cfg.safeLinks) || {};
+  return DEPLOY_PLAN
+    .filter(ph => ph.phase !== "Safe Links & Safe Attachments" || sl.enabled !== false)
+    .map(ph => {
+      if (ph.phase !== "Ausgehend & Organisation") return ph;
+      const steps = [STEP_OUTBOUND];
+      if (ob.externalTagging) steps.push(STEP_EXT_TAG);
+      if (ob.blockAutoForward) steps.push(STEP_AUTOFWD);
+      if (ob.rejectDirectSend) steps.push(STEP_DIRECTSEND);
+      return { phase: ph.phase, steps };
+    });
 }
 
 function phaseMarker(label) {
@@ -275,6 +307,7 @@ function orgStep(name, setLines) {
 /** Baut den pwsh-Body (laeuft innerhalb der runExo-Verbindung). */
 function buildDeployBody(cfg) {
   const ap = cfg.antiPhishing, as = cfg.antiSpam, am = cfg.antiMalware, ob = cfg.outbound;
+  const sl = cfg.safeLinks, sa = cfg.safeAttach;
   const onOff = v => v ? "'On'" : "'Off'";
 
   const phishParams = (cmdlet, nameArg) => [
@@ -326,6 +359,41 @@ function buildDeployBody(cfg) {
     "  -InternalSenderAdminAddress " + psQuote(cfg.adminEmail) + " `",
     "  -ExternalSenderAdminAddress " + psQuote(cfg.adminEmail) + " `",
     "  -ZapEnabled " + bool(am.zapMalware) + " `",
+    "  -QuarantineTag 'BP_Quarantine-RequestReleaseNotification' | Out-Null"
+  ];
+
+  // Organisationsweite Safe-Links-Schalter (Set-AtpPolicyForO365) — separat von
+  // der Policy selbst: ohne diese Freischaltung greift keine SafeLinksPolicy,
+  // egal wie sie konfiguriert ist. AllowClickThrough steht hier UND in der
+  // Policy, weil Microsoft den Schalter an beiden Stellen kennt.
+  const atpOrgLines = [
+    "Set-AtpPolicyForO365 `",
+    "  -EnableSafeLinksForEmail $true `",
+    "  -EnableSafeLinksForTeams $true `",
+    "  -EnableSafeLinksForOffice $true `",
+    "  -EnableATPForSPOTeamsODB $true `",
+    "  -TrackClicks $true `",
+    "  -AllowClickThrough " + bool(sl.allowClickThrough) + " | Out-Null"
+  ];
+
+  const slParams = (cmdlet, nameArg) => [
+    cmdlet + " " + nameArg + " `",
+    "  -IsEnabled $true `",
+    "  -ScanUrls $true `",
+    "  -EnableForInternalSenders " + bool(sl.enableForInternalSenders) + " `",
+    "  -DeliverMessageAfterScan $true `",
+    "  -TrackClicks $true `",
+    "  -AllowClickThrough " + bool(sl.allowClickThrough) + " | Out-Null"
+  ];
+
+  const saParams = (cmdlet, nameArg) => [
+    cmdlet + " " + nameArg + " `",
+    "  -Enable $true `",
+    "  -Action " + sa.action + " `",
+    // ActionOnError = wie mit einer Nachricht umgegangen wird, deren Scan selbst
+    // fehlschlaegt (nicht: deren Anhang als boesartig erkannt wird) -- $true
+    // liefert sie trotzdem aus, damit ein Scan-Ausfall nicht den Mailfluss stoppt.
+    "  -ActionOnError $true `",
     "  -QuarantineTag 'BP_Quarantine-RequestReleaseNotification' | Out-Null"
   ];
 
@@ -410,6 +478,22 @@ function buildDeployBody(cfg) {
       malwareParams("Set-MalwareFilterPolicy", "-Identity 'BP_AntiMalware'")),
     ...ruleStep("Anti-Malware-Rule", "BP_AntiMalware_Rule", "Get-MalwareFilterRule", "New-MalwareFilterRule", "Set-MalwareFilterRule", "MalwareFilterPolicy", "BP_AntiMalware"),
     "",
+    ...(sl.enabled ? [
+      "# --- Safe Links & Safe Attachments (Defender for Office 365 P1/P2) ---",
+      "# Lizenzabhaengig -- fehlt sie, schlagen die Cmdlets mit 'nicht erkannt'",
+      "# fehl, Invoke-BPStep zeigt das isoliert fuer diese Phase, der Rest laeuft.",
+      phaseMarker("Safe Links & Safe Attachments"),
+      ...orgStep("Safe-Links-Org-Schalter", atpOrgLines),
+      ...step("Safe-Links-Policy", "BP_SafeLinks", "Get-SafeLinksPolicy",
+        slParams("New-SafeLinksPolicy", "-Name 'BP_SafeLinks'"),
+        slParams("Set-SafeLinksPolicy", "-Identity 'BP_SafeLinks'")),
+      ...ruleStep("Safe-Links-Rule", "BP_SafeLinks_Rule", "Get-SafeLinksRule", "New-SafeLinksRule", "Set-SafeLinksRule", "SafeLinksPolicy", "BP_SafeLinks"),
+      ...step("Safe-Attachments-Policy", "BP_SafeAttachments", "Get-SafeAttachmentPolicy",
+        saParams("New-SafeAttachmentPolicy", "-Name 'BP_SafeAttachments'"),
+        saParams("Set-SafeAttachmentPolicy", "-Identity 'BP_SafeAttachments'")),
+      ...ruleStep("Safe-Attachments-Rule", "BP_SafeAttachments_Rule", "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule", "SafeAttachmentPolicy", "BP_SafeAttachments"),
+      ""
+    ] : []),
     "# --- Ausgehend & Organisation ---",
     phaseMarker("Ausgehend & Organisation"),
     ...orgStep(STEP_OUTBOUND, outboundLines),
