@@ -41,10 +41,16 @@ const COMMANDS = [
   "Get-HostedOutboundSpamFilterPolicy", "Set-HostedOutboundSpamFilterPolicy",
   "Get-ExternalInOutlook", "Set-ExternalInOutlook",
   "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule",
-  // Safe Links / Safe Attachments (Defender for Office 365, P1/P2) — nur lesend fuer den
-  // Audit-Tab. Diese Vorlage deployt/aendert nichts hier, lizenzabhaengiges Feature.
-  "Get-SafeLinksPolicy", "Get-SafeLinksRule", "Get-SafeAttachmentPolicy", "Get-SafeAttachmentRule",
-  "Get-AtpPolicyForO365"
+  // Safe Links / Safe Attachments (Audit-Tab, buildAuditBody in deploy.js):
+  // reine Ist-Erhebung, die Vorlage deployt hier nichts, daher nur Get-*.
+  // Standen bisher NICHT in der Whitelist -- Connect-ExchangeOnline importierte
+  // die Cmdlets dadurch gar nicht erst, Get-Safe() im Audit-Body fing den
+  // "nicht erkannt"-Fehler still ab und zeigte "keine Defender-Funktion
+  // erkennbar", obwohl der Tenant Safe Links durchaus lizenziert haben kann --
+  // aufgefallen beim Acons-Phishing-Vorfall 04.09.2026 (Anish fragte nach dem
+  // Safe-Links-Status, das Audit haette es faelschlich verneint).
+  "Get-AtpPolicyForO365", "Get-SafeLinksPolicy", "Get-SafeLinksRule",
+  "Get-SafeAttachmentPolicy", "Get-SafeAttachmentRule"
 ].join(",");
 
 

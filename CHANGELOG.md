@@ -1,5 +1,42 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.34 - Fix: Safe Links & Safe Attachments im Audit liefen stumm ins Leere (2026-09-04)
+
+Der Audit-Tab zeigt seit dem 02.09. einen Bereich "Safe Links & Safe
+Attachments" (Defender for Office 365) — Frontend und der Erhebungs-Code in
+`deploy.js` (`buildAuditBody`) waren fertig, aber die fünf dafür nötigen
+Cmdlets (`Get-AtpPolicyForO365`, `Get-SafeLinksPolicy`, `Get-SafeLinksRule`,
+`Get-SafeAttachmentPolicy`, `Get-SafeAttachmentRule`) standen nicht in der
+exorunner-Whitelist. Connect-ExchangeOnline importierte sie dadurch gar nicht
+in die Session; der Aufruf scheiterte mit "Cmdlet nicht erkannt", was der
+`Get-Safe`-Wrapper im Audit-Body still abfing — im UI erschien das nicht als
+Fehler, sondern als "keine Defender-Funktion erkennbar", obwohl der Tenant
+Safe Links durchaus lizenziert und aktiv haben kann. Aufgefallen beim
+Acons-Phishing-Vorfall: die eigentliche Frage ("ist Safe Links aktiv?") hätte
+das Tool falsch mit "nein" beantwortet.
+
+Keine neue Tenant-Berechtigung nötig (reguläre Exchange-Administrator-Rolle +
+Exchange.ManageAsApp deckt das ab) — kein "Reparieren" auf Bestandstenants
+erforderlich, der Fix wirkt direkt nach dem Deploy.
+
+Zusätzlich: Der Bereich weist jetzt zuerst und unabhängig aus, ob der Tenant
+Defender for Office 365 überhaupt lizenziert hat (Plan 1 — u.a. in Business
+Premium — oder Plan 2 — u.a. in E5), statt das nur indirekt aus leeren
+EXO-Feldern zu erraten. Sonst sieht "keine Policy vorhanden" wie eine
+Nachlässigkeit aus, ist aber oft schlicht keine Lizenz. Dafür holt die
+Audit-Route zusätzlich zum EXO-Lauf parallel die Tenant-SKUs per Graph. Der
+Bereich hat jetzt ausserdem einen Blueprint-Text (Best-Practice-Referenz) wie
+die anderen Bereiche, sichtbar in der PDF-Konfigurationsdoku.
+
+Technik: `api/lib/exorunner.js` (COMMANDS-Whitelist um die fünf Cmdlets
+ergänzt, rein lesend, kein New-/Set-Pendant, da diese Vorlage Safe
+Links/Attachments nicht deployt), `api/lib/licenses.js`
+(`getDefenderO365LicenseStatus`, wertet `/subscribedSkus` gegen die
+bestehende `SKU_CONTAINS`-Suite-Zuordnung aus), `api/server.js`
+(Audit-Route reichert `audit.defenderLicense` an),
+`frontend/src/tabs/Audit.svelte` (Lizenz-Zeile vor dem Soll/Ist-Vergleich,
+`LD_DOC_INTRO`-Eintrag für die PDF-Doku).
+
 ## Version 2.33 - Neuer Tab "Bestandsaufnahme" (2026-09-04)
 
 Neuer Bereich in der Gruppe "Einrichtung", gedacht als erster grober IST-Überblick

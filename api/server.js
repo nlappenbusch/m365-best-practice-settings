@@ -5841,9 +5841,17 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   catch (e) { tcmStartErr = e.message; }
 
   const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
+  // Lizenz-Check fuer Safe Links/Attachments (Defender for O365) laeuft per
+  // Graph parallel zum EXO-Audit -- ohne das sieht "keine Policy vorhanden"
+  // im Safe-Links-Bereich wie eine Nachlaessigkeit aus, ist aber oft schlicht
+  // keine Lizenz. Fehler dabei sollen den restlichen Audit nicht blockieren.
+  const licensePromise = LICENSES.getDefenderO365LicenseStatus(t, certPemPath(t.tenantId))
+    .catch(e => ({ error: e.message }));
   const r = await EXO.runExo(auth, DEPLOY.buildAuditBody(), 180000);
   if (!r.ok) return res.status(502).json({ error: "EXO-Runner: " + r.error });
   if (!r.data || r.data.ok === false) return res.status(502).json({ error: (r.data && r.data.error) || "Audit fehlgeschlagen" });
+  const auditResult = r.data.audit || {};
+  auditResult.defenderLicense = await licensePromise;
 
   // TCM-Ergebnis kurz abwarten (max ~30s), sonst uebernimmt das Frontend das Polling
   let alertPolicy;
@@ -5861,7 +5869,7 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
     if (alertPolicy.status === "pending") alertPolicy.jobId = tcmJob.id;
   }
 
-  res.json({ ok: true, audit: r.data.audit || {}, alertPolicy, acceptedDeviations: t.acceptedDeviations || [] });
+  res.json({ ok: true, audit: auditResult, alertPolicy, acceptedDeviations: t.acceptedDeviations || [] });
 }));
 
 // SPF/DKIM/DMARC-Checker: DKIM-Aktivierungsstatus per EXO (Get-DkimSigningConfig),

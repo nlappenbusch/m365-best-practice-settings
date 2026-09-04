@@ -276,4 +276,30 @@ async function runLicenseReport(tenant, cert) {
   };
 }
 
-module.exports = { runLicenseReport, friendlySku, classifyCombo, SKU_NAMES, FREE_SKUS, SKU_CONTAINS, SUITE_SKUS };
+// Defender for Office 365 (Safe Links / Safe Attachments) haengt an genau
+// zwei Service-Plaenen: ATP_ENTERPRISE (Plan 1, u.a. in Business Premium
+// enthalten) und THREAT_INTELLIGENCE (Plan 2, u.a. in E5 enthalten) -- direkt
+// gekauft oder als Bestandteil einer Suite (siehe SKU_CONTAINS oben). Fuer den
+// Safe-Links-Bereich im Audit-Tab: bevor man den Ist-Zustand bewertet, muss
+// klar sein, ob der Tenant die Funktion ueberhaupt lizenziert hat -- sonst
+// sieht "keine Policy vorhanden" wie eine Nachlaessigkeit aus, ist aber
+// schlicht keine Lizenz.
+const DEFENDER_O365_PLAN1_SKU = "ATP_ENTERPRISE";
+const DEFENDER_O365_PLAN2_SKU = "THREAT_INTELLIGENCE";
+
+async function getDefenderO365LicenseStatus(tenant, cert) {
+  const skusRaw = await graphAllPages(tenant, cert, "/subscribedSkus", { retryTransient: true });
+  const owned = new Set(skusRaw.map(s => s.skuPartNumber));
+  const provides = (part) => owned.has(part) || [...owned].some(o => (SKU_CONTAINS[o] || []).includes(part));
+  const plan1 = provides(DEFENDER_O365_PLAN1_SKU);
+  const plan2 = provides(DEFENDER_O365_PLAN2_SKU);
+  return {
+    plan1, plan2, licensed: plan1 || plan2,
+    tenantSkus: skusRaw.map(s => friendlySku(s.skuPartNumber)).sort()
+  };
+}
+
+module.exports = {
+  runLicenseReport, friendlySku, classifyCombo, SKU_NAMES, FREE_SKUS, SKU_CONTAINS, SUITE_SKUS,
+  getDefenderO365LicenseStatus
+};

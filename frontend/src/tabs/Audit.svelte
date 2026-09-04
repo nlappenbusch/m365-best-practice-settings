@@ -227,8 +227,40 @@
     const atp = audit.atpPolicyForO365
     const slPolicies = audit.safeLinksPolicies || [], saPolicies = audit.safeAttachPolicies || []
     const slRules = audit.safeLinksRules || [], saRules = audit.safeAttachRules || []
-    if (!atp && !slPolicies.length && !saPolicies.length) {
-      info(gsl, 'Lizenz', 'Keine Defender-for-Office-365-Funktion erkennbar (P1/P2 bzw. Business Premium bei kleinen Tenants erforderlich) — oder der App-Registrierung fehlt der Zugriff.')
+
+    // Lizenz zuerst und unabhaengig ausweisen -- aus den Tenant-SKUs
+    // (licenses.js), nicht aus leeren EXO-Feldern erraten. Sonst sieht "keine
+    // Policy vorhanden" wie eine Nachlaessigkeit aus, ist aber oft schlicht
+    // keine Lizenz: Safe Links/Attachments brauchen Defender for Office 365
+    // Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in E5).
+    const lic = audit.defenderLicense
+    if (lic && lic.error) {
+      info(gsl, 'Lizenz (Defender for Office 365)', 'nicht prüfbar: ' + lic.error)
+    } else if (lic) {
+      if (lic.licensed) {
+        const plans = [lic.plan1 ? 'Plan 1' : null, lic.plan2 ? 'Plan 2' : null].filter(Boolean).join(' + ')
+        ok(gsl, 'Lizenz (Defender for Office 365)', plans + ' vorhanden')
+      } else {
+        gsl.checks.push({
+          state: 'missing', label: 'Lizenz (Defender for Office 365)',
+          detail: 'Weder Plan 1 (u.a. in Business Premium enthalten) noch Plan 2 (u.a. in E5 enthalten) gefunden. ' +
+            'Vorhandene Lizenzen: ' + ((lic.tenantSkus || []).join(', ') || '—')
+        })
+      }
+    }
+
+    // Lizenz aktiv bestaetigt fehlend -> Vergleiche wuerden nur False-Positives
+    // erzeugen (Richtlinien koennen ohne Lizenz gar nicht existieren), die
+    // Info-Zeile oben reicht. Ohne verlaesslichen Lizenz-Status (lic fehlt/Fehler)
+    // faellt es auf die alte, implizite Erkennung ueber leere EXO-Felder zurueck.
+    const licenseConfirmedMissing = lic && !lic.error && !lic.licensed
+    const noSignalAtAll = !atp && !slPolicies.length && !saPolicies.length
+    if (licenseConfirmedMissing) {
+      // nichts weiter -- die Lizenz-Zeile oben erklaert bereits alles.
+    } else if (noSignalAtAll) {
+      info(gsl, 'Tenant-weite Schalter & Richtlinien', lic
+        ? 'Lizenz vorhanden, aber nichts konfiguriert — oder der App-Registrierung fehlt der Zugriff (🔧 „Reparieren" im Tab Tenants prüfen).'
+        : 'Keine Defender-for-Office-365-Funktion erkennbar (P1/P2 bzw. Business Premium bei kleinen Tenants erforderlich) — oder der App-Registrierung fehlt der Zugriff.')
     } else {
       if (atp) {
         cmpBool(gsl, 'Safe Links für E-Mail', true, atp.EnableSafeLinksForEmail)
@@ -623,6 +655,7 @@
     'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Spam- und Phishing-Verdicts gehen in die Quarantäne, Bulk-Mail (Graymail/Newsletter ab BCL-Schwelle) in den Junk-Ordner; Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäß Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
     'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',
     'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.',
+    'Safe Links & Safe Attachments': 'Blueprint (Best Practice, kein BP_-Objekt — diese Vorlage deployt hier nichts, da lizenzabhängig): Safe Links aktiv für E-Mail, Office-Apps und Teams; Safe Attachments aktiv für SharePoint/OneDrive/Teams. Mindestens eine aktive Safe-Links- und eine aktive Safe-Attachments-Richtlinie mit einer Regel, deren Empfänger-Scope alle Mail-Domains des Tenants abdeckt — eine Richtlinie ohne zugehörige Regel greift für niemanden. Voraussetzung ist Defender for Office 365 Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in Microsoft 365 E5 enthalten); ohne eine der beiden Lizenzen ist die Funktion im Tenant nicht verfügbar.',
     'Safe Links & Safe Attachments': 'Defender-for-Office-365-Funktion (P1/P2 bzw. in Business Premium enthalten) — reine Ist-Erhebung, diese Vorlage legt hier keine eigenen Richtlinien an. Safe Links prüft Links in E-Mail, Office-Apps und Teams beim Klick; Safe Attachments scannt Anhänge in einer Sandbox, bevor sie zugestellt werden.'
   }
 
