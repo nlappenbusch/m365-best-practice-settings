@@ -5913,7 +5913,19 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   // TCM-Ergebnis kurz abwarten (max ~30s), sonst uebernimmt das Frontend das Polling
   let alertPolicy;
   if (!tcmJob || !tcmJob.id) {
-    alertPolicy = { status: "error", error: tcmStartErr || "TCM-Snapshot konnte nicht gestartet werden", hint: "🔧 Reparieren ausführen — richtet die TCM-Voraussetzungen ein (TCM-SP, Exchange.ManageAsApp, Security Reader, ConfigurationMonitoring-Permission)." };
+    // Hinweis nur, wenn der Fehler wirklich nach fehlender Einrichtung aussieht
+    // (401/403, Consent, fehlender SP). Ein 400 "validation error" kommt vom
+    // Request bzw. vom Tenant-Zustand -- da schickt "Reparieren" nur auf die
+    // falsche Faehrte, deshalb bleibt der Rohfehler dann allein stehen.
+    const looksLikeSetup = /forbidden|unauthor|insufficient|privile|consent|accessdenied|not found|does not exist|service principal/i
+      .test(String(tcmStartErr || ""));
+    alertPolicy = {
+      status: "error",
+      error: tcmStartErr || "TCM-Snapshot konnte nicht gestartet werden",
+      hint: (!tcmStartErr || looksLikeSetup)
+        ? "🔧 Reparieren ausführen — richtet die TCM-Voraussetzungen ein (TCM-SP, Exchange.ManageAsApp, Security Reader, ConfigurationMonitoring-Permission)."
+        : "Kein Berechtigungsfehler — Reparieren hilft hier nicht. Snapshot-Jobs des Tenants prüfen (GET /admin/configurationManagement/configurationSnapshotJobs); Microsoft begrenzt die Zahl offener Jobs."
+    };
   } else {
     alertPolicy = { status: "pending", jobId: tcmJob.id };
     for (let i = 0; i < 6; i++) {

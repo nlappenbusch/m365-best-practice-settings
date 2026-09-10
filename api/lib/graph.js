@@ -84,7 +84,24 @@ async function graphReq(tenant, certPemPath, method, path, body, opts) {
       clearTenantToken(tenant.tenantId);
       return graphReq(tenant, certPemPath, method, path, body, { ...(opts || {}), _retried: true });
     }
-    const msg = (j && j.error && j.error.message) ? j.error.message : (text || ("Graph " + r.status));
+    // Graph beantwortet Schema-/Zustandsfehler (400) haeufig mit dem nichts-
+    // sagenden "One or more validation errors occurred." und legt den echten
+    // Grund in error.details[] bzw. error.innerError ab. Ohne die beiden ist
+    // die Meldung im UI wertlos -- deshalb anhaengen statt wegwerfen.
+    const gErr = (j && j.error) || null;
+    let msg = (gErr && gErr.message) ? gErr.message : (text || ("Graph " + r.status));
+    if (gErr) {
+      const parts = [];
+      for (const d of (Array.isArray(gErr.details) ? gErr.details : [])) {
+        const bit = [d.target, d.message || d.code].filter(Boolean).join(": ");
+        if (bit) parts.push(bit);
+      }
+      const inner = gErr.innerError || {};
+      for (const k of ["message", "code", "details"]) {
+        if (typeof inner[k] === "string" && inner[k] && inner[k] !== gErr.message) parts.push(inner[k]);
+      }
+      if (parts.length) msg += " (" + [...new Set(parts)].join(" | ") + ")";
+    }
     // 429 (Too Many Requests) heisst Graph sagt explizit "warte und versuch's
     // nochmal" -- das gilt IMMER, unabhaengig von opts.retryTransient (anders
     // als bei den generischen transienten Faellen unten gibt es hier keinen

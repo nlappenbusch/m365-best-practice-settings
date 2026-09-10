@@ -1,5 +1,36 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.41 - TCM-Fehler lesbar, Safe Links vollstaendig dokumentiert (2026-09-10)
+
+**Graph-Fehler sagen jetzt, was los ist.** Graph beantwortet Schema- und
+Zustandsfehler (HTTP 400) haeufig mit dem nichtssagenden „One or more
+validation errors occurred." und legt den eigentlichen Grund in
+`error.details[]` bzw. `error.innerError` ab. Beides wurde bisher weggeworfen —
+im UI stand nur der leere Satz. `graphReq` haengt die Details jetzt an die
+Meldung an.
+
+**Der Reparieren-Hinweis bei der Alert-Policy-Pruefung war irrefuehrend.** Er
+wurde pauschal an jeden TCM-Startfehler geklebt, unabhaengig von der Ursache.
+Ein fehlender Service Principal oder eine fehlende Rolle meldet sich als 401/403
+— ein 400 kommt vom Request oder vom Tenant-Zustand, und da aendert „Reparieren"
+nichts. Der Hinweis erscheint nur noch bei Berechtigungsfehlern; sonst weist er
+auf die offenen Snapshot-Jobs des Tenants hin
+(`GET /admin/configurationManagement/configurationSnapshotJobs`), deren Zahl
+Microsoft begrenzt. Geprueft und bestaetigt: Endpoint, Body-Schema, Permission
+`ConfigurationMonitoring.ReadWrite.All` und der Ressourcenname
+`microsoft.securityandcompliance.protectionalert` entsprechen der aktuellen
+Graph-Dokumentation und dem UTCM-Schema-Store.
+
+**Safe Links & Safe Attachments: doppelter Schluessel entfernt.** In
+`LD_DOC_INTRO` stand der Eintrag zweimal; JavaScript nimmt den letzten, womit
+die ausfuehrliche Blueprint-Beschreibung still verschwand und in der Konfig-Doku
+nur der Zweizeiler ankam. Beide Texte sind zu einem zusammengefuehrt: was die
+Funktion tut, was das Soll ist (aktiv fuer E-Mail, Office-Apps, Teams sowie
+SharePoint/OneDrive/Teams; je eine aktive Richtlinie **mit** Regel ueber alle
+Mail-Domains) und dass ohne Defender for Office 365 P1/P2 nichts davon
+verfuegbar ist. Audit-PDF und Konfig-Doku fuehren den Bereich damit vollstaendig
+— erhoben wurde er schon vorher, nur beschrieben war er unvollstaendig.
+
 ## Version 2.40 - Bestandsaufnahme: Aussage statt Inventar (2026-09-04)
 
 Der erste Produktivlauf (Faltin Travel) hat gezeigt, dass der Bericht zwar
