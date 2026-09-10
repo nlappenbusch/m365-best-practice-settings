@@ -1,5 +1,34 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.42 - igeeks-prod rollt wieder aus (2026-09-10)
+
+**igeeks-prod stand sieben Tage still, ohne dass es auffiel.** Auslöser war
+Commit `96df33e` vom 03.09., der die drei Platzhalter `ZOHO_CLIENT_ID`,
+`ZOHO_CLIENT_SECRET` und `ZOHO_REFRESH_TOKEN` in `secret.yaml` schrieb, ohne die
+Werte im Vault des Clusters anzulegen. Der `argocd-vault-plugin` bricht die
+**gesamte** Manifest-Generierung ab, sobald ein einziger Platzhalter nicht
+auflösbar ist. ArgoCD kam damit nie zum Vergleich: Sync-Status `Unknown` statt
+`OutOfSync`, App-Health `Healthy`, Auto-Sync aktiv — und trotzdem kein Rollout.
+Die Pipeline lief die ganze Zeit grün weiter und bumpte brav den `imageTag`.
+
+**Optionale Integrationen dürfen das Deployment nicht mehr blockieren.** Der
+CRM-Matcher hängt jetzt an `api.zohoEnabled` (Default `false`): ohne das Flag
+werden weder die Vault-Platzhalter im Secret noch die `env`-Einträge im
+API-Deployment gerendert. Die `secretKeyRef`s tragen zusätzlich `optional: true`
+— fehlt ein Key trotz gesetztem Flag, startet der Pod trotzdem, statt in
+`CreateContainerConfigError` zu hängen; `api/lib/zoho.js` liest die Werte mit
+`|| ""` und schaltet den Bereich dann selbst inaktiv.
+
+**Wieder einschalten:** die drei Keys im Vault des Clusters anlegen
+(`kv-v2/<cluster>/m365-configurator`), dann `api.zohoEnabled: true` im
+Overlay setzen. Leerer String genügt, wenn der Matcher dort nicht laufen soll.
+
+**Erkennungsmerkmal fürs nächste Mal:** ArgoCD auf `Unknown` bei gleichzeitig
+`Healthy` heisst, dass die Manifest-Generierung kaputt ist — nicht das
+Deployment. Und ein Deploy-Commit der CI belegt nur einen Tag-Bump, keinen
+Rollout; geprüft wird am Artefakt (ausgeliefertes Bundle, Pod-Alter,
+ReplicaSet-Revision).
+
 ## Version 2.41 - TCM-Fehler lesbar, Safe Links vollstaendig dokumentiert (2026-09-10)
 
 **Graph-Fehler sagen jetzt, was los ist.** Graph beantwortet Schema- und

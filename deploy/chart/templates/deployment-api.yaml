@@ -40,12 +40,18 @@ spec:
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: SDP_API_KEY } }
             - name: ANTHROPIC_API_KEY
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ANTHROPIC_API_KEY } }
+            {{- if .Values.api.zohoEnabled }}
+            # optional: true zusaetzlich zum Flag -- fehlt der Key im Secret,
+            # startet der Pod trotzdem (zoho.js liest mit `|| ""` und schaltet
+            # den Bereich dann selbst inaktiv). Ohne das bleibt der Pod in
+            # CreateContainerConfigError haengen.
             - name: ZOHO_CLIENT_ID
-              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_ID } }
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_ID, optional: true } }
             - name: ZOHO_CLIENT_SECRET
-              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_SECRET } }
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_CLIENT_SECRET, optional: true } }
             - name: ZOHO_REFRESH_TOKEN
-              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_REFRESH_TOKEN } }
+              valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ZOHO_REFRESH_TOKEN, optional: true } }
+            {{- end }}
           volumeMounts:
             - { name: state, mountPath: {{ .Values.api.persistence.mountPath }} }
           readinessProbe: { httpGet: { path: /api/health, port: http }, initialDelaySeconds: 5, periodSeconds: 10, timeoutSeconds: 5 }

@@ -31,6 +31,14 @@ api:
   sdpOwnerId: ""
   anthropicModel: ""
   zohoRegion: eu   # SDP-CRM-Matcher (/plan/-Dashboard); Client-ID/-Secret/Refresh-Token kommen aus Vault (secret.yaml)
+  # Der CRM-Matcher ist standardmaessig AUS. Erst einschalten, wenn
+  # ZOHO_CLIENT_ID/-SECRET/-REFRESH_TOKEN im Vault des Clusters wirklich
+  # existieren: argocd-vault-plugin bricht die GESAMTE Manifest-Generierung ab,
+  # sobald ein einziger Platzhalter nicht aufloesbar ist -- die App steht dann
+  # auf "Unknown" statt "OutOfSync" und rollt gar nichts mehr aus, waehrend
+  # Pipeline und Health weiter gruen aussehen (passiert am 03.09.2026,
+  # igeeks-prod stand daraufhin sieben Tage still).
+  zohoEnabled: false
   persistence:
     storageClass: longhorn
     size: 2Gi
