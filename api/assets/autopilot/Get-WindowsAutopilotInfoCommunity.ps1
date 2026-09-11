@@ -2407,8 +2407,11 @@ End {
         $importSeconds = [Math]::Ceiling($importDuration.TotalSeconds)
         $successCount = 0
         $current | ForEach-Object {
-            Write-Host "$($device.serialNumber): $($device.state.deviceImportStatus) $($device.state.deviceErrorCode) $($device.state.deviceErrorName)"
-            if ($device.state.deviceImportStatus -eq "complete") {
+            # igeeks-Fix: $device statt $_ -- die Variable stammt aus der
+            # vorherigen Schleife, dadurch stand hier fuer jedes Geraet
+            # dasselbe Ergebnis.
+            Write-Host "$($_.serialNumber): $($_.state.deviceImportStatus) $($_.state.deviceErrorCode) $($_.state.deviceErrorName)"
+            if ($_.state.deviceImportStatus -eq "complete") {
                 $successCount = $successCount + 1
             }
         }
@@ -2416,22 +2419,39 @@ End {
         
         # Wait until the devices can be found in Intune (should sync automatically)
         $syncStart = Get-Date
+        # igeeks-Fix (11.09.2026): drei Fehler in dieser Warteschleife.
+        #  1. Die Bedingung prueft $device statt $_. $device stammt aus der
+        #     vorherigen Schleife und hat mit dem aktuellen Element nichts zu tun.
+        #  2. Get-AutopilotDevice wirft bei einem noch nicht replizierten Geraet
+        #     einen terminierenden Fehler ("NotFound"), statt $null zu liefern.
+        #     Die Schleife erwartet aber $null und wuerde dann weiterwarten --
+        #     stattdessen brach das Skript mit ExitCode 1 ab, obwohl der Import
+        #     erfolgreich war.
+        #  3. Ohne Abbruchbedingung liefe sie endlos, wenn die Registrierungs-ID
+        #     leer bleibt. Deshalb ein Zeitlimit statt Warten ohne Ende.
         $processingCount = 1
+        $syncTimeout = (Get-Date).AddMinutes(15)
         while ($processingCount -gt 0) {
             $autopilotDevices = @()
             $processingCount = 0
             $current | ForEach-Object {
-                if ($device.state.deviceImportStatus -eq "complete") {
-                    $device = Get-AutopilotDevice -id $_.state.deviceRegistrationId
-                    if (-not $device) {
-                        $processingCount = $processingCount + 1
-                    }
-                    $autopilotDevices += $device
-                }    
+                if ($_.state.deviceImportStatus -eq "complete") {
+                    $regId = $_.state.deviceRegistrationId
+                    $found = $null
+                    if ($regId) { $found = Get-AutopilotDevice -id $regId -ErrorAction SilentlyContinue }
+                    if ($found) { $autopilotDevices += $found }
+                    else { $processingCount = $processingCount + 1 }
+                }
             }
             $deviceCount = $autopilotDevices.Length
             Write-Host "Waiting for $processingCount of $deviceCount to be synced"
             if ($processingCount -gt 0) {
+                if ((Get-Date) -gt $syncTimeout) {
+                    Write-Host "Das Geraet ist nach 15 Minuten noch nicht in Autopilot sichtbar." -ForegroundColor Yellow
+                    Write-Host "Der Import selbst war erfolgreich -- die Replikation dauert gelegentlich laenger." -ForegroundColor Yellow
+                    Write-Host "Nachsehen unter: Intune > Geraete > Windows > Windows Autopilot Geraete" -ForegroundColor Yellow
+                    break
+                }
                 Start-Sleep 30
             }
         }

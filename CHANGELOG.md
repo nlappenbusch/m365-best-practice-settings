@@ -1,5 +1,31 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.49 - Autopilot-Import bricht nicht mehr nach Erfolg ab (2026-09-11)
+
+**Das Staging-Paket meldete Fehler, obwohl der Import geklappt hatte.** Nach
+"1 devices imported successfully" brach das mitgelieferte Community-Skript mit
+ExitCode 1 ab, und der Wrapper zeigte FEHLER -- beim Staging sieht das aus, als
+waere das Geraet nicht aufgenommen worden. Es war aufgenommen, samt GroupTag
+(der geht beim Import mit, nicht erst danach).
+
+Drei Fehler in der Warteschleife, die auf die Replikation nach Autopilot wartet:
+
+- Die Bedingung prueft eine Variable aus der vorherigen Schleife statt des
+  aktuellen Elements.
+- Get-AutopilotDevice wirft bei einem noch nicht replizierten Geraet einen
+  terminierenden Fehler (NotFound), statt null zu liefern. Genau darauf war die
+  Schleife aber ausgelegt -- deshalb der Abbruch statt des Wartens.
+- Ohne Abbruchbedingung liefe sie endlos, falls die Registrierungs-ID leer
+  bleibt. Jetzt Zeitlimit von 15 Minuten mit klarem Hinweis, wo man im Portal
+  nachsieht.
+
+Dazu ein zweiter Fund an derselben Wurzel: Die Ergebnisausgabe je Geraet nutzte
+dieselbe falsche Variable und zeigte bei mehreren Geraeten fuer alle dasselbe
+Ergebnis. Auch korrigiert.
+
+Wer schon ein Staging-Medium gebaut hat, zieht das Paket einmal neu oder
+ersetzt Get-WindowsAutopilotInfoCommunity.ps1 darauf.
+
 ## Version 2.48 - Tenant-Haertung in Bestandsaufnahme und als eigenes Audit (2026-09-11)
 
 **Die Tenant-Haertung taucht jetzt in der Bestandsaufnahme auf.** Bisher stand
