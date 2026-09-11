@@ -273,7 +273,12 @@ async function resolvePermissionTargets(token) {
     }
   } catch (e) { console.log("SharePoint-SP nicht aufloesbar (uebersprungen): " + e.message); }
 
-  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester };
+  // Uebersprungene Permissions mit zurueckgeben statt nur zu loggen: sie
+  // erklaeren, warum ein Bereich trotz erfolgreicher Reparatur weiter meldet,
+  // ihm fehle eine Berechtigung. Ohne diese Rueckgabe sah der Benutzer nur
+  // "Admin-Consent ok" und reparierte endlos gegen etwas, das das Reparieren
+  // gar nicht herstellen kann.
+  return { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester, optionalMissing, maesterMissing };
 }
 
 // Admin-Consent (App-Role-Assignment) idempotent setzen.
@@ -383,8 +388,24 @@ async function repairAppReg(token, rec, opts) {
   push("App-Registrierung", "ok", app.displayName);
 
   // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB + Maester) im Manifest
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester, optionalMissing, maesterMissing } = await resolvePermissionTargets(token);
   const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
+
+  // Optionale Permissions, die der Graph-Service-Principal dieses Tenants nicht
+  // kennt, werden beim Aufloesen uebersprungen — das Reparieren kann sie nicht
+  // herstellen. Das gehoert sichtbar gemeldet: sonst sagt die Reparatur "alles
+  // ok", waehrend der abhaengige Bereich (z.B. Tenant-Haertung ohne
+  // Policy.ReadWrite.Authorization) weiter zum Reparieren auffordert.
+  if ((optionalMissing || []).length) {
+    push("Optionale Graph-Permissions", "skipped",
+      "Im Graph-Service-Principal dieses Tenants nicht vorhanden, daher nicht zuweisbar: " + optionalMissing.join(", ") +
+      ". Abhängige Bereiche bleiben eingeschränkt — erneutes Reparieren ändert daran nichts.");
+  }
+  if ((maesterMissing || []).length) {
+    push("Optionale Maester-Permissions", "skipped",
+      "Im Tenant nicht verfügbar, übersprungen: " + maesterMissing.join(", ") + ". Die betroffenen Maester-Tests fallen als „nicht abrufbar“ aus.");
+  }
+
   try {
     const rra = Array.isArray(app.requiredResourceAccess) ? app.requiredResourceAccess : [];
     let changed = false;
@@ -5234,12 +5255,22 @@ app.post("/api/tenants/:id/m365apps/deploy", wrap(async (req, res) => {
 // waren: Selbstregistrierung, App-Registrierung, Tenant-Erstellung,
 // Sicherheitsgruppen-Self-Service, Gastrechte, wer einladen darf. Graph fasst
 // sie in /policies/authorizationPolicy zusammen — ein PATCH, kein Vollersatz.
+// graphReq wirft Error(msg) mit dem HTTP-Status an .status — der Status steht
+// NICHT zwingend im Text. Frueher wurde nur der Text geprueft, weshalb ein 403
+// mit "Authorization_RequestDenied" (Graphs uebliche Antwort bei fehlender
+// Rolle) durchfiel und als generischer 500er ankam, statt die hilfreiche
+// Meldung zu zeigen. Jetzt entscheidet der Status, der Text ergaenzt nur.
 function hardeningError(e, res) {
-  if (/403|forbidden|privile|Insufficient/i.test(String(e.message))) {
-    res.status(403).json({ error: "Die Tenant-Härtung braucht Policy.ReadWrite.Authorization — im Tab 'Tenants' einmal Reparieren ausführen." });
-    return true;
-  }
-  return false;
+  const msg = String((e && e.message) || e || "");
+  const is403 = (e && e.status === 403) || /\b403\b|forbidden|privile|insufficient|authorization_requestdenied|accessdenied/i.test(msg);
+  if (!is403) return false;
+  res.status(403).json({
+    error: "Die Tenant-Härtung braucht Policy.ReadWrite.Authorization — im Tab 'Tenants' einmal Reparieren ausführen. " +
+           "Meldet die Reparatur diese Berechtigung als übersprungen, kennt der Graph-Service-Principal des Tenants sie nicht; " +
+           "dann hilft nur, sie im Entra-Portal an der App-Registrierung zu ergänzen.",
+    detail: msg
+  });
+  return true;
 }
 
 app.get("/api/tenants/:id/hardening", wrap(async (req, res) => {

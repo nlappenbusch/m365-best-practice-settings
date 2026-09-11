@@ -390,8 +390,11 @@
     if (fixTargetId === t.id) closeFixPanel()
   }
 
-  const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌', mismatch: '⚠️' }
-  const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen', mismatch: 'Eingriff nötig' }
+  // "skipped" = eine OPTIONALE Permission, die der Graph-Service-Principal des
+  // Tenants nicht kennt. Kein Fehler der Reparatur, aber auch nichts, was sie
+  // beheben kann — deshalb sichtbar, aber nicht im Fehlerzähler.
+  const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌', mismatch: '⚠️', skipped: '➖' }
+  const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen', mismatch: 'Eingriff nötig', skipped: 'nicht zuweisbar' }
 
   // ---------- SSO-Konfiguration (iGeeks-Tenant "verheiraten") ----------
   let ssoInfo = $state(null)        // { enabled, redirectUri }
@@ -702,6 +705,7 @@
         {@const failed = fixResult.items.filter(i => i.state === 'failed').length}
         {@const fixedCount = fixResult.items.filter(i => i.state === 'fixed').length}
         {@const mismatch = fixResult.items.filter(i => i.state === 'mismatch').length}
+        {@const skipped = fixResult.items.filter(i => i.state === 'skipped').length}
         {#if mismatch > 0}
           <div class="ld-banner warn">An der App-Registrierung liegt ein anderes Zertifikat als das lokale — deshalb schlägt die Anmeldung mit AADSTS700027 fehl.</div>
         {/if}
@@ -709,11 +713,18 @@
           <div class="ld-banner warn">{failed} Punkt(e) konnten nicht repariert werden — Details unten.</div>
         {:else if fixedCount > 0}
           <div class="ld-banner ok">Reparatur abgeschlossen — {fixedCount} Punkt(e) korrigiert, Rest war bereits korrekt.</div>
+        {:else if skipped > 0}
+          <div class="ld-banner ok">Alles repariert, was das Werkzeug herstellen kann — beachte die übersprungenen Punkte unten.</div>
         {:else}
           <div class="ld-banner ok">Alles bereits korrekt — nichts zu reparieren.</div>
         {/if}
+        {#if skipped > 0}
+          <!-- Ohne diesen Hinweis wirkt die Reparatur erfolgreich, waehrend der
+               abhaengige Bereich weiter zum Reparieren auffordert. -->
+          <div class="ld-banner warn">Optionale Berechtigungen liessen sich in diesem Tenant nicht zuweisen. Erneutes Reparieren ändert daran nichts — sie müssen im Entra-Portal an der App-Registrierung ergänzt werden.</div>
+        {/if}
         {#each fixResult.items as i}
-          <div class="ld-step {i.state === 'failed' || i.state === 'mismatch' ? 'fail' : 'ok'}">
+          <div class="ld-step {i.state === 'failed' || i.state === 'mismatch' ? 'fail' : i.state === 'skipped' ? 'retry' : 'ok'}">
             <span class="ld-ico">{fixIcons[i.state]}</span> {i.name}
             <small>({fixText[i.state]}{i.detail ? ' — ' + i.detail : ''})</small>
           </div>
