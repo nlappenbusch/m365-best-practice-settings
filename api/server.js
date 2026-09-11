@@ -5928,8 +5928,13 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
     };
   } else {
     alertPolicy = { status: "pending", jobId: tcmJob.id };
-    for (let i = 0; i < 6; i++) {
-      await new Promise(rs => setTimeout(rs, 5000));
+    // Nur ein kurzes Fenster abwarten, falls der Snapshot sofort fertig ist --
+    // danach uebernimmt das Frontend (pollTcm) und zeigt derweil "Snapshot
+    // laeuft". Vorher standen hier 6 x 5 s: solange der Job wegen des ungueltigen
+    // displayName sofort scheiterte, fiel das nicht auf; seit er wirklich laeuft,
+    // haengt das ganze Audit bis zu 30 Sekunden ohne jede Rueckmeldung.
+    for (let i = 0; i < 2; i++) {
+      await new Promise(rs => setTimeout(rs, 1500));
       try {
         const result = await TCM.getAlertPolicySnapshotResult(t, certPemPath(t.tenantId), tcmJob.id);
         if (result.status !== "pending") { alertPolicy = result; break; }

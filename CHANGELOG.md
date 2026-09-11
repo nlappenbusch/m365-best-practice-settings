@@ -1,5 +1,26 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.46 - Audit antwortet wieder sofort (2026-09-11)
+
+**Das Audit blockierte bis zu 30 Sekunden ohne Rueckmeldung.** Das Backend
+wartete in sechs Runden a fuenf Sekunden auf das Ergebnis des TCM-Snapshots,
+bevor es ueberhaupt antwortete. Solange der Snapshot wegen des ungueltigen
+displayName sofort scheiterte, fiel das niemandem auf -- seit er wirklich
+laeuft, hing das ganze Audit daran. Das Backend wartet jetzt nur noch ein
+kurzes Fenster (2 x 1,5 s) fuer den Fall, dass der Job sofort fertig ist;
+danach uebernimmt das Frontend das Polling und zeigt derweil
+"TCM-Snapshot laeuft -- Ergebnis kommt gleich...". Der Mechanismus dafuer
+war laengst vorhanden, wurde durch die Wartezeit aber nie erreicht.
+
+**Ein fehlgeschlagener Snapshot-Job sagt jetzt, woran es lag.** Bisher stand
+dort nur "Snapshot-Job fehlgeschlagen (failed)". Die Begruendung wird nun aus
+dem Job-Objekt eingesammelt (errorMessage, statusDetails, error, und die
+resourceStatuses je Ressource). Dazu ein praeziserer Hinweis: Ein Job, der
+angelegt wird und erst bei der Ausfuehrung scheitert, deutet auf die Rechte
+des TCM-Service-Principals -- hier hilft "Reparieren" tatsaechlich, anders als
+beim Validierungsfehler davor. Mit dem Zusatz, dass eine frisch zugewiesene
+Entra-Rolle einige Minuten braucht, bis sie greift.
+
 ## Version 2.45 - Safe Links zaehlt jetzt in die Konformitaet (2026-09-11)
 
 **Ein sauber ausgerolltes BP_SafeLinks stand nur als Info-Zeile da.** Die

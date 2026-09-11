@@ -93,7 +93,28 @@ async function getAlertPolicySnapshotResult(tenant, certPemPath, jobId) {
     };
   }
   if (["failed", "error"].includes(status)) {
-    return { status: "error", error: "Snapshot-Job fehlgeschlagen (" + (job.status || "unbekannt") + "). TCM-Einrichtung pruefen (🔧 Reparieren)." };
+    // Der blosse Status "failed" sagt nichts darueber, WORAN es lag. Graph legt
+    // die Begruendung je nach Fehlerklasse in unterschiedliche Felder -- deshalb
+    // defensiv einsammeln, was da ist, statt den Anwender raten zu lassen.
+    const bits = [];
+    for (const k of ["errorMessage", "statusDetails", "statusMessage", "message", "failureReason"]) {
+      if (typeof job[k] === "string" && job[k]) bits.push(job[k]);
+    }
+    const err = job.error;
+    if (err) {
+      if (typeof err === "string") bits.push(err);
+      else if (err.message) bits.push([err.code, err.message].filter(Boolean).join(": "));
+    }
+    for (const r of (Array.isArray(job.resourceStatuses) ? job.resourceStatuses : [])) {
+      const bit = [r.resource, r.status, r.errorMessage || r.message].filter(Boolean).join(" ");
+      if (bit) bits.push(bit);
+    }
+    const detail = bits.length ? " — " + [...new Set(bits)].join(" | ") : "";
+    return {
+      status: "error",
+      error: "Snapshot-Job fehlgeschlagen (" + (job.status || "unbekannt") + ")" + detail,
+      hint: "Der Job wurde angelegt und ist erst bei der Ausfuehrung gescheitert — das deutet auf die Rechte des TCM-Service-Principals. 🔧 Reparieren fuer diesen Tenant ausfuehren (Exchange.ManageAsApp + Rolle Security Reader); nach dem Zuweisen kann es einige Minuten dauern, bis die Rolle greift."
+    };
   }
   return { status: "pending" };
 }
