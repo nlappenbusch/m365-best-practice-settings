@@ -13,7 +13,7 @@
   // setzt, lässt die andere Tür offen.
   //
   // Jede schreibende Aktion fragt vorher nach und nennt den Tenant beim Namen.
-  import { apiGet, apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, errText } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
   import { activeTab } from '../lib/tabStore.js'
@@ -114,7 +114,11 @@
       notice = r && r.changed === false ? 'Stand war schon so — nichts geschrieben.' : erfolg
       await load()
     } catch (e) {
-      notice = '❌ ' + e.message
+      // errText nimmt detail und hint mit — bei Berechtigungs- und
+      // Intune-Fehlern steht dort der eigentliche Grund. Frueher zeigte run()
+      // nur e.message: bei einem 403 stand dann bloss "Forbidden" auf dem
+      // Schirm (z.B. beim PATCH auf die Registrierungseinschraenkungen).
+      notice = '❌ ' + errText(e)
     }
     busy = false
   }

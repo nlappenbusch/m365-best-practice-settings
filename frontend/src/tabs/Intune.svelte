@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { apiGet, apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, errText } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
@@ -201,7 +201,7 @@
     cmpResult = null
     try {
       cmpResult = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/intunebackup/${encodeURIComponent(cmpA)}/compare/${encodeURIComponent(cmpB)}`)
-    } catch (e) { alert('❌ ' + e.message) }
+    } catch (e) { alert('❌ ' + errText(e)) }
     cmpBusy = false
   }
 

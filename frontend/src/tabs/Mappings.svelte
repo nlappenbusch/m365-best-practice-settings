@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte'
-  import { apiGet, apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, errText } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
   import { loadNaming } from '../lib/naming.js'
@@ -179,7 +179,7 @@
       editorOpen = false
       await load()
     } catch (e) {
-      saveMsg = { ok: false, text: '❌ ' + e.message }
+      saveMsg = { ok: false, text: '❌ ' + errText(e) }
     }
     saving = false
   }
@@ -429,7 +429,7 @@
       spEditorOpen = false
       await spLoad()
     } catch (e) {
-      spSaveMsg = { ok: false, text: '❌ ' + e.message }
+      spSaveMsg = { ok: false, text: '❌ ' + errText(e) }
     }
     spSaving = false
   }
@@ -557,7 +557,7 @@
       rpEditorOpen = false
       await rpLoad()
     } catch (e) {
-      rpSaveMsg = { ok: false, text: '❌ ' + e.message }
+      rpSaveMsg = { ok: false, text: '❌ ' + errText(e) }
     }
     rpSaving = false
   }

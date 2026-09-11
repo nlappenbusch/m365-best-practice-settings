@@ -34,6 +34,16 @@ export async function apiDelete(path) {
   return handle(r)
 }
 
+/**
+ * Fehlertext fuer die Anzeige: message plus die Zusatzangaben, die handle()
+ * an den Error haengt. Wer nur e.message zeigt, verliert bei Berechtigungs-
+ * und Intune-Fehlern genau den Teil, der sagt, woran es liegt — bei einem 403
+ * stand dann bloss "Forbidden" auf dem Schirm.
+ */
+export function errText(e) {
+  return [e && e.message, e && e.detail, e && e.hint].filter(Boolean).join(' — ')
+}
+
 async function handle(r) {
   let data = null
   try { data = await r.json() } catch { /* kein JSON */ }

@@ -1,7 +1,7 @@
 <script>
   import { onDestroy } from 'svelte'
   import { config } from '../lib/config.js'
-  import { apiGet, apiPost } from '../lib/api.js'
+  import { apiGet, apiPost, errText } from '../lib/api.js'
   import { activeTenant, autoDomains } from '../lib/tenantStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
 
@@ -361,7 +361,7 @@
         + (r.keySize && Number(r.keySize) < 2048 ? ` — Achtung: Schlüssellänge ${r.keySize} Bit, Rotation auf 2048 einplanen.` : '')
       await runDomainAuth()
     } catch (e) {
-      dkimNotice = '❌ ' + e.message
+      dkimNotice = '❌ ' + errText(e)
     }
     dkimBusy = ''
   }

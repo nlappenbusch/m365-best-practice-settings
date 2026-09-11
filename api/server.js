@@ -2862,14 +2862,36 @@ function humanizeGraphError(message) {
   const opId = (inner.match(/Operation ID \(for customer support\):\s*([0-9a-f-]+)/i) || [])[1] || null;
   const actId = (inner.match(/Activity ID:\s*([0-9a-f-]+)/i) || [])[1] || null;
   const url = (inner.match(/Url:\s*(\S+)/i) || [])[1] || null;
-  const head = inner.split(" - ")[0].trim() || "Der Dienst meldet einen Fehler.";
 
+  // Der Kopf vor dem ersten " - " ist bei den Intune-Diensten haeufig
+  // nichtssagend ("An error has occurred", "Forbidden"). Frueher war nur er
+  // der Meldungstext — der eigentliche Grund stand dahinter und ging
+  // verloren, im Frontend blieb ein leeres Wort ohne Handlungshinweis.
+  const head = inner.split(" - ")[0].trim();
+  const GENERISCH = /^(an error has occurred|forbidden|bad request|unauthorized|error|internal server error)\.?$/i;
+
+  // Alle Segmente ausser dem Kopf, die kein Operation-/Activity-/Url-Rauschen
+  // sind: dort steht, was der Dienst wirklich bemaengelt.
+  const grund = inner.split(" - ").slice(1)
+    .map(s => s.trim())
+    .filter(s => s && !/^(Operation ID|Activity ID|Url)\b/i.test(s));
+
+  // Intune legt den Klartextgrund zusaetzlich in CustomApiErrorPhrase ab.
+  const phrase = String(obj.CustomApiErrorPhrase || "").trim();
+  if (phrase && !grund.includes(phrase)) grund.unshift(phrase);
+
+  let text = head || "Der Dienst meldet einen Fehler.";
+  if (GENERISCH.test(text) && grund.length) text = grund.join(" — ");
+  else if (grund.length) text = text + " — " + grund.join(" — ");
+
+  const quelle = String(obj.ErrorSourceService || "").trim();
   return {
-    text: head,
+    text,
     detail: [
       opId ? "Operation ID: " + opId : null,
       actId ? "Activity ID: " + actId : null,
-      url ? "Endpunkt: " + url.replace(/^https:\/\/[^/]+/, "") : null
+      url ? "Endpunkt: " + url.replace(/^https:\/\/[^/]+/, "") : null,
+      quelle ? "Dienst: " + quelle : null
     ].filter(Boolean).join(" · ") || null
   };
 }
