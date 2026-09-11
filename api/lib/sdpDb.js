@@ -100,11 +100,11 @@ function closePool() {
   if (pool) { const p = pool; pool = null; poolKey = ""; p.end().catch(() => {}); }
 }
 
-function getPool() {
+function getPool(ssl) {
   const pw = password();
   if (!pw) throw Object.assign(new Error("Kein Datenbank-Passwort gesetzt."), { status: 400 });
   const c = config();
-  const key = [c.host, c.port, c.database, c.user, pw].join("|");
+  const key = [c.host, c.port, c.database, c.user, pw, ssl ? "ssl" : "plain"].join("|");
   if (pool && poolKey === key) return pool;
   closePool();
   pool = new Pool({
@@ -112,12 +112,43 @@ function getPool() {
     max: 2,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 8000,
+    // rejectUnauthorized: false, weil eine interne Datenbank praktisch immer ein
+    // selbstsigniertes Zertifikat hat. Es geht hier um den Verbindungstyp, den
+    // pg_hba.conf verlangt (hostssl statt host) -- nicht um Serverauthentizitaet.
+    ssl: ssl ? { rejectUnauthorized: false } : false,
     // Erste Verteidigungslinie: die Sitzung selbst darf nicht schreiben.
     options: "-c default_transaction_read_only=on -c statement_timeout=" + STATEMENT_TIMEOUT_MS + " -c idle_in_transaction_session_timeout=20000"
   });
   pool.on("error", () => {}); // ein gestorbener Idle-Client darf den Prozess nicht mitnehmen
   poolKey = key;
   return pool;
+}
+
+// Welcher Verbindungstyp zuletzt funktioniert hat. Postgres haengt bei einer
+// abgelehnten Verbindung an, welchen Typ es geprueft hat ("no encryption" bzw.
+// "SSL on"). Steht in pg_hba.conf ein hostssl-Eintrag, scheitert der Klartext-
+// versuch und der TLS-Versuch klappt -- also einmal automatisch nachfassen,
+// statt den Menschen raten zu lassen.
+let sslModus = false;
+
+async function getClient() {
+  try {
+    return await getPool(sslModus).connect();
+  } catch (e) {
+    const pgHba = /no pg_hba\.conf entry/i.test(String((e && e.message) || ""));
+    if (pgHba && !sslModus) {
+      closePool();
+      try {
+        const client = await getPool(true).connect();
+        sslModus = true; // hat geklappt: ab jetzt gleich verschluesselt verbinden
+        return client;
+      } catch (e2) {
+        closePool();
+        throw e2;
+      }
+    }
+    throw e;
+  }
 }
 
 // Alles, was schreibt, Rechte aendert, das Dateisystem anfasst oder nach
@@ -165,8 +196,16 @@ function pruefen(sql) {
 async function query(sql, opts = {}) {
   const s = pruefen(sql);
   const limit = Math.min(Math.max(Number(opts.limit) || DEFAULT_ROWS, 1), MAX_ROWS);
-  const client = await getPool().connect();
   const started = Date.now();
+  // Der Verbindungsaufbau gehoert in denselben Fehlerpfad wie die Abfrage --
+  // sonst faellt ein pg_hba-/Passwortfehler ungefangen durch und landet beim
+  // Aufrufer als 500 statt als erklaerter 400.
+  let client;
+  try {
+    client = await getClient();
+  } catch (e) {
+    throw Object.assign(new Error(uebersetzen(e)), { status: 400 });
+  }
   try {
     await client.query("BEGIN READ ONLY");
     const r = await client.query({ text: "SELECT * FROM (" + s + ") AS q LIMIT $1", values: [limit] });
@@ -190,6 +229,16 @@ async function query(sql, opts = {}) {
 /** Postgres-Fehler in eine Meldung uebersetzen, mit der man etwas anfangen kann. */
 function uebersetzen(e) {
   const m = String((e && e.message) || e);
+  // Der haeufigste Fall bei einer fremdverwalteten Datenbank: Port offen,
+  // Anmeldung aber gar nicht erst zugelassen. Postgres nennt dabei die
+  // Quell-IP -- genau die Angabe, die fuer die Freigabe gebraucht wird.
+  if (/no pg_hba\.conf entry/i.test(m)) {
+    const ip = (/host "([^"]+)"/i.exec(m) || [])[1];
+    return "Postgres laesst diese Verbindung nicht zu (kein Eintrag in pg_hba.conf" +
+      (ip ? " fuer " + ip : "") + "). Der Port ist offen, es fehlt die Freigabe der Quelladresse auf dem SDP-Server" +
+      (sslModus ? " -- auch verschluesselt abgelehnt." : ", auch verschluesselt.") +
+      " Die Adresse wechselt bei jedem Neustart der Instanz, freigegeben werden muss daher das Subnetz.";
+  }
   if (e && e.code === "28P01") return "Anmeldung abgelehnt -- Passwort falsch.";
   if (e && e.code === "3D000") return "Datenbank nicht gefunden.";
   if (e && e.code === "57014") return "Abfrage nach " + (STATEMENT_TIMEOUT_MS / 1000) + "s abgebrochen (statement_timeout).";

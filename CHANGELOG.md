@@ -1,5 +1,32 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.52 - DB-Verbindung: TLS-Nachfassen und ehrliche Fehlermeldung (2026-09-11)
+
+Der erste Verbindungsversuch aus dem igeeks-Pod endete mit
+
+    no pg_hba.conf entry for host "10.0.162.103", user "sdpadmin",
+    database "servicedesk", no encryption
+
+Der Port ist also offen (der TCP-Test aus 2.50 stimmt), aber Postgres laesst die
+Anmeldung von dieser Quelladresse gar nicht erst zu. Das angehaengte "no
+encryption" nennt den geprueften Verbindungstyp -- steht in der pg_hba.conf ein
+hostssl-Eintrag, scheitert Klartext und TLS wuerde durchgehen. Deshalb fasst der
+Client jetzt einmal automatisch verschluesselt nach, statt den Menschen raten zu
+lassen. Klappt das, bleibt er verschluesselt. (rejectUnauthorized aus: eine
+interne Datenbank hat praktisch immer ein selbstsigniertes Zertifikat, und es
+geht hier um den von pg_hba verlangten Verbindungstyp.)
+
+Zwei Fehler auf dem Weg dorthin behoben:
+
+- Der Verbindungsaufbau lag ausserhalb des Fehlerpfads der Abfrage. Ein
+  pg_hba- oder Passwortfehler kam deshalb als 500 beim Aufrufer an statt als
+  erklaerter 400.
+- Die Meldung sagte nur, was Postgres sagt. Jetzt sagt sie, was zu tun ist:
+  welche Quelladresse abgelehnt wurde, dass die Strecke selbst offen ist, und
+  dass die Adresse bei jedem Neustart wechselt -- freigegeben werden muss also
+  das Subnetz, nicht die einzelne IP.
+
+
 ## Version 2.51 - Lesender SQL-Zugang zur SDP-Datenbank (2026-09-11)
 
 Der TCP-Test aus 2.50 sagt: der Pod steht 3 ms neben der SDP-Datenbank. Damit
