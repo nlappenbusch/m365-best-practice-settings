@@ -24,7 +24,9 @@ const DMARC_R_ACTIONS = ["Reject", "Quarantine"];
 const SPAM_ACTIONS = ["Quarantine", "MoveToJmf"];
 const HC_PHISH_ACTIONS = ["Quarantine", "Reject", "MoveToJmf"];
 const THRESHOLD_ACTIONS = ["BlockUser", "BlockUserForToday"];
-const SAFE_ATTACH_ACTIONS = ["Block", "Replace", "DynamicDelivery"];
+// "Replace" ist als Action-Wert entfallen; gueltig sind nur noch Allow, Block
+// und DynamicDelivery. Block bleibt der Default (Microsofts eigene Empfehlung).
+const SAFE_ATTACH_ACTIONS = ["Block", "DynamicDelivery", "Allow"];
 
 // Ablehnungstext der Auto-Forward-Regel. Geht als NDR an den Absender, also
 // bewusst ohne Umlaute — der Text laeuft durch pwsh-stdin und soll unterwegs
@@ -404,10 +406,10 @@ function buildDeployBody(cfg) {
     cmdlet + " " + nameArg + " `",
     "  -Enable $true `",
     "  -Action " + sa.action + " `",
-    // ActionOnError = wie mit einer Nachricht umgegangen wird, deren Scan selbst
-    // fehlschlaegt (nicht: deren Anhang als boesartig erkannt wird) -- $true
-    // liefert sie trotzdem aus, damit ein Scan-Ausfall nicht den Mailfluss stoppt.
-    "  -ActionOnError $true `",
+    // ActionOnError gibt es als Parameter nicht mehr (nur noch als Erwaehnung in
+    // Microsofts Fliesstext) -- der Aufruf brach damit mit "A parameter cannot be
+    // found that matches parameter name 'ActionOnError'". Das Verhalten bei einem
+    // fehlgeschlagenen Scan steuert Microsoft heute selbst.
     "  -QuarantineTag 'BP_Quarantine-RequestReleaseNotification' | Out-Null"
   ];
 
@@ -639,7 +641,7 @@ function buildAuditBody() {
     "  atpPolicyForO365   = Get-Safe { Get-AtpPolicyForO365 -ErrorAction SilentlyContinue | Select-Object -First 1 EnableATPForSPOTeamsODB, EnableSafeDocs, AllowSafeDocsOpen }",
     "  safeLinksPolicies  = @(Get-Safe { Get-SafeLinksPolicy -ErrorAction SilentlyContinue | Select-Object Name, EnableSafeLinksForEmail, EnableSafeLinksForOffice, EnableSafeLinksForTeams, ScanUrls, DeliverMessageAfterScan, TrackClicks, AllowClickThrough, DisableUrlRewrite, DoNotRewriteUrls })",
     "  safeLinksRules     = @(Get-Safe { Get-SafeLinksRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeLinksPolicy })",
-    "  safeAttachPolicies = @(Get-Safe { Get-SafeAttachmentPolicy -ErrorAction SilentlyContinue | Select-Object Name, Enable, Action, ActionOnError })",
+    "  safeAttachPolicies = @(Get-Safe { Get-SafeAttachmentPolicy -ErrorAction SilentlyContinue | Select-Object Name, Enable, Action, QuarantineTag, Redirect })",
     "  safeAttachRules    = @(Get-Safe { Get-SafeAttachmentRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeAttachmentPolicy })",
     "}",
     "Write-Output ('BEGINJSON' + (@{ ok = $true; audit = $audit } | ConvertTo-Json -Compress -Depth 8) + 'ENDJSON')"

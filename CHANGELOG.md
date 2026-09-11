@@ -1,5 +1,31 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.44 - Safe Attachments: ActionOnError und Replace sind weg (2026-09-11)
+
+**`ActionOnError` gibt es nicht mehr.** `New-`/`Set-SafeAttachmentPolicy`
+kennen heute nur noch `Name`/`Identity`, `Action`, `AdminDisplayName`,
+`Enable`, `QuarantineTag`, `Redirect` und `RedirectAddress`. Die Vorlage gab
+weiter `-ActionOnError $true` mit und brach mit *„A parameter cannot be found
+that matches parameter name 'ActionOnError'"*. Microsofts Dokumentation
+erwaehnt den Parameter im Beispieltext noch — in der Syntax steht er nicht
+mehr. Das Verhalten bei einem fehlgeschlagenen Scan steuert Microsoft selbst.
+
+**`Replace` ist kein gueltiger Action-Wert mehr.** Zulaessig sind nur noch
+`Allow`, `Block` und `DynamicDelivery`. `Block` bleibt der Default. Tenants,
+bei denen `Replace` gespeichert war, fallen ueber die bestehende
+Wertepruefung automatisch auf `Block` zurueck.
+
+**Auch das Exportskript war betroffen.** `configExport.js` erzeugt das
+PowerShell-Skript, das Kunden zum Selbstausfuehren bekommen — dort stand
+`-ActionOnError $true` zweimal drin und haette beim Kunden genauso gebrochen.
+
+**Die Audit-Erhebung liest jetzt `QuarantineTag` und `Redirect`** statt des
+nicht mehr existierenden `ActionOnError`.
+
+**Zum Folgefehler:** Die Meldung *„Policy BP_SafeAttachments not found"* beim
+Rule-Schritt war keine eigene Ursache, sondern die Folge der abgebrochenen
+Policy-Erstellung. Sie verschwindet mit diesem Fix.
+
 ## Version 2.43 - Safe Links folgt Microsofts Cmdlet-Umbau (2026-09-11)
 
 **Der Safe-Links-Org-Schalter lief ins Leere.** `Set-AtpPolicyForO365` kennt

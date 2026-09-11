@@ -219,14 +219,12 @@ function generateSafeLinksSection() {
     L.push('        New-SafeAttachmentPolicy -Name "BP_SafeAttachments" `');
     L.push('            -Enable $true `');
     L.push('            -Action ' + (sa.action || 'Block') + ' `');
-    L.push('            -ActionOnError $true `');
     L.push('            -QuarantineTag "BP_Quarantine-RequestReleaseNotification"');
     L.push('        Write-Host "OK - BP_SafeAttachments angelegt" -ForegroundColor Green');
     L.push('    } else {');
     L.push('        Set-SafeAttachmentPolicy -Identity "BP_SafeAttachments" `');
     L.push('            -Enable $true `');
     L.push('            -Action ' + (sa.action || 'Block') + ' `');
-    L.push('            -ActionOnError $true `');
     L.push('            -QuarantineTag "BP_Quarantine-RequestReleaseNotification"');
     L.push('        Write-Host "OK - BP_SafeAttachments aktualisiert" -ForegroundColor Green');
     L.push('    }');
