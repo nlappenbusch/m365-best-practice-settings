@@ -1,5 +1,36 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.43 - Safe Links folgt Microsofts Cmdlet-Umbau (2026-09-11)
+
+**Der Safe-Links-Org-Schalter lief ins Leere.** `Set-AtpPolicyForO365` kennt
+heute nur noch `Identity`, `AllowSafeDocsOpen`, `EnableATPForSPOTeamsODB` und
+`EnableSafeDocs`. Die Vorlage gab weiter `EnableSafeLinksForEmail`,
+`-ForTeams`, `-ForOffice`, `TrackClicks` und `AllowClickThrough` mit und brach
+mit *„A parameter cannot be found that matches parameter name
+'EnableSafeLinksForEmail'"*. Diese Schalter sind in die Safe-Links-Richtlinie
+gewandert; der Org-Aufruf setzt jetzt nur noch `EnableATPForSPOTeamsODB`.
+`EnableSafeDocs` bleibt bewusst ungesetzt — das braucht A5 bzw. E5 Security.
+
+**`IsEnabled` gibt es bei den Safe-Links-Cmdlets nicht mehr.** Es wurde durch
+`EnableSafeLinksForEmail` ersetzt. `New-`/`Set-SafeLinksPolicy` bekommen jetzt
+`EnableSafeLinksForEmail`, `-ForOffice` und `-ForTeams`, dazu wie bisher
+`ScanUrls`, `EnableForInternalSenders`, `DeliverMessageAfterScan`,
+`TrackClicks` und `AllowClickThrough`.
+
+**Das Audit las die Schalter an der falschen Stelle** und meldete deshalb
+dauerhaft eine Abweichung, auch wenn der Tenant korrekt eingerichtet war:
+`Get-AtpPolicyForO365` liefert die Safe-Links-Felder gar nicht mehr, sie kamen
+als `$null` zurück. Die Erhebung liest sie jetzt aus `Get-SafeLinksPolicy`
+(inklusive `TrackClicks`, `AllowClickThrough` und `DisableUrlRewrite`), der
+Vergleich gilt als erfüllt, sobald mindestens eine Richtlinie den Schalter
+gesetzt hat. Aus der AtpPolicy kommt nur noch der SPO/OneDrive/Teams-Schalter.
+
+**Permanente Fehler werden nicht mehr dreimal wiederholt.** Ein entfernter oder
+umbenannter Cmdlet-Parameter verschwindet auch beim vierten Versuch nicht — der
+Schritt bricht jetzt sofort ab, mit dem Hinweis, dass die Vorlage angepasst
+werden muss statt zu warten. Bisher liefen vier Runden samt Wartezeit, um am
+Ende dieselbe Meldung zu zeigen wie beim ersten Versuch.
+
 ## Version 2.42 - igeeks-prod rollt wieder aus (2026-09-10)
 
 **igeeks-prod stand sieben Tage still, ohne dass es auffiel.** Auslöser war

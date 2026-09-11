@@ -262,18 +262,23 @@
         ? 'Lizenz vorhanden, aber nichts konfiguriert — oder der App-Registrierung fehlt der Zugriff (🔧 „Reparieren" im Tab Tenants prüfen).'
         : 'Keine Defender-for-Office-365-Funktion erkennbar (P1/P2 bzw. Business Premium bei kleinen Tenants erforderlich) — oder der App-Registrierung fehlt der Zugriff.')
     } else {
-      if (atp) {
-        cmpBool(gsl, 'Safe Links für E-Mail', true, atp.EnableSafeLinksForEmail)
-        cmpBool(gsl, 'Safe Links für Office-Apps (Word/Excel/PowerPoint)', true, atp.EnableSafeLinksForOffice)
-        cmpBool(gsl, 'Safe Links für Teams', true, atp.EnableSafeLinksForTeams)
-        cmpBool(gsl, 'Safe Attachments für SharePoint/OneDrive/Teams', true, atp.EnableATPForSPOTeamsODB)
-      } else info(gsl, 'Tenant-weite Schalter (Get-AtpPolicyForO365)', 'nicht lesbar')
+      // Get-AtpPolicyForO365 traegt nur noch den SPO/OneDrive/Teams-Schalter.
+      // Die Safe-Links-Schalter stehen pro Richtlinie — sie hier zu lesen ergab
+      // immer $null und damit eine Dauer-Abweichung trotz korrektem Tenant.
+      if (atp) cmpBool(gsl, 'Safe Attachments für SharePoint/OneDrive/Teams', true, atp.EnableATPForSPOTeamsODB)
+      else info(gsl, 'Tenant-weiter Schalter (Get-AtpPolicyForO365)', 'nicht lesbar')
 
       if (!slPolicies.length) bad(gsl, 'Safe-Links-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine vorhanden')
       else {
-        const on = slPolicies.filter(p => p.IsEnabled).length
+        // Erfuellt, sobald mindestens eine Richtlinie den Schalter gesetzt hat —
+        // welche davon fuer wen gilt, entscheidet die Regel weiter unten.
+        const anyOn = k => slPolicies.some(p => p[k])
+        cmpBool(gsl, 'Safe Links für E-Mail', true, anyOn('EnableSafeLinksForEmail'))
+        cmpBool(gsl, 'Safe Links für Office-Apps (Word/Excel/PowerPoint)', true, anyOn('EnableSafeLinksForOffice'))
+        cmpBool(gsl, 'Safe Links für Teams', true, anyOn('EnableSafeLinksForTeams'))
+        const on = slPolicies.filter(p => p.EnableSafeLinksForEmail).length
         info(gsl, 'Safe-Links-Richtlinien (' + slPolicies.length + ')', on + ' von ' + slPolicies.length + ' aktiv: ' +
-          slPolicies.map(p => p.Name + (p.IsEnabled ? ' ✓' : ' ✗ inaktiv')).join(', '))
+          slPolicies.map(p => p.Name + (p.EnableSafeLinksForEmail ? ' ✓' : ' ✗ inaktiv')).join(', '))
       }
       if (slPolicies.length && !slRules.length) info(gsl, 'Safe-Links-Regel (Empfänger-Scope)', 'keine Regel vorhanden — Richtlinie greift dadurch möglicherweise für keine Domain')
       else if (slRules.length) {

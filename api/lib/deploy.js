@@ -195,6 +195,12 @@ const RETRY_HELPER = [
   // in your organization ... first need to run Enable-OrganizationCustomization".
   // Ohne diese Erkennung laufen vier Versuche mit 60 s Wartezeit ins Leere und
   // der Anwender sieht nur eine abgeschnittene Meldung.
+  // Ein falscher/entfernter Cmdlet-Parameter verschwindet auch beim vierten
+  // Versuch nicht -- ohne diese Erkennung laeuft der Schritt vier Runden mit
+  // Wartezeit, bevor er dieselbe Meldung zeigt wie beim ersten Mal.
+  "function Test-BPPermanentError { param([string]$Message)",
+  "  return ($Message -match 'A parameter cannot be found that matches parameter name') -or ($Message -match 'is not recognized as the name of a cmdlet')",
+  "}",
   "function Test-BPNeedsOrgCustomization { param([string]$Message)",
   "  return ($Message -match \"isn't currently allowed in your organization\") -or ($Message -match 'Enable-OrganizationCustomization')",
   "}",
@@ -211,6 +217,12 @@ const RETRY_HELPER = [
   "      return",
   "    } catch {",
   "      $msg = $_.Exception.Message",
+  "      if (Test-BPPermanentError $msg) {",
+  "        $hint = 'Der Aufruf passt nicht mehr zum Cmdlet (Microsoft hat den Parameter entfernt oder umbenannt) — Wiederholen hilft nicht, die Vorlage muss angepasst werden.'",
+  "        $steps.Add(@{ name = $Name; ok = $false; error = $msg; hint = $hint; permanent = $true; tries = $try })",
+  "        Send-BPProgress @{ type = 'step'; name = $Name; state = 'failed'; error = $msg; hint = $hint; permanent = $true; tries = $try }",
+  "        return",
+  "      }",
   "      if (Test-BPNeedsOrgCustomization $msg) {",
   "        $hint = 'Organisationsanpassung ist in diesem Tenant nicht aktiviert — Enable-OrganizationCustomization muss einmalig laufen (danach bis zu 4 Stunden Vorlauf).'",
   "        $steps.Add(@{ name = $Name; ok = $false; error = $msg; hint = $hint; needsOrgCustomization = $true; tries = $try })",
@@ -362,23 +374,25 @@ function buildDeployBody(cfg) {
     "  -QuarantineTag 'BP_Quarantine-RequestReleaseNotification' | Out-Null"
   ];
 
-  // Organisationsweite Safe-Links-Schalter (Set-AtpPolicyForO365) — separat von
-  // der Policy selbst: ohne diese Freischaltung greift keine SafeLinksPolicy,
-  // egal wie sie konfiguriert ist. AllowClickThrough steht hier UND in der
-  // Policy, weil Microsoft den Schalter an beiden Stellen kennt.
+  // Set-AtpPolicyForO365 kennt seit dem Umbau der Safe-Links-Cmdlets nur noch
+  // Identity, AllowSafeDocsOpen, EnableATPForSPOTeamsODB und EnableSafeDocs.
+  // EnableSafeLinksForEmail/-Office/-Teams, TrackClicks und AllowClickThrough
+  // sind hier WEG und leben in der SafeLinksPolicy (siehe slParams) -- wurden
+  // sie hier weiter mitgegeben, brach der Schritt mit "A parameter cannot be
+  // found that matches parameter name 'EnableSafeLinksForEmail'".
+  // EnableSafeDocs bleibt bewusst ungesetzt: das braucht A5/E5 Security.
   const atpOrgLines = [
     "Set-AtpPolicyForO365 `",
-    "  -EnableSafeLinksForEmail $true `",
-    "  -EnableSafeLinksForTeams $true `",
-    "  -EnableSafeLinksForOffice $true `",
-    "  -EnableATPForSPOTeamsODB $true `",
-    "  -TrackClicks $true `",
-    "  -AllowClickThrough " + bool(sl.allowClickThrough) + " | Out-Null"
+    "  -EnableATPForSPOTeamsODB $true | Out-Null"
   ];
 
+  // IsEnabled wurde durch EnableSafeLinksForEmail ersetzt; die beiden anderen
+  // Schalter sind aus Set-AtpPolicyForO365 hierher gewandert.
   const slParams = (cmdlet, nameArg) => [
     cmdlet + " " + nameArg + " `",
-    "  -IsEnabled $true `",
+    "  -EnableSafeLinksForEmail $true `",
+    "  -EnableSafeLinksForOffice $true `",
+    "  -EnableSafeLinksForTeams $true `",
     "  -ScanUrls $true `",
     "  -EnableForInternalSenders " + bool(sl.enableForInternalSenders) + " `",
     "  -DeliverMessageAfterScan $true `",
@@ -618,8 +632,12 @@ function buildAuditBody() {
     // Safe Links / Safe Attachments (Defender for Office 365, P1/P2) — reine Ist-Erhebung,
     // kein BP_-Objekt, diese Vorlage deployt nichts davon. $null (statt leer), wenn der
     // Tenant keine passende Lizenz hat -- Get-Safe faengt den Cmdlet-Fehler ab.
-    "  atpPolicyForO365   = Get-Safe { Get-AtpPolicyForO365 -ErrorAction SilentlyContinue | Select-Object -First 1 EnableSafeLinksForEmail, EnableSafeLinksForOffice, EnableSafeLinksForTeams, EnableATPForSPOTeamsODB, TrackClicks, AllowClickThrough }",
-    "  safeLinksPolicies  = @(Get-Safe { Get-SafeLinksPolicy -ErrorAction SilentlyContinue | Select-Object Name, IsEnabled, ScanUrls, DeliverMessageAfterScan, DoNotRewriteUrls })",
+    // AtpPolicyForO365 traegt nur noch die SPO/OneDrive/Teams- und Safe-Docs-Schalter.
+    // Die Safe-Links-Schalter stehen pro Richtlinie (Get-SafeLinksPolicy) -- frueher
+    // wurden sie hier gelesen und waren deshalb immer leer, was das Audit dauerhaft
+    // eine Abweichung melden liess, obwohl der Tenant korrekt konfiguriert war.
+    "  atpPolicyForO365   = Get-Safe { Get-AtpPolicyForO365 -ErrorAction SilentlyContinue | Select-Object -First 1 EnableATPForSPOTeamsODB, EnableSafeDocs, AllowSafeDocsOpen }",
+    "  safeLinksPolicies  = @(Get-Safe { Get-SafeLinksPolicy -ErrorAction SilentlyContinue | Select-Object Name, EnableSafeLinksForEmail, EnableSafeLinksForOffice, EnableSafeLinksForTeams, ScanUrls, DeliverMessageAfterScan, TrackClicks, AllowClickThrough, DisableUrlRewrite, DoNotRewriteUrls })",
     "  safeLinksRules     = @(Get-Safe { Get-SafeLinksRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeLinksPolicy })",
     "  safeAttachPolicies = @(Get-Safe { Get-SafeAttachmentPolicy -ErrorAction SilentlyContinue | Select-Object Name, Enable, Action, ActionOnError })",
     "  safeAttachRules    = @(Get-Safe { Get-SafeAttachmentRule -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs, SafeAttachmentPolicy })",
