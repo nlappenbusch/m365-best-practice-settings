@@ -1,5 +1,35 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.45 - Safe Links zaehlt jetzt in die Konformitaet (2026-09-11)
+
+**Ein sauber ausgerolltes BP_SafeLinks stand nur als Info-Zeile da.** Die
+Pruefpunkte fuer Safe Links und Safe Attachments waren als reine Ist-Erhebung
+gebaut, mit der Begruendung "kein BP_-Objekt, diese Vorlage deployt hier
+nichts". Das stimmt nicht mehr, seit die Vorlage BP_SafeLinks,
+BP_SafeLinks_Rule, BP_SafeAttachments und BP_SafeAttachments_Rule anlegt --
+Audit und Dokumentation wurden damals nicht nachgezogen. Ergebnis: Der Bereich
+zaehlte nie in die Konformitaetsquote, egal wie gut er eingerichtet war.
+
+**Jetzt echte Soll-Ist-Vergleiche**, sobald Safe Links in der Vorlage
+eingeschaltet ist -- wie in allen anderen Bereichen auch:
+
+- BP_SafeLinks: Safe Links fuer E-Mail, Office-Apps und Teams, URL-Scan,
+  Zustellung erst nach Scan, Klick-Durchgriff gegen den Vorlagenwert
+- BP_SafeLinks_Rule: Empfaenger-Domains gegen die Soll-Domains des Tenants
+- BP_SafeAttachments: aktiv, Aktion gegen den Vorlagenwert
+- BP_SafeAttachments_Rule: Empfaenger-Domains gegen die Soll-Domains
+
+Ist Safe Links in der Vorlage ausgeschaltet, bleibt es bei der Ist-Erhebung.
+
+**Fremde Richtlinien werden getrennt ausgewiesen.** Microsofts Preset- und
+Built-in-Richtlinien standen bisher in derselben Zeile wie die eigene und
+verwaessertem das Bild. Sie erscheinen jetzt als eigene Info-Zeile
+"Weitere Safe-Links-Richtlinien" -- sichtbar als Kontext, aber ohne Einfluss
+auf die Bewertung, da die Vorlage sie bewusst nicht anfasst.
+
+**Die Doku-Texte behaupteten dasselbe Veraltete** und sind mitgezogen: sowohl
+die Bereichsbeschreibung in der Konfig-Doku als auch die Notiz im Ueberblick.
+
 ## Version 2.44 - Safe Attachments: ActionOnError und Replace sind weg (2026-09-11)
 
 **`ActionOnError` gibt es nicht mehr.** `New-`/`Set-SafeAttachmentPolicy`

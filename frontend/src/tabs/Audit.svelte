@@ -268,32 +268,60 @@
       if (atp) cmpBool(gsl, 'Safe Attachments für SharePoint/OneDrive/Teams', true, atp.EnableATPForSPOTeamsODB)
       else info(gsl, 'Tenant-weiter Schalter (Get-AtpPolicyForO365)', 'nicht lesbar')
 
-      if (!slPolicies.length) bad(gsl, 'Safe-Links-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine vorhanden')
-      else {
-        // Erfuellt, sobald mindestens eine Richtlinie den Schalter gesetzt hat —
-        // welche davon fuer wen gilt, entscheidet die Regel weiter unten.
+      // Seit dem Umbau auf deploybare Safe Links legt die Vorlage hier echte
+      // BP_-Objekte an. Damit sind es Pruefpunkte wie ueberall sonst und keine
+      // blosse Ist-Erhebung mehr — vorher stand selbst ein sauber ausgerolltes
+      // BP_SafeLinks nur als Info-Zeile da und zaehlte nicht in die Konformitaet.
+      const slCfg = cfg.safeLinks || {}, saCfg = cfg.safeAttach || {}
+      const bpSl = slPolicies.find(p => p.Name === 'BP_SafeLinks')
+      const bpSlRule = slRules.find(r => r.Name === 'BP_SafeLinks_Rule')
+      const bpSa = saPolicies.find(p => p.Name === 'BP_SafeAttachments')
+      const bpSaRule = saRules.find(r => r.Name === 'BP_SafeAttachments_Rule')
+
+      if (slCfg.enabled) {
+        if (!bpSl) missing(gsl, 'BP_SafeLinks')
+        else {
+          cmpBool(gsl, 'BP_SafeLinks — Safe Links für E-Mail', true, bpSl.EnableSafeLinksForEmail)
+          cmpBool(gsl, 'BP_SafeLinks — Office-Apps (Word/Excel/PowerPoint)', true, bpSl.EnableSafeLinksForOffice)
+          cmpBool(gsl, 'BP_SafeLinks — Teams', true, bpSl.EnableSafeLinksForTeams)
+          cmpBool(gsl, 'BP_SafeLinks — URL-Scan', true, bpSl.ScanUrls)
+          cmpBool(gsl, 'BP_SafeLinks — Zustellung erst nach Scan', true, bpSl.DeliverMessageAfterScan)
+          cmpBool(gsl, 'BP_SafeLinks — Klick-Durchgriff erlaubt', !!slCfg.allowClickThrough, bpSl.AllowClickThrough)
+        }
+        if (!bpSlRule) missing(gsl, 'BP_SafeLinks_Rule')
+        else if (ldDomainsEqual(bpSlRule.RecipientDomainIs, sollDomains)) ok(gsl, 'BP_SafeLinks_Rule — Domains', (bpSlRule.RecipientDomainIs || []).join(', '))
+        else bad(gsl, 'BP_SafeLinks_Rule — Domains', sollDomains.join(', '), (bpSlRule.RecipientDomainIs || []).join(', ') || '(leer)')
+
+        if (!bpSa) missing(gsl, 'BP_SafeAttachments')
+        else {
+          cmpBool(gsl, 'BP_SafeAttachments — aktiv', true, bpSa.Enable)
+          cmp(gsl, 'BP_SafeAttachments — Aktion', saCfg.action || 'Block', bpSa.Action)
+        }
+        if (!bpSaRule) missing(gsl, 'BP_SafeAttachments_Rule')
+        else if (ldDomainsEqual(bpSaRule.RecipientDomainIs, sollDomains)) ok(gsl, 'BP_SafeAttachments_Rule — Domains', (bpSaRule.RecipientDomainIs || []).join(', '))
+        else bad(gsl, 'BP_SafeAttachments_Rule — Domains', sollDomains.join(', '), (bpSaRule.RecipientDomainIs || []).join(', ') || '(leer)')
+      } else {
+        // Vorlage rollt hier nichts aus -> reine Ist-Erhebung, erfuellt sobald
+        // irgendeine Richtlinie im Tenant den Schalter gesetzt hat.
         const anyOn = k => slPolicies.some(p => p[k])
         cmpBool(gsl, 'Safe Links für E-Mail', true, anyOn('EnableSafeLinksForEmail'))
         cmpBool(gsl, 'Safe Links für Office-Apps (Word/Excel/PowerPoint)', true, anyOn('EnableSafeLinksForOffice'))
         cmpBool(gsl, 'Safe Links für Teams', true, anyOn('EnableSafeLinksForTeams'))
-        const on = slPolicies.filter(p => p.EnableSafeLinksForEmail).length
-        info(gsl, 'Safe-Links-Richtlinien (' + slPolicies.length + ')', on + ' von ' + slPolicies.length + ' aktiv: ' +
-          slPolicies.map(p => p.Name + (p.EnableSafeLinksForEmail ? ' ✓' : ' ✗ inaktiv')).join(', '))
-      }
-      if (slPolicies.length && !slRules.length) info(gsl, 'Safe-Links-Regel (Empfänger-Scope)', 'keine Regel vorhanden — Richtlinie greift dadurch möglicherweise für keine Domain')
-      else if (slRules.length) {
-        const on = slRules.filter(r => r.State === 'Enabled').length
-        info(gsl, 'Safe-Links-Regeln (' + slRules.length + ')', on + ' von ' + slRules.length + ' aktiv, Scope: ' +
-          slRules.map(r => (r.RecipientDomainIs || []).join('/') || '(alle)').join(' · '))
+        if (!saPolicies.some(p => p.Enable)) bad(gsl, 'Safe-Attachments-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine aktive vorhanden')
+        else ok(gsl, 'Safe-Attachments-Richtlinie', saPolicies.filter(p => p.Enable).map(p => p.Name + '=' + (p.Action || '?')).join(', '))
       }
 
-      if (!saPolicies.length) bad(gsl, 'Safe-Attachments-Richtlinie', 'mindestens eine aktive Richtlinie', 'keine vorhanden')
-      else {
-        const on = saPolicies.filter(p => p.Enable).length
-        info(gsl, 'Safe-Attachments-Richtlinien (' + saPolicies.length + ')', on + ' von ' + saPolicies.length + ' aktiv: ' +
-          saPolicies.map(p => p.Name + '=' + (p.Action || '?')).join(', '))
-      }
-      if (saPolicies.length && !saRules.length) info(gsl, 'Safe-Attachments-Regel (Empfänger-Scope)', 'keine Regel vorhanden — Richtlinie greift dadurch möglicherweise für keine Domain')
+      // Kontext: was sonst noch im Tenant greift. Preset- und Built-in-Richtlinien
+      // sind Microsofts eigene und werden von der Vorlage bewusst nicht angefasst.
+      const andereSl = slPolicies.filter(p => p.Name !== 'BP_SafeLinks')
+      if (andereSl.length) info(gsl, 'Weitere Safe-Links-Richtlinien (' + andereSl.length + ')',
+        andereSl.map(p => p.Name + (p.EnableSafeLinksForEmail ? ' ✓' : ' ✗ inaktiv')).join(', '))
+      const andereSa = saPolicies.filter(p => p.Name !== 'BP_SafeAttachments')
+      if (andereSa.length) info(gsl, 'Weitere Safe-Attachments-Richtlinien (' + andereSa.length + ')',
+        andereSa.map(p => p.Name + '=' + (p.Action || '?') + (p.Enable ? ' ✓' : ' ✗ inaktiv')).join(', '))
+      const andereRules = slRules.filter(r => r.Name !== 'BP_SafeLinks_Rule')
+      if (andereRules.length) info(gsl, 'Weitere Safe-Links-Regeln (' + andereRules.length + ')',
+        andereRules.map(r => r.Name + ': ' + ((r.RecipientDomainIs || []).join('/') || '(alle)')).join(' · '))
     }
 
     // Gewollte Abweichungen ueberschreiben bad/missing -> 'accepted'
@@ -660,7 +688,7 @@
     'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Spam- und Phishing-Verdicts gehen in die Quarantäne, Bulk-Mail (Graymail/Newsletter ab BCL-Schwelle) in den Junk-Ordner; Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäss Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
     'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',
     'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.',
-    'Safe Links & Safe Attachments': 'Defender-for-Office-365-Funktion (Plan 1, u.a. in Business Premium enthalten, oder Plan 2, u.a. in Microsoft 365 E5) — reine Ist-Erhebung, diese Vorlage legt hier keine eigenen Richtlinien an (kein BP_-Objekt, da lizenzabhängig). Safe Links prüft Links in E-Mail, Office-Apps und Teams im Moment des Klicks; Safe Attachments öffnet Anhänge vorab in einer Sandbox und hält sie bei schadhaftem Verhalten zurück. Soll gemäss Best Practice: Safe Links aktiv für E-Mail, Office-Apps und Teams; Safe Attachments aktiv für SharePoint/OneDrive/Teams; mindestens eine aktive Safe-Links- und eine aktive Safe-Attachments-Richtlinie, jeweils mit einer Regel, deren Empfänger-Scope alle Mail-Domains des Tenants abdeckt — eine Richtlinie ohne zugehörige Regel greift für niemanden. Ohne eine der beiden Lizenzen ist die Funktion im Tenant nicht verfügbar; die Zeile «Lizenz (Defender for Office 365)» in der Tabelle weist das gesondert aus.',
+    'Safe Links & Safe Attachments': 'Defender-for-Office-365-Funktion (Plan 1, u.a. in Business Premium enthalten, oder Plan 2, u.a. in Microsoft 365 E5) — die Vorlage legt hier — sofern eingeschaltet — BP_SafeLinks, BP_SafeLinks_Rule, BP_SafeAttachments und BP_SafeAttachments_Rule an; Microsofts Preset- und Built-in-Richtlinien bleiben unangetastet. Safe Links prüft Links in E-Mail, Office-Apps und Teams im Moment des Klicks; Safe Attachments öffnet Anhänge vorab in einer Sandbox und hält sie bei schadhaftem Verhalten zurück. Soll gemäss Best Practice: Safe Links aktiv für E-Mail, Office-Apps und Teams; Safe Attachments aktiv für SharePoint/OneDrive/Teams; mindestens eine aktive Safe-Links- und eine aktive Safe-Attachments-Richtlinie, jeweils mit einer Regel, deren Empfänger-Scope alle Mail-Domains des Tenants abdeckt — eine Richtlinie ohne zugehörige Regel greift für niemanden. Ohne eine der beiden Lizenzen ist die Funktion im Tenant nicht verfügbar; die Zeile «Lizenz (Defender for Office 365)» in der Tabelle weist das gesondert aus.',
   }
 
   function ldDocStatusCell(c) {
@@ -700,7 +728,7 @@
       '<b>' + ldEsc(data.name) + '</b> gegenüber der Best-Practice-Vorlage des M365 Security Policy Manager. ' +
       'Alle Objekte tragen das Präfix <code>BP_</code> und sind über Regeln auf die Mail-Domains des Tenants eingeschränkt. ' +
       'Grundlage ist der Ist-Zustand vom ' + dateStr + ' (live aus dem Tenant gelesen, app-only Exchange Online / Graph).</p>' +
-      '<p class="note">Safe Links / Safe Attachments werden unten als Ist-Zustand ausgewiesen, aber nicht von dieser Vorlage konfiguriert (lizenzabhängige Defender-for-Office-365-Funktion). Nicht Teil dieser Dokumentation: Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>')
+      '<p class="note">Safe Links / Safe Attachments sind lizenzabhängig (Defender for Office 365 P1/P2) und werden nur ausgerollt, wenn sie in der Vorlage eingeschaltet sind. Nicht Teil dieser Dokumentation: Intune / OpenIntuneBaseline sowie Identitäts-/Conditional-Access-Einstellungen.</p>')
 
     const globals = sec('Globale Parameter',
       '<table>' +
