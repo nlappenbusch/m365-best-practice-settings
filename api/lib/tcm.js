@@ -17,9 +17,17 @@ const ALERT_NAME = "BP_UserRequestReleaseStatus";
 
 /** Snapshot-Job fuer die protectionAlert-Ressourcen starten. */
 async function startAlertPolicySnapshot(tenant, certPemPath) {
+  // Graph validiert den displayName strenger, als die Doku vermuten laesst:
+  // 8-32 Zeichen, und ausschliesslich Buchstaben, Zahlen und Leerzeichen.
+  // Der fruehere Name ("BP-AlertPolicy-Audit 2026-09-11T22:15") verletzte
+  // beides -- 37 Zeichen, dazu Bindestriche, Doppelpunkte und das ISO-"T".
+  // Graph meldete das als blosses "One or more validation errors occurred.";
+  // die Begruendung steckt in error.details (siehe graph.js).
+  const stamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 12); // YYYYMMDDHHmm
+  const displayName = ("BP Alert Audit " + stamp).slice(0, 32);               // 27 Zeichen
   const job = await graphReq(tenant, certPemPath, "POST",
     "/admin/configurationManagement/configurationSnapshots/createSnapshot", {
-      displayName: "BP-AlertPolicy-Audit " + new Date().toISOString().slice(0, 16),
+      displayName,
       description: "Automatische Pruefung der Alert Policy durch den M365 Security Policy Manager",
       resources: [RESOURCE]
     });

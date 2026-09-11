@@ -5924,7 +5924,7 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
       error: tcmStartErr || "TCM-Snapshot konnte nicht gestartet werden",
       hint: (!tcmStartErr || looksLikeSetup)
         ? "🔧 Reparieren ausführen — richtet die TCM-Voraussetzungen ein (TCM-SP, Exchange.ManageAsApp, Security Reader, ConfigurationMonitoring-Permission)."
-        : "Kein Berechtigungsfehler — Reparieren hilft hier nicht. Snapshot-Jobs des Tenants prüfen (GET /admin/configurationManagement/configurationSnapshotJobs); Microsoft begrenzt die Zahl offener Jobs."
+        : "Kein Berechtigungsfehler — Reparieren hilft hier nicht. Die Begründung steht oben in Klammern; sie kommt direkt von Graph."
     };
   } else {
     alertPolicy = { status: "pending", jobId: tcmJob.id };
