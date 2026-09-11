@@ -4,8 +4,9 @@
   import { tenants } from '../lib/tenantStore.js'
   import { apiGet, apiPost } from '../lib/api.js'
   import { goToTab } from '../lib/tabStore.js'
+  import SdpDbPanel from '../lib/SdpDbPanel.svelte'
 
-  let sub = $state('single') // 'single' | 'batch' | 'runbooks'
+  let sub = $state('single') // 'single' | 'batch' | 'runbooks' | 'db'
 
   // ---------- KI-Vorschlag (pro Ticket-ID, da im Batch mehrere gleichzeitig offen sein koennen) ----------
   let aiTenantChoice = $state({})  // ticketId -> tenantId
@@ -480,6 +481,7 @@
       <button type="button" class="dl-subtab" class:active={sub === 'single'} onclick={() => switchSub('single')}>🎫 Einzelticket</button>
       <button type="button" class="dl-subtab" class:active={sub === 'batch'} onclick={() => switchSub('batch')}>📋 Batch</button>
       <button type="button" class="dl-subtab" class:active={sub === 'runbooks'} onclick={() => switchSub('runbooks')}>📚 Runbooks</button>
+      <button type="button" class="dl-subtab" class:active={sub === 'db'} onclick={() => switchSub('db')}>🗄️ Datenbank (lesen)</button>
     </div>
 
     <div class="dl-panel" class:active={sub === 'single'}>
@@ -815,6 +817,10 @@
           </tbody>
         </table>
       {/if}
+    </div>
+
+    <div class="dl-panel" class:active={sub === 'db'}>
+      <SdpDbPanel />
     </div>
   {/if}
 </section>

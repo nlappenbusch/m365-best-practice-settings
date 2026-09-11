@@ -1,5 +1,39 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.51 - Lesender SQL-Zugang zur SDP-Datenbank (2026-09-11)
+
+Der TCP-Test aus 2.50 sagt: der Pod steht 3 ms neben der SDP-Datenbank. Damit
+lohnt sich der direkte Leseweg. Ueber die API ist "alle Worklogs eines Monats"
+oder "was lief bei diesem Kunden in einem Jahr" eine Requestlawine -- in SQL ist
+es eine Abfrage.
+
+Neuer Unterbereich **Tickets -> Datenbank (lesen)**: Tabellen durchsuchen,
+Spalten ansehen, Abfrage ausfuehren, Ergebnis als CSV kopieren.
+
+**In die SDP-Datenbank wird nie geschrieben.** Aenderungen laufen weiter ueber
+die API. Weil an der Datenbank kein eigener read-only Benutzer angelegt werden
+darf, steckt das Verbot im Backend, vierfach:
+
+- Verbindungsoption default_transaction_read_only=on
+- jede Abfrage in BEGIN READ ONLY ... ROLLBACK
+- Einpacken in SELECT * FROM ( ... ) LIMIT $1 -- erzwingt Ergebnismenge und
+  Zeilenlimit, und ueber den Parameter das Extended Protocol, wo mehrere
+  Statements pro Aufruf technisch nicht gehen
+- Textfilter: nur SELECT/WITH, kein Semikolon, keine schreibenden oder
+  dateilesenden Funktionen
+
+Beim Testen der letzten Schicht ist ein echter Fehler aufgefallen: "dblink"
+laesst dblink_exec durch, weil eine Wortgrenze nach einem Unterstrich nicht
+greift. Ausgerechnet dblink oeffnet eine EIGENE Verbindung und waere damit der
+einzige Weg, an den ersten beiden Schichten vorbeizuschreiben. Jetzt Praefix-
+Match, 17 Testfaelle inkl. der bekannten Ausbruchsversuche laufen durch.
+
+Das Passwort wird nicht hinterlegt: es wird im Tab eingegeben und lebt nur im
+Arbeitsspeicher. Es ist das Passwort des Schema-Owners -- als Cluster-Secret
+haette jeder, der dort an Secrets kommt, Vollzugriff auf die Ticketdatenbank.
+SDP_DB_PASSWORD funktioniert weiterhin, fuer den, der den Komfort will.
+
+
 ## Version 2.50 - Diagnose testet auch Gegenstellen ohne HTTP (2026-09-11)
 
 Der Erreichbarkeitstest im Diagnose-Tab konnte bisher nur HTTP-Ziele pruefen.

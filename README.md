@@ -335,6 +335,48 @@ App-Assignment* auf. Ein Plattformskript (Drive-/Printer-Mapping,
 Registry-Richtlinie) muss deshalb direkt an die Gerätegruppe zugewiesen werden,
 nie an eine App-Gruppe — sonst erreicht es kein Gerät.
 
+## 🗄️ SDP-Datenbank — Lesezugriff (Tickets → Datenbank)
+
+Die V3-API liefert einzelne Tickets und 100er-Seiten. Alles, was über den
+Bestand rechnet — Worklogs eines Monats, Ticketverlauf eines Kunden, Soll/Ist je
+Projekt — wäre darüber eine Requestlawine und ist in SQL eine Abfrage. Der Pod
+liegt netzwerknah an der Datenbank (3 ms, siehe Diagnose-Tab), deshalb ist SQL
+der bevorzugte **Lese**weg, wenn die Verbindung steht; sonst bleibt es bei der API.
+
+**In die SDP-Datenbank schreibt das Tool nie.** Jede Änderung an SDP läuft
+weiter über die API. Das ist keine Konfigurationsfrage, sondern im Backend
+festgezurrt (`api/lib/sdpDb.js`), weil ManageEngine Direktzugriff nicht
+supportet — schreibend stünde man bei einem Problem allein da.
+
+Da an der SDP-Datenbank kein eigener read-only Benutzer angelegt werden darf,
+wird "nur lesen" vierfach erzwungen:
+
+1. Verbindungsoption `default_transaction_read_only=on` — Postgres selbst weist
+   jeden Schreibversuch ab.
+2. Jede Abfrage läuft in `BEGIN READ ONLY … ROLLBACK`.
+3. Die Abfrage wird in `SELECT * FROM ( … ) LIMIT $1` eingepackt: erzwingt eine
+   Ergebnismenge und das Zeilenlimit — und weil ein Parameter im Spiel ist,
+   läuft sie über das Extended Protocol, wo mehrere Statements pro Aufruf
+   technisch nicht möglich sind.
+4. Textfilter: nur `SELECT`/`WITH`, kein Semikolon, keine schreibenden oder
+   dateilesenden Funktionen. Besonders `dblink*` — das öffnet eine eigene
+   Verbindung und wäre der einzige Weg, an Punkt 1 und 2 vorbeizukommen.
+
+Bedienung: **Tickets → Datenbank (lesen)**. Tabellen durchsuchen, Spalten
+ansehen, Abfrage ausführen, Ergebnis als CSV kopieren. Zugriff wie der
+Ticket-Copilot (`TICKETS_ALLOWED_UPN` bzw. lokaler Login).
+
+Host/Port/DB/Benutzer kommen aus `SDP_DB_HOST` / `SDP_DB_PORT` / `SDP_DB_NAME` /
+`SDP_DB_USER` (Default: die bekannte Instanz). Das **Passwort wird bewusst nicht
+hinterlegt** — es wird im Tab eingegeben, lebt nur im Arbeitsspeicher und ist
+nach einem Neustart weg. Grund: es ist das Passwort des Schema-Owners; als
+Cluster-Secret hätte jeder, der dort an Secrets kommt, Vollzugriff auf die
+Ticketdatenbank. `SDP_DB_PASSWORD` geht trotzdem — dann aber im Wissen darum.
+
+Fallstrick: der `LIMIT`-Wrapper macht aus der Abfrage eine Unterabfrage. Ein
+`SELECT a.*, b.*` mit gleichnamigen Spalten scheitert mit "column specified more
+than once" — Spalten dann einzeln benennen oder mit `AS` umbenennen.
+
 ## 📅 Projektplan-Dashboard (`/plan/`)
 
 Eigenständige kleine Seite neben dem Konfigurator, um Kollegen und Verkauf einen

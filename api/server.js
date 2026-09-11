@@ -59,6 +59,7 @@ const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
+const SDPDB = require("./lib/sdpDb");
 const AISUGGEST = require("./lib/aiSuggest");
 const CUSTOMPOLICY = require("./lib/customPolicy");
 const SETTINGSCATALOG = require("./lib/settingsCatalog");
@@ -941,6 +942,54 @@ app.get("/api/sdp/tickets/:id/attachments/:attachmentId", wrap(async (req, res) 
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Disposition", `attachment; filename="anhang-${encodeURIComponent(req.params.attachmentId)}"`);
   res.send(buffer);
+}));
+
+// ---------- SDP-Datenbank: NUR LESEN ----------
+// Der schnelle Leseweg fuer alles, was ueber viele Tickets rechnet. Schreiben
+// laeuft ausnahmslos weiter ueber die API (oben) -- in die SDP-Datenbank
+// schreibt dieses Tool nie. Die Absicherung steckt in sdpDb.js.
+//
+// Alles hier haengt am Tickets-Guard weiter oben (TICKETS_ALLOWED_UPN + lokaler
+// Login), ist also auf denselben Personenkreis beschraenkt wie der Ticket-Copilot.
+
+app.get("/api/sdp/db/status", (req, res) => {
+  res.json({ ok: true, db: SDPDB.status() });
+});
+
+// Passwort zur Laufzeit setzen: bleibt im Arbeitsspeicher des Prozesses, wird
+// nie in den State geschrieben und ist nach einem Neustart weg (siehe sdpDb.js).
+app.post("/api/sdp/db/password", wrap(async (req, res) => {
+  const pw = String((req.body && req.body.password) || "").trim();
+  if (!pw) throw Object.assign(new Error("Kein Passwort angegeben."), { status: 400 });
+  SDPDB.setPassword(pw);
+  try {
+    const info = await SDPDB.ping();
+    res.json({ ok: true, db: SDPDB.status(), info });
+  } catch (e) {
+    SDPDB.clearPassword(); // ein Passwort, das nicht verbindet, muss nicht liegenbleiben
+    throw e;
+  }
+}));
+
+app.delete("/api/sdp/db/password", (req, res) => {
+  SDPDB.clearPassword();
+  res.json({ ok: true, db: SDPDB.status() });
+});
+
+app.post("/api/sdp/db/query", wrap(async (req, res) => {
+  const sql = String((req.body && req.body.sql) || "");
+  const limit = Number((req.body && req.body.limit) || 0);
+  const r = await SDPDB.query(sql, { limit });
+  console.log(`SDP-DB: Leseabfrage, ${r.rowCount} Zeilen in ${r.ms} ms`);
+  res.json({ ok: true, ...r });
+}));
+
+app.get("/api/sdp/db/tables", wrap(async (req, res) => {
+  res.json({ ok: true, ...(await SDPDB.tables(req.query.suche)) });
+}));
+
+app.get("/api/sdp/db/columns", wrap(async (req, res) => {
+  res.json({ ok: true, ...(await SDPDB.columns(req.query.tabelle)) });
 }));
 
 // Tenant per ID nachschlagen, ohne ueber /api/tenants/:id zu gehen (der Aufrufer
