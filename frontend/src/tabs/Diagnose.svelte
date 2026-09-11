@@ -86,7 +86,8 @@
       Onboarding und Graph, die Quellen für die App-Installer (Bitwarden, Bitdefender, N-sight, FortiClient),
       die Intune-Baselines und die optionalen Dienste. Schlägt hier etwas fehl, liegt es an Egress, DNS oder einem
       TLS-abfangenden Proxy — nicht am Tool. <b>Jede HTTP-Antwort zählt als erreichbar</b>, auch 401/403/404:
-      geprüft wird die Netzwerkstrecke, nicht die Berechtigung.</p>
+      geprüft wird die Netzwerkstrecke, nicht die Berechtigung. Gegenstellen, die kein HTTP sprechen (etwa die
+      SDP-Datenbank), werden per reinem TCP-Connect geprüft — Port auf, Port zu, keine Anmeldung.</p>
     <button class="btn btn-primary" disabled={egressBusy} onclick={runEgress}>
       {egressBusy ? 'Teste…' : '▶ Test starten'}
     </button>
@@ -115,12 +116,13 @@
                   {#if r.skipped}
                     <code>{r.host}</code> — nicht testbar
                   {:else if r.ok}
-                    HTTP {r.status} · {r.ms} ms
+                    {r.tcp ? 'TCP-Port offen' : 'HTTP ' + r.status} · {r.ms} ms
                   {:else}
                     {r.error}{#if r.code} · <code>{r.code}</code>{/if} · nach {r.ms} ms
-                    {#if r.optional} · nicht konfiguriert, daher unkritisch{/if}
+                    {#if r.optional} · {r.optionalNote || 'nicht konfiguriert, daher unkritisch'}{/if}
                   {/if}
-                  {#if r.url}<br /><code style="word-break:break-all;">{r.url}</code>{/if}
+                  {#if r.url}<br /><code style="word-break:break-all;">{r.url}</code>
+                  {:else if r.tcp}<br /><code>{r.host}</code>{/if}
                 </div>
               </div>
             </div>

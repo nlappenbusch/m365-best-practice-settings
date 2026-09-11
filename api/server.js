@@ -17,6 +17,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
+const net = require("net");
 const { execFileSync } = require("child_process");
 const express = require("express");
 const session = require("express-session");
@@ -691,6 +692,11 @@ function egressTargets() {
   const rmm = NSIGHT.config();
   const rmmHost = rmm.fixed || (rmm.candidates && rmm.candidates[0]) || "dashboardeurope1.systemmonitor.eu.com";
   const sdpBase = (process.env.SDP_BASE_URL || "https://sdp.igeeks.ch").trim().replace(/\/+$/, "");
+  // Die SDP-Datenbank liegt im internen igeeks-Netz und spricht kein HTTP —
+  // daher als TCP-Ziel. Host/Port ueberschreibbar, Zugangsdaten braucht der
+  // Erreichbarkeitstest bewusst keine.
+  const sdpDbHost = (process.env.SDP_DB_HOST || "10.0.10.105").trim();
+  const sdpDbPort = Number(process.env.SDP_DB_PORT || 65432);
 
   return [
     // --- Ohne diese vier laeuft gar nichts ---
@@ -730,12 +736,49 @@ function egressTargets() {
     { group: "Optional", name: "ServiceDesk Plus", why: "Ticket-Copilot" + (process.env.SDP_API_KEY ? "" : " (kein SDP_API_KEY gesetzt)"),
       url: sdpBase + "/", optional: !process.env.SDP_API_KEY },
     { group: "Optional", name: "Anthropic API", why: "KI-Vorschlag im Ticket-Copilot" + (process.env.ANTHROPIC_API_KEY ? "" : " (kein ANTHROPIC_API_KEY gesetzt)"),
-      url: "https://api.anthropic.com/v1/models", optional: !process.env.ANTHROPIC_API_KEY }
+      url: "https://api.anthropic.com/v1/models", optional: !process.env.ANTHROPIC_API_KEY },
+
+    // --- Interne Gegenstellen, die kein HTTP sprechen ---
+    // Reiner TCP-Connect: aufmachen, Erreichbarkeit feststellen, sofort wieder
+    // zu. Kein Login, keine Zugangsdaten im Tool — die Frage ist ausschliesslich,
+    // ob die Netzwerkstrecke vom Pod/Container dorthin offen ist.
+    { group: "Interne Dienste (TCP)", name: "ServiceDesk-Plus-Datenbank (PostgreSQL)",
+      why: "Direktabfragen auf die SDP-Datenbank statt ueber die REST-API. Heute nutzt das Tool nur die API — der Test zeigt vorab, ob der Weg ueberhaupt offen ist.",
+      tcp: { host: sdpDbHost, port: sdpDbPort }, optional: true,
+      optionalNote: "an dieser Strecke haengt derzeit keine Funktion — ein Fehlschlag bremst das Tool nicht" }
   ];
 }
 
+// TCP-Erreichbarkeit einer Gegenstelle, die kein HTTP spricht (Datenbanken,
+// LDAP, SMTP). Erfolg heisst: der Port nimmt Verbindungen an. Ein sofortiges
+// ECONNREFUSED ist die Antwort eines erreichbaren Hosts ohne offenen Port,
+// ein Timeout deutet auf Firewall/Routing — beides wird unterschieden.
+function probeTcp(t, base) {
+  const started = Date.now();
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    let done = false;
+    const finish = r => { if (done) return; done = true; sock.destroy(); resolve(r); };
+    sock.setTimeout(5000);
+    sock.once("connect", () => finish({ ...base, ok: true, tcp: true, ms: Date.now() - started }));
+    sock.once("timeout", () => finish({ ...base, ok: false, tcp: true, ms: Date.now() - started,
+      error: "Zeitueberschreitung nach 5s — keine Antwort (Firewall oder Routing)", code: "ETIMEDOUT" }));
+    sock.once("error", e => finish({ ...base, ok: false, tcp: true, ms: Date.now() - started,
+      error: e.code === "ECONNREFUSED" ? "Verbindung abgelehnt — Host erreichbar, Port zu"
+           : e.code === "ENOTFOUND" ? "Hostname nicht aufloesbar (DNS)"
+           : e.message,
+      code: e.code || null }));
+    sock.connect(t.tcp.port, t.tcp.host);
+  });
+}
+
 async function probeEgress(t) {
-  const base = { group: t.group, name: t.name, why: t.why, optional: !!t.optional, url: t.url, host: t.host || null };
+  const base = {
+    group: t.group, name: t.name, why: t.why, optional: !!t.optional,
+    optionalNote: t.optionalNote || null, url: t.url || null,
+    host: t.host || (t.tcp ? `${t.tcp.host}:${t.tcp.port}` : null)
+  };
+  if (t.tcp) return probeTcp(t, base);
   if (!t.url) return { ...base, skipped: true };
   const started = Date.now();
   try {

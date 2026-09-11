@@ -1,5 +1,26 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.50 - Diagnose testet auch Gegenstellen ohne HTTP (2026-09-11)
+
+Der Erreichbarkeitstest im Diagnose-Tab konnte bisher nur HTTP-Ziele pruefen.
+Fuer die Frage "kommt das Tool an die SDP-Datenbank heran?" half das nicht --
+PostgreSQL spricht kein HTTP.
+
+Neu kann ein Ziel statt einer URL einen reinen TCP-Connect bekommen: Socket auf,
+Ergebnis festhalten, sofort wieder zu. Keine Anmeldung, keine Zugangsdaten im
+Tool -- geprueft wird ausschliesslich die Netzwerkstrecke. Die drei Faelle werden
+unterschieden, weil sie auf verschiedene Ursachen zeigen:
+
+- Verbindung steht = Port nimmt Verbindungen an.
+- ECONNREFUSED = Host erreichbar, Port zu (Dienst laeuft nicht oder lauscht nur lokal).
+- Timeout nach 5s = Firewall oder Routing frisst die Pakete.
+
+Erstes Ziel dieser Art: die ServiceDesk-Plus-Datenbank (10.0.10.105:65432,
+ueberschreibbar mit SDP_DB_HOST / SDP_DB_PORT). Sie ist als optional markiert --
+heute haengt keine Funktion daran, das Tool nutzt die SDP-REST-API. Der Test
+beantwortet vorab, ob ein Direktzugriff ueberhaupt moeglich waere.
+
+
 ## Version 2.49 - Autopilot-Import bricht nicht mehr nach Erfolg ab (2026-09-11)
 
 **Das Staging-Paket meldete Fehler, obwohl der Import geklappt hatte.** Nach
