@@ -15,6 +15,7 @@
 const LICENSES = require("./licenses");
 const { graphAllPages } = require("./graph");
 const EXO = require("./exorunner");
+const HARDENING = require("./tenantHardening");
 
 const SECTIONS = [
   { id: "users", label: "Benutzer", desc: "Alle Konten mit Status, Kontotyp und Anlegedatum" },
@@ -22,7 +23,8 @@ const SECTIONS = [
   { id: "mailboxes", label: "Postfächer", desc: "Alle Exchange-Online-Postfächer nach Typ" },
   { id: "sharedMailboxes", label: "Shared Mailboxes", desc: "Freigegebene Postfächer im Detail" },
   { id: "intuneDevices", label: "Intune-Geräte", desc: "Verwaltete Geräte, Compliance, Betriebssystem" },
-  { id: "entraDevices", label: "Azure-AD-Geräte", desc: "Im Verzeichnis registrierte/verbundene Geräte" }
+  { id: "entraDevices", label: "Azure-AD-Geräte", desc: "Im Verzeichnis registrierte/verbundene Geräte" },
+  { id: "hardening", label: "Tenant-Härtung", desc: "Entra-Grundeinstellungen: Selbstregistrierung, App-Registrierung, Gastzugriff, Einladungen" }
 ];
 
 function metric(label, value, state, detail) {
@@ -437,6 +439,50 @@ function buildAnalysis(result) {
  * Bestandsaufnahme erzeugen. sections: Array gewuenschter Section-Ids (leer = alle).
  * onProgress(label) fuer die Fortschrittsanzeige.
  */
+/**
+ * Tenant-Haertung: dieselbe Erhebung wie im Haertungs-Tab (Entra
+ * authorizationPolicy), hier nur lesend als Teil der Bestandsaufnahme. Damit
+ * steht bei einem neuen Mandat sofort im Dokument, welche tenantweiten
+ * Grundeinstellungen vom Sollwert abweichen -- vorher musste man dafuer in
+ * einen eigenen Tab wechseln und es tauchte in keinem Bericht auf.
+ */
+async function sectionHardening(tenant, cert) {
+  const policy = await HARDENING.readPolicy(tenant, cert);
+  const sum = HARDENING.summarize(policy);
+  const sc = HARDENING.score(sum);
+
+  const ja = v => v === true ? "ja" : (v === false ? "nein" : "—");
+  const status = k => k === null ? "nicht lesbar" : (k ? "konform" : "Abweichung");
+
+  // Kritische Schalter zaehlen nicht in den Score (das Tool schaltet sie
+  // bewusst nicht), gehoeren aber in die Liste -- sonst fehlt im Dokument
+  // genau der Punkt, den jemand von Hand im Portal nachziehen muss.
+  const abw = sum.switches.filter(x => x.konform === false).length
+    + (sum.guest.konform ? 0 : 1) + (sum.invites.konform ? 0 : 1);
+
+  const rows = sum.switches.map(x => [
+    x.label, ja(x.soll), ja(x.ist), status(x.konform),
+    x.kritisch ? "nur im Portal änderbar" : (x.warum || "")
+  ]);
+  rows.push(["Gastberechtigungen", "Eingeschränkt (restriktivste Stufe)", sum.guest.label,
+    status(sum.guest.konform), "Legt fest, was Gäste im Verzeichnis sehen"]);
+  rows.push(["Wer darf Gäste einladen", "Nur Administratoren und Gasteinlader", sum.invites.label,
+    status(sum.invites.konform), "Einladungen über einen benannten Kreis statt über jeden Mitarbeitenden"]);
+
+  return {
+    metrics: [
+      metric("Auf Sollwert", sc.konform + " von " + sc.gesamt, sc.konform === sc.gesamt ? "ok" : "warn"),
+      metric("Abweichungen", abw, abw ? "warn" : "ok"),
+      metric("Self-Service-Passwortreset", ja(sum.info.allowedToUseSSPR))
+    ],
+    lists: [
+      list("hardeningSwitches", "Entra-Grundeinstellungen (Soll / Ist)",
+        ["Einstellung", "Soll", "Ist", "Status", "Warum"], rows, abw ? "warn" : "ok")
+    ],
+    data: { summary: sum, score: sc }
+  };
+}
+
 async function runInventory(tenant, cert, sections, onProgress) {
   const wanted = new Set(Array.isArray(sections) && sections.length ? sections : SECTIONS.map(s => s.id));
   const result = {
@@ -455,6 +501,7 @@ async function runInventory(tenant, cert, sections, onProgress) {
     }
   };
 
+  await run("hardening", "Tenant-Härtung", () => sectionHardening(tenant, cert));
   await run("users", "Benutzer", () => sectionUsers(tenant, cert));
   await run("licenses", "Lizenzen", () => sectionLicenses(tenant, cert));
 

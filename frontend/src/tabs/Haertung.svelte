@@ -18,6 +18,7 @@
   import { session } from '../lib/session.js'
   import { activeTab } from '../lib/tabStore.js'
   import TenantContext from '../lib/TenantContext.svelte'
+  import { buildHardeningDocHtml } from '../lib/hardeningDoc.js'
 
   let hard = $state(null)        // authorizationPolicy
   let score = $state(null)
@@ -83,6 +84,24 @@
     groups = Array.isArray(g?.groups) ? g.groups : []
     deviceGroupIds = (Array.isArray(dyn?.groups) ? dyn.groups : []).filter(x => (x.tags || []).length).map(x => x.id)
     loading = false
+  }
+
+  // Haertungs-Audit als druckbares Dokument. Gleiche Mechanik wie Audit-PDF
+  // und Konfig-Doku: eigenes Fenster, Browser druckt nach PDF. Nimmt den
+  // aktuell geladenen Stand -- wer frische Zahlen will, laedt vorher neu.
+  const docBereit = $derived(!!(hard || dev || (enroll && enroll.length)))
+
+  function openHardeningDoc() {
+    if (!docBereit) { notice = '❌ Noch keine Daten geladen.'; return }
+    const html = buildHardeningDocHtml({
+      tenantName: tenantName(),
+      hard, score, dev, enroll,
+      hardError, devError, enrollError
+    })
+    const w = window.open('', '_blank')
+    if (!w) { notice = '❌ Der Browser hat das PDF-Fenster blockiert. Pop-ups für diese Seite erlauben.'; return }
+    w.document.write(html); w.document.close()
+    setTimeout(() => { try { w.focus(); w.print() } catch (e) {} }, 400)
   }
 
   function tenantName() { return $activeTenant ? $activeTenant.name : '' }
@@ -268,6 +287,11 @@
       Die Grundeinstellungen, die bei jedem Managed-Tenant vor dem Regelbetrieb gesetzt werden — sie verhindern
       Shadow-IT, unkontrollierte Identitäten und ungeplante Geräte im Tenant. Alles hier wirkt <strong>tenantweit</strong>.
     </p>
+
+    <div class="hd-toolbar">
+      <button class="ld-btn" onclick={openHardeningDoc} disabled={!docBereit || loading}>📄 Härtungs-Audit als PDF</button>
+      <span class="ld-section-hint">Fasst alle Punkte dieser Seite mit Soll, Ist und Begründung zusammen — für die Kundenablage.</span>
+    </div>
 
     {#if notice}<div class="ld-banner {notice.startsWith('❌') ? 'warn' : 'ok'}"><div><b>{notice}</b></div></div>{/if}
     {#if loading}<p class="ld-section-hint"><span class="ld-spinner"></span> Lade…</p>{/if}

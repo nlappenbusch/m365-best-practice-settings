@@ -1169,6 +1169,9 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
    Sollwert zeigen und daneben den Knopf haben, der ihn geraderückt. Die
    Begründung steht bewusst unter jeder Zeile statt in einem Tooltip: Wer
    tenantweite Schalter umlegt, soll vorher lesen, warum. */
+.hd-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.hd-toolbar .ld-section-hint { margin: 0; }
+
 .hd-card {
     border: 1px solid var(--rule); border-radius: var(--radius-md);
     background: var(--bg-raised); padding: 0.9rem 1rem; margin-bottom: 1rem;

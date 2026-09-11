@@ -1,5 +1,30 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.48 - Tenant-Haertung in Bestandsaufnahme und als eigenes Audit (2026-09-11)
+
+**Die Tenant-Haertung taucht jetzt in der Bestandsaufnahme auf.** Bisher stand
+der Zustand der tenantweiten Grundeinstellungen nur im Haertungs-Tab und in
+keinem einzigen Bericht -- bei einem neuen Mandat musste man dafuer den Tab
+wechseln und Screenshots machen. Die neue Section `hardening` erhebt sie
+lesend ueber dieselbe Quelle wie der Tab (Entra `authorizationPolicy`) und
+weist Soll, Ist, Status und Begruendung je Einstellung aus, dazu
+Gastberechtigungen und Einladungsrecht. Sie laeuft als erstes im Durchgang,
+weil sie schnell ist und nicht auf Exchange wartet.
+
+Weil Auswahl und Dokument der Bestandsaufnahme generisch aufgebaut sind, steht
+der Abschnitt automatisch in der Section-Auswahl und im erzeugten Dokument --
+ohne Aenderung am Frontend.
+
+**Neu: Haertungs-Audit als PDF.** Der Haertungs-Tab hat einen Knopf
+«Härtungs-Audit als PDF», der alle vier Bloecke der Seite in ein
+druckbares Dokument fasst: Entra-Grundeinstellungen, Gastzugriff,
+Geraeteregistrierung und die Intune-Registrierungseinschraenkungen. Jeder Punkt
+mit Soll, Ist, Status und dem Warum; Einstellungen, die das Tool bewusst nicht
+selbst umschaltet, sind als solche gekennzeichnet samt Portal-Pfad. Am Ende
+eine Zusammenfassung der offenen Punkte. Stil und Mechanik wie bei Audit-PDF
+und Konfig-Doku (eigenes Fenster, Browser druckt nach PDF), damit die
+Dokumente nebeneinander aus einem Haus aussehen.
+
 ## Version 2.47 - TCM raus, Safe-Links-Doku lesbar (2026-09-11)
 
 **Die Alert-Policy-Pruefung ueber TCM ist entfernt.** Sie existierte nur, weil
