@@ -8,18 +8,18 @@ Microsofts Tenant-Configuration-Management-Snapshots genommen. Der Weg erwies
 sich als unzuverlaessig: erst ein ungueltiger displayName, dann Jobs mit Status
 "failed", zuletzt Jobs, die nicht fertig wurden -- fuer eine einzige Zeile im
 Bericht. Entfernt sind die Audit-Gruppe, das Frontend-Polling, der
-Snapshot-Start im Audit-Endpoint, der Polling-Endpoint, , die
+Snapshot-Start im Audit-Endpoint, der Polling-Endpoint, `api/lib/tcm.js`, die
 TCM-Einrichtung beim Onboarding und Reparieren (TCM-Service-Principal,
 Security-Reader-Rolle) sowie die Graph-Permission
- und das TCM-Badge in der Tenant-Liste.
+`ConfigurationMonitoring.ReadWrite.All` und das TCM-Badge in der Tenant-Liste.
 
-**Das Anlegen der Alert Policy bleibt.**  erzeugt
-weiterhin den PowerShell-Schnipsel fuer  im
+**Das Anlegen der Alert Policy bleibt.** `buildAlertPolicySnippet` erzeugt
+weiterhin den PowerShell-Schnipsel fuer `BP_UserRequestReleaseStatus` im
 Deploy-Ergebnis. Entfallen ist nur die automatische Nachpruefung, nicht die
 Moeglichkeit, die Richtlinie auszurollen.
 
-**Wichtiger Nebeneffekt, der sonst durchgerutscht waere:**  im
-Tenant-Store verlangte . Da das Feld nicht mehr geliefert wird, waere ab
+**Wichtiger Nebeneffekt, der sonst durchgerutscht waere:** `tenantReady()` im
+Tenant-Store verlangte `t.tcm`. Da das Feld nicht mehr geliefert wird, waere ab
 sofort **kein Tenant mehr als bereit** angezeigt worden. Die Pruefung stuetzt
 sich jetzt auf Zertifikat, Exchange- und Compliance-Rolle.
 
@@ -27,7 +27,7 @@ sich jetzt auf Zertifikat, Exchange- und Compliance-Rolle.
 zwoelfzeiligen Fliesstext-Block sind vier Absaetze mit Zwischenueberschriften
 geworden -- was es ist, was die Vorlage anlegt, das Soll als Aufzaehlung, und
 die Lizenzvoraussetzung. Dafuer duerfen die Intro-Texte jetzt HTML enthalten
-(); Texte ohne Tag werden wie bisher als ein Absatz gewickelt.
+(`ldIntroHtml`); Texte ohne Tag werden wie bisher als ein Absatz gewickelt.
 
 ## Version 2.46 - Audit antwortet wieder sofort (2026-09-11)
 
