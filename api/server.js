@@ -30,7 +30,6 @@ SERVERLOG.install();
 const EXO = require("./lib/exorunner");
 const DEPLOY = require("./lib/deploy");
 const OIB = require("./lib/oib");
-const TCM = require("./lib/tcm");
 const AUTOPILOT = require("./lib/autopilot");
 const GRAPHLIB = require("./lib/graph");
 const BD = require("./lib/bitdefender");
@@ -94,8 +93,8 @@ const EXO_APP_ID = "00000002-0000-0ff1-ce00-000000000000"; // Office 365 Exchang
 const EXCHANGE_ADMIN_ROLE_TEMPLATE = "29232cdf-9323-42fd-ade2-1d097af3e4de"; // Exchange Administrator (EXO PowerShell)
 const COMPLIANCE_ADMIN_ROLE_TEMPLATE = "17315797-102d-40b4-93e0-432062caca18"; // Compliance Administrator (Security & Compliance PowerShell)
 const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
-// Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen), TCM-Snapshots
-// (Alert-Policy-Pruefung im Audit), App-Deployment (AAD-APP-*-Gruppe anlegen/
+// Graph-Application-Permissions: OIB-Zuweisung (Intune + Gruppen),
+// App-Deployment (AAD-APP-*-Gruppe anlegen/
 // verschachteln + Win32-App-Upload), Conditional-Access-Deployment und
 // KI-Schreibrechte-Aktionen (MFA-Reset braucht die eigene, engere
 // UserAuthenticationMethod.ReadWrite.All-Berechtigung -- die anderen Aktionen
@@ -103,7 +102,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // bereits ab).
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "ConfigurationMonitoring.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
 // Optionale Graph-Permission: Policy.ReadWrite.DeviceConfiguration steuert die
 // Entra-Geraeteeinstellungen (LAPS-Schalter). Sie steht bewusst NICHT in
 // GRAPH_APP_PERMS: Die Liste dort wird strikt aufgeloest und wirft, wenn eine
@@ -139,11 +138,6 @@ const GRAPH_APP_PERMS_MAESTER = ["Directory.Read.All", "DirectoryRecommendations
 const TEAMS_ADMIN_ROLE_TEMPLATE = "69091246-20e8-4a56-aa4d-066075b2a7a8"; // Teams Administrator
 const SPO_APP_ID = "00000003-0000-0ff1-ce00-000000000000"; // Office 365 SharePoint Online
 const SPO_APP_PERMS_MAESTER = ["Sites.FullControl.All"];
-// Tenant Configuration Management: Microsofts TCM-Dienst-SP liest fuer uns die
-// S&C-Ressourcen (protectionAlert) — braucht Exchange.ManageAsApp + Security Reader.
-const TCM_APP_ID = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998";
-const M365_ADMIN_SERVICES_APP_ID = "6b91db1b-f05b-405a-a0b2-e3f60b28d645";
-const SECURITY_READER_ROLE_TEMPLATE = "5d6b6bb7-de71-4623-b4af-96380a352509"; // Security Reader
 
 // ---------- Persistenz ----------
 function loadState() {
@@ -311,22 +305,6 @@ async function ensureServicePrincipal(token, appId) {
 }
 
 /**
- * TCM-Einrichtung fuer die Alert-Policy-Pruefung: TCM- und M365-Admin-Services-SP
- * anlegen, dem TCM-SP Exchange.ManageAsApp geben und die Security-Reader-Rolle
- * zuweisen (gemaess Microsoft-Doku fuer S&C-Ressourcen).
- */
-async function ensureTcmSetup(token, exoSp, manageRole) {
-  const tcmSp = await ensureServicePrincipal(token, TCM_APP_ID);
-  await ensureServicePrincipal(token, M365_ADMIN_SERVICES_APP_ID);
-  const existing = (await gReq(token, "GET", `/servicePrincipals/${tcmSp.id}/appRoleAssignments`)).value || [];
-  const states = [
-    await ensureAppRoleAssignment(token, tcmSp.id, exoSp.id, manageRole.id, existing),
-    await ensureDirectoryRole(token, tcmSp.id, SECURITY_READER_ROLE_TEMPLATE)
-  ];
-  return states.includes("fixed") ? "fixed" : "ok";
-}
-
-/**
  * Legt die App-Registrierung an (idempotent): Exchange.ManageAsApp (app-only EXO),
  * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
  */
@@ -368,10 +346,6 @@ async function provisionAppReg(token) {
   // Teams Administrator: fuer die app-only Teams-Verbindung der Maester-Tests.
   try { await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE); } catch (e) { console.log("Teams-Admin-Rolle nicht zuweisbar: " + (e.message || e)); }
 
-  // TCM einrichten (Alert-Policy-Pruefung im Audit) — best effort
-  let tcm = false, tcmErr = null;
-  try { await ensureTcmSetup(token, exoSp, manageRole); tcm = true; } catch (e) { tcmErr = e.message || String(e); }
-
   // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
   let certThumbprint = null, certPem = null, certError = null;
   try {
@@ -386,7 +360,7 @@ async function provisionAppReg(token) {
     certPem = pems.private + "\n" + pems.cert;
   } catch (e) { certError = e.message; }
 
-  return { appId: app.appId, consentOk, consentErr, exoRole, exoRoleErr, sccRole, sccRoleErr, tcm, tcmErr, certThumbprint, certPem, certError };
+  return { appId: app.appId, consentOk, consentErr, exoRole, exoRoleErr, sccRole, sccRoleErr, certThumbprint, certPem, certError };
 }
 
 /**
@@ -455,7 +429,7 @@ async function repairAppReg(token, rec, opts) {
   }
 
   // 5./6. Entra-Rollen
-  let exoRole = false, sccRole = false, tcm = false;
+  let exoRole = false, sccRole = false;
   if (appSp) {
     try { push("Exchange-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE)); exoRole = true; }
     catch (e) { push("Exchange-Administrator-Rolle", "failed", e.message); }
@@ -464,10 +438,6 @@ async function repairAppReg(token, rec, opts) {
     try { push("Teams-Administrator-Rolle (Maester)", await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE)); }
     catch (e) { push("Teams-Administrator-Rolle (Maester)", "failed", e.message); }
   }
-
-  // 6b. TCM-Einrichtung (Alert-Policy-Pruefung im Audit)
-  try { push("TCM-Einrichtung (Alert-Policy-Prüfung)", await ensureTcmSetup(token, exoSp, manageRole)); tcm = true; }
-  catch (e) { push("TCM-Einrichtung (Alert-Policy-Prüfung)", "failed", e.message); }
 
   // 7. Zertifikat: KEINE Rotation — nur pruefen und ggf. den Public Key aus dem
   //    lokalen PEM wieder an der App hinterlegen (falls dort entfernt).
@@ -522,7 +492,7 @@ async function repairAppReg(token, rec, opts) {
     }
   } catch (e) { push("Zertifikat", "failed", e.message); }
 
-  return { items, exoRole, sccRole, tcm };
+  return { items, exoRole, sccRole };
 }
 
 // ---------- App ----------
@@ -1129,7 +1099,7 @@ app.get("/api/tenants", (req, res) => {
   const s = loadState();
   res.json((s.tenants || []).map(t => ({
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
-    appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, tcm: !!t.tcm, addedAt: t.addedAt,
+    appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, addedAt: t.addedAt,
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
     // Nur ob und wann eine Vorlage hinterlegt ist — der Inhalt kommt ueber
@@ -1780,7 +1750,7 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
   const rec = {
     id: uid, name: orgName, tenantId, organization, clientId: result.appId,
     certThumbprint: result.certThumbprint || "", exoRole: result.exoRole, sccRole: result.sccRole,
-    tcm: result.tcm, addedAt: new Date().toISOString()
+    addedAt: new Date().toISOString()
   };
   if (existingIdx >= 0) s.tenants[existingIdx] = Object.assign(s.tenants[existingIdx], rec);
   else s.tenants.push(rec);
@@ -1795,14 +1765,12 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
       consent: !!result.consentOk,
       exoRole: !!result.exoRole,
       sccRole: !!result.sccRole,
-      tcm: !!result.tcm,
       cert: !!result.certPem
     },
     warnings: [
       result.consentOk ? null : ("Admin-Consent fehlgeschlagen: " + result.consentErr),
       result.exoRole ? null : ("Exchange-Administrator-Rolle nicht zugewiesen: " + (result.exoRoleErr || "unbekannt")),
       result.sccRole ? null : ("Compliance-Administrator-Rolle nicht zugewiesen: " + (result.sccRoleErr || "unbekannt")),
-      result.tcm ? null : ("TCM-Einrichtung fehlgeschlagen (Alert-Policy-Prüfung im Audit nicht möglich): " + (result.tcmErr || "unbekannt")),
       result.certPem ? null : ("Zertifikat konnte nicht erstellt werden: " + (result.certError || "unbekannt"))
     ].filter(Boolean)
   });
@@ -1859,7 +1827,6 @@ app.post("/api/fix/poll", wrap(async (req, res) => {
         { name: "Admin-Consent", state: "fixed", detail: "" },
         { name: "Exchange-Administrator-Rolle", state: "ok", detail: "" },
         { name: "Compliance-Administrator-Rolle", state: "fixed", detail: "" },
-        { name: "TCM-Einrichtung (Alert-Policy-Prüfung)", state: "fixed", detail: "" },
         { name: "Zertifikat", state: "ok", detail: "lokal + in der App hinterlegt" }
       ]
     });
@@ -1891,7 +1858,6 @@ app.post("/api/fix/poll", wrap(async (req, res) => {
   // Tenant-Flags aktualisieren, damit die Badges den echten Zustand zeigen
   t.exoRole = result.exoRole;
   t.sccRole = result.sccRole;
-  t.tcm = result.tcm;
   saveState(s);
   delete req.session.fix;
   // Gecachte Graph-Tokens verwerfen — sie enthalten die neuen Rollen noch nicht
@@ -5879,23 +5845,16 @@ app.post("/api/tenants/:id/conditionalaccess/breakglass/create", wrap(async (req
   res.json({ ok: true, userPrincipalName: created.userPrincipalName, password: created.password });
 }));
 
-// Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant (EXO) und
-// startet parallel einen TCM-Snapshot fuer die Alert Policy (Graph).
+// Ist-Zustand-Audit: liest die BP_-Policies live aus dem Tenant (EXO).
 // Der Soll/Ist-Vergleich passiert im Frontend (dort liegt die Konfiguration).
 app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") {
     return res.json({
       ok: true, audit: fakeAudit(),
-      alertPolicy: { status: "done", found: true, notifyUser: ["admin@example.com", "support@msp-provider.com"], disabled: false, aggregationType: "None" },
       acceptedDeviations: t.acceptedDeviations || []
     });
   }
-
-  // TCM-Snapshot parallel zum EXO-Audit anstossen (der Job braucht ohnehin etwas)
-  let tcmJob = null, tcmStartErr = null;
-  try { tcmJob = await TCM.startAlertPolicySnapshot(t, certPemPath(t.tenantId)); }
-  catch (e) { tcmStartErr = e.message; }
 
   const auth = { appId: t.clientId, organization: t.organization, certPemPath: certPemPath(t.tenantId) };
   // Lizenz-Check fuer Safe Links/Attachments (Defender for O365) laeuft per
@@ -5910,40 +5869,7 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   const auditResult = r.data.audit || {};
   auditResult.defenderLicense = await licensePromise;
 
-  // TCM-Ergebnis kurz abwarten (max ~30s), sonst uebernimmt das Frontend das Polling
-  let alertPolicy;
-  if (!tcmJob || !tcmJob.id) {
-    // Hinweis nur, wenn der Fehler wirklich nach fehlender Einrichtung aussieht
-    // (401/403, Consent, fehlender SP). Ein 400 "validation error" kommt vom
-    // Request bzw. vom Tenant-Zustand -- da schickt "Reparieren" nur auf die
-    // falsche Faehrte, deshalb bleibt der Rohfehler dann allein stehen.
-    const looksLikeSetup = /forbidden|unauthor|insufficient|privile|consent|accessdenied|not found|does not exist|service principal/i
-      .test(String(tcmStartErr || ""));
-    alertPolicy = {
-      status: "error",
-      error: tcmStartErr || "TCM-Snapshot konnte nicht gestartet werden",
-      hint: (!tcmStartErr || looksLikeSetup)
-        ? "🔧 Reparieren ausführen — richtet die TCM-Voraussetzungen ein (TCM-SP, Exchange.ManageAsApp, Security Reader, ConfigurationMonitoring-Permission)."
-        : "Kein Berechtigungsfehler — Reparieren hilft hier nicht. Die Begründung steht oben in Klammern; sie kommt direkt von Graph."
-    };
-  } else {
-    alertPolicy = { status: "pending", jobId: tcmJob.id };
-    // Nur ein kurzes Fenster abwarten, falls der Snapshot sofort fertig ist --
-    // danach uebernimmt das Frontend (pollTcm) und zeigt derweil "Snapshot
-    // laeuft". Vorher standen hier 6 x 5 s: solange der Job wegen des ungueltigen
-    // displayName sofort scheiterte, fiel das nicht auf; seit er wirklich laeuft,
-    // haengt das ganze Audit bis zu 30 Sekunden ohne jede Rueckmeldung.
-    for (let i = 0; i < 2; i++) {
-      await new Promise(rs => setTimeout(rs, 1500));
-      try {
-        const result = await TCM.getAlertPolicySnapshotResult(t, certPemPath(t.tenantId), tcmJob.id);
-        if (result.status !== "pending") { alertPolicy = result; break; }
-      } catch (e) { alertPolicy = { status: "error", error: e.message }; break; }
-    }
-    if (alertPolicy.status === "pending") alertPolicy.jobId = tcmJob.id;
-  }
-
-  res.json({ ok: true, audit: auditResult, alertPolicy, acceptedDeviations: t.acceptedDeviations || [] });
+  res.json({ ok: true, audit: auditResult, acceptedDeviations: t.acceptedDeviations || [] });
 }));
 
 // SPF/DKIM/DMARC-Checker: DKIM-Aktivierungsstatus per EXO (Get-DkimSigningConfig),
@@ -5981,13 +5907,6 @@ app.post("/api/tenants/:id/deviations", wrap(async (req, res) => {
   tenant.acceptedDeviations = list;
   saveState(s);
   res.json({ ok: true, acceptedDeviations: list });
-}));
-
-// Fortsetzung des TCM-Snapshot-Pollings (wenn der Job beim Audit noch lief)
-app.get("/api/tenants/:id/tcm/:jobId", wrap(async (req, res) => {
-  const t = requireTenant(req);
-  const result = await TCM.getAlertPolicySnapshotResult(t, certPemPath(t.tenantId), req.params.jobId);
-  res.json(result);
 }));
 
 app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));

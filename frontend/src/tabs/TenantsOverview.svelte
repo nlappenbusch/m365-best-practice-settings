@@ -533,7 +533,7 @@
           <div class="wizard-step-body">
             <div class="wizard-step-title" class:done={ready}>🏢 Tenant-Setup (Basis)</div>
             <div class="wizard-step-desc">
-              {#if ready}Automatisch erkannt — Berechtigungen, Zertifikat und TCM sind vorhanden.
+              {#if ready}Automatisch erkannt — Berechtigungen und Zertifikat sind vorhanden.
               {:else}Noch nicht vollständig — oben „🔧 Reparieren" ausführen, bevor die folgenden Schritte Sinn ergeben.{/if}
             </div>
           </div>
@@ -791,7 +791,6 @@
           <span class="ld-badge {su.consent ? 'ok' : 'warn'}">{su.consent ? '✓' : '⚠'} Admin-Consent</span>
           <span class="ld-badge {su.exoRole ? 'ok' : 'warn'}">{su.exoRole ? '✓' : '⚠'} Exchange-Admin-Rolle</span>
           <span class="ld-badge {su.sccRole ? 'ok' : 'warn'}">{su.sccRole ? '✓' : '⚠'} Compliance-Rolle</span>
-          <span class="ld-badge {su.tcm ? 'ok' : 'warn'}">{su.tcm ? '✓' : '⚠'} TCM (Alert-Prüfung)</span>
           <span class="ld-badge {su.cert ? 'ok' : 'warn'}">{su.cert ? '✓' : '⚠'} Zertifikat</span>
         </div>
         {#if onboardResult.warnings?.length}

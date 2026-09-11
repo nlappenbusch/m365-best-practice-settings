@@ -4,7 +4,7 @@
 import { writable, derived, get } from 'svelte/store'
 import { apiGet, apiDelete } from './api.js'
 
-export const tenants = writable([])          // [{ id, name, organization, appId, exoRole, sccRole, tcm, certPresent, addedAt }]
+export const tenants = writable([])          // [{ id, name, organization, appId, exoRole, sccRole, certPresent, addedAt }]
 export const activeTenantId = writable(null)
 export const tenantsLoaded = writable(false)
 
@@ -19,7 +19,7 @@ export const activeTenant = derived(
 )
 
 export function tenantReady(t) {
-  return !!(t && t.certPresent && t.exoRole && t.sccRole && t.tcm)
+  return !!(t && t.certPresent && t.exoRole && t.sccRole)
 }
 
 export function tenantMissing(t) {
@@ -27,8 +27,7 @@ export function tenantMissing(t) {
   return [
     t.certPresent ? null : 'Zertifikat',
     t.exoRole ? null : 'Exchange-Rolle',
-    t.sccRole ? null : 'Compliance-Rolle',
-    t.tcm ? null : 'TCM'
+    t.sccRole ? null : 'Compliance-Rolle'
   ].filter(Boolean)
 }
 

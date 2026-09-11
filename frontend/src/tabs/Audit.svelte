@@ -27,7 +27,7 @@
     return bad
   }
 
-  function buildAuditGroups(audit, alertPolicy, cfg, autoDomainsOn, devMap) {
+  function buildAuditGroups(audit, cfg, autoDomainsOn, devMap) {
     const ap = cfg.antiPhishing, as = cfg.antiSpam, am = cfg.antiMalware, g = cfg.global
     const ob = cfg.outbound || {}
     const sollDomains = autoDomainsOn ? (audit.acceptedDomains || []) : [...g.domains, g.onmicrosoftDomain].filter(Boolean)
@@ -201,24 +201,6 @@
     if (ob.rejectDirectSend) cmpBool(gob, 'Direct Send abweisen', true, rds)
     else info(gob, 'Direct Send abweisen', 'Vorlage: nicht gesetzt · Tenant: ' + (rds === true ? 'aktiv' : rds === false ? 'inaktiv' : '(unbekannt)'))
 
-    // Alert Policy — via TCM-Snapshot (Graph)
-    const ga = group('🔔', 'Alert Policy (Security & Compliance)')
-    const ap2 = alertPolicy || { status: 'error', error: 'keine TCM-Daten' }
-    if (ap2.status === 'pending') {
-      ga.checks.push({ state: 'loading', label: 'BP_UserRequestReleaseStatus', detail: 'TCM-Snapshot läuft — Ergebnis kommt gleich…' })
-    } else if (ap2.status === 'error') {
-      info(ga, 'BP_UserRequestReleaseStatus', 'nicht prüfbar: ' + (ap2.error || 'unbekannt') + (ap2.hint ? ' · ' + ap2.hint : ''))
-    } else if (!ap2.found) {
-      ga.checks.push({ state: 'missing', label: 'BP_UserRequestReleaseStatus', detail: 'nicht vorhanden — Snippet aus dem Deploy-Ergebnis auf Windows ausführen' })
-    } else {
-      ok(ga, 'BP_UserRequestReleaseStatus', 'vorhanden (geprüft via TCM-Snapshot)')
-      cmpBool(ga, 'Alert aktiv', true, !ap2.disabled)
-      const soll = [g.adminEmail, g.igeeksEmail].filter(Boolean).map(e => e.toLowerCase())
-      const ist = (ap2.notifyUser || []).map(e => String(e).toLowerCase())
-      const fehlend = soll.filter(e => !ist.includes(e))
-      if (fehlend.length === 0) ok(ga, 'Empfänger', (ap2.notifyUser || []).join(', '))
-      else bad(ga, 'Empfänger', soll.join(', '), (ap2.notifyUser || []).join(', ') || '(leer)')
-    }
 
     // Safe Links & Safe Attachments — Defender for Office 365 (P1/P2), kein BP_-Objekt:
     // diese Vorlage deployt es nicht, aber bei einem Phishing-Verdacht ist "ist es
@@ -345,9 +327,8 @@
   // ---------- Komponenten-Zustand ----------
   let auditBusy = $state(false)
   let auditError = $state(null)
-  let auditData = $state(null)     // { audit, alertPolicy }
+  let auditData = $state(null)     // { audit }
   let deviations = $state([])      // [{key, reason}]
-  let auditTcmTimer = null
   let lastTenantId = null
 
   // ---------- SPF/DKIM/DMARC-Checker ----------
@@ -397,25 +378,19 @@
       daError = null
       daResults = null
       daExpanded = {}
-      if (auditTcmTimer) { clearTimeout(auditTcmTimer); auditTcmTimer = null }
     }
   })
 
-  onDestroy(() => { if (auditTcmTimer) clearTimeout(auditTcmTimer) })
 
   async function runAudit() {
     if (!$activeTenant) return
-    if (auditTcmTimer) { clearTimeout(auditTcmTimer); auditTcmTimer = null }
     auditBusy = true
     auditError = null
     const tenantId = $activeTenant.id
     try {
       const r = await apiPost(`/api/tenants/${encodeURIComponent(tenantId)}/audit`)
       deviations = Array.isArray(r.acceptedDeviations) ? r.acceptedDeviations : []
-      auditData = { audit: r.audit || {}, alertPolicy: r.alertPolicy || null }
-      if (auditData.alertPolicy?.status === 'pending' && auditData.alertPolicy.jobId) {
-        pollTcm(tenantId, auditData.alertPolicy.jobId, 0)
-      }
+      auditData = { audit: r.audit || {} }
     } catch (e) {
       auditError = e.message
     }
@@ -466,27 +441,6 @@
     daExpanded = { ...daExpanded, [domain]: !daExpanded[domain] }
   }
 
-  function pollTcm(tenantId, jobId, tries) {
-    auditTcmTimer = setTimeout(async () => {
-      let result
-      try {
-        result = await apiGet(`/api/tenants/${encodeURIComponent(tenantId)}/tcm/${encodeURIComponent(jobId)}`)
-      } catch (e) {
-        auditData = { ...auditData, alertPolicy: { status: 'error', error: e.message } }
-        return
-      }
-      if (result.status === 'pending') {
-        if (tries + 1 >= 24) {
-          auditData = { ...auditData, alertPolicy: { status: 'error', error: 'TCM-Snapshot dauert ungewöhnlich lange — später erneut prüfen.' } }
-          return
-        }
-        pollTcm(tenantId, jobId, tries + 1)
-        return
-      }
-      auditData = { ...auditData, alertPolicy: result }
-    }, 5000)
-  }
-
   async function markDeviation(groupTitle, label, action) {
     if (!auditData || !$activeTenant) return
     const key = groupTitle + ' :: ' + label
@@ -511,7 +465,7 @@
 
   const auditResult = $derived.by(() => {
     if (!auditData) return null
-    return buildAuditGroups(auditData.audit, auditData.alertPolicy, $config, $autoDomains, devMap)
+    return buildAuditGroups(auditData.audit, $config, $autoDomains, devMap)
   })
 
   const groups = $derived(auditResult?.groups ?? [])
@@ -687,8 +641,23 @@
     'Anti-Phishing': 'Richtlinie BP_AntiPhishing: Spoof Intelligence, Safety Tips, Kennzeichnung nicht authentifizierter Absender und DMARC-Durchsetzung. Der Empfänger-Scope läuft über BP_AntiPhishing_Rule; der Spoof-Quarantine-Tag ist nur per PowerShell setzbar (Portal-Limitierung).',
     'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Spam- und Phishing-Verdicts gehen in die Quarantäne, Bulk-Mail (Graymail/Newsletter ab BCL-Schwelle) in den Junk-Ordner; Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäss Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
     'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',
-    'Alert Policy (Security & Compliance)': 'Eigene Warnungsrichtlinie BP_UserRequestReleaseStatus, da die eingebaute Microsoft-Richtlinie schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin- und MSP-Postfach.',
-    'Safe Links & Safe Attachments': 'Defender-for-Office-365-Funktion (Plan 1, u.a. in Business Premium enthalten, oder Plan 2, u.a. in Microsoft 365 E5) — die Vorlage legt hier — sofern eingeschaltet — BP_SafeLinks, BP_SafeLinks_Rule, BP_SafeAttachments und BP_SafeAttachments_Rule an; Microsofts Preset- und Built-in-Richtlinien bleiben unangetastet. Safe Links prüft Links in E-Mail, Office-Apps und Teams im Moment des Klicks; Safe Attachments öffnet Anhänge vorab in einer Sandbox und hält sie bei schadhaftem Verhalten zurück. Soll gemäss Best Practice: Safe Links aktiv für E-Mail, Office-Apps und Teams; Safe Attachments aktiv für SharePoint/OneDrive/Teams; mindestens eine aktive Safe-Links- und eine aktive Safe-Attachments-Richtlinie, jeweils mit einer Regel, deren Empfänger-Scope alle Mail-Domains des Tenants abdeckt — eine Richtlinie ohne zugehörige Regel greift für niemanden. Ohne eine der beiden Lizenzen ist die Funktion im Tenant nicht verfügbar; die Zeile «Lizenz (Defender for Office 365)» in der Tabelle weist das gesondert aus.',
+    'Safe Links & Safe Attachments': '<p><b>Was es ist.</b> Eine Funktion von Defender for Office 365 (Plan 1, u.a. in Business Premium enthalten, oder Plan 2, u.a. in Microsoft 365 E5). Safe Links prüft Links in E-Mail, Office-Apps und Teams im Moment des Klicks. Safe Attachments öffnet Anhänge vorab in einer Sandbox und hält sie zurück, wenn sie sich dort schadhaft verhalten.</p>'
+      + '<p><b>Was die Vorlage anlegt.</b> Sofern eingeschaltet: <code>BP_SafeLinks</code>, <code>BP_SafeLinks_Rule</code>, <code>BP_SafeAttachments</code> und <code>BP_SafeAttachments_Rule</code>. Microsofts Preset- und Built-in-Richtlinien bleiben unangetastet.</p>'
+      + '<p><b>Soll gemäss Best Practice.</b></p>'
+      + '<ul class="plain">'
+      + '<li>Safe Links aktiv für E-Mail, Office-Apps und Teams</li>'
+      + '<li>Safe Attachments aktiv für SharePoint, OneDrive und Teams</li>'
+      + '<li>je eine aktive Richtlinie <b>mit</b> zugehöriger Regel, deren Empfänger-Scope alle Mail-Domains des Tenants abdeckt — eine Richtlinie ohne Regel greift für niemanden</li>'
+      + '</ul>'
+      + '<p><b>Voraussetzung.</b> Ohne Plan 1 oder Plan 2 ist die Funktion im Tenant nicht verfügbar. Die Zeile «Lizenz (Defender for Office 365)» in der Tabelle weist das gesondert aus.</p>',
+  }
+
+  // Intro-Texte duerfen HTML enthalten (Absaetze, Listen). Alles, was nicht mit
+  // einem Tag beginnt, wird wie bisher als ein Absatz gewickelt.
+  function ldIntroHtml(title) {
+    const t = (LD_DOC_INTRO[title] || '').trim()
+    if (!t) return ''
+    return t.startsWith('<') ? t : '<p>' + t + '</p>'
   }
 
   function ldDocStatusCell(c) {
@@ -750,7 +719,7 @@
         extra = '<p class="ft"><b>Blockierte Dateitypen (Soll, ' + fileTypesSoll.length + '):</b> <span class="mono">' + ldEsc(fileTypesSoll.join(', ')) + '</span></p>'
       }
       return sec(grp.icon + ' ' + ldEsc(grp.title),
-        '<p>' + (LD_DOC_INTRO[grp.title] || '') + '</p>' + checksTable(grp) + extra)
+        ldIntroHtml(grp.title) + checksTable(grp) + extra)
     }).join('')
 
     const wanted = [], open = []

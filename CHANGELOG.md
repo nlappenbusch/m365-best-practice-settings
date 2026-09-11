@@ -1,5 +1,34 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.47 - TCM raus, Safe-Links-Doku lesbar (2026-09-11)
+
+**Die Alert-Policy-Pruefung ueber TCM ist entfernt.** Sie existierte nur, weil
+Security-&-Compliance-PowerShell auf Linux nicht laeuft, und hat den Umweg ueber
+Microsofts Tenant-Configuration-Management-Snapshots genommen. Der Weg erwies
+sich als unzuverlaessig: erst ein ungueltiger displayName, dann Jobs mit Status
+"failed", zuletzt Jobs, die nicht fertig wurden -- fuer eine einzige Zeile im
+Bericht. Entfernt sind die Audit-Gruppe, das Frontend-Polling, der
+Snapshot-Start im Audit-Endpoint, der Polling-Endpoint, , die
+TCM-Einrichtung beim Onboarding und Reparieren (TCM-Service-Principal,
+Security-Reader-Rolle) sowie die Graph-Permission
+ und das TCM-Badge in der Tenant-Liste.
+
+**Das Anlegen der Alert Policy bleibt.**  erzeugt
+weiterhin den PowerShell-Schnipsel fuer  im
+Deploy-Ergebnis. Entfallen ist nur die automatische Nachpruefung, nicht die
+Moeglichkeit, die Richtlinie auszurollen.
+
+**Wichtiger Nebeneffekt, der sonst durchgerutscht waere:**  im
+Tenant-Store verlangte . Da das Feld nicht mehr geliefert wird, waere ab
+sofort **kein Tenant mehr als bereit** angezeigt worden. Die Pruefung stuetzt
+sich jetzt auf Zertifikat, Exchange- und Compliance-Rolle.
+
+**Der Safe-Links-Abschnitt in der Konfig-Doku ist gegliedert.** Aus einem
+zwoelfzeiligen Fliesstext-Block sind vier Absaetze mit Zwischenueberschriften
+geworden -- was es ist, was die Vorlage anlegt, das Soll als Aufzaehlung, und
+die Lizenzvoraussetzung. Dafuer duerfen die Intro-Texte jetzt HTML enthalten
+(); Texte ohne Tag werden wie bisher als ein Absatz gewickelt.
+
 ## Version 2.46 - Audit antwortet wieder sofort (2026-09-11)
 
 **Das Audit blockierte bis zu 30 Sekunden ohne Rueckmeldung.** Das Backend
