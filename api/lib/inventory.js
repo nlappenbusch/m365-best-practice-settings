@@ -506,18 +506,35 @@ async function runInventory(tenant, cert, sections, onProgress) {
   await run("licenses", "Lizenzen", () => sectionLicenses(tenant, cert));
 
   if (wanted.has("mailboxes") || wanted.has("sharedMailboxes")) {
-    if (onProgress) onProgress("Postfächer");
+    // Beide Abschnitte teilen sich EINEN EXO-Abruf, brauchen im Fortschritt
+    // aber je eine eigene Meldung: appJobProgress (server.js) setzt nur
+    // Schritte auf "done", die vorher "running" waren, und finishAppJob
+    // ebenso. Ein nie gemeldeter Schritt bleibt deshalb bis zum Schluss auf
+    // "pending" — genau so stand "Shared Mailboxes" im UI dauerhaft auf ○,
+    // obwohl der Abschnitt sein Ergebnis geliefert hatte.
+    const steps = [];
+    if (wanted.has("mailboxes")) steps.push("Postfächer");
+    if (wanted.has("sharedMailboxes")) steps.push("Shared Mailboxes");
+    // steps[1] existiert nur, wenn beide Abschnitte gewuenscht sind; sonst ist
+    // der eine bereits mit steps[0] gemeldet.
+    const progress = i => { if (onProgress && steps[i]) onProgress(steps[i]); };
+
+    progress(0);
     try {
       const mailboxes = await fetchMailboxes(tenant, cert);
       if (wanted.has("mailboxes")) {
         const r = sectionMailboxesFrom(mailboxes);
         result.sections.mailboxes = { ok: true, label: "Postfächer", metrics: r.metrics, lists: r.lists, data: r.data };
       }
+      progress(1);
       if (wanted.has("sharedMailboxes")) {
         const r = sectionSharedMailboxesFrom(mailboxes);
         result.sections.sharedMailboxes = { ok: true, label: "Shared Mailboxes", metrics: r.metrics, lists: r.lists, data: r.data };
       }
     } catch (e) {
+      // Auch im Fehlerfall melden, sonst haengt der Schritt auf "pending",
+      // waehrend der Abschnitt darunter einen Fehler ausweist.
+      progress(1);
       const fail = { ok: false, error: e.message, hint: e.hint || null, metrics: [] };
       if (wanted.has("mailboxes")) result.sections.mailboxes = { ...fail, label: "Postfächer" };
       if (wanted.has("sharedMailboxes")) result.sections.sharedMailboxes = { ...fail, label: "Shared Mailboxes" };

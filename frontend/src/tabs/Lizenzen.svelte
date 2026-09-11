@@ -123,7 +123,7 @@
       <h2>Handlungsfeld 2 — Inaktive lizenzierte Konten (&gt;${d.inactiveDays} Tage)</h2>
       ${d.signInAvailable
         ? (inactRows ? `<p class="note">Kein Sign-in (interaktiv oder nicht-interaktiv) seit mehr als ${d.inactiveDays} Tagen. Empfehlung: Klaeren, ob das Konto noch gebraucht wird — sonst Lizenz entziehen.</p><table><thead><tr><th>Name</th><th>Anmeldename</th><th>Letzter Sign-in</th><th>Lizenzen</th></tr></thead><tbody>${inactRows}</tbody></table>` : '<p class="empty">✓ Keine — alle lizenzierten Konten waren in den letzten ' + d.inactiveDays + ' Tagen aktiv.</p>')
-        : '<p class="note">Sign-in-Daten nicht verfuegbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant) — dieses Handlungsfeld konnte nicht geprueft werden.</p>'}
+        : `<p class="note">${esc(d.signInIssue?.text || 'Sign-in-Daten nicht verfuegbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant).')} Dieses Handlungsfeld konnte nicht geprueft werden.</p>`}
 
       <h2>Handlungsfeld 3 — Freie bezahlte Seats</h2>
       ${d.findings.unusedPaidSeats.length ? `<p class="note">Gekaufte, aber niemandem zugewiesene Lizenzen. Empfehlung: beim naechsten Renewal reduzieren, falls kein kurzfristiger Bedarf besteht.</p><table><thead><tr><th>Produkt</th><th style="text-align:right">gekauft</th><th style="text-align:right">zugewiesen</th><th style="text-align:right">frei</th></tr></thead><tbody>${d.findings.unusedPaidSeats.map(s => `<tr><td class="pn">${esc(s.name)}</td><td class="num">${s.purchased}</td><td class="num">${s.assigned}</td><td class="num warn">${s.available}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">✓ Keine — jeder gekaufte Seat ist zugewiesen.</p>'}
@@ -207,7 +207,10 @@
       <div class="ld-job-head"><strong>Inaktive lizenzierte Konten (&gt;{data.inactiveDays} Tage)</strong>
         <span class="ld-job-meta">{data.findings.inactiveWithLicense ? data.findings.inactiveWithLicense.length : '–'}</span></div>
       {#if !data.signInAvailable}
-        <div class="ld-banner warn">Sign-in-Daten nicht verfügbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant) — einmal 🔧 Reparieren ausführen und neu laden.</div>
+        <!-- Der Grund kommt aus describeSignInFailure (api/lib/licenses.js): nur bei
+             wirklich fehlender Berechtigung zum Reparieren raten, sonst den echten
+             Fehler zeigen. Der Fallback greift fuer Reports aus der Zeit vor dem Feld. -->
+        <div class="ld-banner warn">{data.signInIssue?.text || 'Sign-in-Daten nicht verfügbar (braucht AuditLog.Read.All + Entra ID P1 im Tenant) — einmal 🔧 Reparieren ausführen und neu laden.'}</div>
       {:else if data.findings.inactiveWithLicense.length}
         {#each data.findings.inactiveWithLicense as u (u.upn)}
           <div class="ld-step retry"><span class="ld-ico">😴</span> {u.displayName}

@@ -172,6 +172,45 @@ function lastSignInOf(u) {
   return times.length ? Math.max(...times) : null;
 }
 
+// Warum signInActivity nicht geliefert wurde. Die Unterscheidung entscheidet,
+// was der Benutzer tun soll: eine fehlende Berechtigung behebt "Reparieren" im
+// Tab Tenants, eine fehlende Entra-ID-P1-Lizenz nicht, und ein Timeout schon
+// gar nicht. Vorher meldete JEDER Fehler pauschal "braucht AuditLog.Read.All +
+// Entra ID P1" — das schickte auf eine Reparatur, die nichts aendert, und
+// verdeckte den echten Grund.
+// Hinweis: graphReq wiederholt 401/403 bereits einmal mit frischem Token
+// (siehe clearTenantToken dort). Ein 403, das hier ankommt, ist also kein
+// veralteter Token-Cache mehr, sondern eine wirklich fehlende Rolle.
+function describeSignInFailure(e) {
+  const msg = String((e && e.message) || e || "");
+  const status = (e && e.status) || null;
+
+  // Graph benennt die fehlende Premium-Lizenz explizit. Zuerst pruefen: der
+  // Fall kommt ebenfalls als 403 und wuerde sonst als Rechteproblem gelten.
+  if (/premium license|premium sku|b2c/i.test(msg)) {
+    return {
+      reason: "license", repairHelps: false,
+      text: "Sign-in-Daten nicht verfügbar: Der Tenant hat keine Entra-ID-P1-Lizenz — Microsoft liefert signInActivity nur mit P1 oder P2. Reparieren ändert daran nichts."
+    };
+  }
+  if (status === 403 || /authorization_requestdenied|insufficient privileges|accessdenied/i.test(msg)) {
+    return {
+      reason: "permission", repairHelps: true,
+      text: "Sign-in-Daten nicht verfügbar: Der App fehlt AuditLog.Read.All. Im Tab „🏢 Tenants“ einmal 🔧 Reparieren ausführen und neu laden."
+    };
+  }
+  if (status === 400) {
+    return {
+      reason: "request", repairHelps: false,
+      text: "Sign-in-Daten nicht verfügbar — Graph hat die Abfrage abgelehnt: " + msg
+    };
+  }
+  return {
+    reason: "transient", repairHelps: false,
+    text: "Sign-in-Daten konnten nicht geladen werden — kein Berechtigungsproblem, sondern ein vorübergehender Fehler: " + msg + ". Report erneut ausführen."
+  };
+}
+
 async function runLicenseReport(tenant, cert) {
   const beta = { retryTransient: true };
 
@@ -179,13 +218,16 @@ async function runLicenseReport(tenant, cert) {
   const skuById = new Map(skusRaw.map(s => [s.skuId, s]));
 
   // signInActivity braucht AuditLog.Read.All + Entra P1 — bei Fehlern ohne
-  // das Feld erneut laden, dann entfaellt nur das Inaktiv-Finding.
+  // das Feld erneut laden, dann entfaellt nur das Inaktiv-Finding. Der Grund
+  // wird festgehalten (describeSignInFailure), damit die Meldung im UI sagt,
+  // was tatsaechlich fehlt, statt pauschal zum Reparieren zu raten.
   const baseSelect = "id,displayName,userPrincipalName,accountEnabled,assignedLicenses,userType";
-  let users, signInAvailable = true;
+  let users, signInAvailable = true, signInIssue = null;
   try {
     users = await graphAllPages(tenant, cert, `/users?$select=${baseSelect},signInActivity&$top=500`, beta);
   } catch (e) {
     signInAvailable = false;
+    signInIssue = describeSignInFailure(e);
     users = await graphAllPages(tenant, cert, `/users?$select=${baseSelect}&$top=999`, beta);
   }
 
@@ -274,6 +316,7 @@ async function runLicenseReport(tenant, cert) {
     generatedAt: new Date().toISOString(),
     inactiveDays: INACTIVE_DAYS,
     signInAvailable,
+    signInIssue,
     totals: {
       users: users.filter(u => u.userType !== "Guest").length,
       licensedUsers: licensed.length,
