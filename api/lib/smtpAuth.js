@@ -57,22 +57,27 @@ async function readState(tenant, cert) {
  *  - Erfasst sind Anmeldungen, die in Entra landen. Ein System, das nur selten
  *    sendet (Monatslauf), taucht in 30 Tagen womoeglich nicht auf.
  */
-async function readSignIns(tenant, cert, days) {
+async function readSignIns(tenant, cert, days, deadlineMs) {
   const d = Math.max(1, Math.min(30, Number(days) || 30));
   const since = new Date(Date.now() - d * 86400000).toISOString();
+  // Das Anmeldeprotokoll per Graph ist langsam -- einzelne Seiten brauchen
+  // gern 20 Sekunden und mehr. Deshalb: beide Client-Werte PARALLEL statt
+  // nacheinander, hoechstens drei Seiten je Wert, und eine harte Frist fuer
+  // alles zusammen. Was bis zur Frist da ist, wird geliefert und als
+  // unvollstaendig markiert -- lieber ein Teilbild als ein Spinner ohne Ende.
+  const deadline = Date.now() + (Number(deadlineMs) || 45000);
   const byUpn = new Map();
   const errors = [];
-  let sawAny = false;
+  let sawAny = false, truncated = false;
 
-  for (const clientApp of ["SMTP", "Authenticated SMTP"]) {
+  async function pull(clientApp) {
     const filter = `clientAppUsed eq '${clientApp}' and createdDateTime ge ${since}`;
     let path = "/auditLogs/signIns?$filter=" + encodeURIComponent(filter) +
       "&$select=userPrincipalName,createdDateTime,status&$top=999";
     let pages = 0;
     try {
-      // Seiten begrenzen: ein aktiver Scanner erzeugt Tausende Anmeldungen im
-      // Monat -- fuer die Frage "nutzt dieses Konto SMTP AUTH" reicht ein Ausschnitt.
-      while (path && pages < 10) {
+      while (path) {
+        if (pages >= 3 || Date.now() > deadline) { truncated = true; break; }
         const r = await graphReq(tenant, cert, "GET", path);
         sawAny = true;
         for (const s of (r.value || [])) {
@@ -92,6 +97,11 @@ async function readSignIns(tenant, cert, days) {
     }
   }
 
+  const work = Promise.all(["SMTP", "Authenticated SMTP"].map(pull));
+  const timer = new Promise(res => setTimeout(() => res("timeout"), Math.max(0, deadline - Date.now()) + 500));
+  const outcome = await Promise.race([work.then(() => "done"), timer]);
+  if (outcome === "timeout") truncated = true;
+
   const users = [...byUpn.values()].sort((a, b) => (b.ok + b.failed) - (a.ok + a.failed));
   // Beide Abfragen gescheitert -> ehrlich als nicht erhebbar melden statt "niemand nutzt es".
   if (!sawAny && errors.length) {
@@ -103,7 +113,10 @@ async function readSignIns(tenant, cert, days) {
         : "Sign-in-Logs nicht lesbar: " + errors[0]
     };
   }
-  return { ok: true, days: d, users };
+  if (!sawAny && outcome === "timeout") {
+    return { ok: false, days: d, users: [], error: "Das Anmeldeprotokoll hat nicht innerhalb von 45 Sekunden geantwortet." };
+  }
+  return { ok: true, days: d, users, truncated };
 }
 
 /** E-Mail-Adresse fuer die Auswahl pruefen -- sie landet in einem PowerShell-Array. */

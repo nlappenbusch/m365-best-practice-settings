@@ -6085,16 +6085,23 @@ app.get("/api/tenants/:id/smtpauth", wrap(async (req, res) => {
         { displayName: "Scanner EG", address: "scanner@example.com", setting: null },
         { displayName: "Abacus", address: "abacus@example.com", setting: false },
         { displayName: "Anna Muster", address: "anna@example.com", setting: null }
-      ] },
-      signIns: { ok: true, days: 30, users: [{ upn: "scanner@example.com", ok: 412, failed: 0, last: new Date().toISOString() }] }
+      ] }
     });
   }
-  const cert = certPemPath(t.tenantId);
-  const [state, signIns] = await Promise.all([
-    SMTPAUTH.readState(t, cert),
-    SMTPAUTH.readSignIns(t, cert, 30).catch(e => ({ ok: false, days: 30, users: [], error: e.message }))
-  ]);
-  res.json({ ok: true, selection, state, signIns });
+  // Nur Postfaecher -- das Anmeldeprotokoll hat einen eigenen Endpunkt, damit
+  // die langsame Graph-Abfrage die Auswahl nicht blockiert.
+  const state = await SMTPAUTH.readState(t, certPemPath(t.tenantId));
+  res.json({ ok: true, selection, state });
+}));
+
+app.get("/api/tenants/:id/smtpauth/signins", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, signIns: { ok: true, days: 30, users: [{ upn: "scanner@example.com", ok: 412, failed: 0, last: new Date().toISOString() }] } });
+  }
+  const signIns = await SMTPAUTH.readSignIns(t, certPemPath(t.tenantId), 30, 45000)
+    .catch(e => ({ ok: false, days: 30, users: [], error: e.message }));
+  res.json({ ok: true, signIns });
 }));
 
 // Auswahl speichern. Aendert im Tenant noch nichts -- gesetzt wird beim Deploy.

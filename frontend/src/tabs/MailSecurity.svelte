@@ -142,22 +142,27 @@
   let smtpSaving = $state(false)
   let smtpMsg = $state(null)
   let smtpLoadedFor = null
+  // Anmeldeprotokoll getrennt: kommt spaeter oder gar nicht, die Auswahl geht trotzdem.
+  let smtpSignIns = $state(null)       // { ok, days, users, truncated, error }
+  let smtpSignInsLoading = $state(false)
+  let smtpTouched = false              // Anwender hat schon gehakt -> Vorschlag nicht mehr ueberschreiben
 
   $effect(() => {
     const id = $activeTenant?.id ?? null
     if (id === smtpLoadedFor) return
     smtpLoadedFor = id
     smtp = null; smtpError = null; smtpSelected = {}; smtpMsg = null; smtpFilter = ''
+    smtpSignIns = null; smtpSignInsLoading = false; smtpTouched = false
   })
 
-  const smtpUsage = $derived(new Map((smtp?.signIns?.users || []).map(u => [u.upn, u])))
+  const smtpUsage = $derived(new Map((smtpSignIns?.users || []).map(u => [u.upn, u])))
   const smtpCount = $derived(Object.values(smtpSelected).filter(Boolean).length)
   // Anmeldungen, zu denen kein Postfach passt (UPN weicht von der Adresse ab,
   // oder das Konto hat gar kein Postfach). Die duerfen nicht still verschwinden.
   const smtpOrphans = $derived.by(() => {
     if (!smtp?.state) return []
     const addrs = new Set(smtp.state.mailboxes.map(m => m.address))
-    return (smtp.signIns?.users || []).filter(u => !addrs.has(u.upn))
+    return (smtpSignIns?.users || []).filter(u => !addrs.has(u.upn))
   })
   const smtpRows = $derived.by(() => {
     if (!smtp?.state) return []
@@ -170,27 +175,42 @@
   })
 
   async function loadSmtp() {
+    const id = encodeURIComponent($activeTenant.id)
     smtpLoading = true
     smtpError = null
     smtpMsg = null
+    smtpTouched = false
+    // Beide parallel starten; die Postfaecher zeigen sich, sobald Exchange
+    // antwortet -- das Anmeldeprotokoll darf spaeter nachziehen.
+    smtpSignIns = null
+    smtpSignInsLoading = true
+    apiGet(`/api/tenants/${id}/smtpauth/signins`)
+      .then(r => { smtpSignIns = r.signIns })
+      .catch(e => { smtpSignIns = { ok: false, days: 30, users: [], error: e.message } })
+      .finally(() => { smtpSignInsLoading = false; applySmtpSuggestion() })
     try {
-      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/smtpauth`)
+      const r = await apiGet(`/api/tenants/${id}/smtpauth`)
       smtp = r
-      const next = {}
-      if (r.selection) {
-        for (const a of r.selection.allowed) next[a] = true
-      } else {
-        // Noch nie gespeichert: vorschlagen, was heute schon freigegeben ist oder
-        // nachweislich per SMTP AUTH gesendet hat. Nur Vorschlag -- gespeichert
-        // wird erst auf Klick.
-        const used = new Set((r.signIns?.users || []).filter(u => u.ok > 0).map(u => u.upn))
-        for (const m of r.state.mailboxes) if (m.setting === false || used.has(m.address)) next[m.address] = true
-      }
-      smtpSelected = next
+      applySmtpSuggestion()
     } catch (e) {
       smtpError = e.message
     }
     smtpLoading = false
+  }
+
+  // Vorauswahl: gespeicherte Auswahl, sonst heutige Freigaben plus Konten mit
+  // erfolgreichen SMTP-Anmeldungen. Laeuft erneut, wenn das Anmeldeprotokoll
+  // nachkommt -- aber nie, nachdem der Anwender selbst gehakt hat.
+  function applySmtpSuggestion() {
+    if (!smtp?.state || smtpTouched) return
+    const next = {}
+    if (smtp.selection) {
+      for (const a of smtp.selection.allowed) next[a] = true
+    } else {
+      const used = new Set((smtpSignIns?.users || []).filter(u => u.ok > 0).map(u => u.upn))
+      for (const m of smtp.state.mailboxes) if (m.setting === false || used.has(m.address)) next[m.address] = true
+    }
+    smtpSelected = next
   }
 
   async function saveSmtp() {
@@ -445,7 +465,7 @@
       <button class="btn btn-secondary" onclick={loadSmtp} disabled={smtpLoading}>
         {smtpLoading ? 'Lese Postfächer und Anmeldungen…' : '📬 Postfächer & SMTP-Nutzung laden'}
       </button>
-      {#if smtpLoading}<div class="ld-step running" style="margin-top:.5rem;"><span class="ld-spinner"></span> Exchange Online und Entra-Anmeldeprotokoll — dauert ca. 30–60 Sekunden…</div>{/if}
+      {#if smtpLoading}<div class="ld-step running" style="margin-top:.5rem;"><span class="ld-spinner"></span> Verbinde mit Exchange Online und lese die Postfächer — dauert ca. 20–40 Sekunden…</div>{/if}
       {#if smtpError}<div class="ld-banner fail" style="margin-top:.5rem;">{smtpError}</div>{/if}
     {:else}
       <div class="ld-banner {smtp.state.orgDisabled ? 'ok' : 'warn'}">
@@ -454,14 +474,17 @@
           · {anz(smtp.state.mailboxes.length, 'Postfach', 'Postfächer')} insgesamt</div>
       </div>
 
-      {#if smtp.signIns?.ok}
+      {#if smtpSignInsLoading}
+        <div class="ld-step running" style="margin:.4rem 0;"><span class="ld-spinner"></span> Lese das Entra-Anmeldeprotokoll (bis zu 45 Sekunden) — die Auswahl unten geht schon.</div>
+      {:else if smtpSignIns?.ok}
         <p class="ld-section-hint" style="margin:.4rem 0;">
-          {smtp.signIns.users.length
-            ? `${anz(smtp.signIns.users.length, 'Konto hat', 'Konten haben')} sich in den letzten ${smtp.signIns.days} Tagen per SMTP AUTH angemeldet.`
-            : `Keine SMTP-AUTH-Anmeldungen in den letzten ${smtp.signIns.days} Tagen.`}
+          {smtpSignIns.users.length
+            ? `${anz(smtpSignIns.users.length, 'Konto hat', 'Konten haben')} sich in den letzten ${smtpSignIns.days} Tagen per SMTP AUTH angemeldet.`
+            : `Keine SMTP-AUTH-Anmeldungen in den letzten ${smtpSignIns.days} Tagen.`}
+          {smtpSignIns.truncated ? 'Das Protokoll wurde nur teilweise gelesen (Zeitlimit) — es können Konten fehlen.' : ''}
           Systeme, die nur monatlich senden, können darin fehlen.</p>
-      {:else}
-        <div class="ld-banner warn" style="margin-top:.4rem;">Nutzung nicht erhebbar: {smtp.signIns?.error || 'unbekannt'}
+      {:else if smtpSignIns}
+        <div class="ld-banner warn" style="margin-top:.4rem;">Nutzung nicht erhebbar: {smtpSignIns.error || 'unbekannt'}
           <br /><small>Die Auswahl geht trotzdem — dann aber ohne Vorschlag aus den Anmeldungen. Vorher mit dem Kunden klären, welche Systeme Mails verschicken.</small></div>
       {/if}
 
@@ -484,17 +507,17 @@
 
       <div class="gt-table-wrap">
         <table class="gt-table">
-          <thead><tr><th style="width:2rem;"></th><th>Postfach</th><th>Heute</th><th>SMTP-Anmeldungen ({smtp.signIns?.days || 30} T.)</th></tr></thead>
+          <thead><tr><th style="width:2rem;"></th><th>Postfach</th><th>Heute</th><th>SMTP-Anmeldungen ({smtpSignIns?.days || 30} T.)</th></tr></thead>
           <tbody>
             {#each smtpRows as m (m.address)}
               {@const u = smtpUsage.get(m.address)}
               <tr>
                 <td><input type="checkbox" checked={!!smtpSelected[m.address]}
-                           onchange={(e) => (smtpSelected = { ...smtpSelected, [m.address]: e.target.checked })} /></td>
+                           onchange={(e) => { smtpTouched = true; smtpSelected = { ...smtpSelected, [m.address]: e.target.checked } }} /></td>
                 <td><b>{m.displayName || m.address}</b><br /><small>{m.address}</small></td>
                 <td><small>{smtpSettingLabel(m.setting)}</small></td>
                 <td><small>
-                  {#if u}{u.ok} erfolgreich{u.failed ? ` · ${u.failed} fehlgeschlagen` : ''} · zuletzt {new Date(u.last).toLocaleDateString('de-CH')}{:else}—{/if}
+                  {#if u}{u.ok} erfolgreich{u.failed ? ` · ${u.failed} fehlgeschlagen` : ''} · zuletzt {new Date(u.last).toLocaleDateString('de-CH')}{:else if smtpSignInsLoading}…{:else}—{/if}
                 </small></td>
               </tr>
             {:else}
