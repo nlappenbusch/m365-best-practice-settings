@@ -41,6 +41,8 @@ const COMMANDS = [
   "Get-HostedOutboundSpamFilterPolicy", "Set-HostedOutboundSpamFilterPolicy",
   "Get-ExternalInOutlook", "Set-ExternalInOutlook",
   "Get-TransportRule", "New-TransportRule", "Set-TransportRule", "Enable-TransportRule",
+  // SMTP AUTH: Organisationsschalter + Ausnahmen je Postfach (Deploy, Audit, Auswahl-Erhebung).
+  "Get-TransportConfig", "Set-TransportConfig", "Get-CASMailbox", "Set-CASMailbox",
   // Safe Links / Safe Attachments (Defender for Office 365, P1/P2, lizenzabhaengig).
   // Get-* stand hier zunaechst allein (Audit-Tab, reine Ist-Erhebung) -- aufgefallen
   // beim Acons-Phishing-Vorfall 04.09.2026, wo die fehlende Whitelist den Cmdlet-

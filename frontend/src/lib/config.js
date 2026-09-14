@@ -81,7 +81,11 @@ export const defaultConfig = () => ({
     // Die Erhebungsbefehle stehen im Konfigurations-Tab und gehoeren vor dem
     // Ausrollen gelaufen; abwaehlen bleibt pro Tenant jederzeit moeglich.
     blockAutoForward: true,
-    rejectDirectSend: true
+    rejectDirectSend: true,
+    // SMTP AUTH organisationsweit aus, Ausnahmen je Postfach. Anders als die
+    // beiden darueber bewusst AUS: die Ausnahmen werden pro Tenant im Tab
+    // Mail-Security gewaehlt, ohne Auswahl lehnt der Deploy ab.
+    disableSmtpAuth: false
   }
 })
 

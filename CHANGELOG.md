@@ -1,5 +1,52 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.51 - SMTP AUTH organisationsweit aus, Ausnahmen je Postfach (2026-09-14)
+
+**Neuer Schalter in der Vorlage** (Konfiguration -> Organisation, CIS 6.5.4):
+SMTP AUTH organisationsweit abschalten und nur ausgewaehlte Postfaecher
+freigeben. Microsoft empfiehlt genau das -- Outlook, Outlook mobil und Outlook
+im Web senden nicht ueber SMTP AUTH, gebraucht wird es von Druckern, Scannern,
+Fachanwendungen und POP/IMAP-Clients.
+
+**Die Ausnahmen gehoeren zum Tenant, nicht zur Vorlage** -- gleiches Muster wie
+die Admin-Adresse. Im Tab Mail-Security (Ausrollen) laedt ein Knopf alle
+Postfaecher mit ihrer heutigen Einstellung und die tatsaechliche Nutzung aus
+dem Entra-Anmeldeprotokoll der letzten 30 Tage. Vorgeschlagen wird, was heute
+schon freigegeben ist oder nachweislich erfolgreich per SMTP AUTH gesendet
+hat; Konten mit ausschliesslich fehlgeschlagenen Anmeldungen werden angezeigt,
+aber bewusst nicht vorgeschlagen (kann ein Drucker sein, kann ein Angriff
+sein). Anmeldungen ohne zuordenbares Postfach erscheinen als Warnung, statt
+still zu verschwinden. Speichern aendert im Tenant nichts; der Dialog warnt,
+wenn ein Postfach dabei seine heutige Freigabe verliert.
+
+**Gesetzt wird beim Deploy, in dieser Reihenfolge:** erst die Ausnahmen, dann
+die Organisation abschalten -- andersherum gaebe es ein Fenster, in dem die
+ausgewaehlten Systeme schon abgewiesen werden. Alte Freigaben ausserhalb der
+Auswahl gehen zurueck auf "folgt der Organisation".
+
+**Zwei Sicherungen gegen stillen Ausfall:** Ist der Schalter an, aber fuer den
+Tenant nie eine Auswahl gespeichert, lehnt der Deploy-Start den Lauf ab. Der
+Deploy-Schritt selbst bricht in diesem Fall ebenfalls vor jeder Aenderung ab.
+Eine bewusst leere Auswahl ("keine Ausnahmen") ist erlaubt. Rueckfallwert des
+Schalters ist AUS, anders als Direct Send und Auto-Forward -- ohne Auswahl
+pro Tenant liesse er sich nicht sicher ausrollen.
+
+**Audit:** Organisationsschalter gegen Soll, und die heute freigegebenen
+Postfaecher gegen die gespeicherte Auswahl -- mit Angabe, was fehlt und was
+zusaetzlich freigegeben ist. Konfig-Doku mit eigener Zeile; das Exportskript
+fuehrt den Schritt absichtlich auskommentiert, weil es die Ausnahmen pro Tenant
+nicht kennt.
+
+**Grenzen der Nutzungserhebung**, die die Oberflaeche auch nennt: Sign-in-Logs
+per Graph brauchen Entra ID P1/P2, ohne Lizenz bleibt die Auswahl ohne
+Vorschlag moeglich. Graph dokumentiert den Client-Wert als "SMTP", das Portal
+zeigt "Authenticated SMTP" -- abgefragt wird beides. Systeme, die nur monatlich
+senden, tauchen in 30 Tagen womoeglich nicht auf.
+
+EXO-Freigabeliste um Get-/Set-TransportConfig und Get-/Set-CASMailbox ergaenzt.
+Eingaben fuer die Auswahl werden serverseitig als E-Mail-Adresse validiert,
+bevor sie in das PowerShell-Array gelangen.
+
 ## Version 2.50 - OIB fuer macOS, Compliance zuweisbar, Mac-Zielgruppe (2026-09-14)
 
 **Die OIB-Zuweisung kann jetzt macOS.** Umschalter Windows / macOS im Intune-Tab.

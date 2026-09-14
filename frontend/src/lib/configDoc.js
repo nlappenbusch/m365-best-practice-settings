@@ -191,6 +191,7 @@ Prüfwerkzeuge (CIS-Benchmark, Maester) lesen genau diese Objekte.</p>
   ${row3('ExternalInOutlook', jaNein(ob.externalTagging), 'Kennzeichnung externer Absender in Outlook. Wirkt beim Anwender mit bis zu 48 Stunden Verzögerung.')}
   ${row3('AutoForwardingMode / BP_Block-AutoForwarding', jaNein(ob.blockAutoForward), 'Automatische Weiterleitung nach aussen wird abgelehnt — mit Statuscode 5.7.1 und Begründungstext statt stiller Blockade.')}
   ${row3('RejectDirectSend', jaNein(ob.rejectDirectSend), 'Weist unauthentifizierte Einlieferung mit interner Absenderdomäne ab.')}
+  ${row3('SmtpClientAuthenticationDisabled', jaNein(ob.disableSmtpAuth), 'SMTP AUTH organisationsweit aus. Ausnahmen werden je Postfach gesetzt (Set-CASMailbox) und pro Tenant ausgewählt — typischerweise Drucker, Scanner und Fachanwendungen. Moderne Outlook-Clients nutzen SMTP AUTH nicht.')}
 </table>
 <p class="note"><b>Warum zwei Schalter standardmässig aus sind:</b> Die Auto-Forward-Sperre und «Direct Send abweisen»
 können laufenden Betrieb unterbrechen — gewollte Weiterleitungen, Multifunktionsdrucker, Scan-to-Mail oder

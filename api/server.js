@@ -51,6 +51,7 @@ const BASELINEDOC = require("./lib/baselineDoc");
 const ENTRAUSERS = require("./lib/entraUsers");
 const SSO = require("./lib/sso");
 const OIBIMPORT = require("./lib/oibImport");
+const SMTPAUTH = require("./lib/smtpAuth");
 const ASSIGNCHECK = require("./lib/assignmentCheck");
 const LICENSES = require("./lib/licenses");
 const IBACKUP = require("./lib/intuneBackup");
@@ -3499,6 +3500,19 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   // fuer jeden Kunden die Adresse, die zuletzt in der Vorlage stand.
   if (t.mailAdminEmail) cfg.adminEmail = t.mailAdminEmail;
 
+  // SMTP-AUTH-Ausnahmen gehoeren zum Tenant, nicht zur Vorlage. Ist der
+  // Schalter an, aber fuer diesen Tenant nie eine Auswahl gespeichert, laeuft
+  // der Deploy gar nicht erst los: sonst verlieren Drucker, Scanner und
+  // Fachanwendungen den Mailversand ohne Vorwarnung. Eine bewusst LEERE
+  // Auswahl ist erlaubt ("keine Ausnahmen").
+  cfg.smtpAuthAllowed = Array.isArray(t.smtpAuthAllowed) ? t.smtpAuthAllowed : null;
+  if (cfg.outbound && cfg.outbound.disableSmtpAuth && cfg.smtpAuthAllowed === null) {
+    return res.status(400).json({
+      error: "SMTP AUTH soll abgeschaltet werden, aber fuer diesen Tenant sind noch keine Ausnahmen ausgewaehlt. " +
+        "Im Tab Mail-Security die Postfaecher auswaehlen und speichern (auch 'keine' ist eine gueltige Auswahl) - oder den Schalter in der Vorlage abwaehlen."
+    });
+  }
+
   const placeholders = findPlaceholderValues(cfg);
   if (placeholders.length) {
     return res.status(400).json({
@@ -6032,6 +6046,9 @@ app.post("/api/tenants/:id/audit", wrap(async (req, res) => {
   const auditResult = r.data.audit || {};
   auditResult.defenderLicense = await licensePromise;
 
+  auditResult.smtpAuthSelection = Array.isArray(t.smtpAuthAllowed)
+    ? { allowed: t.smtpAuthAllowed, savedAt: t.smtpAuthSavedAt || null }
+    : null;
   res.json({ ok: true, audit: auditResult, acceptedDeviations: t.acceptedDeviations || [] });
 }));
 
@@ -6052,6 +6069,53 @@ app.post("/api/tenants/:id/domainauth", wrap(async (req, res) => {
   if (!domains.length) return res.json({ ok: true, results: [] });
   const results = await DOMAINAUTH.checkDomains(domains, r.data.configs || []);
   res.json({ ok: true, results });
+}));
+
+// ---------- SMTP AUTH: Ausnahmen je Postfach ----------
+// Erhebung fuer die Auswahl: alle Postfaecher mit ihrer aktuellen Einstellung
+// plus die tatsaechliche Nutzung aus den Sign-in-Logs. Letztere fehlertolerant --
+// ohne Entra P1 bleibt die Auswahl trotzdem moeglich.
+app.get("/api/tenants/:id/smtpauth", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const selection = Array.isArray(t.smtpAuthAllowed) ? { allowed: t.smtpAuthAllowed, savedAt: t.smtpAuthSavedAt || null } : null;
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({
+      ok: true, selection,
+      state: { orgDisabled: false, mailboxes: [
+        { displayName: "Scanner EG", address: "scanner@example.com", setting: null },
+        { displayName: "Abacus", address: "abacus@example.com", setting: false },
+        { displayName: "Anna Muster", address: "anna@example.com", setting: null }
+      ] },
+      signIns: { ok: true, days: 30, users: [{ upn: "scanner@example.com", ok: 412, failed: 0, last: new Date().toISOString() }] }
+    });
+  }
+  const cert = certPemPath(t.tenantId);
+  const [state, signIns] = await Promise.all([
+    SMTPAUTH.readState(t, cert),
+    SMTPAUTH.readSignIns(t, cert, 30).catch(e => ({ ok: false, days: 30, users: [], error: e.message }))
+  ]);
+  res.json({ ok: true, selection, state, signIns });
+}));
+
+// Auswahl speichern. Aendert im Tenant noch nichts -- gesetzt wird beim Deploy.
+app.post("/api/tenants/:id/smtpauth", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const input = Array.isArray((req.body || {}).allowed) ? req.body.allowed : null;
+  if (!input) return res.status(400).json({ error: "allowed (Liste) erforderlich." });
+  const allowed = [];
+  for (const v of input) {
+    const a = SMTPAUTH.normalizeAddress(v);
+    if (!a) return res.status(400).json({ error: "Keine gueltige Adresse: " + String(v).slice(0, 80) });
+    if (!allowed.includes(a)) allowed.push(a);
+  }
+  if (allowed.length > 500) return res.status(400).json({ error: "Mehr als 500 Ausnahmen - das ist keine Ausnahme mehr." });
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === t.id);
+  if (!rec) return res.status(404).json({ error: "Tenant nicht gefunden." });
+  rec.smtpAuthAllowed = allowed;
+  rec.smtpAuthSavedAt = new Date().toISOString();
+  saveState(s);
+  res.json({ ok: true, selection: { allowed, savedAt: rec.smtpAuthSavedAt } });
 }));
 
 // Gewollte Abweichungen: einzelne Audit-Checks pro Tenant als bewusst abweichend

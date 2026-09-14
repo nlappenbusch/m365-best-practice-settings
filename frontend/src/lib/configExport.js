@@ -123,6 +123,20 @@ function generateOutboundSection() {
         L.push('# CIS 6.5.5 Direct Send abweisen: in der Vorlage nicht aktiviert.');
     }
     L.push('');
+    if (ob.disableSmtpAuth) {
+        L.push('# CIS 6.5.4 - SMTP AUTH organisationsweit aus, Ausnahmen je Postfach.');
+        L.push('# Die Ausnahmen sind pro Tenant und stehen NICHT in diesem Export. Deshalb');
+        L.push('# ist der Schalter unten absichtlich auskommentiert. Reihenfolge:');
+        L.push('#  1. Postfaecher freigeben, die SMTP AUTH brauchen (Drucker, Scanner,');
+        L.push('#     Fachanwendungen). Wer es nutzt: Entra-Anmeldeprotokoll, Client-App');
+        L.push('#     "Authenticated SMTP", letzte 30 Tage.');
+        L.push('#       Set-CASMailbox -Identity scanner@kunde.ch -SmtpClientAuthenticationDisabled $false');
+        L.push('#  2. ERST DANN die Organisation abschalten -- andersherum brechen sie:');
+        L.push('# Set-TransportConfig -SmtpClientAuthenticationDisabled $true');
+    } else {
+        L.push('# CIS 6.5.4 SMTP AUTH abschalten: in der Vorlage nicht aktiviert.');
+    }
+    L.push('');
     L.push('# CIS 2.1.6 - Microsoft hat NotifyOutboundSpam abgekuendigt. Der Weg, der');
     L.push('# bleibt, ist die eingebaute Warnungsrichtlinie (Security & Compliance).');
     L.push('try {');

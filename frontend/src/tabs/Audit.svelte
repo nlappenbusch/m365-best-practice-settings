@@ -201,6 +201,34 @@
     if (ob.rejectDirectSend) cmpBool(gob, 'Direct Send abweisen', true, rds)
     else info(gob, 'Direct Send abweisen', 'Vorlage: nicht gesetzt · Tenant: ' + (rds === true ? 'aktiv' : rds === false ? 'inaktiv' : '(unbekannt)'))
 
+    // SMTP AUTH: organisationsweit aus, Ausnahmen je Postfach. Die Soll-Liste
+    // gehoert zum Tenant (im Tab Mail-Security gespeichert) und kommt vom
+    // Backend als audit.smtpAuthSelection mit.
+    const smtpOrgOff = audit.transportConfig ? audit.transportConfig.SmtpClientAuthenticationDisabled === true : null
+    const smtpIst = (audit.smtpAuthEnabledMailboxes || [])
+      .map(m => String(m.PrimarySmtpAddress || '').toLowerCase()).filter(Boolean).sort()
+    if (ob.disableSmtpAuth) {
+      cmpBool(gob, 'SMTP AUTH organisationsweit aus', true, smtpOrgOff)
+      const sel = audit.smtpAuthSelection
+      if (!sel) {
+        info(gob, 'SMTP-AUTH-Ausnahmen', 'Für diesen Tenant noch keine Auswahl gespeichert (Tab Mail-Security) · heute freigegeben: ' + (smtpIst.join(', ') || 'keine'))
+      } else {
+        const soll = (sel.allowed || []).map(a => String(a).toLowerCase()).sort()
+        const fehlt = soll.filter(a => !smtpIst.includes(a))
+        const zuviel = smtpIst.filter(a => !soll.includes(a))
+        if (!fehlt.length && !zuviel.length) {
+          ok(gob, 'SMTP-AUTH-Ausnahmen', soll.join(', ') || 'keine (bewusst)')
+        } else {
+          const diff = [fehlt.length ? 'fehlt: ' + fehlt.join(', ') : null, zuviel.length ? 'zusätzlich freigegeben: ' + zuviel.join(', ') : null].filter(Boolean).join(' · ')
+          bad(gob, 'SMTP-AUTH-Ausnahmen', soll.join(', ') || 'keine', (smtpIst.join(', ') || 'keine') + ' (' + diff + ')')
+        }
+      }
+    } else {
+      info(gob, 'SMTP AUTH organisationsweit', 'Vorlage: nicht gesetzt · Tenant: ' +
+        (smtpOrgOff === true ? 'aus' : smtpOrgOff === false ? 'an' : '(unbekannt)') +
+        (smtpIst.length ? ' · explizit freigegeben: ' + smtpIst.join(', ') : ''))
+    }
+
 
     // Safe Links & Safe Attachments — Defender for Office 365 (P1/P2), kein BP_-Objekt:
     // diese Vorlage deployt es nicht, aber bei einem Phishing-Verdacht ist "ist es

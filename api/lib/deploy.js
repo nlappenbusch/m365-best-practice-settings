@@ -178,7 +178,13 @@ function sanitizeConfig(raw) {
       thresholdAction: pickOr(ob.thresholdAction, THRESHOLD_ACTIONS, "BlockUser", "thresholdAction"),
       externalTagging: boolOr(ob.externalTagging, true),
       blockAutoForward: boolOr(ob.blockAutoForward, true),
-      rejectDirectSend: boolOr(ob.rejectDirectSend, true)
+      rejectDirectSend: boolOr(ob.rejectDirectSend, true),
+      // SMTP AUTH organisationsweit aus, Ausnahmen je Postfach. Rueckfallwert
+      // bewusst FALSE, anders als die beiden Schalter darueber: Die Ausnahmen
+      // sind pro Tenant und muessen vorher ausgewaehlt sein. Ohne Auswahl
+      // verweigert der Deploy-Start den Lauf (server.js), statt Drucker und
+      // Fachanwendungen still abzuschneiden.
+      disableSmtpAuth: boolOr(ob.disableSmtpAuth, false)
     }
   };
 }
@@ -249,6 +255,7 @@ const STEP_OUTBOUND = "Ausgehender Spam: Benachrichtigung & Limits";
 const STEP_EXT_TAG = "Externe Absender kennzeichnen";
 const STEP_AUTOFWD = "Automatische Weiterleitung nach aussen sperren";
 const STEP_DIRECTSEND = "Direct Send abweisen";
+const STEP_SMTPAUTH = "SMTP AUTH aus, Ausnahmen je Postfach";
 
 const SAFE_LINKS_STEPS = ["Safe-Links-Org-Schalter", "Safe-Links-Policy", "Safe-Links-Rule", "Safe-Attachments-Policy", "Safe-Attachments-Rule"];
 
@@ -258,7 +265,7 @@ const DEPLOY_PLAN = [
   { phase: "Anti-Spam", steps: ["Anti-Spam-Policy", "Anti-Spam-Rule"] },
   { phase: "Anti-Malware", steps: ["Anti-Malware-Policy", "Anti-Malware-Rule"] },
   { phase: "Safe Links & Safe Attachments", steps: SAFE_LINKS_STEPS },
-  { phase: "Ausgehend & Organisation", steps: [STEP_OUTBOUND, STEP_EXT_TAG, STEP_AUTOFWD, STEP_DIRECTSEND] },
+  { phase: "Ausgehend & Organisation", steps: [STEP_OUTBOUND, STEP_EXT_TAG, STEP_AUTOFWD, STEP_DIRECTSEND, STEP_SMTPAUTH] },
   { phase: "Alert Policy (Security & Compliance)", steps: ["Alert-Policy Quarantine-Release"] }
 ];
 
@@ -280,6 +287,7 @@ function deployPlan(cfg) {
       if (ob.externalTagging) steps.push(STEP_EXT_TAG);
       if (ob.blockAutoForward) steps.push(STEP_AUTOFWD);
       if (ob.rejectDirectSend) steps.push(STEP_DIRECTSEND);
+      if (ob.disableSmtpAuth) steps.push(STEP_SMTPAUTH);
       return { phase: ph.phase, steps };
     });
 }
@@ -315,6 +323,43 @@ function orgStep(name, setLines) {
     ...setLines.map(l => "    " + l),
     "  }",
     ""
+  ];
+}
+
+/**
+ * PowerShell fuer "SMTP AUTH aus, Ausnahmen je Postfach".
+ *
+ * Reihenfolge ist Absicht: ERST die Ausnahmen setzen, DANN die Organisation
+ * abschalten. Andersherum gaebe es ein Fenster, in dem die ausgewaehlten
+ * Systeme schon abgewiesen werden.
+ *
+ * Postfaecher mit einer alten expliziten Freigabe, die nicht mehr in der
+ * Auswahl stehen, gehen zurueck auf $null (folgt der Organisation) -- sonst
+ * bliebe jede frueher einmal gesetzte Ausnahme stillschweigend bestehen.
+ * Explizit deaktivierte Postfaecher ($true) bleiben unberuehrt; bei
+ * abgeschalteter Organisation macht das keinen Unterschied.
+ *
+ * `allowed` = null heisst: fuer den Tenant wurde nie eine Auswahl gespeichert.
+ * Dann bricht der Schritt vor jeder Aenderung ab. Der Deploy-Start prueft das
+ * schon (server.js) -- das hier ist die zweite Sicherung.
+ */
+function smtpAuthLines(allowed) {
+  if (!Array.isArray(allowed)) {
+    return ["throw 'Fuer diesen Tenant sind noch keine SMTP-AUTH-Ausnahmen ausgewaehlt (Tab Mail-Security). Es wurde nichts geaendert.'"];
+  }
+  return [
+    "$allowed = " + psArray(allowed.map(a => String(a).toLowerCase())),
+    "$allowedSet = @{}; foreach ($a in $allowed) { $allowedSet[$a] = $true }",
+    "$all = @(Get-CASMailbox -ResultSize Unlimited | Select-Object PrimarySmtpAddress, SmtpClientAuthenticationDisabled)",
+    "foreach ($m in $all) {",
+    "  $addr = ('' + $m.PrimarySmtpAddress).ToLower()",
+    "  if ($allowedSet.ContainsKey($addr)) {",
+    "    if ($m.SmtpClientAuthenticationDisabled -ne $false) { Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $false | Out-Null }",
+    "  } elseif ($m.SmtpClientAuthenticationDisabled -eq $false) {",
+    "    Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $null | Out-Null",
+    "  }",
+    "}",
+    "Set-TransportConfig -SmtpClientAuthenticationDisabled $true | Out-Null"
   ];
 }
 
@@ -534,6 +579,7 @@ function buildDeployBody(cfg) {
       "  throw 'Dieser Tenant kennt den Parameter RejectDirectSend nicht.'",
       "}"
     ]) : []),
+    ...(ob.disableSmtpAuth ? orgStep(STEP_SMTPAUTH, smtpAuthLines(cfg.smtpAuthAllowed)) : []),
     "",
     "$failed = @($steps | Where-Object { -not $_.ok })",
     "Write-Output ('BEGINJSON' + (@{ ok = $true; allSucceeded = ($failed.Count -eq 0); steps = @($steps); domains = @($Domains) } | ConvertTo-Json -Compress -Depth 6) + 'ENDJSON')"
@@ -631,6 +677,10 @@ function buildAuditBody() {
     "  externalTagging  = Get-Safe { Get-ExternalInOutlook | Select-Object -First 1 | Select-Object Enabled, AllowList }",
     "  orgConfig        = Get-Safe { Get-OrganizationConfig | Select-Object Name, RejectDirectSend }",
     "  autoForwardRule  = Get-Safe { Get-TransportRule -Identity 'BP_Block-AutoForwarding' -ErrorAction SilentlyContinue | Select-Object Name, State, Mode, FromScope, SentToScope, MessageTypeMatches }",
+    // SMTP AUTH: Nur Postfaecher mit expliziter Freigabe -- die Liste aller
+    // Postfaecher waere bei grossen Tenants unnoetig schwer fuer das Audit.
+    "  transportConfig  = Get-Safe { Get-TransportConfig | Select-Object SmtpClientAuthenticationDisabled }",
+    "  smtpAuthEnabledMailboxes = @(Get-Safe { Get-CASMailbox -ResultSize Unlimited | Where-Object { $_.SmtpClientAuthenticationDisabled -eq $false } | Select-Object DisplayName, PrimarySmtpAddress })",
     // Safe Links / Safe Attachments (Defender for Office 365, P1/P2) — reine Ist-Erhebung,
     // kein BP_-Objekt, diese Vorlage deployt nichts davon. $null (statt leer), wenn der
     // Tenant keine passende Lizenz hat -- Get-Safe faengt den Cmdlet-Fehler ab.

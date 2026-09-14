@@ -408,7 +408,7 @@
       </div>
 
       <div class="settings-group">
-        <h4>Organisation <span class="policy-name">CIS 6.2.1 / 6.2.3 / 6.5.5</span></h4>
+        <h4>Organisation <span class="policy-name">CIS 6.2.1 / 6.2.3 / 6.5.4 / 6.5.5</span></h4>
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={$config.outbound.externalTagging}>
           <span>Externe Absender in Outlook kennzeichnen</span>
@@ -443,6 +443,21 @@
             im Erhebungszeitraum liegen:<br>
             <code>Get-MessageTraceV2 -StartDate (Get-Date).AddDays(-10) -EndDate (Get-Date)</code><br>
             Nach dem Setzen kontrollieren, ob etwas abgewiesen wurde (<code>-Status Failed</code>).
+          </div>
+        {/if}
+
+        <label class="checkbox-label" style="margin-top:.75rem;">
+          <input type="checkbox" bind:checked={$config.outbound.disableSmtpAuth}>
+          <span>SMTP AUTH organisationsweit abschalten, Ausnahmen je Postfach</span>
+        </label>
+        <small>Microsoft-Empfehlung: Outlook, Outlook mobil und Outlook im Web senden nicht über SMTP AUTH. Gebraucht wird
+        es von Druckern, Scannern, Fachanwendungen und POP/IMAP-Clients — genau diese Postfächer bekommen eine Ausnahme.</small>
+        {#if $config.outbound.disableSmtpAuth}
+          <div class="alert alert-warning" style="margin-top:.5rem;">
+            <strong>Ausnahmen sind pro Tenant:</strong> Im Tab <em>Mail-Security</em> die Postfächer auswählen und speichern,
+            bevor deployt wird — ohne gespeicherte Auswahl lehnt der Deploy den Lauf ab. Die Auswahl schlägt vor, wer in den
+            letzten 30 Tagen per SMTP AUTH gesendet hat (Sign-in-Logs, braucht Entra ID P1). Systeme, die nur monatlich
+            senden, tauchen dort womöglich nicht auf.
           </div>
         {/if}
       </div>
