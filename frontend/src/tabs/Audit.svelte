@@ -220,7 +220,8 @@
           ok(gob, 'SMTP-AUTH-Ausnahmen', soll.join(', ') || 'keine (bewusst)')
         } else {
           const diff = [fehlt.length ? 'fehlt: ' + fehlt.join(', ') : null, zuviel.length ? 'zusätzlich freigegeben: ' + zuviel.join(', ') : null].filter(Boolean).join(' · ')
-          bad(gob, 'SMTP-AUTH-Ausnahmen', soll.join(', ') || 'keine', (smtpIst.join(', ') || 'keine') + ' (' + diff + ')')
+          const folge = fehlt.length && smtpOrgOff === true ? ' — fehlende Konten werden abgewiesen (535 5.7.139)' : ''
+          bad(gob, 'SMTP-AUTH-Ausnahmen', soll.join(', ') || 'keine', (smtpIst.join(', ') || 'keine') + ' (' + diff + ')' + folge)
         }
       }
     } else {

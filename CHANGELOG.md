@@ -1,5 +1,38 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.52 - SMTP AUTH: Ausnahmen sofort anwenden, Kontopruefung (2026-09-14)
+
+**Anlass:** Ein Geraet meldete beim Testversand
+`535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled
+for the Tenant` -- mit OAuth. Der Schalter gilt fuer das Protokoll, nicht fuer
+die Anmeldeart; "for the Tenant" heisst: das Postfach, mit dem sich das Geraet
+anmeldet, hat keine eigene Freigabe und erbt das organisationsweite Aus. Die
+Organisation muss dafuer nicht wieder an -- die Postfach-Einstellung hat laut
+Microsoft Vorrang.
+
+**Knopf "Ausnahmen jetzt anwenden"** im Tab Mail-Security: setzt die
+gespeicherte Auswahl sofort (ausgewaehlte Postfaecher an, alte Freigaben
+ausserhalb der Auswahl zurueck auf "folgt der Organisation"), ohne den ganzen
+Mail-Security-Deploy. Der Organisationsschalter bleibt unberuehrt. Bestaetigung
+listet jede Aenderung; bei ungespeicherten Haken ist der Knopf gesperrt. Liest
+den Stand in derselben Exchange-Verbindung neu ein. Deploy und Knopf nutzen
+denselben PowerShell-Baustein (smtpAuth.exceptionLines).
+
+**Konto pruefen:** Anmeldename des Geraets eingeben -> welches Postfach (auch
+ueber Alias/UPN), was wirklich gilt, und welche Fehlermeldung das Geraet dazu
+bekommt ("disabled for the Tenant" / "for the Mailbox"). Mit einem Klick in die
+Auswahl. Ist SMTP AUTH wirksam an, nennt die Pruefung die uebrigen Ursachen
+(App-Berechtigung SMTP.Send / SMTP.SendAsApp, Service Principal, Token, CA).
+
+**Soll/Ist sichtbar:** Hinweis, wenn die gespeicherte Auswahl im Tenant noch
+nicht angewendet ist -- mit "wird heute abgewiesen", solange die Organisation
+aus ist. Neue Spalte "Wirksam" je Postfach. Im Audit ergaenzt: fehlende
+Ausnahmen bei abgeschalteter Organisation werden abgewiesen.
+
+**Fix Zuordnung:** Die Postfachliste liefert jetzt alle smtp-Aliase mit.
+Anmeldungen per UPN oder Alias landeten bisher als "ohne zuordenbares
+Postfach" und fehlten im Vorschlag.
+
 ## Version 2.51 - SMTP AUTH organisationsweit aus, Ausnahmen je Postfach (2026-09-14)
 
 **Neuer Schalter in der Vorlage** (Konfiguration -> Organisation, CIS 6.5.4):

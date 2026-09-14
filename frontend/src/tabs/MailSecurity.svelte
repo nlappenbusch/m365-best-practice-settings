@@ -146,29 +146,52 @@
   let smtpSignIns = $state(null)       // { ok, days, users, truncated, error }
   let smtpSignInsLoading = $state(false)
   let smtpTouched = false              // Anwender hat schon gehakt -> Vorschlag nicht mehr ueberschreiben
+  let smtpApplying = $state(false)
+  let smtpCheck = $state('')           // Anmeldename, mit dem sich das Geraet anmeldet
 
   $effect(() => {
     const id = $activeTenant?.id ?? null
     if (id === smtpLoadedFor) return
     smtpLoadedFor = id
     smtp = null; smtpError = null; smtpSelected = {}; smtpMsg = null; smtpFilter = ''
-    smtpSignIns = null; smtpSignInsLoading = false; smtpTouched = false
+    smtpSignIns = null; smtpSignInsLoading = false; smtpTouched = false; smtpCheck = ''
   })
 
-  const smtpUsage = $derived(new Map((smtpSignIns?.users || []).map(u => [u.upn, u])))
+  // Adresse -> Postfach, ueber primaere Adresse UND alle Aliase. Geraete melden
+  // sich oft mit dem UPN oder einem Alias an, nicht mit der primaeren Adresse.
+  const smtpByAddr = $derived.by(() => {
+    const map = new Map()
+    for (const m of smtp?.state?.mailboxes || []) {
+      map.set(m.address, m)
+      for (const a of m.aliases || []) if (!map.has(a)) map.set(a, m)
+    }
+    return map
+  })
+  // Nutzung je Postfach (primaere Adresse); mehrere Anmeldenamen fuer dasselbe
+  // Postfach werden zusammengezaehlt.
+  const smtpUsage = $derived.by(() => {
+    const map = new Map()
+    for (const u of smtpSignIns?.users || []) {
+      const m = smtpByAddr.get(u.upn)
+      if (!m) continue
+      const e = map.get(m.address)
+      if (!e) map.set(m.address, { ...u })
+      else map.set(m.address, { ...e, ok: e.ok + u.ok, failed: e.failed + u.failed, last: e.last > u.last ? e.last : u.last })
+    }
+    return map
+  })
   const smtpCount = $derived(Object.values(smtpSelected).filter(Boolean).length)
   // Anmeldungen, zu denen kein Postfach passt (UPN weicht von der Adresse ab,
   // oder das Konto hat gar kein Postfach). Die duerfen nicht still verschwinden.
   const smtpOrphans = $derived.by(() => {
     if (!smtp?.state) return []
-    const addrs = new Set(smtp.state.mailboxes.map(m => m.address))
-    return (smtpSignIns?.users || []).filter(u => !addrs.has(u.upn))
+    return (smtpSignIns?.users || []).filter(u => !smtpByAddr.has(u.upn))
   })
   const smtpRows = $derived.by(() => {
     if (!smtp?.state) return []
     const f = smtpFilter.trim().toLowerCase()
     return smtp.state.mailboxes.filter(m => {
-      if (f && !(m.address.includes(f) || (m.displayName || '').toLowerCase().includes(f))) return false
+      if (f && !(m.address.includes(f) || (m.aliases || []).some(a => a.includes(f)) || (m.displayName || '').toLowerCase().includes(f))) return false
       if (smtpOnlyRelevant && !f) return !!smtpSelected[m.address] || m.setting === false || smtpUsage.has(m.address)
       return true
     })
@@ -207,8 +230,7 @@
     if (smtp.selection) {
       for (const a of smtp.selection.allowed) next[a] = true
     } else {
-      const used = new Set((smtpSignIns?.users || []).filter(u => u.ok > 0).map(u => u.upn))
-      for (const m of smtp.state.mailboxes) if (m.setting === false || used.has(m.address)) next[m.address] = true
+      for (const m of smtp.state.mailboxes) if (m.setting === false || (smtpUsage.get(m.address)?.ok || 0) > 0) next[m.address] = true
     }
     smtpSelected = next
   }
@@ -220,19 +242,97 @@
       `${anz(allowed.length, 'Postfach behält', 'Postfächer behalten')} SMTP AUTH in „${$activeTenant.name}":`,
       allowed.length ? allowed.map(a => '• ' + a).join('\n') : '• keine — SMTP AUTH wird für alle abgeschaltet'
     ]
-    if (verlieren.length) lines.push('', `⚠️ ${anz(verlieren.length, 'Postfach hat', 'Postfächer haben')} HEUTE eine Freigabe und ${verlieren.length === 1 ? 'verliert sie' : 'verlieren sie'} beim nächsten Deploy:`, verlieren.map(a => '• ' + a).join('\n'))
-    lines.push('', 'Speichern ändert im Tenant noch nichts — gesetzt wird beim Deploy.')
+    if (verlieren.length) lines.push('', `⚠️ ${anz(verlieren.length, 'Postfach hat', 'Postfächer haben')} HEUTE eine Freigabe und ${verlieren.length === 1 ? 'verliert sie' : 'verlieren sie'} beim Anwenden bzw. nächsten Deploy:`, verlieren.map(a => '• ' + a).join('\n'))
+    lines.push('', 'Speichern ändert im Tenant noch nichts — gesetzt wird mit „Ausnahmen jetzt anwenden" oder beim Deploy.')
     if (!confirm(lines.join('\n'))) return
     smtpSaving = true
     smtpMsg = null
     try {
       const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/smtpauth`, { allowed })
       smtp = { ...smtp, selection: r.selection }
-      smtpMsg = { ok: true, text: `Gespeichert: ${anz(r.selection.allowed.length, 'Ausnahme', 'Ausnahmen')}. Wird beim nächsten Deploy gesetzt${$config.outbound.disableSmtpAuth ? '' : ' — sobald der Schalter in der Vorlage an ist'}.` }
+      smtpMsg = { ok: true, text: `Gespeichert: ${anz(r.selection.allowed.length, 'Ausnahme', 'Ausnahmen')}. Sofort setzen mit „Ausnahmen jetzt anwenden", sonst beim nächsten Deploy${$config.outbound.disableSmtpAuth ? '' : ' (sobald der Schalter in der Vorlage an ist)'}.` }
     } catch (e) {
       smtpMsg = { ok: false, text: e.message }
     }
     smtpSaving = false
+  }
+
+  // Gespeicherte Auswahl gegen den Tenant: was muss beim Anwenden passieren?
+  const smtpPending = $derived.by(() => {
+    if (!smtp?.state || !smtp.selection) return null
+    const soll = new Set(smtp.selection.allowed)
+    const on = [], unknown = []
+    for (const a of smtp.selection.allowed) {
+      const m = smtp.state.mailboxes.find(x => x.address === a)
+      if (!m) unknown.push(a)
+      else if (m.setting !== false) on.push(m)
+    }
+    const off = smtp.state.mailboxes.filter(m => m.setting === false && !soll.has(m.address))
+    return { on, off, unknown }
+  })
+  // Haken weichen von der gespeicherten Auswahl ab -> erst speichern, dann anwenden.
+  const smtpDirty = $derived.by(() => {
+    if (!smtp?.selection) return smtpCount > 0
+    const a = Object.keys(smtpSelected).filter(k => smtpSelected[k]).sort().join(',')
+    return a !== [...smtp.selection.allowed].sort().join(',')
+  })
+
+  // Was gilt fuer dieses Postfach wirklich? Postfach-Einstellung vor Organisation --
+  // fuer Basic Auth und OAuth gleichermassen.
+  function smtpEffective(m) {
+    if (m.setting === false) return { on: true, text: 'an', why: 'Ausnahme am Postfach' }
+    if (m.setting === true) return { on: false, text: 'aus', why: 'am Postfach gesperrt' }
+    return smtp.state.orgDisabled
+      ? { on: false, text: 'aus', why: 'erbt Organisation' }
+      : { on: true, text: 'an', why: 'erbt Organisation' }
+  }
+
+  const smtpCheckResult = $derived.by(() => {
+    const a = smtpCheck.trim().toLowerCase()
+    if (!smtp?.state || !a || !a.includes('@')) return null
+    const m = smtpByAddr.get(a)
+    if (!m) return { found: false, address: a }
+    const eff = smtpEffective(m)
+    return {
+      found: true, m, eff,
+      viaAlias: m.address !== a,
+      inSelection: !!smtp.selection?.allowed.includes(m.address),
+      checked: !!smtpSelected[m.address]
+    }
+  })
+
+  function smtpAddToSelection(address) {
+    smtpTouched = true
+    smtpSelected = { ...smtpSelected, [address]: true }
+    smtpFilter = address
+  }
+
+  async function applySmtp() {
+    const p = smtpPending
+    if (!p) return
+    const lines = [`SMTP-AUTH-Ausnahmen JETZT in „${$activeTenant.name}" setzen:`]
+    if (p.on.length) lines.push('', `✅ ${anz(p.on.length, 'Postfach bekommt', 'Postfächer bekommen')} eine Freigabe:`, p.on.map(m => '• ' + m.address).join('\n'))
+    if (p.off.length) lines.push('', `↩️ ${anz(p.off.length, 'Postfach verliert', 'Postfächer verlieren')} die Freigabe (zurück auf „folgt der Organisation"):`, p.off.map(m => '• ' + m.address).join('\n'))
+    if (!p.on.length && !p.off.length) lines.push('', 'Laut letztem Lesestand ist nichts zu ändern — es wird trotzdem gegen den aktuellen Tenant abgeglichen.')
+    lines.push('', `Die Organisationseinstellung bleibt, wie sie ist (heute: SMTP AUTH ${smtp.state.orgDisabled ? 'aus' : 'an'}).`)
+    if (!confirm(lines.join('\n'))) return
+    smtpApplying = true
+    smtpMsg = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/smtpauth/apply`, {})
+      const res = r.result
+      if (res.state) smtp = { ...smtp, state: res.state }
+      const an = res.changes.filter(c => c.to === 'an').length, weg = res.changes.length - an
+      const was = res.changes.length
+        ? [an ? `${anz(an, 'Freigabe', 'Freigaben')} gesetzt` : null, weg ? `${anz(weg, 'Freigabe', 'Freigaben')} entfernt` : null].filter(Boolean).join(', ')
+        : 'nichts zu ändern, Tenant entsprach schon der Auswahl'
+      smtpMsg = res.ok
+        ? { ok: true, text: `Angewendet: ${was}. Microsoft nennt keine Übernahmezeit — scheitert ein Test direkt danach, kurz warten und wiederholen.` }
+        : { ok: false, text: `Abgebrochen: ${res.error}${was ? ` (bis dahin: ${was})` : ''}` }
+    } catch (e) {
+      smtpMsg = { ok: false, text: e.message }
+    }
+    smtpApplying = false
   }
 
   // "1 Postfach" / "3 Postfächer" statt "Postfach/Postfächer" -- das Kundentool
@@ -458,8 +558,10 @@
       </span>
     </div>
     <p class="ld-section-hint">SMTP AUTH organisationsweit aus, nur die hier gewählten Postfächer behalten es — typischerweise
-      Drucker, Scanner und Fachanwendungen. Auswählen und speichern ändert im Tenant noch nichts; gesetzt wird beim Deploy,
-      wenn der Schalter in der Vorlage (<em>Konfiguration → Organisation</em>) an ist.</p>
+      Drucker, Scanner und Fachanwendungen. Der Schalter gilt für das Protokoll, also für <b>OAuth und Basic Auth gleichermassen</b>.
+      Die Freigabe am Postfach hat Vorrang vor der Organisation — die Organisation muss dafür nicht an sein.
+      Speichern ändert im Tenant noch nichts; gesetzt wird mit „Ausnahmen jetzt anwenden" (nur Postfächer) oder beim Deploy
+      (Postfächer, danach Organisation aus — wenn der Schalter in der Vorlage an ist).</p>
 
     {#if !smtp}
       <button class="btn btn-secondary" onclick={loadSmtp} disabled={smtpLoading}>
@@ -473,6 +575,63 @@
           · {anz(smtp.state.mailboxes.filter(m => m.setting === false).length, 'Postfach', 'Postfächer')} explizit freigegeben
           · {anz(smtp.state.mailboxes.length, 'Postfach', 'Postfächer')} insgesamt</div>
       </div>
+
+      <div class="ld-step" style="margin-top:.6rem; display:block;">
+        <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap;">
+          <b style="font-size:.88rem;">🔎 Konto prüfen</b>
+          <input type="search" class="dl-search" placeholder="Anmeldename des Geräts, z. B. scanner@kunde.ch" bind:value={smtpCheck} style="max-width:320px;" />
+          <small>— der Name, mit dem sich Gerät oder Anwendung anmeldet, nicht die Absenderadresse.</small>
+        </div>
+        {#if smtpCheckResult}
+          {@const c = smtpCheckResult}
+          {#if !c.found}
+            <div class="ld-banner warn" style="margin-top:.5rem;">Kein Postfach mit <b>{c.address}</b> — weder als primäre Adresse noch als Alias.
+              SMTP AUTH meldet sich an einem Exchange-Online-Postfach an; ohne Postfach greift keine Ausnahme. Tippfehler? Sonst prüfen,
+              zu welchem Postfach das Konto gehört.</div>
+          {:else}
+            <div class="ld-banner {c.eff.on ? 'ok' : 'fail'}" style="margin-top:.5rem;">
+              <div><b>{c.m.displayName || c.m.address}</b>{c.viaAlias ? ` (Alias von ${c.m.address})` : ''}:
+                SMTP AUTH <b>{c.eff.text}</b> — {c.eff.why}.
+                {c.inSelection ? 'In der gespeicherten Auswahl.' : 'Nicht in der gespeicherten Auswahl.'}</div>
+              {#if !c.eff.on && c.m.setting === null}
+                <div style="margin-top:.3rem;">Genau das meldet ein Gerät als <code>535 5.7.139 … SmtpClientAuthentication is disabled for the Tenant</code>.
+                  Abhilfe: Postfach in die Auswahl, speichern, <b>Ausnahmen jetzt anwenden</b>.</div>
+              {:else if !c.eff.on}
+                <div style="margin-top:.3rem;">Ein Gerät bekommt <code>535 5.7.139 … disabled for the Mailbox</code>. Mit der Auswahl und
+                  „Ausnahmen jetzt anwenden" wird die Sperre am Postfach durch eine Freigabe ersetzt.</div>
+              {:else}
+                <div style="margin-top:.3rem;">An diesem Schalter liegt es nicht. Scheitert das Senden trotzdem, sind die üblichen Verdächtigen:
+                  Berechtigung der App-Registrierung (<code>SMTP.Send</code> delegiert bzw. <code>SMTP.SendAsApp</code>), bei App-only
+                  der Exchange-Service-Principal mit Postfachberechtigung, abgelaufenes Kennwort/Token oder Conditional Access.</div>
+              {/if}
+              {#if !c.eff.on}
+                <div style="margin-top:.4rem; display:flex; gap:.5rem; flex-wrap:wrap;">
+                  {#if !c.checked}<button class="btn btn-secondary" style="padding:.2rem .7rem; font-size:.8rem;" onclick={() => smtpAddToSelection(c.m.address)}>➕ In die Auswahl</button>
+                  {:else if !c.inSelection}<small>Angehakt, aber noch nicht gespeichert.</small>{/if}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        {/if}
+      </div>
+
+      {#if smtpPending && (smtpPending.on.length || smtpPending.off.length || smtpPending.unknown.length)}
+        <div class="ld-banner warn" style="margin-top:.6rem;">
+          <div><b>Gespeicherte Auswahl ist im Tenant noch nicht angewendet.</b></div>
+          {#if smtpPending.on.length}
+            <div style="margin-top:.2rem;">Ohne Freigabe: {smtpPending.on.map(m => m.address).join(', ')}
+              {#if smtp.state.orgDisabled} — <b>wird heute abgewiesen</b> (5.7.139){/if}</div>
+          {/if}
+          {#if smtpPending.off.length}
+            <div style="margin-top:.2rem;">Noch freigegeben, nicht mehr in der Auswahl: {smtpPending.off.map(m => m.address).join(', ')}</div>
+          {/if}
+          {#if smtpPending.unknown.length}
+            <div style="margin-top:.2rem;">In der Auswahl, aber kein Postfach mehr: {smtpPending.unknown.join(', ')}</div>
+          {/if}
+        </div>
+      {:else if smtpPending}
+        <p class="ld-section-hint" style="margin:.5rem 0 0;">✓ Tenant entspricht der gespeicherten Auswahl.</p>
+      {/if}
 
       {#if smtpSignInsLoading}
         <div class="ld-step running" style="margin:.4rem 0;"><span class="ld-spinner"></span> Lese das Entra-Anmeldeprotokoll (bis zu 45 Sekunden) — die Auswahl unten geht schon.</div>
@@ -507,21 +666,23 @@
 
       <div class="gt-table-wrap">
         <table class="gt-table">
-          <thead><tr><th style="width:2rem;"></th><th>Postfach</th><th>Heute</th><th>SMTP-Anmeldungen ({smtpSignIns?.days || 30} T.)</th></tr></thead>
+          <thead><tr><th style="width:2rem;"></th><th>Postfach</th><th>Einstellung</th><th>Wirksam</th><th>SMTP-Anmeldungen ({smtpSignIns?.days || 30} T.)</th></tr></thead>
           <tbody>
             {#each smtpRows as m (m.address)}
               {@const u = smtpUsage.get(m.address)}
+              {@const eff = smtpEffective(m)}
               <tr>
                 <td><input type="checkbox" checked={!!smtpSelected[m.address]}
                            onchange={(e) => { smtpTouched = true; smtpSelected = { ...smtpSelected, [m.address]: e.target.checked } }} /></td>
                 <td><b>{m.displayName || m.address}</b><br /><small>{m.address}</small></td>
                 <td><small>{smtpSettingLabel(m.setting)}</small></td>
+                <td><small style="color:{eff.on ? 'var(--ok)' : 'var(--crit)'};">{eff.on ? '✅' : '⛔'} {eff.text}</small><br /><small>{eff.why}</small></td>
                 <td><small>
                   {#if u}{u.ok} erfolgreich{u.failed ? ` · ${u.failed} fehlgeschlagen` : ''} · zuletzt {new Date(u.last).toLocaleDateString('de-CH')}{:else if smtpSignInsLoading}…{:else}—{/if}
                 </small></td>
               </tr>
             {:else}
-              <tr><td colspan="4"><small>{smtpFilter ? 'Kein Postfach passt zur Suche.' : 'Keine relevanten Postfächer — Haken bei „nur relevante" entfernen, um alle zu sehen.'}</small></td></tr>
+              <tr><td colspan="5"><small>{smtpFilter ? 'Kein Postfach passt zur Suche.' : 'Keine relevanten Postfächer — Haken bei „nur relevante" entfernen, um alle zu sehen.'}</small></td></tr>
             {/each}
           </tbody>
         </table>
@@ -531,6 +692,13 @@
         <button class="btn btn-primary" onclick={saveSmtp} disabled={smtpSaving}>
           {smtpSaving ? '…' : `Auswahl speichern (${smtpCount})`}
         </button>
+        {#if smtp.selection}
+          <button class="btn btn-secondary" onclick={applySmtp} disabled={smtpApplying || smtpDirty}
+                  title={smtpDirty ? 'Erst die geänderte Auswahl speichern' : 'Setzt nur die Postfächer, die Organisation bleibt unverändert'}>
+            {smtpApplying ? 'Setze Ausnahmen in Exchange Online…' : '⚡ Ausnahmen jetzt anwenden'}
+          </button>
+        {/if}
+        {#if smtpDirty && smtp.selection}<small>Auswahl geändert — erst speichern, dann anwenden.</small>{/if}
         {#if !smtp.selection}<small>Vorauswahl ist ein Vorschlag aus heutigen Freigaben und Anmeldungen — noch nicht gespeichert.</small>{/if}
         {#if smtpMsg}<small style="color:{smtpMsg.ok ? 'var(--ok)' : 'var(--crit)'};">{smtpMsg.text}</small>{/if}
       </div>

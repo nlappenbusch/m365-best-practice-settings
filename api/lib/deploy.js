@@ -7,6 +7,7 @@
  * bevor irgendetwas in PowerShell-Text interpoliert wird.
  */
 const { psQuote } = require("./exorunner");
+const SMTPAUTH = require("./smtpAuth");
 
 // Nicht-Mail-Domains (Teams Direct Routing / SBC / Operator-Connect / Skype)
 // tragen keine Postfaecher und gehoeren nicht in Mail-Flow-Regeln
@@ -344,23 +345,8 @@ function orgStep(name, setLines) {
  * schon (server.js) -- das hier ist die zweite Sicherung.
  */
 function smtpAuthLines(allowed) {
-  if (!Array.isArray(allowed)) {
-    return ["throw 'Fuer diesen Tenant sind noch keine SMTP-AUTH-Ausnahmen ausgewaehlt (Tab Mail-Security). Es wurde nichts geaendert.'"];
-  }
-  return [
-    "$allowed = " + psArray(allowed.map(a => String(a).toLowerCase())),
-    "$allowedSet = @{}; foreach ($a in $allowed) { $allowedSet[$a] = $true }",
-    "$all = @(Get-CASMailbox -ResultSize Unlimited | Select-Object PrimarySmtpAddress, SmtpClientAuthenticationDisabled)",
-    "foreach ($m in $all) {",
-    "  $addr = ('' + $m.PrimarySmtpAddress).ToLower()",
-    "  if ($allowedSet.ContainsKey($addr)) {",
-    "    if ($m.SmtpClientAuthenticationDisabled -ne $false) { Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $false | Out-Null }",
-    "  } elseif ($m.SmtpClientAuthenticationDisabled -eq $false) {",
-    "    Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $null | Out-Null",
-    "  }",
-    "}",
-    "Set-TransportConfig -SmtpClientAuthenticationDisabled $true | Out-Null"
-  ];
+  // Gemeinsamer Baustein mit dem Knopf "Ausnahmen jetzt anwenden" (smtpAuth.js).
+  return SMTPAUTH.exceptionLines(allowed, { org: true });
 }
 
 /** Baut den pwsh-Body (laeuft innerhalb der runExo-Verbindung). */

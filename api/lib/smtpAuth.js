@@ -7,18 +7,25 @@
  * Fachanwendungen, POP/IMAP-Clients). Die Postfach-Einstellung hat Vorrang vor
  * der Organisationseinstellung; $null heisst "folgt der Organisation".
  *
+ * Der Schalter gilt fuer das Protokoll, nicht fuer die Anmeldeart: OAuth
+ * (XOAUTH2) wird genauso abgewiesen wie Basic Auth. Die Fehlermeldung sagt,
+ * welche Ebene gegriffen hat -- "disabled for the Tenant" = Postfach ohne
+ * eigene Freigabe, erbt das organisationsweite Aus; "disabled for the
+ * Mailbox" = am Postfach selbst gesperrt.
+ *
  * Diese Datei liefert nur die Erhebung fuer die Auswahl im Tab. Das Setzen
  * passiert im Deploy (deploy.js, Schritt "SMTP AUTH"), gelesen fuer den
  * Soll-Ist-Vergleich im Audit (buildAuditBody).
  */
 const EXO = require("./exorunner");
+const { psQuote } = EXO;
 const { graphReq } = require("./graph");
 
 /** Organisationseinstellung + alle Postfaecher mit ihrer SMTP-AUTH-Einstellung. */
 async function readState(tenant, cert) {
   const body = [
     "$tc = Get-TransportConfig | Select-Object SmtpClientAuthenticationDisabled",
-    "$mbx = @(Get-CASMailbox -ResultSize Unlimited | Select-Object DisplayName, PrimarySmtpAddress, SmtpClientAuthenticationDisabled)",
+    READ_MAILBOXES,
     "Write-Output ('BEGINJSON' + (@{ ok = $true; org = $tc; mailboxes = $mbx } | ConvertTo-Json -Compress -Depth 5) + 'ENDJSON')"
   ].join("\r\n");
   const r = await EXO.runExo(
@@ -29,18 +36,101 @@ async function readState(tenant, cert) {
     throw Object.assign(new Error((r.data && r.data.error) || "SMTP-AUTH-Abfrage fehlgeschlagen"),
       { hint: "Braucht Exchange.ManageAsApp + Exchange-Administrator-Rolle (im Tab Tenants einmal Reparieren)." });
   }
-  const raw = r.data.mailboxes || [];
-  const mailboxes = (Array.isArray(raw) ? raw : [raw]).map(m => ({
-    displayName: m.DisplayName || "",
-    address: String(m.PrimarySmtpAddress || "").toLowerCase(),
-    // true = aus, false = explizit an, null = folgt der Organisation
-    setting: m.SmtpClientAuthenticationDisabled === true ? true : (m.SmtpClientAuthenticationDisabled === false ? false : null)
-  })).filter(m => m.address).sort((a, b) => a.address.localeCompare(b.address));
-
   const org = r.data.org || {};
   return {
     orgDisabled: org.SmtpClientAuthenticationDisabled === true,
-    mailboxes
+    mailboxes: mapMailboxes(r.data.mailboxes)
+  };
+}
+
+// Aliase (alle smtp:-Adressen) kommen mit, weil Geraete sich oft nicht mit der
+// primaeren Adresse anmelden, sondern mit dem UPN oder einem Alias -- ohne sie
+// passen Anmeldungen und Kontopruefung nicht zum Postfach.
+const READ_MAILBOXES =
+  "$mbx = @(Get-CASMailbox -ResultSize Unlimited | Select-Object DisplayName, PrimarySmtpAddress, SmtpClientAuthenticationDisabled, " +
+  "@{ n = 'Aliases'; e = { @($_.EmailAddresses | ForEach-Object { '' + $_ } | Where-Object { $_ -like 'smtp:*' } | ForEach-Object { $_.Substring(5).ToLower() }) } })";
+
+function mapMailboxes(raw) {
+  const list = raw == null ? [] : (Array.isArray(raw) ? raw : [raw]);
+  return list.map(m => {
+    const address = String(m.PrimarySmtpAddress || "").toLowerCase();
+    const al = m.Aliases == null ? [] : (Array.isArray(m.Aliases) ? m.Aliases : [m.Aliases]);
+    return {
+      displayName: m.DisplayName || "",
+      address,
+      aliases: [...new Set(al.map(a => String(a).toLowerCase()).filter(a => a && a !== address))],
+      // true = aus, false = explizit an, null = folgt der Organisation
+      setting: m.SmtpClientAuthenticationDisabled === true ? true : (m.SmtpClientAuthenticationDisabled === false ? false : null)
+    };
+  }).filter(m => m.address).sort((a, b) => a.address.localeCompare(b.address));
+}
+
+/**
+ * PowerShell-Zeilen, die die Ausnahmen auf den Tenant bringen: ausgewaehlte
+ * Postfaecher explizit an, alte Freigaben ausserhalb der Auswahl zurueck auf
+ * "folgt der Organisation". Mit org:true (Deploy) danach die Organisation
+ * abschalten -- in dieser Reihenfolge, sonst gibt es ein Fenster, in dem die
+ * Ausnahmen schon abgewiesen werden. Unter ErrorActionPreference=Stop bricht
+ * ein fehlgeschlagenes Set-CASMailbox vor dem Organisationsschalter ab.
+ *
+ * Fehlt die Auswahl ganz, wird vor jeder Aenderung abgebrochen.
+ */
+function exceptionLines(allowed, opts) {
+  if (!Array.isArray(allowed)) {
+    return ["throw 'Fuer diesen Tenant sind noch keine SMTP-AUTH-Ausnahmen ausgewaehlt (Tab Mail-Security). Es wurde nichts geaendert.'"];
+  }
+  const lines = [
+    "$allowed = @(" + allowed.map(a => psQuote(String(a).toLowerCase())).join(", ") + ")",
+    "$allowedSet = @{}; foreach ($a in $allowed) { $allowedSet[$a] = $true }",
+    "$smtpChanges = @()",
+    "$all = @(Get-CASMailbox -ResultSize Unlimited | Select-Object PrimarySmtpAddress, SmtpClientAuthenticationDisabled)",
+    "foreach ($m in $all) {",
+    "  $addr = ('' + $m.PrimarySmtpAddress).ToLower()",
+    "  if ($allowedSet.ContainsKey($addr)) {",
+    "    if ($m.SmtpClientAuthenticationDisabled -ne $false) { Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $false | Out-Null; $smtpChanges += @{ address = $addr; to = 'an' } }",
+    "  } elseif ($m.SmtpClientAuthenticationDisabled -eq $false) {",
+    "    Set-CASMailbox -Identity $addr -SmtpClientAuthenticationDisabled $null | Out-Null; $smtpChanges += @{ address = $addr; to = 'org' }",
+    "  }",
+    "}"
+  ];
+  if (opts && opts.org) lines.push("Set-TransportConfig -SmtpClientAuthenticationDisabled $true | Out-Null");
+  return lines;
+}
+
+/**
+ * Nur die Ausnahmen je Postfach setzen, die Organisation bleibt, wie sie ist.
+ * Fuer den Fall "Geraet bekommt 5.7.139 disabled for the Tenant": Konto in die
+ * Auswahl, anwenden -- ohne den ganzen Mail-Security-Deploy. Liest danach den
+ * Stand in derselben Verbindung neu ein.
+ */
+async function applyExceptions(tenant, cert, allowed) {
+  if (!Array.isArray(allowed)) throw new Error("Fuer diesen Tenant ist keine Auswahl gespeichert.");
+  const body = [
+    "$result = @{ ok = $true }",
+    "$smtpChanges = @()",
+    "try {",
+    ...exceptionLines(allowed, { org: false }).map(l => "  " + l),
+    "} catch { $result.ok = $false; $result.error = $_.Exception.Message }",
+    "$result.changes = @($smtpChanges)",
+    "$tc = Get-TransportConfig | Select-Object SmtpClientAuthenticationDisabled",
+    READ_MAILBOXES,
+    "$result.org = $tc; $result.mailboxes = $mbx",
+    "Write-Output ('BEGINJSON' + ($result | ConvertTo-Json -Compress -Depth 5) + 'ENDJSON')"
+  ].join("\r\n");
+  const r = await EXO.runExo(
+    { appId: tenant.clientId, organization: tenant.organization, certPemPath: cert },
+    body, 300000);
+  if (!r.ok) throw Object.assign(new Error("EXO-Runner: " + r.error), { hint: "Exchange Online app-only nicht erreichbar." });
+  const d = r.data || {};
+  const ch = d.changes == null ? [] : (Array.isArray(d.changes) ? d.changes : [d.changes]);
+  return {
+    ok: d.ok !== false,
+    error: d.error || null,
+    changes: ch.filter(c => c && c.address).map(c => ({ address: String(c.address || ""), to: c.to === "an" ? "an" : "org" })),
+    state: {
+      orgDisabled: (d.org || {}).SmtpClientAuthenticationDisabled === true,
+      mailboxes: mapMailboxes(d.mailboxes)
+    }
   };
 }
 
@@ -125,4 +215,4 @@ function normalizeAddress(v) {
   return /^[^@\s'"`$;|&<>()]+@[^@\s'"`$;|&<>()]+\.[a-z0-9-]+$/i.test(a) ? a : null;
 }
 
-module.exports = { readState, readSignIns, normalizeAddress };
+module.exports = { readState, readSignIns, normalizeAddress, exceptionLines, applyExceptions };

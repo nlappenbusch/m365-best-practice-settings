@@ -6125,6 +6125,23 @@ app.post("/api/tenants/:id/smtpauth", wrap(async (req, res) => {
   res.json({ ok: true, selection: { allowed, savedAt: rec.smtpAuthSavedAt } });
 }));
 
+// Gespeicherte Ausnahmen sofort setzen, ohne den ganzen Mail-Security-Deploy.
+// Nur Postfaecher, der Organisationsschalter bleibt unberuehrt -- fuer "Geraet
+// meldet 535 5.7.139 disabled for the Tenant": Konto auswaehlen, speichern,
+// anwenden. Schreibt in den Tenant, deshalb nur auf ausdruecklichen Klick.
+app.post("/api/tenants/:id/smtpauth/apply", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (!Array.isArray(t.smtpAuthAllowed)) {
+    return res.status(400).json({ error: "Fuer diesen Tenant ist keine Auswahl gespeichert - erst speichern, dann anwenden." });
+  }
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, result: { ok: true, error: null, changes: t.smtpAuthAllowed.map(a => ({ address: a, to: "an" })), state: null } });
+  }
+  const result = await SMTPAUTH.applyExceptions(t, certPemPath(t.tenantId), t.smtpAuthAllowed);
+  console.log(`SMTP-AUTH-Ausnahmen in Tenant ${t.name} angewendet: ${result.changes.length} Aenderung(en)${result.ok ? "" : ", Fehler: " + result.error}.`);
+  res.json({ ok: true, result });
+}));
+
 // Gewollte Abweichungen: einzelne Audit-Checks pro Tenant als bewusst abweichend
 // markieren (z.B. Spoof-Aktion = MoveToJmf). Sie erscheinen dann im Audit/PDF als
 // ℹ️ statt ❌ und zaehlen nicht als Abweichung. reason leer => Markierung entfernen.
