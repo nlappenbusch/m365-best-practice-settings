@@ -22,8 +22,23 @@ const { graphReq, graphAllPages } = require("./graph");
 
 const GH_API = "https://api.github.com/repos/SkipToTheEndpoint/OpenIntuneBaseline/contents";
 const GH_RAW = "https://raw.githubusercontent.com/SkipToTheEndpoint/OpenIntuneBaseline/main";
-const BASE_PATH = "WINDOWS/IntuneManagement";
-const FOLDERS = ["SettingsCatalog", "CompliancePolicies", "DeviceConfiguration", "DriverUpdateProfiles", "UpdatePolicies"];
+// Quellen je Plattform. macOS liefert im OIB-Repo nur Settings Catalog und
+// Compliance und hat kein PolicyManifest (404) -- die Versionsanzeige entfaellt dort.
+const SOURCES = {
+  windows: {
+    base: "WINDOWS/IntuneManagement", manifest: "WINDOWS/PolicyManifest.json",
+    folders: ["SettingsCatalog", "CompliancePolicies", "DeviceConfiguration", "DriverUpdateProfiles", "UpdatePolicies"]
+  },
+  macos: {
+    base: "MACOS/IntuneManagement", manifest: null,
+    folders: ["SettingsCatalog", "CompliancePolicies"]
+  }
+};
+function sourceFor(platform) { return SOURCES[platform] || SOURCES.windows; }
+
+// Alt-Exporte (Windows) -- von aussen weiter unter den alten Namen lesbar.
+const BASE_PATH = SOURCES.windows.base;
+const FOLDERS = SOURCES.windows.folders;
 
 async function ghJson(url) {
   const r = await fetch(url, { headers: { "user-agent": "m365-security-policy-manager", accept: "application/vnd.github+json" } });
@@ -32,16 +47,19 @@ async function ghJson(url) {
 }
 
 /** Baseline-Inhalt auflisten: [{ folder, fileName, name }] + oibVersion aus dem Manifest. */
-async function fetchBaselineIndex() {
+async function fetchBaselineIndex(platform) {
+  const src = sourceFor(platform);
   let oibVersion = null;
-  try {
-    const raw = await fetch(`${GH_RAW}/WINDOWS/PolicyManifest.json`);
-    if (raw.ok) oibVersion = (await raw.json()).oibVersion || null;
-  } catch (e) { /* Version ist nice-to-have */ }
+  if (src.manifest) {
+    try {
+      const raw = await fetch(`${GH_RAW}/${src.manifest}`);
+      if (raw.ok) oibVersion = (await raw.json()).oibVersion || null;
+    } catch (e) { /* Version ist nice-to-have */ }
+  }
 
   const policies = [];
-  for (const folder of FOLDERS) {
-    const items = await ghJson(`${GH_API}/${BASE_PATH}/${encodeURIComponent(folder)}`);
+  for (const folder of src.folders) {
+    const items = await ghJson(`${GH_API}/${src.base}/${encodeURIComponent(folder)}`);
     for (const it of items) {
       if (it.type !== "file" || !/\.json$/i.test(it.name)) continue;
       policies.push({ folder, fileName: it.name, name: it.name.replace(/\.json$/i, "") });
@@ -157,7 +175,8 @@ async function loadExistingNames(tenant, cert) {
  * selected: [{ folder, fileName }], onProgress(label).
  * Rueckgabe: [{ name, status: created|skipped|failed, error? }]
  */
-async function importPolicies(tenant, cert, selected, onProgress) {
+async function importPolicies(tenant, cert, selected, onProgress, platform) {
+  const src = sourceFor(platform);
   const notify = onProgress || (() => {});
   const beta = { beta: true, retryTransient: true };
 
@@ -171,10 +190,10 @@ async function importPolicies(tenant, cert, selected, onProgress) {
     const name = String(sel.fileName || "").replace(/\.json$/i, "");
     notify(`Policy ${i}/${selected.length}: ${name}`);
     try {
-      if (!FOLDERS.includes(sel.folder)) throw new Error("Unbekannter Ordner: " + sel.folder);
+      if (!src.folders.includes(sel.folder)) throw new Error("Unbekannter Ordner: " + sel.folder);
       if (existing.has(name)) { results.push({ name, status: "skipped" }); continue; }
 
-      const url = `${GH_RAW}/${BASE_PATH}/${encodeURIComponent(sel.folder)}/${encodeURIComponent(sel.fileName)}`;
+      const url = `${GH_RAW}/${src.base}/${encodeURIComponent(sel.folder)}/${encodeURIComponent(sel.fileName)}`;
       const r = await fetch(url);
       if (!r.ok) throw new Error(`Download fehlgeschlagen (${r.status})`);
       const raw = await r.json();
@@ -190,4 +209,4 @@ async function importPolicies(tenant, cert, selected, onProgress) {
   return results;
 }
 
-module.exports = { fetchBaselineIndex, transformForImport, endpointFor, importPolicies, FOLDERS };
+module.exports = { fetchBaselineIndex, transformForImport, endpointFor, importPolicies, FOLDERS, SOURCES };

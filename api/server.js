@@ -1997,11 +1997,27 @@ function fakeOib() {
   };
 }
 
+// Nur bekannte Plattformen durchlassen -- der Wert landet in GitHub-Pfaden
+// (Import) und in Namensfiltern, freie Eingaben haben dort nichts verloren.
+function oibPlatform(v) { return v === "macos" ? "macos" : "windows"; }
+
 app.get("/api/tenants/:id/oib", wrap(async (req, res) => {
   const t = requireTenant(req);
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ...fakeOib() });
-  const data = await OIB.loadOibOverview(t, certPemPath(t.tenantId));
+  const data = await OIB.loadOibOverview(t, certPemPath(t.tenantId), oibPlatform(req.query.platform));
   res.json({ ok: true, ...data });
+}));
+
+// Mac-Zielgruppe anlegen (idempotent). Eigener Klick im Tab, damit die
+// schreibende Aktion im Kundentenant bewusst ausgeloest wird.
+app.post("/api/tenants/:id/oib/macgroup", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") {
+    return res.json({ ok: true, created: true, group: { id: "mac1", displayName: "AAD-MAC-Std", membershipRule: OIB.MAC_GROUP_RULE } });
+  }
+  const r = await OIB.ensureMacGroup(t, certPemPath(t.tenantId), t.id);
+  console.log(`Mac-Gruppe "${r.group.displayName}" in Tenant ${t.name}${r.created ? " angelegt" : " war schon vorhanden"}.`);
+  res.json({ ok: true, ...r });
 }));
 
 app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
@@ -2026,7 +2042,7 @@ app.post("/api/tenants/:id/oib/assign", wrap(async (req, res) => {
 
   const results = [];
   for (const p of policies) {
-    if (!p || !p.id || !["configurationPolicies", "intents"].includes(p.apiType)) {
+    if (!p || !p.id || !["configurationPolicies", "intents", "deviceCompliancePolicies"].includes(p.apiType)) {
       results.push({ id: p && p.id, status: "failed", error: "Ungueltige Policy-Referenz" });
       continue;
     }
@@ -2067,19 +2083,21 @@ app.post("/api/tenants/:id/assignmentfilters/win11", wrap(async (req, res) => {
 // ---------- OIB-Baseline-Import (OIBDeployer-Port) ----------
 // Index 10 Minuten cachen — die GitHub-Contents-API ist unauthentifiziert auf
 // 60 Requests/Stunde limitiert (ein Index-Abruf kostet ~6 Requests).
-let oibBaselineCache = { data: null, exp: 0 };
+// Je Plattform ein eigener Eintrag -- sonst bekaeme macOS den Windows-Index aus dem Cache.
+const oibBaselineCache = new Map();
 app.get("/api/oib/baseline", wrap(async (req, res) => {
-  if (oibBaselineCache.data && Date.now() < oibBaselineCache.exp) {
-    return res.json({ ok: true, ...oibBaselineCache.data });
-  }
-  const data = await OIBIMPORT.fetchBaselineIndex();
-  oibBaselineCache = { data, exp: Date.now() + 10 * 60 * 1000 };
-  res.json({ ok: true, ...data });
+  const platform = oibPlatform(req.query.platform);
+  const hit = oibBaselineCache.get(platform);
+  if (hit && Date.now() < hit.exp) return res.json({ ok: true, platform, ...hit.data });
+  const data = await OIBIMPORT.fetchBaselineIndex(platform);
+  oibBaselineCache.set(platform, { data, exp: Date.now() + 10 * 60 * 1000 });
+  res.json({ ok: true, platform, ...data });
 }));
 
 app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
   const t = requireTenant(req);
   const files = Array.isArray((req.body || {}).files) ? req.body.files : [];
+  const importPlatform = oibPlatform((req.body || {}).platform);
   if (!files.length) return res.status(400).json({ error: "files erforderlich." });
   for (const j of appJobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
@@ -2095,7 +2113,7 @@ app.post("/api/tenants/:id/oib/import", wrap(async (req, res) => {
         for (let i = 1; i <= files.length; i++) { onProgress(`Policy ${i}/${files.length}`); await new Promise(r => setTimeout(r, 120)); }
         job.results = { created: Math.max(0, files.length - 1), skipped: Math.min(1, files.length), failed: 0 };
       } else {
-        const results = await OIBIMPORT.importPolicies(t, certPemPath(t.tenantId), files, onProgress);
+        const results = await OIBIMPORT.importPolicies(t, certPemPath(t.tenantId), files, onProgress, importPlatform);
         job.results = {
           created: results.filter(x => x.status === "created").length,
           skipped: results.filter(x => x.status === "skipped").length,

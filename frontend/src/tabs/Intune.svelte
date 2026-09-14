@@ -62,7 +62,14 @@
 
   let loading = $state(false)
   let loadError = $state(null)
-  let data = $state(null)          // { groups, policies, intentsError }
+  let data = $state(null)          // { platform, groups, policies, intentsError, complianceError, hasMacGroup, macGroupRule }
+  // OIB-Plattform: Windows (GroupTag-Gruppen) oder macOS (Gruppe ueber das
+  // Betriebssystem). Umschalten laedt Zuweisung und Import-Index neu.
+  let oibPlatform = $state('windows')
+  let macGroupBusy = $state(false)
+  let macGroupNotice = $state(null)
+  const oibPrefix = $derived(oibPlatform === 'macos' ? 'MacOS - OIB' : 'Win - OIB')
+  const oibLabel = $derived(oibPlatform === 'macos' ? 'macOS' : 'Windows')
   let selectedGroupId = $state('')
   let checked = $state({})         // policyId -> bool
   let assigning = $state(false)
@@ -422,13 +429,49 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     m365Busy = false
   }
 
+  function setOibPlatform(pf) {
+    if (pf === oibPlatform) return
+    oibPlatform = pf
+    data = null
+    baseline = null
+    importChecked = {}
+    checked = {}
+    assignResult = null
+    macGroupNotice = null
+    if (importOpen) loadBaseline()
+    load()
+  }
+
+  async function createMacGroup() {
+    if (!confirm(`Mac-Zielgruppe in „${$activeTenant.name}" anlegen?
+
+Dynamische Sicherheitsgruppe, Name nach der Namenskonvention des Tenants.
+Regel: ${data?.macGroupRule || '(device.deviceOSType -eq "MacMDM") -or (device.deviceOSType -eq "macOS")'}
+
+Gibt es schon eine Gruppe mit dieser Regel, wird keine zweite angelegt.`)) return
+    macGroupBusy = true
+    macGroupNotice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib/macgroup`, {})
+      macGroupNotice = r.created
+        ? `✅ „${r.group.displayName}" angelegt. Entra wertet die Regel in den nächsten Minuten aus, dann erscheinen die Macs als Mitglieder.`
+        : `ℹ️ „${r.group.displayName}" war schon vorhanden — keine zweite Gruppe angelegt.`
+      await load()
+      if (r.group?.id) selectedGroupId = r.group.id
+    } catch (e) {
+      macGroupNotice = '❌ ' + e.message
+    }
+    macGroupBusy = false
+  }
+
   async function load() {
     if (!$activeTenant) return
     loading = true
     loadError = null
     try {
-      const d = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib`)
+      const d = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib?platform=${oibPlatform}`)
       data = d
+      // Bei macOS kommen die passenden Gruppen vom Backend schon vorn an.
       selectedGroupId = (d.groups || [])[0]?.id || ''
       checked = {}
       assignResult = null
@@ -504,7 +547,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     baselineLoading = true
     baselineError = null
     try {
-      const r = await apiGet('/api/oib/baseline')
+      const r = await apiGet(`/api/oib/baseline?platform=${oibPlatform}`)
       baseline = { oibVersion: r.oibVersion, policies: r.policies || [] }
       // Vorauswahl: alles, was noch nicht im Tenant existiert
       const next = {}
@@ -524,11 +567,11 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
   async function startImport() {
     const files = (baseline?.policies || []).filter(p => importChecked[p.fileName]).map(p => ({ folder: p.folder, fileName: p.fileName }))
     if (!files.length) { alert('Keine Policies ausgewählt.'); return }
-    if (!confirm(`${files.length} Baseline-Policies in "${$activeTenant.name}" importieren?\n\nBereits vorhandene Policies (gleicher Name) werden übersprungen, nie überschrieben. Die Policies werden OHNE Zuweisung angelegt — das Zuweisen passiert danach wie gewohnt unten im Tab.`)) return
+    if (!confirm(`${files.length} ${oibLabel}-Baseline-Policies in "${$activeTenant.name}" importieren?\n\nBereits vorhandene Policies (gleicher Name) werden übersprungen, nie überschrieben. Die Policies werden OHNE Zuweisung angelegt — das Zuweisen passiert danach wie gewohnt unten im Tab.`)) return
     importBusy = true
     importJob = null
     try {
-      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib/import`, { files })
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/oib/import`, { files, platform: oibPlatform })
       importJobId = r.jobId
       pollImportJob()
     } catch (e) {
@@ -962,7 +1005,11 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
 
   <div class="settings-group">
     <h4>Intune-Baseline <small>(OpenIntuneBaseline)</small></h4>
-    <p class="ld-section-hint">„Win - OIB"-Policies anzeigen und dynamischen Security-Gruppen zuweisen — oder die Baseline zuerst direkt aus dem OpenIntuneBaseline-Repo importieren.</p>
+    <div class="ld-oib-platform" role="group" aria-label="Plattform">
+      <button class="btn {oibPlatform === 'windows' ? 'btn-primary' : 'btn-secondary'}" onclick={() => setOibPlatform('windows')} disabled={loading}>🪟 Windows</button>
+      <button class="btn {oibPlatform === 'macos' ? 'btn-primary' : 'btn-secondary'}" onclick={() => setOibPlatform('macos')} disabled={loading}>🍎 macOS</button>
+    </div>
+    <p class="ld-section-hint">„{oibPrefix}"-Policies anzeigen und dynamischen Security-Gruppen zuweisen — Settings Catalog{oibPlatform === 'windows' ? ', Endpoint Security' : ''} und Compliance — oder die Baseline zuerst direkt aus dem OpenIntuneBaseline-Repo importieren.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button class="btn btn-secondary" onclick={load} disabled={loading}>{loading ? '…' : '🔄 Neu laden'}</button>
       <button class="btn btn-primary" onclick={toggleImport} disabled={importBusy}>
@@ -1157,7 +1204,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     <div class="ld-job" style="margin-bottom:1.5rem;">
       <div class="ld-job-head"><strong>OpenIntuneBaseline importieren{baseline?.oibVersion ? ` (v${baseline.oibVersion})` : ''}</strong>
         {#if baseline}<span class="ld-job-meta">{importSelectedCount}/{baseline.policies.length} ausgewählt</span>{/if}</div>
-      <p class="ld-section-hint">Lädt die Windows-Baseline direkt aus <a href="https://github.com/SkipToTheEndpoint/OpenIntuneBaseline" target="_blank" rel="noopener">SkipToTheEndpoint/OpenIntuneBaseline</a> und legt die Policies OHNE Zuweisung im Tenant an. Bereits vorhandene Policies (gleicher Name) werden übersprungen — nie überschrieben. Zuweisen danach wie gewohnt unten.</p>
+      <p class="ld-section-hint">Lädt die {oibLabel}-Baseline direkt aus <a href="https://github.com/SkipToTheEndpoint/OpenIntuneBaseline" target="_blank" rel="noopener">SkipToTheEndpoint/OpenIntuneBaseline</a> und legt die Policies OHNE Zuweisung im Tenant an. Bereits vorhandene Policies (gleicher Name) werden übersprungen — nie überschrieben. Zuweisen danach wie gewohnt unten.</p>
 
       {#if baselineLoading}
         <div class="ld-step running"><span class="ld-spinner"></span> Lade Baseline-Index von GitHub…</div>
@@ -1221,13 +1268,39 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
     </div>
   {:else if data}
     {#if !data.policies?.length}
-      <div class="ld-job"><div class="ld-banner warn">Keine "Win - OIB"-Policies im Tenant gefunden — zuerst die OIB-Baseline importieren.</div></div>
-    {:else if !data.groups?.length}
+      <div class="ld-job"><div class="ld-banner warn">Keine "{oibPrefix}"-Policies im Tenant gefunden — zuerst die {oibLabel}-Baseline importieren.</div></div>
+    {:else if !data.groups?.length && oibPlatform !== 'macos'}
       <div class="ld-job"><div class="ld-banner warn">Keine dynamischen Security Groups gefunden — zuerst die Gerätegruppen anlegen (Tab GroupTags).</div></div>
     {:else}
       <div class="ld-job">
         <div class="ld-job-head"><strong>OIB-Policies: {$activeTenant.name}</strong>
           <span class="ld-job-meta">{data.policies.length} Policies · {data.groups.length} dynamische Gruppen</span></div>
+
+        {#if data.complianceError}
+          <div class="ld-banner warn">Compliance-Richtlinien konnten nicht geladen werden: {data.complianceError}
+            <br /><small>Settings Catalog{oibPlatform === 'windows' ? ' und Endpoint Security' : ''} bleiben nutzbar.</small></div>
+        {/if}
+
+        {#if oibPlatform === 'macos'}
+          <div class="ld-banner {data.hasMacGroup ? 'ok' : 'warn'}">
+            <div>
+              {#if data.hasMacGroup}
+                <b>Mac-Zielgruppe vorhanden</b> — sie steht in der Auswahl oben.
+              {:else}
+                <b>Noch keine Mac-Zielgruppe</b>
+                <div>Macs haben keinen Autopilot-GroupTag. Die Gruppe bildet sich über das Betriebssystem:
+                  <code>{data.macGroupRule}</code></div>
+                <div style="margin-top:0.35rem;">
+                  <button class="btn btn-primary" style="padding:0.25rem 0.7rem; font-size:0.8rem;" disabled={macGroupBusy} onclick={createMacGroup}>
+                    {macGroupBusy ? '…' : 'Mac-Gruppe anlegen'}
+                  </button>
+                  <small style="margin-left:0.5rem; color:var(--text-dim);">Name nach der Namenskonvention des Tenants.</small>
+                </div>
+              {/if}
+              {#if macGroupNotice}<div style="margin-top:0.35rem;">{macGroupNotice}</div>{/if}
+            </div>
+          </div>
+        {/if}
 
         {#if data.intentsError}
           <div class="ld-banner warn">Endpoint-Security-Policies (intents) konnten nicht geladen werden: {data.intentsError}
@@ -1237,7 +1310,7 @@ Die App hängt an einer App-Zielgruppe, die dynamischen Gruppen werden dort Mitg
         <div class="ld-oib-target">
           <label for="oibGroup"><strong>Zielgruppe (dynamische Security Group):</strong></label>
           <select id="oibGroup" bind:value={selectedGroupId}>
-            {#each data.groups as g (g.id)}<option value={g.id} title={g.membershipRule}>{g.displayName}</option>{/each}
+            {#each data.groups as g (g.id)}<option value={g.id} title={g.membershipRule}>{g.displayName}{oibPlatform === 'macos' && g.macGroup ? ' — 🍎 Mac-Regel' : ''}</option>{/each}
           </select>
         </div>
         <div class="ld-oib-toolbar">

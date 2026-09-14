@@ -1,5 +1,41 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.50 - OIB fuer macOS, Compliance zuweisbar, Mac-Zielgruppe (2026-09-14)
+
+**Die OIB-Zuweisung kann jetzt macOS.** Umschalter Windows / macOS im Intune-Tab.
+Bisher war der Tab hart auf den Praefix "Win - OIB" verdrahtet -- importierte
+"MacOS - OIB - ..."-Richtlinien tauchten gar nicht erst in der Liste auf. Die
+Zuweisung selbst (POST .../assign) ist plattformunabhaengig, geaendert haben
+sich Filter, Gruppierung und Quellen. macOS-Namen tragen kein Typkuerzel wie
+SC/ES/TP, dort gruppiert der Bereich ("Defender Antivirus", "Device Security",
+...). macOS kennt keine Endpoint-Security-Intents, die werden dort nicht
+abgefragt.
+
+**Auch der Import kann macOS.** Quelle `MACOS/IntuneManagement` im OIB-Repo,
+Ordner SettingsCatalog und CompliancePolicies. macOS hat dort kein
+PolicyManifest, die Versionsanzeige entfaellt entsprechend. Der Index-Cache
+ist jetzt je Plattform getrennt -- sonst haette macOS den Windows-Index aus
+dem Cache bekommen.
+
+**Compliance-Richtlinien sind zuweisbar -- fuer beide Plattformen.** Sie wurden
+bisher nie geladen. "Win - OIB - Compliance - ..." stand damit im Tab nicht zur
+Auswahl, obwohl die Typ-Erkennung dafuer seit Langem im Code steht. Geladen
+wird jetzt zusaetzlich `deviceCompliancePolicies` inkl. Assignments,
+fehlertolerant wie die Intents.
+
+**Mac-Zielgruppe per Klick.** Macs haben keinen Autopilot-GroupTag, sie kommen
+ueber Apple Business Manager bzw. ADE. Die Gruppe bildet sich deshalb ueber das
+Betriebssystem. Microsoft fuehrt `deviceOSType` als "Any string value" und
+dokumentiert fuer macOS keinen Wert; in der Praxis stehen je nach Aufnahmeweg
+`MacMDM` oder `macOS` drin. Die Regel nimmt beide:
+`(device.deviceOSType -eq "MacMDM") -or (device.deviceOSType -eq "macOS")`.
+`managementType` bleibt bewusst draussen -- ist es bei einem Mac nicht gesetzt,
+bliebe die Gruppe leer. Der Name folgt der Namenskonvention des Tenants wie
+bei den GroupTag-Gruppen (`AAD-MAC-Std` bzw. `T2-DG-MAC-Std`). Das Anlegen ist
+idempotent: Existiert schon eine Gruppe mit passender Regel, wird keine zweite
+angelegt. Vorhandene Mac-Gruppen stehen in der Zielgruppen-Auswahl vorn und
+sind gekennzeichnet.
+
 ## Version 2.52 - DB-Verbindung: TLS-Nachfassen und ehrliche Fehlermeldung (2026-09-11)
 
 Der erste Verbindungsversuch aus dem igeeks-Pod endete mit

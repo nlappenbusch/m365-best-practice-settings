@@ -1286,3 +1286,7 @@ button.linklike + button.linklike { margin-left: 0.85rem; }
 .ah-sev.warn { color: var(--warn); background: var(--warn-wash); }
 .ah-sev.hinweis { color: var(--info); background: var(--info-wash); }
 .ah-sev.ok { color: var(--ok); background: var(--ok-wash); }
+
+/* OIB-Plattform-Umschalter (Windows / macOS) */
+.ld-oib-platform { display: inline-flex; gap: 0.35rem; margin: 0.15rem 0 0.5rem; }
+.ld-oib-platform .btn { padding: 0.25rem 0.8rem; font-size: 0.82rem; }
