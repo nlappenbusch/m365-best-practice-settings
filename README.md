@@ -12,9 +12,8 @@
 - 🔍 **Maester Security-Audit** (CISA SCuBA, CIS M365, EIDSCA, ORCA) pro Tenant mit Score, Verlauf und HTML-Report
 - 📦 **App-Deployment nach Intune** (Win32-App) für Bitdefender, N-sight RMM,
   FortiClient und die **Bitwarden-Desktop-App**
-- ⚙️ **Tenant-Härtung** – Standardberechtigungen, Gastzugriff, Geräte-Beitritt,
-  Registrierungseinschränkungen und die befristete Ausnahme für lokale
-  Administratoren der Einführungsphase
+- ⚙️ **Tenant-Härtung** – Standardberechtigungen, Gastzugriff, Geräte-Beitritt
+  und die befristete Ausnahme für lokale Administratoren der Einführungsphase
 - 🔎 **App-Hygiene** – prüft die vorhandenen Win32-Apps gegen das gemeinsame
   Grundgerüst (Kundenname im App-Namen, doppelter Installer, fremdes
   GravityZone-Token, leeres Mindest-Betriebssystem, Zuweisung am 1:1-Prinzip vorbei)

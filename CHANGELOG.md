@@ -1,5 +1,16 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.53 - Tenant-Haertung ohne Registrierungseinschraenkungen (2026-09-17)
+
+**Abschnitt "Registrierungseinschraenkungen (Intune)" entfernt.** Der Tab
+Tenant-Haertung zeigt und schaltet die Intune-Geraetetypeinschraenkung
+(private Geraete sperren) nicht mehr. Raus sind der Block im Tab, der
+Abschnitt im Haertungs-Audit-PDF samt seinen offenen Punkten, die beiden
+Routen `/api/tenants/:id/enrollmentrestrictions` und das Modul
+`lib/enrollmentRestrictions.js`. Die Einstellung selbst bleibt im Tenant, wie
+sie ist -- sie wird nur nicht mehr vom Tool gelesen oder geschrieben, sondern
+bei Bedarf im Intune-Portal gepflegt.
+
 ## Version 2.52 - SMTP AUTH: Ausnahmen sofort anwenden, Kontopruefung (2026-09-14)
 
 **Anlass:** Ein Geraet meldete beim Testversand

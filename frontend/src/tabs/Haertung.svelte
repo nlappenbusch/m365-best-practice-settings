@@ -2,15 +2,10 @@
   // Tenant-Härtung — die Punkte der Onboarding-Checkliste, die bisher
   // Handarbeit im Portal waren (Kap. 9.8 der Wissensbasis).
   //
-  // Vier Quellen, eine Seite:
+  // Drei Quellen, eine Seite:
   //   1. /policies/authorizationPolicy   — Standardberechtigungen, Gastrechte
   //   2. /policies/deviceRegistrationPolicy — wer Geräte joinen darf, lokale Admins
-  //   3. Intune-Registrierungseinschränkungen — private Geräte
-  //   4. Intune LocalUsersAndGroups — befristete lokale Admins der Einführung
-  //
-  // Warum 2 und 3 nebeneinander stehen: Der Entra-Schalter regelt den
-  // Entra-Join, die Intune-Einschränkung die MDM-Einschreibung. Wer nur eines
-  // setzt, lässt die andere Tür offen.
+  //   3. Intune LocalUsersAndGroups — befristete lokale Admins der Einführung
   //
   // Jede schreibende Aktion fragt vorher nach und nennt den Tenant beim Namen.
   import { apiGet, apiPost, errText } from '../lib/api.js'
@@ -26,9 +21,6 @@
 
   let dev = $state(null)         // deviceRegistrationPolicy
   let devError = $state(null)
-
-  let enroll = $state(null)      // Intune-Registrierungseinschränkungen
-  let enrollError = $state(null)
 
   let la = $state(null)          // lokale Admins Einführungsphase
   let laError = $state(null)
@@ -56,7 +48,7 @@
     if (!$session.loggedIn || !t) return
     if (loadedFor === t.id) return
     loadedFor = t.id
-    hard = null; dev = null; enroll = null; la = null
+    hard = null; dev = null; la = null
     laSelGroups = {}
     load()
   })
@@ -68,10 +60,9 @@
 
     // Bewusst einzeln abgefangen: Fehlt eine Berechtigung, soll der Rest der
     // Seite trotzdem nutzbar bleiben und nur der betroffene Block das sagen.
-    const [h, d, e, l, g, dyn] = await Promise.all([
+    const [h, d, l, g, dyn] = await Promise.all([
       apiGet(`/api/tenants/${id}/hardening`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/entra/devicesettings`).catch(err => ({ __err: err.message })),
-      apiGet(`/api/tenants/${id}/enrollmentrestrictions`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/localadmins`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/groups`).catch(() => ({ groups: [] })),
       apiPost('/api/grouptags/groups', { tenantId: $activeTenant.id }).catch(() => ({ groups: [] }))
@@ -79,7 +70,6 @@
 
     hardError = h.__err || null; hard = h.__err ? null : h.settings; score = h.__err ? null : h.score
     devError = d.__err || null; dev = d.__err ? null : d.settings
-    enrollError = e.__err || null; enroll = e.__err ? null : e.items
     laError = l.__err || null; la = l.__err ? null : l
     groups = Array.isArray(g?.groups) ? g.groups : []
     deviceGroupIds = (Array.isArray(dyn?.groups) ? dyn.groups : []).filter(x => (x.tags || []).length).map(x => x.id)
@@ -89,14 +79,14 @@
   // Haertungs-Audit als druckbares Dokument. Gleiche Mechanik wie Audit-PDF
   // und Konfig-Doku: eigenes Fenster, Browser druckt nach PDF. Nimmt den
   // aktuell geladenen Stand -- wer frische Zahlen will, laedt vorher neu.
-  const docBereit = $derived(!!(hard || dev || (enroll && enroll.length)))
+  const docBereit = $derived(!!(hard || dev))
 
   function openHardeningDoc() {
     if (!docBereit) { notice = '❌ Noch keine Daten geladen.'; return }
     const html = buildHardeningDocHtml({
       tenantName: tenantName(),
-      hard, score, dev, enroll,
-      hardError, devError, enrollError
+      hard, score, dev,
+      hardError, devError
     })
     const w = window.open('', '_blank')
     if (!w) { notice = '❌ Der Browser hat das PDF-Fenster blockiert. Pop-ups für diese Seite erlauben.'; return }
@@ -117,7 +107,7 @@
       // errText nimmt detail und hint mit — bei Berechtigungs- und
       // Intune-Fehlern steht dort der eigentliche Grund. Frueher zeigte run()
       // nur e.message: bei einem 403 stand dann bloss "Forbidden" auf dem
-      // Schirm (z.B. beim PATCH auf die Registrierungseinschraenkungen).
+      // Schirm.
       notice = '❌ ' + errText(e)
     }
     busy = false
@@ -200,16 +190,6 @@
       + 'weil nicht er das Gerät einbringt.')) return
     run(() => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/entra/devicesettings/quota`, { quota: n }),
       `✅ Gerätekontingent steht jetzt auf ${n}.`)
-  }
-
-  // ---------- Registrierungseinschränkungen ----------
-  function togglePersonal(item) {
-    const want = !item.personalDeviceEnrollmentBlocked
-    if (!confirm(`Private Geräte in „${item.displayName}" ${want ? 'SPERREN' : 'ERLAUBEN'}?\n\nTenant: ${tenantName()}\n\n`
-      + 'Das ist die Intune-Seite: Sie regelt die MDM-Einschreibung, der Entra-Schalter darüber den Entra-Join. '
-      + 'Beide gehören gesetzt.')) return
-    run(() => apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/enrollmentrestrictions/${encodeURIComponent(item.id)}/personal`, { blocked: want }),
-      `✅ Private Geräte sind jetzt ${want ? 'gesperrt' : 'erlaubt'}.`)
   }
 
   // ---------- Lokale Admins: Einführungsphase ----------
@@ -447,46 +427,7 @@
       {/if}
     </section>
 
-    <!-- 3: Registrierungseinschränkungen -->
-    <section class="hd-card">
-      <div class="hd-head"><h4>Registrierungseinschränkungen (Intune)</h4></div>
-      <p class="hd-why" style="margin-top:0">
-        Der Entra-Schalter oben regelt den Entra-Join, diese Einschränkung die MDM-Einschreibung.
-        Wer nur eines setzt, lässt die andere Tür offen.
-      </p>
-      {#if enrollError}
-        <div class="alert alert-warning">❌ {enrollError}</div>
-      {:else if enroll}
-        {#if !enroll.length}
-          <p class="ld-section-hint">Keine Windows-Registrierungseinschränkung gefunden.</p>
-        {:else}
-          <table class="hd-table">
-            <thead><tr><th>Richtlinie</th><th>Private Geräte</th><th></th></tr></thead>
-            <tbody>
-              {#each enroll as item (item.id)}
-                <tr>
-                  <td>
-                    <b>{item.displayName}</b>
-                    {#if item.istStandard}<span class="hd-tag">Standard</span>{/if}
-                    {#if item.osMinimumVersion}<div class="hd-why">Mindest-OS: {item.osMinimumVersion}</div>{/if}
-                  </td>
-                  <td>{item.personalDeviceEnrollmentBlocked ? 'gesperrt' : 'erlaubt'}</td>
-                  <td>
-                    {#if item.personalDeviceEnrollmentBlocked}
-                      <span class="hd-ok">✓</span>
-                    {:else}
-                      <button class="btn btn-secondary hd-btn" disabled={busy} onclick={() => togglePersonal(item)}>sperren</button>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      {/if}
-    </section>
-
-    <!-- 4: Lokale Admins der Einführungsphase -->
+    <!-- 3: Lokale Admins der Einführungsphase -->
     <section class="hd-card">
       <div class="hd-head"><h4>Lokale Administratoren für die Einführungsphase</h4></div>
       <p class="hd-why" style="margin-top:0">
@@ -580,7 +521,7 @@
       {/if}
     </section>
 
-    <!-- 5: Was manuell bleibt -->
+    <!-- 4: Was manuell bleibt -->
     <section class="hd-card">
       <div class="hd-head"><h4>Bleibt Handarbeit im Portal</h4></div>
       <p class="hd-why" style="margin-top:0">Für diese Punkte gibt es keine brauchbare Schnittstelle. Sie stehen hier, damit die Checkliste vollständig ist.</p>

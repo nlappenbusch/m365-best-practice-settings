@@ -2,9 +2,9 @@
  * Tenant-Härtung als Audit-Dokument (druckoptimiertes HTML, kein PDF-Lib —
  * der Browser druckt es nach PDF, genau wie Audit- und Konfig-Doku).
  *
- * Deckt alle vier Blöcke des Härtungs-Tabs ab, nicht nur die
- * authorizationPolicy: Entra-Grundeinstellungen, Gastzugriff,
- * Geräteregistrierung und Intune-Registrierungseinschränkungen. Jeder Punkt
+ * Deckt die lesbaren Blöcke des Härtungs-Tabs ab, nicht nur die
+ * authorizationPolicy: Entra-Grundeinstellungen, Gastzugriff und
+ * Geräteregistrierung. Jeder Punkt
  * steht mit Soll, Ist, Status und Begründung da — ein Bericht, den man einem
  * Kunden hinlegen kann, statt eines Screenshots aus dem Tab.
  *
@@ -33,7 +33,7 @@ function table(head, rows) {
 }
 
 /**
- * @param {object} d  { tenantName, hard, score, dev, enroll, hardError, devError, enrollError }
+ * @param {object} d  { tenantName, hard, score, dev, hardError, devError }
  */
 export function buildHardeningDocHtml(d) {
   const now = new Date()
@@ -43,7 +43,6 @@ export function buildHardeningDocHtml(d) {
   const hard = d.hard || null
   const sc = d.score || null
   const dev = d.dev || null
-  const enroll = Array.isArray(d.enroll) ? d.enroll : []
 
   // Offene Punkte sammeln, während die Abschnitte gebaut werden — die
   // Zusammenfassung am Ende soll denselben Stand zeigen wie die Tabellen.
@@ -139,30 +138,6 @@ export function buildHardeningDocHtml(d) {
       '</tbody></table>')
   }
 
-  // -------------------------------------------- Registrierungseinschränkungen
-  let enrollSec
-  if (d.enrollError) {
-    enrollSec = sec('Registrierungseinschränkungen (Intune)', '<p class="note">Nicht lesbar: ' + esc(d.enrollError) + '</p>')
-  } else if (!enroll.length) {
-    enrollSec = sec('Registrierungseinschränkungen (Intune)', '<p class="note">Keine Richtlinien gefunden.</p>')
-  } else {
-    const rows = enroll.map(it => {
-      if (!it.personalDeviceEnrollmentBlocked) {
-        offen.push({ bereich: 'Registrierungseinschränkungen', punkt: it.displayName, soll: 'private Geräte gesperrt', ist: 'erlaubt' })
-      }
-      return '<tr><td class="pn">' + esc(it.displayName) +
-        (it.istStandard ? ' <span class="tag">Standard</span>' : '') + '</td>' +
-        '<td class="v">' + (it.personalDeviceEnrollmentBlocked ? 'gesperrt' : 'erlaubt') + '</td>' +
-        '<td>' + statusCell(!!it.personalDeviceEnrollmentBlocked) + '</td>' +
-        '<td class="v">' + esc(it.osMinimumVersion || '—') + '</td></tr>'
-    }).join('')
-    enrollSec = sec('Registrierungseinschränkungen (Intune)',
-      '<p>Steuert, ob private Geräte in die Verwaltung aufgenommen werden dürfen. In einem ' +
-      'verwalteten Tenant sollen nur beschaffte Geräte aufgenommen werden.</p>' +
-      '<table><thead><tr><th style="width:38%">Richtlinie</th><th style="width:18%">Private Geräte</th>' +
-      '<th style="width:20%">Status</th><th>Mindest-OS</th></tr></thead><tbody>' + rows + '</tbody></table>')
-  }
-
   // ------------------------------------------------------------- Offene Punkte
   const offenHtml = offen.length
     ? '<table><thead><tr><th style="width:24%">Bereich</th><th style="width:30%">Punkt</th>' +
@@ -183,7 +158,7 @@ export function buildHardeningDocHtml(d) {
     '<div class="page">' +
     '<div class="doc-head"><h1>Tenant-Härtung</h1>' +
     '<p class="lead">Ist-Zustand der tenantweiten Grundeinstellungen · ' + esc(d.tenantName || '') + '</p></div>' +
-    overview + switchesSec + guestSec + devSec + enrollSec + offenSec +
+    overview + switchesSec + guestSec + devSec + offenSec +
     '</div></body></html>'
 }
 

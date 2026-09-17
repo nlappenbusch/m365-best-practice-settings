@@ -76,7 +76,6 @@ const ENTRADEV = require("./lib/entraDeviceSettings");
 const OFFICE = require("./lib/officeSuite");
 const MDMENROLL = require("./lib/mdmEnrollment");
 const HARDENING = require("./lib/tenantHardening");
-const ENROLLRESTRICT = require("./lib/enrollmentRestrictions");
 const AFILTERS = require("./lib/assignmentFilters");
 const APPHYGIENE = require("./lib/appHygiene");
 const REMEDIATIONS = require("./lib/remediations");
@@ -5549,26 +5548,6 @@ app.post("/api/tenants/:id/entra/devicesettings/quota", wrap(async (req, res) =>
   } catch (e) {
     if (!deviceSettingsError(e, res)) throw e;
   }
-}));
-
-// ---------- Intune-Registrierungseinschraenkungen ----------
-// Die Geraeteseite zum Entra-Join-Schalter: dort der Entra-Join, hier die
-// MDM-Einschreibung. Wer nur eines setzt, laesst die andere Tuer offen.
-app.get("/api/tenants/:id/enrollmentrestrictions", wrap(async (req, res) => {
-  const t = requireTenant(req);
-  if (process.env.FAKE_DEPLOY === "1") {
-    return res.json({ ok: true, items: [{ id: "e1", displayName: "Alle Benutzer (Standard)", priority: 0, istStandard: true, platformBlocked: false, personalDeviceEnrollmentBlocked: false, konform: false }] });
-  }
-  res.json({ ok: true, items: await ENROLLRESTRICT.list(t, certPemPath(t.tenantId)) });
-}));
-
-app.post("/api/tenants/:id/enrollmentrestrictions/:configId/personal", wrap(async (req, res) => {
-  const t = requireTenant(req);
-  const blocked = !!(req.body || {}).blocked;
-  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, changed: true, items: [] });
-  const r = await ENROLLRESTRICT.setPersonalBlocked(t, certPemPath(t.tenantId), req.params.configId, blocked);
-  console.log(`Registrierungseinschraenkung in ${t.name}: private Geraete ${blocked ? "gesperrt" : "erlaubt"}${r.changed ? "" : " (stand schon so)"}.`);
-  res.json({ ok: true, changed: r.changed, items: r.items });
 }));
 
 // ---------- App-Hygiene ----------
