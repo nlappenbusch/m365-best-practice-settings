@@ -1,5 +1,40 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.54 - Zuweisungen & Audit: App-Fixer und Konfigurationsdoku (2026-09-18)
+
+**Neuer Bereich "Zuweisungen & Audit"** (Intune) mit drei Reitern, alle bis aufs
+Geraet bzw. Konto aufgeloest -- mit dem Weg dorthin (zugewiesene Gruppe ›
+verschachtelte Gruppe):
+
+- **Apps:** App › App-Gruppe › GroupTag-Geraetegruppe › Geraet, Installationsstatus
+  je Geraet, Konfiguration je App (Befehle, Erkennung, Rueckgabecodes, Kontext).
+- **Richtlinien:** OIB (oder alle Intune-Richtlinien) mit Zuweisung, effektiven
+  Geraeten und saemtlichen Einstellungen; Matrix "Richtlinien je Geraetegruppe"
+  zaehlt auch verschachtelte Gruppen.
+- **Conditional Access:** aktiv / nur Bericht / aus, Klartext je Richtlinie,
+  effektiv betroffene und ausgenommene Konten, Wirkung je Konto; optional das
+  Anmeldeprotokoll (zeigt bei Report-only, was scharf blockiert wuerde).
+
+Auswerten ist rein lesend, laeuft als Job und bleibt pro Tenant unter
+`state/assignaudit/` gespeichert. Daraus: **Konfigurationsdokumentation als PDF**
+(beschreibend; Abweichungen vom Zuweisungskonzept als abwaehlbarer Anhang) und
+CSV-Export der vollstaendigen Listen.
+
+**App-Zuweisungs-Fixer:** Apps, die direkt an einer Geraetegruppe haengen, werden
+auf ihre App-Gruppe nach Namenskonvention umgestellt -- Gruppe anlegen bzw.
+vorhandene verwenden, Geraetegruppe verschachteln, dann die Zuweisungsliste in
+einem Schritt ersetzen (gleicher Intent, Filter und Einstellungen; uebrige
+Zuweisungen 1:1). Plan wird frisch aus dem Tenant gelesen, Konflikte (etwa
+unterschiedliche Filter) bleiben manuell. Jede Umstellung steht mit Vorher/Nachher
+im Protokoll (`state/appassign-log/`) und laesst sich zuruecknehmen. App-Gruppen
+nach altem Namensschema lassen sich umbenennen (Id bleibt). Deinstallations-
+Zuweisungen fasst der Fixer nicht an. Patch-My-PC-Apps: Zuweisung danach auch
+in PMP umstellen.
+
+Neue Module: `lib/assignAudit.js`, `lib/appAssignFix.js`, `lib/assignAuditPdf.js`.
+Keine neuen Graph-Berechtigungen; ohne DeviceManagementManagedDevices.Read.All
+fehlen nur Primaerbenutzer/Compliance in den Geraetelisten.
+
 ## Version 2.53 - Tenant-Haertung ohne Registrierungseinschraenkungen (2026-09-17)
 
 **Abschnitt "Registrierungseinschraenkungen (Intune)" entfernt.** Der Tab

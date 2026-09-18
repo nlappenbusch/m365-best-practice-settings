@@ -78,6 +78,9 @@ const MDMENROLL = require("./lib/mdmEnrollment");
 const HARDENING = require("./lib/tenantHardening");
 const AFILTERS = require("./lib/assignmentFilters");
 const APPHYGIENE = require("./lib/appHygiene");
+const ASSIGNAUDIT = require("./lib/assignAudit");
+const APPFIX = require("./lib/appAssignFix");
+const ASSIGNPDF = require("./lib/assignAuditPdf");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
 
@@ -5561,6 +5564,227 @@ app.get("/api/tenants/:id/apphygiene", wrap(async (req, res) => {
     return res.json({ ok: true, apps: [], zusammenfassung: { gesamt: 0, fehler: 0, warn: 0, hinweis: 0, ok: 0, agents: 0, detailFehlt: 0 } });
   }
   const r = await APPHYGIENE.pruefeTenant(t, certPemPath(t.tenantId));
+  res.json({ ok: true, ...r });
+}));
+
+// ---------- Zuweisungs-Audit (Apps, Richtlinien, Conditional Access) ----------
+// Lesend: je Bereich ein Lauf als Job, das Ergebnis liegt pro Tenant unter
+// state/assignaudit/ — daraus entstehen PDF und CSV auch nach einem Neustart.
+const ASSIGNAUDIT_DIR = path.join(STATE_DIR, "assignaudit");
+const ASSIGNAUDIT_KINDS = { apps: "Apps", policies: "Richtlinien", ca: "Conditional Access" };
+
+function assignAuditFile(tenantRecId, kind) {
+  return path.join(ASSIGNAUDIT_DIR, String(tenantRecId).replace(/[^A-Za-z0-9_-]/g, "") + "-" + kind + ".json");
+}
+function loadAssignAudit(tenantRecId, kind) {
+  try { return JSON.parse(fs.readFileSync(assignAuditFile(tenantRecId, kind), "utf8")); } catch (e) { return null; }
+}
+function storeAssignAudit(tenantRecId, kind, data) {
+  fs.mkdirSync(ASSIGNAUDIT_DIR, { recursive: true });
+  fs.writeFileSync(assignAuditFile(tenantRecId, kind), JSON.stringify(data), "utf8");
+}
+function tenantBusy(t) {
+  for (const j of appJobs.values()) if (j.tenantId === t.id && j.status === "running") return j;
+  return null;
+}
+
+app.post("/api/tenants/:id/assignaudit/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const running = tenantBusy(t);
+  if (running) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id });
+  const b = req.body || {};
+  const kinds = (Array.isArray(b.kinds) ? b.kinds : Object.keys(ASSIGNAUDIT_KINDS)).filter(k => ASSIGNAUDIT_KINDS[k]);
+  if (!kinds.length) return res.status(400).json({ error: "kinds: apps, policies und/oder ca." });
+  const opts = {
+    apps: { installStatus: b.installStatus !== false },
+    policies: { scope: b.policyScope === "all" ? "all" : "oib" },
+    ca: { signIns: !!b.signIns, signInDays: Number(b.signInDays) || 7 }
+  };
+  const job = createAppJob(t, kinds.map(k => ASSIGNAUDIT_KINDS[k]));
+  job.results = {};
+  (async () => {
+    const onProgress = appJobProgress(job);
+    const cert = certPemPath(t.tenantId);
+    const failed = [];
+    for (const k of kinds) {
+      onProgress(ASSIGNAUDIT_KINDS[k]);
+      try {
+        const say = label => { job.phase = `${ASSIGNAUDIT_KINDS[k]}: ${label}`; };
+        const data = k === "apps" ? await ASSIGNAUDIT.auditApps(t, cert, opts.apps, say)
+          : k === "policies" ? await ASSIGNAUDIT.auditPolicies(t, cert, opts.policies, say)
+            : await ASSIGNAUDIT.auditConditionalAccess(t, cert, opts.ca, say);
+        storeAssignAudit(t.id, k, data);
+        job.results[k] = data.summary;
+      } catch (e) {
+        failed.push(`${ASSIGNAUDIT_KINDS[k]}: ${e.message}`);
+      }
+    }
+    finishAppJob(job, failed.length < kinds.length, failed.join(" · "), failed.length ? "Nicht erhoben: " + failed.join(" · ") : null);
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.get("/api/tenants/:id/assignaudit", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const out = {};
+  for (const k of Object.keys(ASSIGNAUDIT_KINDS)) out[k] = loadAssignAudit(t.id, k);
+  res.json({ ok: true, ...out });
+}));
+
+app.get("/api/tenants/:id/assignaudit/report.pdf", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const wanted = String(req.query.kinds || "apps,policies,ca").split(",").filter(k => ASSIGNAUDIT_KINDS[k]);
+  const sections = {};
+  for (const k of wanted) { const d = loadAssignAudit(t.id, k); if (d) sections[k] = d; }
+  if (!Object.keys(sections).length) return res.status(404).json({ error: "Noch kein Audit erhoben — zuerst auswerten." });
+  // anhang=0: ohne den Anhang "Abweichungen vom Zuweisungskonzept" — für die Doku an den Kunden.
+  const pdf = await ASSIGNPDF.buildPdf({ tenantName: t.name, organization: t.organization, generatedAt: new Date().toISOString(), sections, appendix: req.query.anhang !== "0" });
+  const stamp = new Date().toISOString().slice(0, 10);
+  const label = "Konfigurationsdoku" + (Object.keys(sections).length > 1 ? "" : "-" + { apps: "Apps", policies: "Richtlinien", ca: "Conditional-Access" }[Object.keys(sections)[0]]);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_${label}_${stamp}.pdf"`);
+  res.send(pdf);
+}));
+
+// Vollständige Listen als CSV (Semikolon, UTF-8 mit BOM — öffnet in Excel direkt richtig).
+app.get("/api/tenants/:id/assignaudit/export.csv", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const kind = String(req.query.kind || "");
+  const d = ASSIGNAUDIT_KINDS[kind] ? loadAssignAudit(t.id, kind) : null;
+  if (!d) return res.status(404).json({ error: "Noch kein Audit für diesen Bereich erhoben." });
+  const q = v => { const s = String(v == null ? "" : v); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = [];
+  if (kind === "apps") {
+    rows.push(["App", "Typ", "Verwaltung", "Status", "Gerät", "GroupTag", "Intent", "Erreicht über", "Benutzer", "Compliance", "Installation", "Detail"]);
+    for (const a of d.apps) {
+      if (!a.devices.length) rows.push([a.displayName, a.type, a.managedByLabel, a.status, "", "", "", "", "", "", "", ""]);
+      for (const x of a.devices) rows.push([a.displayName, a.type, a.managedByLabel, a.status, x.name, x.groupTag, x.intent, x.via, x.user, x.compliance, x.installLabel, x.installDetail]);
+    }
+  } else if (kind === "policies") {
+    rows.push(["Richtlinie", "Typ", "Plattform", "Zugewiesen an", "Ausgenommen", "Gerät", "GroupTag", "Erreicht über", "Benutzer"]);
+    for (const p of d.policies) {
+      const inc = p.assignments.filter(a => !a.exclude).map(a => a.group ? a.group.displayName : a.targetKind).join(", ");
+      const exc = p.assignments.filter(a => a.exclude).map(a => a.group ? a.group.displayName : a.targetKind).join(", ");
+      if (!p.devices.length) rows.push([p.name, p.type, p.platform, inc, exc, "", "", "", ""]);
+      for (const x of p.devices) rows.push([p.name, p.type, p.platform, inc, exc, x.name, x.groupTag, x.via, x.user]);
+    }
+  } else {
+    rows.push(["Konto", "UPN", "Gast", "Aktive Richtlinien", "Nur Bericht"]);
+    for (const u of d.matrix) rows.push([u.name, u.upn, u.guest ? "ja" : "nein", u.active.map(x => x.name).join(" | "), u.reportOnly.map(x => x.name).join(" | ")]);
+  }
+  const csv = "﻿" + rows.map(r => r.map(q).join(";")).join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_${kind}_${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+}));
+
+// ---------- App-Zuweisungs-Fixer ----------
+// Plan immer frisch aus dem Tenant (ohne Geräteauflösung, damit es schnell geht) —
+// ein Plan aus einem Stunden alten Audit könnte längst Korrigiertes nochmal anfassen.
+app.get("/api/tenants/:id/appassign/plans", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const audit = await ASSIGNAUDIT.auditApps(t, certPemPath(t.tenantId), { devices: false });
+  res.json({
+    ok: true,
+    generatedAt: audit.generatedAt,
+    convention: audit.convention,
+    plans: APPFIX.plansFromAudit(audit, t.id),
+    renames: audit.apps.flatMap(a => a.findings.filter(f => f.rename).map(f => ({ app: a.displayName, ...f.rename })))
+      .filter((r, i, all) => all.findIndex(x => x.groupId === r.groupId) === i),
+    existingAppGroups: audit.existingAppGroups.map(g => ({ id: g.id, displayName: g.displayName }))
+  });
+}));
+
+// Schreibend im Kundentenant — nur auf ausdrücklichen Klick, je App ein Protokolleintrag.
+app.post("/api/tenants/:id/appassign/apply", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const items = Array.isArray((req.body || {}).items) ? req.body.items : [];
+  if (!items.length) return res.status(400).json({ error: "items (Liste von { appId }) erforderlich." });
+  if (items.length > 100) return res.status(400).json({ error: "Maximal 100 Apps pro Durchgang." });
+  for (const it of items) {
+    if (!GUID_RE.test(String(it.appId || ""))) return res.status(400).json({ error: "Ungültige App-Id: " + String(it.appId).slice(0, 60) });
+    if (it.targetGroupId && !GUID_RE.test(String(it.targetGroupId))) return res.status(400).json({ error: "Ungültige Gruppen-Id." });
+  }
+  const running = tenantBusy(t);
+  if (running) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id });
+
+  const user = (req.session && req.session.user) || "unbekannt";
+  const job = createAppJob(t, ["Zustand frisch lesen", "Apps umstellen"]);
+  job.results = [];
+  (async () => {
+    const onProgress = appJobProgress(job);
+    const cert = certPemPath(t.tenantId);
+    try {
+      onProgress("Zustand frisch lesen");
+      const audit = await ASSIGNAUDIT.auditApps(t, cert, { devices: false, onlyAppIds: items.map(i => i.appId) });
+      onProgress("Apps umstellen");
+      let n = 0;
+      for (const it of items) {
+        n++;
+        const app = audit.apps.find(a => a.id === it.appId);
+        const name = app ? app.displayName : it.appId;
+        job.phase = `Apps umstellen (${n}/${items.length}): ${name}`;
+        if (!app || app.status !== "fix") {
+          job.results.push({ appId: it.appId, app: name, status: "skipped", message: "Nichts mehr zu korrigieren." });
+          continue;
+        }
+        const plan = APPFIX.planForApp(app, audit.existingAppGroups, t.id);
+        if (!plan.applicable) {
+          job.results.push({ appId: it.appId, app: name, status: "skipped", message: plan.conflicts.join(" ") });
+          continue;
+        }
+        try {
+          const r = await APPFIX.applyPlan(t, cert, plan, { targetName: it.targetName, targetGroupId: it.targetGroupId });
+          const entry = APPFIX.appendLog(STATE_DIR, t.id, {
+            type: "fix", user, appId: plan.appId, app: plan.appName, status: r.status, intent: plan.intent,
+            target: r.target, nested: plan.nest.map(x => x.displayName), removed: plan.remove.map(x => x.displayName),
+            steps: r.log, before: r.before, after: r.after
+          });
+          job.results.push({ appId: it.appId, app: name, status: r.status, target: r.target, logId: entry.id, steps: r.log.map(s => s.text) });
+          console.log(`App-Zuweisung "${name}" in Tenant ${t.name} umgestellt auf ${r.target ? r.target.displayName : "?"} (${r.status}, ${user}).`);
+        } catch (e) {
+          job.results.push({ appId: it.appId, app: name, status: "failed", message: e.message });
+          APPFIX.appendLog(STATE_DIR, t.id, { type: "fix", user, appId: plan.appId, app: plan.appName, status: "failed", error: e.message });
+        }
+      }
+      const bad = job.results.filter(r => r.status === "failed").length;
+      finishAppJob(job, true, null, bad ? `${bad} App(s) fehlgeschlagen — Details in der Ergebnisliste.` : null);
+    } catch (e) {
+      finishAppJob(job, false, e.message, e.hint || null);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.get("/api/tenants/:id/appassign/log", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, log: APPFIX.readLog(STATE_DIR, t.id) });
+}));
+
+// Schreibend: setzt die Zuweisungsliste der App auf den protokollierten Vorher-Stand.
+app.post("/api/tenants/:id/appassign/rollback", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const logId = String((req.body || {}).logId || "");
+  const entry = APPFIX.readLog(STATE_DIR, t.id).find(e => e.id === logId);
+  if (!entry || entry.type !== "fix" || !Array.isArray(entry.before)) return res.status(404).json({ error: "Protokolleintrag nicht gefunden oder ohne Vorher-Stand." });
+  if (entry.rolledBackAt) return res.status(409).json({ error: "Dieser Eintrag wurde schon zurückgenommen." });
+  const user = (req.session && req.session.user) || "unbekannt";
+  const after = await APPFIX.rollback(t, certPemPath(t.tenantId), entry);
+  APPFIX.updateLog(STATE_DIR, t.id, entry.id, { rolledBackAt: new Date().toISOString(), rolledBackBy: user });
+  APPFIX.appendLog(STATE_DIR, t.id, { type: "rollback", user, appId: entry.appId, app: entry.app, status: "done", ref: entry.id, after });
+  console.log(`App-Zuweisung "${entry.app}" in Tenant ${t.name} zurückgenommen (${user}).`);
+  res.json({ ok: true, after });
+}));
+
+// Schreibend: App-Gruppe nach Konvention umbenennen (Id bleibt, Zuweisungen bleiben).
+app.post("/api/tenants/:id/appassign/rename", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (!GUID_RE.test(String(b.groupId || ""))) return res.status(400).json({ error: "groupId muss eine Gruppen-Id sein." });
+  const user = (req.session && req.session.user) || "unbekannt";
+  const r = await APPFIX.renameAppGroup(t, certPemPath(t.tenantId), b.groupId, b.name);
+  APPFIX.appendLog(STATE_DIR, t.id, { type: "rename", user, status: "done", groupId: r.id, from: r.from, to: r.to });
+  console.log(`App-Gruppe "${r.from}" in Tenant ${t.name} umbenannt in "${r.to}" (${user}).`);
   res.json({ ok: true, ...r });
 }));
 

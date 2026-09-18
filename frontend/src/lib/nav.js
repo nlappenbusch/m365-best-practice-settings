@@ -69,7 +69,9 @@ export const NAV_GROUPS = [
       { id: 'remediations', icon: 'refresh', label: 'Remediations', isNew: true,
         desc: 'Erkennen und Beheben: wiederkehrende Reparatur statt Einmal-Skript' },
       { id: 'downloads', icon: 'package', label: 'Apps & Agents',
-        desc: 'Bitdefender, N-sight RMM und FortiClient als Win32-App ausrollen' }
+        desc: 'Bitdefender, N-sight RMM und FortiClient als Win32-App ausrollen' },
+      { id: 'zuweisungen', icon: 'check', label: 'Zuweisungen & Audit', isNew: true,
+        desc: 'Apps, OIB-Richtlinien und Conditional Access bis aufs Gerät bzw. Konto aufgelöst — App-Zuweisungen auf die App-Gruppe umstellen, Nachweis als PDF' }
     ]
   },
   {

@@ -36,6 +36,7 @@
   import BrowserExtensions from './tabs/BrowserExtensions.svelte'
   import Haertung from './tabs/Haertung.svelte'
   import Remediations from './tabs/Remediations.svelte'
+  import Zuweisungen from './tabs/Zuweisungen.svelte'
 
   // Tickets und Geheimnisse nur fuer den freigeschalteten Nutzer -- die Durchsetzung
   // passiert serverseitig (403 auf /api/sdp, /api/runbooks, /api/admin/secrets),
@@ -149,6 +150,7 @@
         <div class:tab-hidden={$activeTab !== 'browserext'}><BrowserExtensions /></div>
         <div class:tab-hidden={$activeTab !== 'haertung'}><Haertung /></div>
         <div class:tab-hidden={$activeTab !== 'remediations'}><Remediations /></div>
+        <div class:tab-hidden={$activeTab !== 'zuweisungen'}><Zuweisungen /></div>
         <div class:tab-hidden={$activeTab !== 'wissen'}><Wissen /></div>
       </div>
     </main>
