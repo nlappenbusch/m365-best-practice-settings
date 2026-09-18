@@ -28,6 +28,8 @@ export const NAV_GROUPS = [
         desc: 'Kunden-Tenants onboarden, Status prüfen, geführter Einrichtungs-Assistent' },
       { id: 'bestandsaufnahme', icon: 'users', label: 'Bestandsaufnahme', isNew: true,
         desc: 'Erster IST-Überblick nach dem Onboarding: Benutzer, Lizenzen, Postfächer/Shared Mailboxes, Intune- und Entra-ID-Geräte' },
+      { id: 'sharepoint', icon: 'folder', label: 'SharePoint & OneDrive', isNew: true,
+        desc: 'Alle Sites mit Art, Speicher, Besitzern, Mitgliedern und Gästen, OneDrive je Konto und die tenantweiten Freigabe-Einstellungen — rein lesend, als Kapitel der Konfig-Doku' },
       { id: 'config', icon: 'sliders', label: 'Vorlage',
         desc: 'Baseline: Domains, Admin-/MSP-Adressen, Policy-Werte — Grundlage für alle Werkzeuge' },
       { id: 'naming', icon: 'tag', label: 'Namenskonvention', isNew: true,

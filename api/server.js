@@ -86,6 +86,7 @@ const ACCOUNTS = require("./lib/accounts");
 const RECIPIENTS = require("./lib/recipients");
 const ENTAPPS = require("./lib/enterpriseApps");
 const EVIDENCEPDF = require("./lib/evidencePdf");
+const SPINV = require("./lib/sharepointInventory");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
 
@@ -155,6 +156,10 @@ const READONLY_GRAPH_PERMS_OPTIONAL = ["DeviceManagementRBAC.Read.All", "DeviceM
 // Reparieren uebersprungen statt den Vorgang abzubrechen; die betroffenen
 // Maester-Tests fallen dann einfach als "nicht abrufbar" aus.
 // Bestehende Tenants: einmal "Reparieren" im Tab Tenants ausfuehren.
+// Auch der Bereich "SharePoint & OneDrive" (lib/sharepointInventory.js) lebt von
+// dieser Liste: SharePointTenantSettings.Read.All (Freigabe-Einstellungen),
+// Reports.Read.All (Nutzungsberichte) und ReportSettings.Read.All (Anonymisierung
+// der Berichte). Beim Aufraeumen der Maester-Rechte also nicht einfach streichen.
 const GRAPH_APP_PERMS_MAESTER = ["Directory.Read.All", "DirectoryRecommendations.Read.All", "EntitlementManagement.Read.All", "IdentityRiskEvent.Read.All", "NetworkAccess.Read.All", "OnPremDirectorySynchronization.Read.All", "OrgSettings-AppsAndServices.Read.All", "OrgSettings-Forms.Read.All", "Policy.Read.ConditionalAccess", "Reports.Read.All", "ReportSettings.Read.All", "RoleEligibilitySchedule.Read.Directory", "RoleManagement.Read.All", "RoleManagementAlert.Read.Directory", "SecurityIdentitiesHealth.Read.All", "SecurityIdentitiesSensors.Read.All", "SharePointTenantSettings.Read.All", "ThreatHunting.Read.All", "UserAuthenticationMethod.Read.All", "DeviceManagementManagedDevices.Read.All", "DeviceManagementRBAC.Read.All"];
 // Maester-Zusatzverbindungen (auf Nils' Wunsch, 26.08.2026): Teams-Tests
 // brauchen die Teams-Administrator-Rolle fuer den App-SP, SharePoint-Tests die
@@ -714,7 +719,7 @@ const READONLY_ALLOW = [
   /^\/maester\/run$/, /^\/maester\/runs\/[^/]+\/explain$/, /^\/maester\/schedule$/, /^\/intunebackup$/,
   /^\/onboarding\/[^/]+$/, /^\/config$/, /^\/deviations$/, /^\/naming$/, /^\/smtpauth$/, /^\/mcp-permissions$/,
   /^\/fix\/start$/, /^\/offboard\/(start|poll|local-only)$/, /^\/sharepointsites\/resolve$/, /^\/deploy\/auto-setting\/preview$/,
-  /^\/evidence\//
+  /^\/evidence\//, /^\/sharepoint\/run$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];
@@ -5646,6 +5651,9 @@ app.get("/api/tenants/:id/apphygiene", wrap(async (req, res) => {
 // state/assignaudit/ — daraus entstehen PDF und CSV auch nach einem Neustart.
 const ASSIGNAUDIT_DIR = path.join(STATE_DIR, "assignaudit");
 const ASSIGNAUDIT_KINDS = { apps: "Apps", policies: "Richtlinien", ca: "Conditional Access" };
+// Abschnitte der Konfigurationsdoku: die drei Audit-Bereiche plus das SharePoint-
+// Inventar (eigener Bereich, gleiche Ablage state/assignaudit/<tenant>-sharepoint.json).
+const CONFIGDOC_KINDS = { ...ASSIGNAUDIT_KINDS, sharepoint: "SharePoint" };
 
 function assignAuditFile(tenantRecId, kind) {
   return path.join(ASSIGNAUDIT_DIR, String(tenantRecId).replace(/[^A-Za-z0-9_-]/g, "") + "-" + kind + ".json");
@@ -5702,19 +5710,23 @@ app.get("/api/tenants/:id/assignaudit", wrap(async (req, res) => {
   const t = requireTenant(req);
   const out = {};
   for (const k of Object.keys(ASSIGNAUDIT_KINDS)) out[k] = loadAssignAudit(t.id, k);
+  // SharePoint-Inventar nur als Stempel — der Bereich "Zuweisungen & Audit" braucht
+  // es nur, um es in die Konfig-Doku aufnehmen zu können.
+  const sp = loadAssignAudit(t.id, "sharepoint");
+  out.sharepoint = sp ? { generatedAt: sp.generatedAt, summary: sp.summary } : null;
   res.json({ ok: true, ...out });
 }));
 
 app.get("/api/tenants/:id/assignaudit/report.pdf", wrap(async (req, res) => {
   const t = requireTenant(req);
-  const wanted = String(req.query.kinds || "apps,policies,ca").split(",").filter(k => ASSIGNAUDIT_KINDS[k]);
+  const wanted = String(req.query.kinds || "apps,policies,ca,sharepoint").split(",").filter(k => CONFIGDOC_KINDS[k]);
   const sections = {};
   for (const k of wanted) { const d = loadAssignAudit(t.id, k); if (d) sections[k] = d; }
   if (!Object.keys(sections).length) return res.status(404).json({ error: "Noch kein Audit erhoben — zuerst auswerten." });
   // anhang=0: ohne den Anhang "Abweichungen vom Zuweisungskonzept" — für die Doku an den Kunden.
   const pdf = await ASSIGNPDF.buildPdf({ tenantName: t.name, organization: t.organization, generatedAt: new Date().toISOString(), sections, appendix: req.query.anhang !== "0", skipUnassigned: req.query.unzugewiesen === "0" });
   const stamp = new Date().toISOString().slice(0, 10);
-  const label = "Konfigurationsdoku" + (Object.keys(sections).length > 1 ? "" : "-" + { apps: "Apps", policies: "Richtlinien", ca: "Conditional-Access" }[Object.keys(sections)[0]]);
+  const label = "Konfigurationsdoku" + (Object.keys(sections).length > 1 ? "" : "-" + { apps: "Apps", policies: "Richtlinien", ca: "Conditional-Access", sharepoint: "SharePoint" }[Object.keys(sections)[0]]);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_${label}_${stamp}.pdf"`);
   res.send(pdf);
@@ -5749,6 +5761,50 @@ app.get("/api/tenants/:id/assignaudit/export.csv", wrap(async (req, res) => {
   const csv = "﻿" + rows.map(r => r.map(q).join(";")).join("\r\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_${kind}_${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+}));
+
+// ---------- SharePoint & OneDrive (Inventar) ----------
+// Rein lesend: Sites, M365-Gruppen, OneDrives, tenantweite Freigabe-Einstellungen.
+// Lauf als Job, Ergebnis unter state/assignaudit/<tenant>-sharepoint.json — daraus
+// Tab, CSV und das Kapitel "SharePoint und OneDrive" der Konfigurationsdoku
+// (/assignaudit/report.pdf?kinds=sharepoint bzw. zusammen mit den anderen Bereichen).
+// Im Prüfmandat erlaubt (READONLY_ALLOW), weil es den Tenant nur liest.
+app.post("/api/tenants/:id/sharepoint/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const running = tenantBusy(t);
+  if (running) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id });
+  const period = SPINV.PERIODS.includes(String((req.body || {}).period)) ? String(req.body.period) : "D30";
+  const job = createAppJob(t, ["Freigabe-Einstellungen", "Sites", "Nutzungsberichte", "M365-Gruppen", "Sites auswerten", "Konten", "OneDrive"]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      const data = await SPINV.collectInventory(t, certPemPath(t.tenantId), { period }, label => onProgress(label));
+      storeAssignAudit(t.id, "sharepoint", data);
+      job.results = data.summary;
+      console.log(`SharePoint-Inventar ${t.name}: ${data.summary.sites} Sites, ${data.summary.oneDrives} OneDrives${data.gaps.length ? `, ${data.gaps.length} Lücke(n)` : ""}.`);
+      finishAppJob(job, true, null, data.gaps.length ? `Erhoben, mit ${data.gaps.length} Lücke(n) — Details im Bereich.` : null);
+    } catch (e) {
+      finishAppJob(job, false, e.message);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.get("/api/tenants/:id/sharepoint", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, data: loadAssignAudit(t.id, "sharepoint") });
+}));
+
+app.get("/api/tenants/:id/sharepoint/export.csv", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const kind = ["sites", "members", "onedrive"].includes(String(req.query.kind)) ? String(req.query.kind) : "sites";
+  const d = loadAssignAudit(t.id, "sharepoint");
+  if (!d) return res.status(404).json({ error: "Noch kein SharePoint-Inventar erhoben." });
+  const q = v => { const s = String(v == null ? "" : v); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = "﻿" + SPINV.csvRows(d, kind).map(r => r.map(q).join(";")).join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_SharePoint-${kind}_${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(csv);
 }));
 

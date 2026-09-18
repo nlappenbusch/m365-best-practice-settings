@@ -38,6 +38,7 @@
   import Remediations from './tabs/Remediations.svelte'
   import Zuweisungen from './tabs/Zuweisungen.svelte'
   import Nachweise from './tabs/Nachweise.svelte'
+  import SharePoint from './tabs/SharePoint.svelte'
 
   // Tickets und Geheimnisse nur fuer den freigeschalteten Nutzer -- die Durchsetzung
   // passiert serverseitig (403 auf /api/sdp, /api/runbooks, /api/admin/secrets),
@@ -127,6 +128,7 @@
         <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
         <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
         <div class:tab-hidden={$activeTab !== 'bestandsaufnahme'}><Bestandsaufnahme /></div>
+        <div class:tab-hidden={$activeTab !== 'sharepoint'}><SharePoint /></div>
         <div class:tab-hidden={$activeTab !== 'mailsec'}><MailSecurity /></div>
         <div class:tab-hidden={$activeTab !== 'audit'}><Audit /></div>
         <div class:tab-hidden={$activeTab !== 'intune'}><Intune /></div>

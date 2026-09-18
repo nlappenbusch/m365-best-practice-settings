@@ -1,5 +1,51 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.56 - SharePoint & OneDrive: Inventar und Kapitel in der Konfig-Doku (2026-09-18)
+
+**Neuer Bereich "SharePoint & OneDrive"** (Einrichtung, Tab-Id `sharepoint`) —
+rein lesend, auch im Pruefmandat (Route in `READONLY_ALLOW`). Anlass: In der
+Kundendoku fehlte die Site-Liste.
+- **Kennzahlen:** Sites (ohne System-Sites), davon mit Teams, Speicher gesamt
+  (SharePoint + OneDrive), OneDrive-Konten, tenantweite externe Freigabestufe als
+  farbiges Badge; Balken "Sites nach Art" mit Legende als Filter.
+- **Sites:** Art (Team-Site mit Teams, mit M365-Gruppe, Kommunikationsseite,
+  Team-Site ohne Gruppe, klassisch, Teams-Kanal, System), Adresse, Speicherbalken,
+  Besitzer, Mitglieder, Gaeste, letzte Aktivitaet; Zeile aufklappbar mit Gruppe,
+  Sichtbarkeit, Besitzer- und Mitgliederliste (Gaeste markiert). Filter, Suche
+  (auch nach Personen), Sortierung.
+- **OneDrive** je Konto: belegt, Kontingent, letzte Aktivitaet, Konto deaktiviert.
+- **Freigabe-Einstellungen** in Klartext ("Nur Personen in der Organisation",
+  "Bestehende Gaeste", "Neue und bestehende Gaeste", "Jeder (anonyme Links)"),
+  Domains, Weiterteilen durch Gaeste, Sync, Speicher, Sitzung.
+- **Nicht ueber Graph verfuegbar** und so gekennzeichnet: Freigabestufe je Site,
+  OneDrive-Freigabestufe, Standard-Linktyp, Ablauf anonymer Links, Besitzer und
+  Mitglieder von Sites ohne M365-Gruppe, Zugriff von nicht verwalteten Geraeten.
+  Die Art von Sites ohne Gruppe kommt aus der Vorlage im Nutzungsbericht; fehlt
+  sie, steht "Art offen" statt einer Vermutung.
+- **Anonymisierte Nutzungsberichte** (`/admin/reportSettings`
+  displayConcealedNames) werden erkannt und angezeigt: Sites ueber die Site-Id
+  zugeordnet, OneDrive-Speicher direkt aus dem Laufwerk (echte Namen), letzte
+  Aktivitaet je OneDrive als "anonymisiert". Die Einstellung wird nicht veraendert.
+
+**Konfigurationsdoku:** neues Kapitel "SharePoint und OneDrive" (Freigabe-
+Einstellungen mit Stufen-Skala, Sites im Ueberblick, Sites mit M365-Gruppe im
+Detail, Sites ohne Gruppe, OneDrive) als vierter Abschnitt neben Apps,
+Richtlinien und Conditional Access — im Bereich "Zuweisungen & Audit" per
+"mit SharePoint" zuschaltbar, im neuen Bereich als eigener Export
+(`report.pdf?kinds=sharepoint`). Bewertende Hinweise (Gruppe ohne Besitzer,
+oeffentliche Gruppe mit Gaesten, "Jeder"-Links, Speicher >= 90 % …) nur im
+abwaehlbaren Anhang. Ueberblick und "Erhebung und Grenzen" nennen nur noch die
+Bereiche, die im PDF stehen. CSV-Export: Sites, Mitglieder, OneDrive.
+
+Neue Module: `lib/sharepointInventory.js`, `lib/sharepointInventoryPdf.js`.
+Ablage: `state/assignaudit/<tenant>-sharepoint.json`.
+**Keine neuen Graph-Berechtigungen:** Sites.Read.All, Group.Read(Write).All,
+User.Read(Write).All stehen schon in beiden App-Varianten; Reports.Read.All,
+ReportSettings.Read.All und SharePointTenantSettings.Read.All kommen aus der
+Maester-Liste (seit 2.6, auch fuer die Nur-lesen-App). Tenants, die seit der
+Maester-Integration nicht repariert wurden: einmal Reparieren, sonst meldet der
+Bereich die fehlenden Teile als Luecke.
+
 ## Version 2.55 - Nachweise, Pruefmandat, Auswirkungsprognose, neues PDF-Layout (2026-09-18)
 
 **Neuer Bereich "Nachweise"** (Betrieb) — Belege fuer Pruefungen und

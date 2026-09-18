@@ -47,6 +47,7 @@
     if (loadedFor === t.id) return
     loadedFor = t.id
     data = { apps: null, policies: null, ca: null }
+    spStored = null
     plans = null; log = []; job = null; error = null; notice = null
     loadStored()
     loadLog()
@@ -57,6 +58,7 @@
     try {
       const r = await apiGet(`/api/tenants/${tid()}/assignaudit`)
       data = { apps: r.apps || null, policies: r.policies || null, ca: r.ca || null }
+      spStored = r.sharepoint || null
       if (data.policies && data.policies.scope) optScope = data.policies.scope
     } catch (e) { error = errText(e) }
     loading = false
@@ -89,6 +91,10 @@
   }
 
   const available = $derived(Object.keys(KIND_LABEL).filter(k => data[k]))
+  // SharePoint-Inventar (Bereich "SharePoint & OneDrive") als weiteres Kapitel der Konfig-Doku
+  let spStored = $state(null)
+  let optSharePoint = $state(true)
+  const docKinds = $derived([...available, ...(spStored && optSharePoint ? ['sharepoint'] : [])])
   let optSkipUnassigned = $state(false)   // nicht zugewiesene Richtlinien/Apps nicht in die Doku
   function pdf(kinds) { fileDownload(`/api/tenants/${tid()}/assignaudit/report.pdf?kinds=${kinds.join(',')}&anhang=${optAppendix ? 1 : 0}&unzugewiesen=${optSkipUnassigned ? 0 : 1}`) }
   function csv(kind) { fileDownload(`/api/tenants/${tid()}/assignaudit/export.csv?kind=${kind}`) }
@@ -305,7 +311,12 @@
         <label class="za-opt" title="Nicht zugewiesene Richtlinien und Apps nicht in die Doku aufnehmen">
           <input type="checkbox" bind:checked={optSkipUnassigned} /> ohne nicht Zugewiesene
         </label>
-        <button class="btn btn-primary" disabled={!available.length} onclick={() => pdf(available)}
+        {#if spStored}
+          <label class="za-opt" title="Kapitel «SharePoint und OneDrive» aus dem Bereich SharePoint & OneDrive (Stand {fmt(spStored.generatedAt)})">
+            <input type="checkbox" bind:checked={optSharePoint} /> mit SharePoint
+          </label>
+        {/if}
+        <button class="btn btn-primary" disabled={!docKinds.length} onclick={() => pdf(docKinds)}
                 title="Konfigurationsdokumentation mit allen bereits ausgewerteten Bereichen">Konfig-Doku (PDF)</button>
       </div>
     </div>

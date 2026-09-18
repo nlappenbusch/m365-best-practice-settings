@@ -10,8 +10,12 @@
  * stehen gesammelt im Anhang und lassen sich weglassen (data.appendix === false),
  * wenn die Doku an den Kunden geht. data.skipUnassigned lässt nicht zugewiesene
  * Richtlinien und Apps weg.
+ *
+ * Abschnitt "sharepoint" (SharePoint und OneDrive) kommt aus dem gleichnamigen
+ * Bereich, Kapitel und Anhang liefert lib/sharepointInventoryPdf.js.
  */
 const D = require("./pdfDesign");
+const SPPDF = require("./sharepointInventoryPdf");
 const { pl, cap, fmtDate, fmtDateTime } = D;
 
 const TARGET_LABEL = { allDevices: "Alle Geräte", allUsers: "Alle Benutzer" };
@@ -27,22 +31,27 @@ function buildPdf(data) {
   const apps = S.apps ? (skip ? { ...S.apps, apps: S.apps.apps.filter(a => a.assignments.length) } : S.apps) : null;
   const pol = S.policies ? (skip ? { ...S.policies, policies: S.policies.policies.filter(p => p.assignments.some(a => !a.exclude)) } : S.policies) : null;
   const ca = S.ca || null;
+  const sp = S.sharepoint || null;
   const withAppendix = data.appendix !== false;
 
-  const parts = [apps && "Apps", pol && (pol.scope === "oib" ? "Intune-Richtlinien (OIB)" : "Intune-Richtlinien"), ca && "Conditional Access"].filter(Boolean);
-  const coverTiles = [
-    apps && { label: "Apps mit Zuweisung", value: apps.summary.assigned },
-    pol && { label: pol.scope === "oib" ? "OIB-Richtlinien" : "Intune-Richtlinien", value: pol.summary.policies },
-    ca && { label: "CA-Richtlinien aktiv", value: `${ca.summary.enabled}/${ca.summary.policies}` },
-    (apps || pol) && { label: "Geräte erreicht", value: Math.max(apps ? apps.summary.devices : 0, pol ? pol.summary.devices : 0) }
-  ].filter(Boolean);
+  const parts = [apps && "Apps", pol && (pol.scope === "oib" ? "Intune-Richtlinien (OIB)" : "Intune-Richtlinien"), ca && "Conditional Access", sp && "SharePoint und OneDrive"].filter(Boolean);
+  const coverTiles = sp && !apps && !pol && !ca
+    ? [{ label: "SharePoint-Sites", value: sp.summary.sites }, { label: "davon mit Teams", value: sp.summary.teams },
+      { label: "Speicher gesamt", value: SPPDF.bytes(sp.summary.storageUsed + sp.summary.oneDriveStorage) }, { label: "OneDrive-Konten", value: sp.summary.oneDrives }]
+    : [
+      apps && { label: "Apps mit Zuweisung", value: apps.summary.assigned },
+      pol && { label: pol.scope === "oib" ? "OIB-Richtlinien" : "Intune-Richtlinien", value: pol.summary.policies },
+      ca && { label: "CA-Richtlinien aktiv", value: `${ca.summary.enabled}/${ca.summary.policies}` },
+      (apps || pol) && { label: "Geräte erreicht", value: Math.max(apps ? apps.summary.devices : 0, pol ? pol.summary.devices : 0) },
+      sp && SPPDF.coverTile(sp)
+    ].filter(Boolean);
 
   const b = D.create({
     kicker: "Microsoft 365",
     titleLines: ["Konfigurations-", "dokumentation"],
     subtitle: parts.join("  ·  "),
     tenantName: data.tenantName, organization: data.organization, date: data.generatedAt,
-    stamps: [apps && `Apps ${fmtDateTime(apps.generatedAt)}`, pol && `Richtlinien ${fmtDateTime(pol.generatedAt)}`, ca && `Conditional Access ${fmtDateTime(ca.generatedAt)}`].filter(Boolean),
+    stamps: [apps && `Apps ${fmtDateTime(apps.generatedAt)}`, pol && `Richtlinien ${fmtDateTime(pol.generatedAt)}`, ca && `Conditional Access ${fmtDateTime(ca.generatedAt)}`, sp && `SharePoint ${fmtDateTime(sp.generatedAt)}`].filter(Boolean),
     coverTiles,
     footerLabel: "Konfigurationsdokumentation",
     coverNote: "Aus dem Tenant ausgelesen (Microsoft Graph, nur lesend) — die Dokumentation zeigt den tatsächlichen Stand, nicht eine Soll-Vorgabe."
@@ -52,12 +61,21 @@ function buildPdf(data) {
 
   // ================= Überblick =================
   b.h1("Überblick");
-  b.body("Diese Dokumentation beschreibt die im Tenant eingerichtete Konfiguration: welche Apps an welche Geräte verteilt werden und über welche Gruppen, was jede Intune-Richtlinie einstellt und für wen sie gilt, und welche Conditional-Access-Richtlinien die Anmeldung steuern.");
+  const topics = [
+    apps && "welche Apps an welche Geräte verteilt werden und über welche Gruppen",
+    pol && "was jede Intune-Richtlinie einstellt und für wen sie gilt",
+    ca && "welche Conditional-Access-Richtlinien die Anmeldung steuern",
+    sp && "welche SharePoint-Sites und OneDrives es gibt, wem sie gehören und wie der Tenant das Teilen regelt"
+  ].filter(Boolean);
+  b.body("Diese Dokumentation beschreibt die im Tenant eingerichtete Konfiguration: " +
+    (topics.length > 2 ? topics.slice(0, -1).join(", ") + ", und " + topics[topics.length - 1]
+      : topics.join(" und ")) + ".");
   b.doc.moveDown(0.4);
   b.card([
     apps && ["Apps", `${pl(apps.summary.assigned, "App mit Zuweisung", "Apps mit Zuweisung")} von ${apps.summary.apps} — erreichen ${pl(apps.summary.devices, "Gerät", "Geräte")}`],
     pol && ["Intune-Richtlinien", `${pl(pol.summary.policies, "Richtlinie", "Richtlinien")}${pol.scope === "oib" ? " der OpenIntuneBaseline" : ""}, davon ${pol.summary.assigned} zugewiesen — erreichen ${pl(pol.summary.devices, "Gerät", "Geräte")}`],
-    ca && ["Conditional Access", `${pl(ca.summary.policies, "Richtlinie", "Richtlinien")}: ${ca.summary.enabled} aktiv, ${ca.summary.reportOnly} nur Bericht, ${ca.summary.disabled} aus · ${pl(ca.summary.users, "aktives Konto", "aktive Konten")}${ca.summary.securityDefaults === true ? " · Sicherheitsstandards eingeschaltet" : ""}`]
+    ca && ["Conditional Access", `${pl(ca.summary.policies, "Richtlinie", "Richtlinien")}: ${ca.summary.enabled} aktiv, ${ca.summary.reportOnly} nur Bericht, ${ca.summary.disabled} aus · ${pl(ca.summary.users, "aktives Konto", "aktive Konten")}${ca.summary.securityDefaults === true ? " · Sicherheitsstandards eingeschaltet" : ""}`],
+    sp && SPPDF.overviewLine(sp)
   ].filter(Boolean));
   const conv = (apps && apps.convention) || null;
   if (conv) {
@@ -111,8 +129,10 @@ function buildPdf(data) {
   if (apps) renderApps();
   if (pol) renderPolicies();
   if (ca) renderCa();
+  if (sp) SPPDF.renderChapter(b, sp);
   if (withAppendix) renderDeviations();
   if (withAppendix && ca && ca.forecast && ca.forecast.summary.reportOnly) renderForecast();
+  if (withAppendix && sp) SPPDF.renderHints(b, sp);
   renderMethod();
   return b.finish();
 
@@ -353,15 +373,17 @@ function buildPdf(data) {
   // ---------------------------------------------------------------- Anhang: Erhebung
   function renderMethod() {
     b.h1("Erhebung und Grenzen", { appendix: true });
-    b.body("Alle Angaben stammen aus Microsoft Graph (Intune, Entra ID) und wurden ausschliesslich lesend über eine dedizierte, zertifikatsbasierte Anwendung erhoben. Gruppen sind rekursiv bis zu den Geräten und Konten aufgelöst; bei jedem Gerät steht der Weg dorthin (zugewiesene Gruppe › verschachtelte Gruppe).");
+    b.body(`Alle Angaben stammen aus Microsoft Graph (${[(apps || pol) && "Intune", (apps || pol || ca) && "Entra ID", sp && "SharePoint, Microsoft-365-Nutzungsberichte"].filter(Boolean).join(", ")}) und wurden ausschliesslich lesend über eine dedizierte, zertifikatsbasierte Anwendung erhoben.` +
+      (apps || pol ? " Gruppen sind rekursiv bis zu den Geräten und Konten aufgelöst; bei jedem Gerät steht der Weg dorthin (zugewiesene Gruppe › verschachtelte Gruppe)." : ""));
     b.doc.moveDown(0.3);
     [
-      "Die Auflösung zeigt, wen eine Zuweisung erreichen soll. Ob eine Richtlinie auf dem Gerät angewendet wurde, zeigt Intune im Gerätestatus; bei Apps ist der Installationsstatus ausgewiesen, sofern er erhoben wurde.",
-      "Zuweisungsfilter sind mit Name und Regel aufgeführt, aber nicht gegen die einzelnen Geräte ausgewertet.",
-      "Conditional Access: Rollen zählen mit aktiver Zuweisung (PIM-berechtigte Konten erst nach Aktivierung). Gäste werden über den Kontotyp «Guest» bestimmt.",
-      "Befehlszeilen sind gekürzt, wo sie Einschreibe-Schlüssel enthalten (z. B. GravityZone-Token)."
-    ].forEach(l => b.bullet(l));
-    const gaps = [...(apps ? apps.gaps || [] : []), ...(pol ? (pol.gaps || []).concat((pol.sourceErrors || []).map(e => `${e.source}: ${e.error}`)) : []), ...(ca ? ca.gaps || [] : [])];
+      (apps || pol) && "Die Auflösung zeigt, wen eine Zuweisung erreichen soll. Ob eine Richtlinie auf dem Gerät angewendet wurde, zeigt Intune im Gerätestatus; bei Apps ist der Installationsstatus ausgewiesen, sofern er erhoben wurde.",
+      (apps || pol) && "Zuweisungsfilter sind mit Name und Regel aufgeführt, aber nicht gegen die einzelnen Geräte ausgewertet.",
+      ca && "Conditional Access: Rollen zählen mit aktiver Zuweisung (PIM-berechtigte Konten erst nach Aktivierung). Gäste werden über den Kontotyp «Guest» bestimmt.",
+      apps && "Befehlszeilen sind gekürzt, wo sie Einschreibe-Schlüssel enthalten (z. B. GravityZone-Token).",
+      ...(sp ? SPPDF.methodBullets(sp) : [])
+    ].filter(Boolean).forEach(l => b.bullet(l));
+    const gaps = [...(apps ? apps.gaps || [] : []), ...(pol ? (pol.gaps || []).concat((pol.sourceErrors || []).map(e => `${e.source}: ${e.error}`)) : []), ...(ca ? ca.gaps || [] : []), ...(sp ? sp.gaps || [] : [])];
     if (apps && apps.readable && !apps.readable.managedDevices) gaps.push("Intune-Gerätedetails (Name, Primärbenutzer, Compliance) nicht lesbar: " + (apps.readable.managedDevicesError || "Berechtigung fehlt"));
     if (gaps.length) {
       b.h4("Nicht lesbar bei dieser Erhebung");
