@@ -202,6 +202,7 @@
 
   // ---------- Onboarding (Device-Code) ----------
   let onboardTenant = $state('')
+  let onboardReadOnly = $state(false)   // Prüfmandat: nur lesende App-Registrierung
   let onboardBusy = $state(false)
   let onboardStep = $state(null)     // { verificationUri, userCode, interval } waehrend Warten auf Anmeldung
   let onboardResult = $state(null)   // { error } | { tenant, setup, warnings }
@@ -214,7 +215,7 @@
     onboardResult = null
     let start
     try {
-      start = await apiPost('/api/onboard/start', { tenant: onboardTenant.trim() })
+      start = await apiPost('/api/onboard/start', { tenant: onboardTenant.trim(), readOnly: onboardReadOnly })
     } catch (e) {
       onboardResult = { error: e.message }
       onboardBusy = false
@@ -755,6 +756,18 @@
       <input id="tOnboardTenant" type="text" placeholder="kunde.onmicrosoft.com" bind:value={onboardTenant} disabled={onboardBusy || !!onboardStep} />
       <small>Pflichtangabe — sie bestimmt, in welchem Tenant die App-Registrierung entsteht. Ohne sie könnte die
         Anmeldung im igeeks-Tenant landen statt beim Kunden.</small>
+    </div>
+
+    <div class="onboard-mode" style="max-width:640px; margin-bottom:0.7rem;">
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={onboardReadOnly} />
+        <strong>Prüfmandat — nur lesen</strong>
+      </label>
+      <small style="display:block; opacity:0.8; margin-left:1.6rem;">
+        Für unabhängige Prüfungen: eigene App-Registrierung „M365-Security-Policy-Manager (nur lesen)" mit ausschliesslich
+        Lese-Berechtigungen und der Rolle <strong>Globaler Leser</strong>. Audits, Doku und Nachweise laufen, jede
+        schreibende Aktion ist gesperrt — im Tenant und zusätzlich im Werkzeug.
+      </small>
     </div>
 
     <details class="onboard-what" style="max-width:640px; margin-bottom:0.9rem;">

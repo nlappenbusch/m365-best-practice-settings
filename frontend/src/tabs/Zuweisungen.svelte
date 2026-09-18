@@ -89,7 +89,8 @@
   }
 
   const available = $derived(Object.keys(KIND_LABEL).filter(k => data[k]))
-  function pdf(kinds) { fileDownload(`/api/tenants/${tid()}/assignaudit/report.pdf?kinds=${kinds.join(',')}&anhang=${optAppendix ? 1 : 0}`) }
+  let optSkipUnassigned = $state(false)   // nicht zugewiesene Richtlinien/Apps nicht in die Doku
+  function pdf(kinds) { fileDownload(`/api/tenants/${tid()}/assignaudit/report.pdf?kinds=${kinds.join(',')}&anhang=${optAppendix ? 1 : 0}&unzugewiesen=${optSkipUnassigned ? 0 : 1}`) }
   function csv(kind) { fileDownload(`/api/tenants/${tid()}/assignaudit/export.csv?kind=${kind}`) }
 
   function fmt(iso) {
@@ -233,6 +234,39 @@
   )
   let settingsAll = $state({})
 
+  // ---- Aufräumen: nicht zugewiesene Richtlinien löschen
+  let delSel = $state({})          // policyId -> bool
+  let delBackup = $state(true)
+  let delResults = $state(null)
+  const isUnassigned = p => !p.assignments.some(a => !a.exclude)
+  const delSelected = $derived((data.policies?.policies || []).filter(p => delSel[p.id] && isUnassigned(p)))
+
+  async function deletePolicies() {
+    const sel = delSelected
+    if (!sel.length) return
+    if (!confirm(`${sel.length} nicht zugewiesene Richtlinie(n) im Tenant ${$activeTenant.name} LÖSCHEN?\n\n`
+      + sel.map(p => '• ' + p.name).join('\n') + '\n\n'
+      + (delBackup ? 'Vorher läuft ein komplettes Intune-Backup (wiederherstellbar im Bereich Intune › Policies). ' : 'OHNE vorheriges Intune-Backup. ')
+      + 'Jede Richtlinie wird zusätzlich als JSON gesichert. Unmittelbar vor dem Löschen wird noch einmal geprüft, '
+      + 'ob sie wirklich keine Zuweisung hat — sonst bleibt sie stehen.')) return
+    error = null; notice = null; delResults = null
+    try {
+      const r = await apiPost(`/api/tenants/${tid()}/assignaudit/policies/delete`, {
+        backup: delBackup,
+        items: sel.map(p => ({ id: p.id, source: p.source, name: p.name }))
+      })
+      job = { id: r.jobId, kinds: ['delete'], status: 'running', phase: 'Start' }
+      poll(r.jobId, async (j) => {
+        delResults = j.results || []
+        if (j.status === 'failed') error = j.error + (j.hint ? ' — ' + j.hint : '')
+        const n = delResults.filter(x => x.status === 'deleted').length
+        notice = `${n} von ${sel.length} Richtlinie(n) gelöscht.` + (j.backupId ? ` Backup: ${j.backupId}.` : '')
+        delSel = {}
+        run(['policies'])
+      })
+    } catch (e) { error = errText(e) }
+  }
+
   // ================================================================ Conditional Access
   let caSearch = $state('')
   let matrixLimit = $state(150)
@@ -268,6 +302,9 @@
         <label class="za-opt" title="Anhang mit den Abweichungen vom Zuweisungskonzept — für die Doku an den Kunden abwählen">
           <input type="checkbox" bind:checked={optAppendix} /> Abweichungen als Anhang
         </label>
+        <label class="za-opt" title="Nicht zugewiesene Richtlinien und Apps nicht in die Doku aufnehmen">
+          <input type="checkbox" bind:checked={optSkipUnassigned} /> ohne nicht Zugewiesene
+        </label>
         <button class="btn btn-primary" disabled={!available.length} onclick={() => pdf(available)}
                 title="Konfigurationsdokumentation mit allen bereits ausgewerteten Bereichen">Konfig-Doku (PDF)</button>
       </div>
@@ -280,7 +317,7 @@
       <div class="ld-job za-job">
         <span class="ld-spinner"></span>
         <div>
-          <strong>{job.kinds && job.kinds[0] === 'fix' ? 'Umstellung läuft' : 'Auswertung läuft'}</strong>
+          <strong>{({ fix: 'Umstellung läuft', delete: 'Löschen läuft' })[job.kinds && job.kinds[0]] || 'Auswertung läuft'}</strong>
           <div class="ld-job-meta">{job.phase || '…'}</div>
         </div>
       </div>
@@ -591,9 +628,33 @@
           <input class="za-search" type="search" placeholder="Richtlinie oder Gruppe suchen…" bind:value={polSearch} />
         </div>
 
+        {#if (data.policies.policies || []).some(isUnassigned)}
+          <div class="za-cleanup">
+            <span class="za-small">
+              <strong>Aufräumen:</strong> nicht zugewiesene Richtlinien markieren und löschen
+              <button class="za-link" onclick={() => { for (const p of data.policies.policies) if (isUnassigned(p)) delSel[p.id] = true; polFilter = 'unassigned' }}>alle nicht zugewiesenen markieren</button>
+              {#if delSelected.length}<button class="za-link" onclick={() => (delSel = {})}>keine</button>{/if}
+            </span>
+            <label class="za-opt"><input type="checkbox" bind:checked={delBackup} /> vorher Intune-Backup</label>
+            <button class="btn btn-secondary za-btn-danger" disabled={!delSelected.length || busy} onclick={deletePolicies}>
+              {delSelected.length} Richtlinie(n) löschen
+            </button>
+          </div>
+          {#if delResults && delResults.length}
+            {#each delResults as r}
+              <div class="za-line" class:crit={r.status === 'failed'} class:warn={r.status === 'skipped'}>
+                <strong>{r.name || r.id}</strong> — {r.status === 'deleted' ? 'gelöscht (Abzug ' + r.snapshot + ')' : r.status === 'skipped' ? 'übersprungen: ' + r.reason : 'fehlgeschlagen: ' + r.reason}
+              </div>
+            {/each}
+          {/if}
+        {/if}
+
         {#each polShown as p (p.id)}
           <details class="za-item">
             <summary>
+              {#if isUnassigned(p)}
+                <input type="checkbox" class="za-del-check" title="zum Löschen markieren" bind:checked={delSel[p.id]} onclick={(e) => e.stopPropagation()} />
+              {/if}
               <span class="za-item-name">{p.name}</span>
               <span class="za-dim za-small">{p.type} · {p.platform}</span>
               <span class="za-item-right">
@@ -663,8 +724,9 @@
         <div class="za-stamp">
           {#if data.ca}Datenstand {fmt(data.ca.generatedAt)} <span class="za-age">({age(data.ca.generatedAt)})</span>{:else if !loading}Noch nicht ausgewertet.{/if}
         </div>
-        <label class="za-opt"><input type="checkbox" bind:checked={optSignIns} /> Anmeldeprotokoll der letzten
-          <select bind:value={optDays} disabled={!optSignIns}><option value={1}>1</option><option value={7}>7</option><option value={14}>14</option><option value={30}>30</option></select> Tage auswerten</label>
+        <label class="za-opt" title="Liest interaktive und nicht-interaktive Anmeldungen und rechnet daraus, wen die Report-only-Richtlinien scharf treffen würden">
+          <input type="checkbox" bind:checked={optSignIns} /> Anmeldeprotokoll + Auswirkungsprognose, letzte
+          <select bind:value={optDays} disabled={!optSignIns}><option value={1}>1</option><option value={7}>7</option><option value={14}>14</option><option value={30}>30</option></select> Tage</label>
         <button class="btn btn-secondary" disabled={busy} onclick={() => run(['ca'])}>{data.ca ? '↻ Neu auswerten' : 'Auswerten'}</button>
         <button class="btn btn-secondary" disabled={!data.ca} onclick={() => pdf(['ca'])}>Doku-PDF</button>
         <button class="btn btn-secondary" disabled={!data.ca} onclick={() => csv('ca')}>CSV</button>
@@ -689,6 +751,83 @@
           {/if}
         </div>
         {#if data.ca.gaps?.length}<div class="alert alert-warning">{data.ca.gaps.join(' · ')}</div>{/if}
+
+        {#if data.ca.forecast}
+          {@const f = data.ca.forecast}
+          <div class="settings-group za-forecast">
+            <h4>Auswirkungsprognose: Report-only scharf schalten</h4>
+            <p class="ld-section-hint" style="margin-top:0">
+              Entra wertet jede Anmeldung auch gegen die Richtlinien im Modus «Nur Bericht» aus, als wären sie scharf.
+              Grundlage: {f.window.read} interaktive und {f.window.nonInteractive} nicht-interaktive Anmeldungen der letzten {f.window.days} Tage.
+            </p>
+            {#if !f.complete}
+              <div class="alert alert-warning">
+                Unvollständig: {f.window.capped || f.window.nonInteractiveCapped ? 'Das Protokoll wurde bei der Obergrenze abgeschnitten — kürzeren Zeitraum wählen.' : ''}
+                {f.window.nonInteractiveError ? 'Nicht-interaktive Anmeldungen nicht lesbar: ' + f.window.nonInteractiveError : ''}
+              </div>
+            {/if}
+            {#if f.mfaRegistration !== 'ok'}
+              <div class="alert alert-warning">MFA-Registrierung nicht lesbar ({f.mfaRegistration}) — «müsste MFA einrichten» lässt sich nicht von «würde zusätzlich gefragt» unterscheiden.</div>
+            {/if}
+            {#if !f.summary.reportOnly}
+              <div class="ld-banner warn">Keine Richtlinie im Modus «Nur Bericht» — es gibt nichts vorherzusagen. Neue oder ausgeschaltete Richtlinien zuerst einige Tage auf «Nur Bericht» laufen lassen.</div>
+            {:else}
+              <div class="rep-metrics za-metrics">
+                <div class="rep-metric" class:crit={f.summary.blockedUsers}><div class="rep-metric-value">{f.summary.blockedUsers}</div><div class="rep-metric-label">Konten würden blockiert</div></div>
+                <div class="rep-metric" class:warn={f.summary.setupUsers}><div class="rep-metric-value">{f.summary.setupUsers}</div><div class="rep-metric-label">müssten MFA einrichten</div></div>
+                <div class="rep-metric"><div class="rep-metric-value">{f.summary.promptUsers}</div><div class="rep-metric-label">würden zusätzlich gefragt</div></div>
+                <div class="rep-metric" class:warn={f.summary.noDataUsers}><div class="rep-metric-value">{f.summary.noDataUsers}</div><div class="rep-metric-label">ohne Anmeldung — keine Aussage</div></div>
+              </div>
+              {#each f.policies as fp (fp.id)}
+                <details class="za-item" open={fp.blocked.length > 0}>
+                  <summary>
+                    <span class="za-item-name">{fp.name}</span>
+                    <span class="za-dim za-small">{fp.effect}</span>
+                    <span class="za-item-right">
+                      {#if fp.blocked.length}<span class="tbadge crit">{fp.blocked.length} blockiert</span>{/if}
+                      {#if fp.setup.length}<span class="tbadge warn">{fp.setup.length} MFA einrichten</span>{/if}
+                      {#if fp.prompt.length}<span class="tbadge">{fp.prompt.length} zusätzlich gefragt</span>{/if}
+                      {#if !fp.blocked.length && !fp.setup.length && !fp.prompt.length}<span class="tbadge ok">niemand betroffen</span>{/if}
+                    </span>
+                  </summary>
+                  <div class="za-item-body">
+                    {#each [['blocked', 'Würde blockiert', fp.blocked], ['setup', 'Müsste MFA einrichten', fp.setup], ['prompt', 'Würde zusätzlich gefragt', fp.prompt]] as [key, label, rowsF]}
+                      {#if rowsF.length}
+                        <h5 class="za-h5">{label} ({rowsF.length})</h5>
+                        <div class="gt-table-wrap">
+                          <table class="gt-table">
+                            <thead><tr><th>Konto</th><th>Verlangt</th><th>Betroffene Anmeldungen</th><th>Gerät / App</th><th>MFA</th></tr></thead>
+                            <tbody>
+                              {#each rowsF as r (r.upn)}
+                                <tr class:ac-issue={key === 'blocked'}>
+                                  <td><strong>{r.name}</strong><div class="za-dim za-small">{r.upn}{r.guest ? ' · Gast' : ''}</div></td>
+                                  <td class="za-small">{r.requires}</td>
+                                  <td class="za-small">{r.bad} von {r.total}{r.lastAt ? ` · zuletzt ${fmt(r.lastAt)}` : ''}</td>
+                                  <td class="za-small">{#each r.samples as smp}<div>{smp}</div>{/each}</td>
+                                  <td class="za-small">{r.mfaRegistered === null ? '—' : r.mfaRegistered ? (r.methods || []).join(', ') || 'registriert' : 'keine Methode'}</td>
+                                </tr>
+                              {/each}
+                            </tbody>
+                          </table>
+                        </div>
+                      {/if}
+                    {/each}
+                    <div class="za-dim za-small">{fp.ok} Konto/Konten erfüllen die Richtlinie bereits · {fp.notApplicable} nicht zutreffend (Bedingung nicht erfüllt)</div>
+                    {#if fp.noData.length}
+                      <details class="za-sub-details">
+                        <summary>Im Geltungsbereich, aber ohne Anmeldung im Zeitraum ({fp.noData.length}) — keine Aussage möglich</summary>
+                        <div class="za-chips">{#each fp.noData as u}<span class="gt-tag">{u.upn}{u.guest ? ' (Gast)' : ''}</span>{/each}</div>
+                      </details>
+                    {/if}
+                  </div>
+                </details>
+              {/each}
+              {#if f.disabledNotEvaluated?.length}
+                <p class="za-dim za-small">Ausgeschaltet und deshalb nicht vorhersagbar: {f.disabledNotEvaluated.join(', ')}.</p>
+              {/if}
+            {/if}
+          </div>
+        {/if}
 
         {#if data.ca.withoutMfa?.length}
           <details class="za-item">
@@ -846,6 +985,14 @@
   .za-kv > span:first-child { color: var(--text-dim); font-weight: 600; }
   .za-summary { margin: 0; padding: 0.45rem 0.7rem; border-left: 3px solid var(--accent); background: var(--accent-wash); font-size: 0.88rem; }
   .za-settings td:first-child { width: 58%; }
+  .za-cleanup {
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    border: 1px dashed color-mix(in srgb, var(--crit) 45%, var(--rule)); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem;
+  }
+  .za-cleanup .za-link { margin-left: 0.5rem; }
+  .za-btn-danger:not(:disabled) { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 55%, var(--rule)); }
+  .za-del-check { margin: 0; align-self: center; }
+  .za-forecast { margin-top: 0.25rem; }
   .za-link {
     background: none; border: 0; cursor: pointer; padding: 0; font: inherit;
     font-size: 0.8rem; text-decoration: underline; color: var(--accent);

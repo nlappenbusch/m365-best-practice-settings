@@ -1230,6 +1230,133 @@ const RISK = { low: "niedrig", medium: "mittel", high: "hoch", none: "keins", hi
 
 function list(arr) { return (arr || []).filter(Boolean); }
 
+// ---- Auswirkungsprognose für Report-only-Richtlinien
+// Entra wertet jede Anmeldung auch gegen Report-only-Richtlinien aus und schreibt
+// das Ergebnis ins Anmeldeprotokoll, als wäre die Richtlinie scharf. Daraus lässt
+// sich vor dem Scharfschalten ablesen, wen es treffen würde — und warum.
+const ENFORCED_LABEL = {
+  mfa: "MFA", block: "Blockieren", requirecompliantdevice: "konformes Gerät", compliantdevice: "konformes Gerät",
+  requiredomainjoineddevice: "Hybrid-Join", domainjoineddevice: "Hybrid-Join", requireapprovedapp: "genehmigte App",
+  approvedapplication: "genehmigte App", requirecompliantapp: "App-Schutz", compliantapplication: "App-Schutz",
+  passwordchange: "Kennwortänderung", requirepasswordchange: "Kennwortänderung", termsofuse: "Nutzungsbedingungen"
+};
+function enforcedText(arr) {
+  return [...new Set((arr || []).map(x => ENFORCED_LABEL[String(x).toLowerCase().replace(/[^a-z]/g, "")] || x))].join(", ");
+}
+
+const VERDICT = {
+  blocked: "würde blockiert",
+  setup: "müsste MFA einrichten",
+  prompt: "würde zusätzlich gefragt",
+  ok: "erfüllt",
+  na: "nicht zutreffend"
+};
+
+async function buildForecast(tenant, cert, pols, signIns, userById, info) {
+  const ro = pols.filter(p => p.state === "enabledForReportingButNotEnforced");
+  const disabled = pols.filter(p => p.state === "disabled").map(p => p.name);
+  const complete = !(info.capped || info.nonInteractiveCapped || info.nonInteractiveError);
+
+  // MFA-Registrierung aller Konten in einem Aufruf (braucht Entra ID P1).
+  let reg = null, regError = null;
+  try {
+    const listReg = await graphAllPages(tenant, cert, "/reports/authenticationMethods/userRegistrationDetails?$top=999", V1);
+    reg = new Map(listReg.map(r => [r.id, r]));
+  } catch (e) { regError = e.message; }
+
+  const rank = { reportOnlyFailure: 3, reportOnlyInterrupted: 2, reportOnlySuccess: 1, reportOnlyNotApplied: 0 };
+  const byUser = new Map();
+  const out = [];
+  for (const p of ro) {
+    const per = new Map();
+    for (const si of signIns) {
+      const ap = (si.appliedConditionalAccessPolicies || []).find(a => a.id === p.id);
+      if (!ap) continue;
+      const uid = si.userId || si.userPrincipalName;
+      if (!per.has(uid)) per.set(uid, { worst: null, total: 0, bad: 0, upn: si.userPrincipalName, name: si.userDisplayName, samples: [], lastAt: null, requires: [] });
+      const e = per.get(uid);
+      e.total++;
+      const r = ap.result;
+      if ((rank[r] ?? -1) > (rank[e.worst] ?? -1)) e.worst = r;
+      if (r === "reportOnlyFailure" || r === "reportOnlyInterrupted") {
+        e.bad++;
+        if (!e.lastAt || String(si.createdDateTime) > e.lastAt) e.lastAt = si.createdDateTime;
+        const dd = si.deviceDetail || {};
+        const sample = [
+          dd.operatingSystem || "Betriebssystem unbekannt",
+          dd.displayName ? dd.displayName : "Gerät nicht registriert",
+          dd.isCompliant ? "konform" : "nicht konform",
+          dd.isManaged ? null : "nicht verwaltet",
+          si.appDisplayName || null,
+          si.clientAppUsed ? "Client: " + si.clientAppUsed : null,
+          si._nonInteractive ? "nicht interaktiv" : null
+        ].filter(Boolean).join(" · ");
+        if (e.samples.length < 3 && !e.samples.includes(sample)) e.samples.push(sample);
+        e.requires = e.requires.concat(ap.enforcedGrantControls || []);
+      }
+    }
+
+    const rows = [];
+    for (const [uid, e] of per) {
+      const u = userById.get(uid) || {};
+      const upn = e.upn || u.userPrincipalName || uid;
+      const mfa = reg ? reg.get(uid) : null;
+      const mfaRegistered = reg ? !!(mfa && mfa.isMfaRegistered) : null;
+      let verdict = "na";
+      if (e.worst === "reportOnlyFailure") verdict = "blocked";
+      else if (e.worst === "reportOnlyInterrupted") {
+        const wantsMfa = p._requiresMfa || e.requires.some(x => /mfa/i.test(String(x)));
+        verdict = (wantsMfa && mfaRegistered === false) ? "setup" : "prompt";
+      }
+      else if (e.worst === "reportOnlySuccess") verdict = "ok";
+      const row = {
+        upn, name: e.name || u.displayName || upn, guest: String(u.userType || "").toLowerCase() === "guest",
+        verdict, verdictLabel: VERDICT[verdict], bad: e.bad, total: e.total, lastAt: e.lastAt,
+        requires: enforcedText(e.requires) || p.effectShort,
+        samples: e.samples,
+        mfaRegistered, methods: mfa ? (mfa.methodsRegistered || []) : null
+      };
+      rows.push(row);
+      if (verdict === "blocked" || verdict === "setup" || verdict === "prompt") {
+        if (!byUser.has(upn)) byUser.set(upn, { upn, name: row.name, guest: row.guest, worst: verdict, policies: [] });
+        const bu = byUser.get(upn);
+        bu.policies.push({ name: p.name, verdict, verdictLabel: VERDICT[verdict], requires: row.requires, sample: row.samples[0] || null });
+        if (["blocked", "setup", "prompt"].indexOf(verdict) < ["blocked", "setup", "prompt"].indexOf(bu.worst)) bu.worst = verdict;
+      }
+    }
+    const seen = new Set(per.keys());
+    const noData = [...(p._eff || [])].filter(id => !seen.has(id)).map(id => userById.get(id))
+      .filter(u => u && u.accountEnabled !== false)
+      .map(u => ({ upn: u.userPrincipalName, name: u.displayName, guest: String(u.userType || "").toLowerCase() === "guest" }));
+    const pick = v => rows.filter(r => r.verdict === v).sort((a, b) => b.bad - a.bad);
+    out.push({
+      id: p.id, name: p.name, effect: p.effectShort,
+      blocked: pick("blocked"), setup: pick("setup"), prompt: pick("prompt"),
+      ok: pick("ok").length, notApplicable: pick("na").length,
+      noData: noData.sort((a, b) => String(a.upn).localeCompare(String(b.upn)))
+    });
+  }
+
+  const users = [...byUser.values()].sort((a, b) =>
+    ["blocked", "setup", "prompt"].indexOf(a.worst) - ["blocked", "setup", "prompt"].indexOf(b.worst) || String(a.upn).localeCompare(String(b.upn)));
+  const noDataAll = new Set(out.flatMap(p => p.noData.map(u => u.upn)));
+  return {
+    window: info,
+    complete,
+    mfaRegistration: reg ? "ok" : regError,
+    disabledNotEvaluated: disabled,
+    summary: {
+      reportOnly: ro.length,
+      blockedUsers: users.filter(u => u.worst === "blocked").length,
+      setupUsers: users.filter(u => u.worst === "setup").length,
+      promptUsers: users.filter(u => u.worst === "prompt").length,
+      noDataUsers: noDataAll.size
+    },
+    policies: out,
+    users
+  };
+}
+
 /**
  * Conditional-Access-Richtlinien lesbar machen und auflösen, für wen sie gelten.
  * opts.signIns: Anmeldeprotokoll der letzten opts.signInDays Tage auswerten
@@ -1534,25 +1661,43 @@ async function auditConditionalAccess(tenant, cert, opts, onProgress) {
       excludedUsers,
       effectiveUsers: effUsers.slice(0, 500).map(u => ({ name: u.displayName, upn: u.userPrincipalName, guest: isGuest(u), enabled: u.accountEnabled !== false })),
       findings,
-      signIns: null
+      signIns: null,
+      _eff: scope.eff,          // nur intern, für die Prognose — wird vor der Rückgabe entfernt
+      _requiresMfa: grant.some(c => /MFA|Authentifizierungsstärke/i.test(c)) && !blocks
     });
   }
 
   // ---- Anmeldeprotokoll: was haben die Richtlinien tatsächlich bewirkt
   let signInInfo = null;
+  let forecast = null;
   if (opts.signIns) {
     const days = Math.min(Math.max(Number(opts.signInDays) || 7, 1), 30);
-    const cap = Math.min(Math.max(Number(opts.signInCap) || 3000, 100), 10000);
+    const cap = Math.min(Math.max(Number(opts.signInCap) || 5000, 100), 20000);
     say(`Anmeldeprotokoll lesen (${days} Tage)`);
     const since = new Date(Date.now() - days * 864e5).toISOString().replace(/\.\d{3}Z$/, "Z");
-    try {
-      const got = [];
-      let resp = await graphReq(tenant, cert, "GET", `/auditLogs/signIns?$filter=createdDateTime ge ${since}&$top=500`, null, V1);
+    const readPaged = async (path, limit, o) => {
+      const out = [];
+      let resp = await graphReq(tenant, cert, "GET", path, null, o || V1);
       for (;;) {
-        got.push(...(resp.value || []));
-        if (got.length >= cap || !resp["@odata.nextLink"]) break;
-        resp = await graphReq(tenant, cert, "GET", resp["@odata.nextLink"], null, V1);
+        out.push(...(resp.value || []));
+        if (out.length >= limit || !resp["@odata.nextLink"]) return { list: out.slice(0, limit), capped: !!resp["@odata.nextLink"] || out.length > limit };
+        resp = await graphReq(tenant, cert, "GET", resp["@odata.nextLink"], null, o || V1);
       }
+    };
+    try {
+      const inter = await readPaged(`/auditLogs/signIns?$filter=createdDateTime ge ${since}&$top=500`, cap);
+      const got = inter.list;
+      // Nicht-interaktive Anmeldungen (Token-Erneuerung, z. B. Mail-App auf dem
+      // Handy) — genau die treffen eine Geräte-Richtlinie oft zuerst. Nur beta.
+      let nonInter = { list: [], capped: false, error: null };
+      if (opts.nonInteractive !== false) {
+        say("Nicht-interaktive Anmeldungen lesen");
+        try {
+          nonInter = await readPaged(`/auditLogs/signIns?$filter=createdDateTime ge ${since} and signInEventTypes/any(t: t eq 'nonInteractiveUser')&$top=500`, cap, BETA);
+        } catch (e) { nonInter = { list: [], capped: false, error: e.message }; }
+      }
+      const all = got.concat(nonInter.list.map(x => ({ ...x, _nonInteractive: true })));
+
       const stats = new Map();
       for (const si of got) {
         for (const ap of si.appliedConditionalAccessPolicies || []) {
@@ -1573,7 +1718,11 @@ async function auditConditionalAccess(tenant, cert, opts, onProgress) {
           topUsers: [...st.users.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([upn, n]) => ({ upn, n }))
         };
       }
-      signInInfo = { days, read: got.length, capped: got.length >= cap, since };
+      signInInfo = { days, read: got.length, capped: inter.capped, since, nonInteractive: nonInter.list.length, nonInteractiveCapped: nonInter.capped, nonInteractiveError: nonInter.error };
+
+      // ---- Auswirkungsprognose: wen würden die Report-only-Richtlinien scharf treffen?
+      say("Auswirkungsprognose berechnen");
+      forecast = await buildForecast(tenant, cert, pols, all, userById, signInInfo);
     } catch (e) {
       signInInfo = { days, error: e.message };
       gaps.push("Anmeldeprotokoll nicht lesbar (Entra ID P1 und AuditLog.Read.All nötig): " + e.message);
@@ -1601,12 +1750,14 @@ async function auditConditionalAccess(tenant, cert, opts, onProgress) {
   const legacyBlocked = active.some(p => p.grant.blocks && p.conditions.some(c => /Legacy|ActiveSync/i.test(c)));
 
   pols.sort((a, b) => ({ enabled: 0, enabledForReportingButNotEnforced: 1, disabled: 2 }[a.state] - { enabled: 0, enabledForReportingButNotEnforced: 1, disabled: 2 }[b.state]) || a.name.localeCompare(b.name));
+  for (const p of pols) { delete p._eff; delete p._requiresMfa; }
 
   return {
     kind: "ca",
     generatedAt: new Date().toISOString(),
     gaps,
     signIns: signInInfo,
+    forecast,
     summary: {
       policies: pols.length,
       enabled: pols.filter(p => p.state === "enabled").length,
@@ -1628,8 +1779,51 @@ async function auditConditionalAccess(tenant, cert, opts, onProgress) {
   };
 }
 
+// ============================================================== Aufräumen
+// Pfade werden ausschliesslich hier aus der bekannten Quelle gebildet — der
+// Client kann keinen beliebigen Graph-Pfad zum Löschen vorgeben.
+const POLICY_PATHS = {
+  configurationPolicies: "/deviceManagement/configurationPolicies",
+  deviceCompliancePolicies: "/deviceManagement/deviceCompliancePolicies",
+  deviceConfigurations: "/deviceManagement/deviceConfigurations",
+  groupPolicyConfigurations: "/deviceManagement/groupPolicyConfigurations",
+  windowsFeatureUpdateProfiles: "/deviceManagement/windowsFeatureUpdateProfiles",
+  windowsQualityUpdateProfiles: "/deviceManagement/windowsQualityUpdateProfiles",
+  windowsDriverUpdateProfiles: "/deviceManagement/windowsDriverUpdateProfiles",
+  intents: "/deviceManagement/intents"
+};
+
+/**
+ * Eine NICHT zugewiesene Richtlinie löschen. Die Zuweisung wird unmittelbar
+ * vorher frisch gelesen — hat die Richtlinie inzwischen eine, wird sie nicht
+ * angefasst. Vor dem Löschen landet das komplette Objekt (bei Settings Catalog
+ * mit Einstellungen) als JSON in snapshotDir, damit es sich wiederherstellen lässt.
+ */
+async function deleteUnassignedPolicy(tenant, cert, source, id, snapshotDir) {
+  const base = POLICY_PATHS[source];
+  if (!base) throw Object.assign(new Error("Unbekannte Richtlinienquelle: " + source), { status: 400 });
+  if (!/^[0-9a-f-]{36}$/i.test(String(id))) throw Object.assign(new Error("Ungültige Richtlinien-Id."), { status: 400 });
+  const asg = await graphReq(tenant, cert, "GET", `${base}/${id}/assignments`, null, BETA);
+  if ((asg.value || []).length) return { status: "skipped", reason: "Hat inzwischen eine Zuweisung — nicht gelöscht." };
+  const full = await graphReq(tenant, cert, "GET", `${base}/${id}${source === "configurationPolicies" ? "?$expand=settings" : ""}`, null, BETA);
+  let settings = null;
+  if (source === "intents") {
+    try { settings = (await graphReq(tenant, cert, "GET", `${base}/${id}/settings`, null, BETA)).value || []; } catch (e) { /* ohne */ }
+  }
+  if (source === "groupPolicyConfigurations") {
+    try { settings = await graphAllPages(tenant, cert, `${base}/${id}/definitionValues?$expand=definition($select=id,displayName),presentationValues`, BETA); } catch (e) { /* ohne */ }
+  }
+  const fs = require("fs");
+  const path = require("path");
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const file = path.join(snapshotDir, `${new Date().toISOString().replace(/[:.]/g, "-")}_${source}_${id}.json`);
+  fs.writeFileSync(file, JSON.stringify({ source, deletedAt: new Date().toISOString(), object: full, settings }, null, 2), "utf8");
+  await graphReq(tenant, cert, "DELETE", `${base}/${id}`, null, BETA);
+  return { status: "deleted", name: full.name || full.displayName || id, snapshot: path.basename(file) };
+}
+
 module.exports = {
-  auditApps, auditPolicies, auditConditionalAccess,
+  auditApps, auditPolicies, auditConditionalAccess, deleteUnassignedPolicy, POLICY_PATHS,
   createResolver, appFindings, expectedAppGroupName, appBaseName, groupSuffix, isPmpApp, appTypeOf,
   parseOibName, flattenCatalogSettings, propertySettings, targetKind, settingsSummary, INTENT_LABEL
 };

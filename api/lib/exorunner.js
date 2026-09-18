@@ -53,7 +53,9 @@ const COMMANDS = [
   "Get-SafeLinksPolicy", "New-SafeLinksPolicy", "Set-SafeLinksPolicy",
   "Get-SafeLinksRule", "New-SafeLinksRule", "Set-SafeLinksRule",
   "Get-SafeAttachmentPolicy", "New-SafeAttachmentPolicy", "Set-SafeAttachmentPolicy",
-  "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule"
+  "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule",
+  // Empfänger-Audit (Nachweise): Meldepostfach für vom Benutzer gemeldete Mails — nur lesend.
+  "Get-ReportSubmissionPolicy"
 ].join(",");
 
 

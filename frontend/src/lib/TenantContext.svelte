@@ -22,6 +22,9 @@
     {:else}
       <span class="tbadge warn" title="Im Tab „Tenants“ reparieren">⚠ {tenantMissing($activeTenant).join(', ')} fehlt</span>
     {/if}
+    {#if $activeTenant.readOnly}
+      <span class="tbadge" title="Prüfmandat: nur Lese-Berechtigungen und Rolle Globaler Leser — schreibende Aktionen sind gesperrt">🔒 Prüfmandat · nur lesen</span>
+    {/if}
   </div>
   {@render children()}
 {/if}

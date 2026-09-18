@@ -1,5 +1,52 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.55 - Nachweise, Pruefmandat, Auswirkungsprognose, neues PDF-Layout (2026-09-18)
+
+**Neuer Bereich "Nachweise"** (Betrieb) — Belege fuer Pruefungen und
+Dokumentationen, rein lesend, jede Erhebung als Job mit Zeitstempel und
+Ersteller im Archiv (`state/evidence/<tenant>/`). Das Archiv ist zugleich die
+Sicherung: Entra loescht Protokolle nach 30 Tagen, das Unified Audit Log nach 180.
+- **Protokolle:** Aenderungsprotokoll Intune + Entra (+ Anmeldungen, auch nicht
+  interaktiv) fuer einen Zeitraum in Schweizer Zeit, Filter nach Akteur/Objekt,
+  Hinweis wann Microsoft die Eintraege loescht. **Unified Audit Log** ueber die
+  Graph-Audit-Log-Suche (asynchron, "Stand pruefen", Ergebnis wird archiviert),
+  loeschende und verschiebende Vorgaenge getrennt ausgewiesen.
+- **Konten:** privilegierte Konten (dauerhaft, per PIM aktiviert, berechtigt,
+  ueber Gruppe) mit MFA, Anlagedatum, letzter Anmeldung; **Ausnahme-Register**
+  (Zweck, Verantwortung, Ablaufdatum von Test-/Admin-/Dienst-/Notfallkonten —
+  speichert Entra nicht), geprueft gegen den Tenant, mit Vorschlaegen fuer nicht
+  erfasste Sonderkonten; **Konto-Steckbrief** (seit wann, von wem angelegt, Rollen,
+  Gruppen, Lizenzen, Methoden, Anmeldungen, Protokoll, Registereintrag).
+- **Benachrichtigungen:** wer welche Meldungen bekommt — Tenant-Kontakte,
+  Exchange (Spam, Malware, Meldepostfach, Transportregeln), Security & Compliance
+  (Warnungsrichtlinien, DLP; eigener pwsh-Prozess) — mit Beobachtungsliste.
+- **Enterprise-Apps:** KI-Connectoren zuerst; Rechte (heikle markiert),
+  Zustimmungen, Zuweisung, Nutzung, Entra-Protokoll, Suche im Unified Audit Log.
+- **Service-Status:** Stoerungen und Hinweise aus dem Service Health.
+Neue optionale Graph-Berechtigungen: AuditLogsQuery.Read.All, ServiceHealth.Read.All
+(bestehende Tenants: einmal Reparieren).
+
+**Pruefmandat (nur lesen):** Onboarding-Option mit eigener App-Registrierung
+"M365-Security-Policy-Manager (nur lesen)", ausschliesslich Lese-Berechtigungen und
+Rolle Globaler Leser. Zusaetzlich sperrt der Server fuer solche Tenants jede
+schreibende Route (Voreinstellung verboten, Allowlist fuer lesende Laeufe und lokale
+Ablagen); Reparieren kennt den Modus.
+
+**Conditional Access — Auswirkungsprognose:** aus interaktiven und nicht-
+interaktiven Anmeldungen je Report-only-Richtlinie, wer scharf blockiert wuerde,
+wer MFA einrichten muesste, wer nur zusaetzlich gefragt wird — mit Geraet/App als
+Grund; Konten ohne Anmeldung im Zeitraum eigens ("keine Aussage").
+
+**Richtlinien aufraeumen:** nicht zugewiesene Richtlinien im Reiter Richtlinien
+markieren und loeschen — vorher optional komplettes Intune-Backup, je Objekt ein
+JSON-Abzug (`state/deleted-policies/`), Zuweisung wird unmittelbar vorher frisch
+geprueft. Doku-PDF optional ohne nicht Zugewiesene.
+
+**PDF-Layout** (`lib/pdfDesign.js`) fuer Konfigurationsdoku und Nachweise:
+Deckblatt mit Titelblock und Kennzahlen, Inhaltsverzeichnis mit Seitenzahlen,
+Kopfzeile mit laufendem Kapitel, Tabellen mit Zebrastreifen, Status-Pillen,
+Zuweisungsketten als Diagramm; Zeiten durchgehend in Schweizer Zeit.
+
 ## Version 2.54 - Zuweisungen & Audit: App-Fixer und Konfigurationsdoku (2026-09-18)
 
 **Neuer Bereich "Zuweisungen & Audit"** (Intune) mit drei Reitern, alle bis aufs

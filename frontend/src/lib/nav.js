@@ -92,6 +92,8 @@ export const NAV_GROUPS = [
     items: [
       { id: 'reports', icon: 'chart', label: 'Reports', isNew: true,
         desc: 'Statusbericht pro Kunde erzeugen und Übersicht über alle Tenants' },
+      { id: 'nachweise', icon: 'search', label: 'Nachweise', isNew: true,
+        desc: 'Änderungsprotokoll, Unified Audit Log, privilegierte Konten, Ausnahme-Register, Benachrichtigungsempfänger, KI-Connectoren und Service-Status — erhoben, archiviert, als PDF' },
       { id: 'maester', icon: 'shieldCheck', label: 'Security-Audit', isNew: true,
         desc: 'Maester-Testsuite (CISA, CIS, EIDSCA) rein lesend gegen den Tenant — mit interaktivem HTML-Report' },
       { id: 'lizenzen', icon: 'coins', label: 'Lizenzen',

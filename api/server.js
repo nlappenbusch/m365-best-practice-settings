@@ -81,6 +81,11 @@ const APPHYGIENE = require("./lib/appHygiene");
 const ASSIGNAUDIT = require("./lib/assignAudit");
 const APPFIX = require("./lib/appAssignFix");
 const ASSIGNPDF = require("./lib/assignAuditPdf");
+const EVIDENCE = require("./lib/evidence");
+const ACCOUNTS = require("./lib/accounts");
+const RECIPIENTS = require("./lib/recipients");
+const ENTAPPS = require("./lib/enterpriseApps");
+const EVIDENCEPDF = require("./lib/evidencePdf");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
 
@@ -125,7 +130,23 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 // optional wie die beiden Zeilen darueber: fehlt sie im Graph-Service-
 // Principal, soll das Onboarding trotzdem durchlaufen und nur die
 // Entra-Geraete-Sektion der Bestandsaufnahme meldet fehlende Berechtigung.
-const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization", "Device.Read.All"];
+// AuditLogsQuery.Read.All (Unified Audit Log über Graph) und ServiceHealth.Read.All
+// kamen mit dem Bereich "Nachweise" dazu — optional aus demselben Grund.
+const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization", "Device.Read.All", "AuditLogsQuery.Read.All", "ServiceHealth.Read.All"];
+
+// ---------- Prüfmandat: nur lesend angebundener Tenant ----------
+// Für unabhängige Prüfungen (z. B. SGVP) darf das Werkzeug im Kundentenant
+// NICHTS verändern können — nicht nur "tut es nicht". Deshalb eine eigene
+// App-Registrierung ausschliesslich mit Lese-Berechtigungen und der Rolle
+// "Globaler Leser" statt Exchange-/Compliance-/Teams-Administrator. Exchange.
+// ManageAsApp bleibt: ohne sie gibt es keine app-only-Verbindung zu Exchange,
+// die Rolle Globaler Leser begrenzt sie auf lesende Cmdlets.
+// Zusätzlich sperrt der Server jede schreibende Route für solche Tenants
+// (siehe READONLY_ALLOW) — doppelt hält besser.
+const APP_DISPLAY_NAME_READONLY = "M365-Security-Policy-Manager (nur lesen)";
+const GLOBAL_READER_ROLE_TEMPLATE = "f2ef992c-3afb-46b9-b7cf-a126ee74c451"; // Globaler Leser
+const READONLY_GRAPH_PERMS = ["DeviceManagementConfiguration.Read.All", "DeviceManagementServiceConfig.Read.All", "DeviceManagementApps.Read.All", "DeviceManagementManagedDevices.Read.All", "Group.Read.All", "Policy.Read.All", "Application.Read.All", "User.Read.All", "Organization.Read.All", "AuditLog.Read.All", "Directory.Read.All", "RoleManagement.Read.Directory"];
+const READONLY_GRAPH_PERMS_OPTIONAL = ["DeviceManagementRBAC.Read.All", "DeviceManagementScripts.Read.All", "UserAuthenticationMethod.Read.All", "Reports.Read.All", "Device.Read.All", "Sites.Read.All", "AuditLogsQuery.Read.All", "ServiceHealth.Read.All", "RoleEligibilitySchedule.Read.Directory", "RoleAssignmentSchedule.Read.Directory"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
 // deren app-only-Doku). OPTIONAL: einzelne davon existieren nicht in jedem
@@ -232,7 +253,10 @@ async function ensureDirectoryRole(token, spId, roleTemplateId) {
 }
 
 // Ziel-Permissions aufloesen: EXO Exchange.ManageAsApp + Graph-Rollen fuer OIB.
-async function resolvePermissionTargets(token) {
+// readOnly: Prüfmandat — nur Lese-Berechtigungen, keine SharePoint-FullControl.
+async function resolvePermissionTargets(token, readOnly) {
+  const corePerms = readOnly ? READONLY_GRAPH_PERMS : GRAPH_APP_PERMS;
+  const optionalPerms = readOnly ? READONLY_GRAPH_PERMS_OPTIONAL : GRAPH_APP_PERMS_OPTIONAL;
   const exoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${EXO_APP_ID}'`)).value[0];
   if (!exoSp) throw new Error("Service Principal 'Office 365 Exchange Online' nicht gefunden.");
   const manageRole = (exoSp.appRoles || []).find(x => x.value === "Exchange.ManageAsApp" && (x.allowedMemberTypes || []).includes("Application"));
@@ -240,7 +264,7 @@ async function resolvePermissionTargets(token) {
 
   const graphSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${GRAPH_APP_ID}'`)).value[0];
   if (!graphSp) throw new Error("Microsoft-Graph Service-Principal nicht gefunden.");
-  const graphRoles = GRAPH_APP_PERMS.map(v => {
+  const graphRoles = corePerms.map(v => {
     const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
     if (!role) throw new Error("Graph-Application-Berechtigung fehlt im SP: " + v);
     return role;
@@ -259,7 +283,7 @@ async function resolvePermissionTargets(token) {
   // Optionale Permissions (siehe GRAPH_APP_PERMS_OPTIONAL) ebenso tolerant.
   const graphRolesOptional = [];
   const optionalMissing = [];
-  for (const v of GRAPH_APP_PERMS_OPTIONAL) {
+  for (const v of optionalPerms) {
     const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
     if (role) graphRolesOptional.push(role); else optionalMissing.push(v);
   }
@@ -269,7 +293,7 @@ async function resolvePermissionTargets(token) {
   let spoSp = null;
   const spoRolesMaester = [];
   try {
-    spoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${SPO_APP_ID}'`)).value[0] || null;
+    if (!readOnly) spoSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${SPO_APP_ID}'`)).value[0] || null;
     if (spoSp) {
       for (const v of SPO_APP_PERMS_MAESTER) {
         const role = (spoSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
@@ -318,8 +342,10 @@ async function ensureServicePrincipal(token, appId) {
  * Legt die App-Registrierung an (idempotent): Exchange.ManageAsApp (app-only EXO),
  * Graph-Permissions fuer die OIB-Zuweisung, Entra-Rollen + Zertifikat.
  */
-async function provisionAppReg(token) {
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token);
+async function provisionAppReg(token, opts) {
+  const readOnly = !!(opts && opts.readOnly);
+  const appName = readOnly ? APP_DISPLAY_NAME_READONLY : APP_DISPLAY_NAME;
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token, readOnly);
   const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
   const requiredResourceAccess = [
     { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
@@ -329,11 +355,11 @@ async function provisionAppReg(token) {
     requiredResourceAccess.push({ resourceAppId: SPO_APP_ID, resourceAccess: spoRolesMaester.map(r => ({ id: r.id, type: "Role" })) });
   }
 
-  let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(APP_DISPLAY_NAME)}'`)).value[0];
+  let app = (await gReq(token, "GET", `/applications?$filter=displayName eq '${odataLit(appName)}'`)).value[0];
   if (app) {
     await gReq(token, "PATCH", `/applications/${app.id}`, { requiredResourceAccess, signInAudience: "AzureADMyOrg" });
   } else {
-    app = await gReq(token, "POST", "/applications", { displayName: APP_DISPLAY_NAME, signInAudience: "AzureADMyOrg", requiredResourceAccess });
+    app = await gReq(token, "POST", "/applications", { displayName: appName, signInAudience: "AzureADMyOrg", requiredResourceAccess });
   }
   let appSp = (await gReq(token, "GET", `/servicePrincipals?$filter=appId eq '${app.appId}'`)).value[0];
   if (!appSp) appSp = await gReq(token, "POST", "/servicePrincipals", { appId: app.appId });
@@ -350,21 +376,27 @@ async function provisionAppReg(token) {
   // Entra-Rollen zuweisen: Exchange Administrator (Policies schreiben) und
   // Compliance Administrator (fuer einen spaeteren Windows-Worker der Alert Policy).
   let exoRole = false, exoRoleErr = null;
-  try { await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
   let sccRole = false, sccRoleErr = null;
-  try { await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
-  // Teams Administrator: fuer die app-only Teams-Verbindung der Maester-Tests.
-  try { await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE); } catch (e) { console.log("Teams-Admin-Rolle nicht zuweisbar: " + (e.message || e)); }
+  if (readOnly) {
+    // Prüfmandat: Globaler Leser deckt Exchange- und Compliance-Lesezugriff ab.
+    try { await ensureDirectoryRole(token, appSp.id, GLOBAL_READER_ROLE_TEMPLATE); exoRole = true; sccRole = true; }
+    catch (e) { exoRoleErr = sccRoleErr = "Rolle Globaler Leser: " + (e.message || String(e)); }
+  } else {
+    try { await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE); exoRole = true; } catch (e) { exoRoleErr = e.message || String(e); }
+    try { await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE); sccRole = true; } catch (e) { sccRoleErr = e.message || String(e); }
+    // Teams Administrator: fuer die app-only Teams-Verbindung der Maester-Tests.
+    try { await ensureDirectoryRole(token, appSp.id, TEAMS_ADMIN_ROLE_TEMPLATE); } catch (e) { console.log("Teams-Admin-Rolle nicht zuweisbar: " + (e.message || e)); }
+  }
 
   // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
   let certThumbprint = null, certPem = null, certError = null;
   try {
     const selfsigned = require("selfsigned");
-    const pems = selfsigned.generate([{ name: "commonName", value: APP_DISPLAY_NAME }], { keySize: 2048, days: 730, algorithm: "sha256" });
+    const pems = selfsigned.generate([{ name: "commonName", value: appName }], { keySize: 2048, days: 730, algorithm: "sha256" });
     const certB64 = pems.cert.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
     certThumbprint = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex");
     await gReq(token, "PATCH", `/applications/${app.id}`, {
-      keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: APP_DISPLAY_NAME + "-cert" }]
+      keyCredentials: [{ type: "AsymmetricX509Cert", usage: "Verify", key: certB64, displayName: appName + "-cert" }]
     });
     // Key UND Zertifikat speichern — X509Certificate2.CreateFromPemFile braucht beides.
     certPem = pems.private + "\n" + pems.cert;
@@ -393,7 +425,9 @@ async function repairAppReg(token, rec, opts) {
   push("App-Registrierung", "ok", app.displayName);
 
   // 2. API-Permissions: Exchange.ManageAsApp + Graph-Rollen (OIB + Maester) im Manifest
-  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester, optionalMissing, maesterMissing } = await resolvePermissionTargets(token);
+  const readOnly = !!rec.readOnly;
+  if (readOnly) push("Modus", "ok", "Prüfmandat — nur Lese-Berechtigungen, Rolle Globaler Leser");
+  const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester, optionalMissing, maesterMissing } = await resolvePermissionTargets(token, readOnly);
   const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
 
   // Optionale Permissions, die der Graph-Service-Principal dieses Tenants nicht
@@ -456,7 +490,10 @@ async function repairAppReg(token, rec, opts) {
 
   // 5./6. Entra-Rollen
   let exoRole = false, sccRole = false;
-  if (appSp) {
+  if (appSp && readOnly) {
+    try { push("Rolle Globaler Leser", await ensureDirectoryRole(token, appSp.id, GLOBAL_READER_ROLE_TEMPLATE)); exoRole = true; sccRole = true; }
+    catch (e) { push("Rolle Globaler Leser", "failed", e.message); }
+  } else if (appSp) {
     try { push("Exchange-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, EXCHANGE_ADMIN_ROLE_TEMPLATE)); exoRole = true; }
     catch (e) { push("Exchange-Administrator-Rolle", "failed", e.message); }
     try { push("Compliance-Administrator-Rolle", await ensureDirectoryRole(token, appSp.id, COMPLIANCE_ADMIN_ROLE_TEMPLATE)); sccRole = true; }
@@ -665,6 +702,40 @@ app.use("/api", (req, res, next) => {
   if (req.path.startsWith("/mcp/v1/")) return next();
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
+});
+
+// Prüfmandat: Für nur lesend angebundene Tenants ist jede schreibende Anfrage
+// gesperrt — Voreinstellung "verboten", durch kommen nur Routen, die den Tenant
+// ausschliesslich lesen oder nur lokal speichern (Audits, Reports, Nachweise,
+// Backups, Vorlage, Tenant entfernen/reparieren). Neue Schreib-Routen sind damit
+// automatisch gesperrt, ohne dass jemand an diese Liste denken muss.
+const READONLY_ALLOW = [
+  /^$/, /^\/test$/, /^\/audit$/, /^\/domainauth$/, /^\/assignaudit\/run$/, /^\/report\/run$/, /^\/inventory\/run$/,
+  /^\/maester\/run$/, /^\/maester\/runs\/[^/]+\/explain$/, /^\/maester\/schedule$/, /^\/intunebackup$/,
+  /^\/onboarding\/[^/]+$/, /^\/config$/, /^\/deviations$/, /^\/naming$/, /^\/smtpauth$/, /^\/mcp-permissions$/,
+  /^\/fix\/start$/, /^\/offboard\/(start|poll|local-only)$/, /^\/sharepointsites\/resolve$/, /^\/deploy\/auto-setting\/preview$/,
+  /^\/evidence\//
+];
+const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
+const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
+  const m = req.path.match(/^\/(?:mcp\/v1\/)?tenants\/([^/]+)(\/.*)?$/);
+  let t = null, allowed = false;
+  if (m) {
+    t = (loadState().tenants || []).find(x => x.id === decodeURIComponent(m[1]));
+    allowed = READONLY_ALLOW.some(re => re.test(m[2] || ""));
+  } else if (READONLY_BODY_ROUTES.test(req.path)) {
+    const id = String(((req.body || {}).tenantId) || "");
+    t = id ? (loadState().tenants || []).find(x => x.id === id) : null;
+    allowed = READONLY_BODY_ALLOW.some(re => re.test(req.path));
+  }
+  if (!t || !t.readOnly || allowed) return next();
+  console.log(`Prüfmandat: ${req.method} ${req.originalUrl} für ${t.name} gesperrt.`);
+  res.status(403).json({
+    error: `Prüfmandat: ${t.name} ist nur lesend angebunden — schreibende Aktionen sind gesperrt.`,
+    detail: "Die App-Registrierung hat dort nur Lese-Berechtigungen und die Rolle Globaler Leser."
+  });
 });
 
 // Tickets-Bereich (SDP-Ticket-Copilot + Runbooks) zusaetzlich auf
@@ -1216,6 +1287,7 @@ app.get("/api/tenants", (req, res) => {
   res.json((s.tenants || []).map(t => ({
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, addedAt: t.addedAt,
+    readOnly: !!t.readOnly,
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
     // Nur ob und wann eine Vorlage hinterlegt ist — der Inhalt kommt ueber
@@ -1814,7 +1886,8 @@ app.post("/api/onboard/start", wrap(async (req, res) => {
   if (!r.ok) throw new Error("Device-Code-Start fehlgeschlagen: " + (j.error_description || j.error || r.status));
   req.session.onboard = {
     tenant, deviceCode: j.device_code, interval: (j.interval || 5),
-    expiresAt: Date.now() + (j.expires_in || 900) * 1000
+    expiresAt: Date.now() + (j.expires_in || 900) * 1000,
+    readOnly: !!b.readOnly     // Prüfmandat: nur lesende App-Registrierung
   };
   res.json({ userCode: j.user_code, verificationUri: j.verification_uri || "https://microsoft.com/devicelogin", interval: j.interval || 5 });
 }));
@@ -1840,7 +1913,7 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
   }
 
   const token = j.access_token;
-  const result = await provisionAppReg(token);
+  const result = await provisionAppReg(token, { readOnly: !!df.readOnly });
 
   // Tenant-Infos ziehen (Id, Name, initiale onmicrosoft-Domain fuer -Organization).
   let tenantId = df.tenant, orgName = df.tenant, organization = null;
@@ -1866,6 +1939,7 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
   const rec = {
     id: uid, name: orgName, tenantId, organization, clientId: result.appId,
     certThumbprint: result.certThumbprint || "", exoRole: result.exoRole, sccRole: result.sccRole,
+    readOnly: !!df.readOnly,
     addedAt: new Date().toISOString()
   };
   if (existingIdx >= 0) s.tenants[existingIdx] = Object.assign(s.tenants[existingIdx], rec);
@@ -1875,7 +1949,7 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
   GRAPHLIB.clearTenantToken(tenantId);
 
   res.json({
-    status: "done", tenant: { id: uid, name: orgName, tenantId, organization, appId: result.appId },
+    status: "done", tenant: { id: uid, name: orgName, tenantId, organization, appId: result.appId, readOnly: !!df.readOnly },
     setup: {
       app: true,
       consent: !!result.consentOk,
@@ -1885,8 +1959,8 @@ app.post("/api/onboard/poll", wrap(async (req, res) => {
     },
     warnings: [
       result.consentOk ? null : ("Admin-Consent fehlgeschlagen: " + result.consentErr),
-      result.exoRole ? null : ("Exchange-Administrator-Rolle nicht zugewiesen: " + (result.exoRoleErr || "unbekannt")),
-      result.sccRole ? null : ("Compliance-Administrator-Rolle nicht zugewiesen: " + (result.sccRoleErr || "unbekannt")),
+      result.exoRole ? null : ((df.readOnly ? "" : "Exchange-Administrator-Rolle nicht zugewiesen: ") + (result.exoRoleErr || "unbekannt")),
+      result.sccRole || df.readOnly ? null : ("Compliance-Administrator-Rolle nicht zugewiesen: " + (result.sccRoleErr || "unbekannt")),
       result.certPem ? null : ("Zertifikat konnte nicht erstellt werden: " + (result.certError || "unbekannt"))
     ].filter(Boolean)
   });
@@ -5638,7 +5712,7 @@ app.get("/api/tenants/:id/assignaudit/report.pdf", wrap(async (req, res) => {
   for (const k of wanted) { const d = loadAssignAudit(t.id, k); if (d) sections[k] = d; }
   if (!Object.keys(sections).length) return res.status(404).json({ error: "Noch kein Audit erhoben — zuerst auswerten." });
   // anhang=0: ohne den Anhang "Abweichungen vom Zuweisungskonzept" — für die Doku an den Kunden.
-  const pdf = await ASSIGNPDF.buildPdf({ tenantName: t.name, organization: t.organization, generatedAt: new Date().toISOString(), sections, appendix: req.query.anhang !== "0" });
+  const pdf = await ASSIGNPDF.buildPdf({ tenantName: t.name, organization: t.organization, generatedAt: new Date().toISOString(), sections, appendix: req.query.anhang !== "0", skipUnassigned: req.query.unzugewiesen === "0" });
   const stamp = new Date().toISOString().slice(0, 10);
   const label = "Konfigurationsdoku" + (Object.keys(sections).length > 1 ? "" : "-" + { apps: "Apps", policies: "Richtlinien", ca: "Conditional-Access" }[Object.keys(sections)[0]]);
   res.setHeader("Content-Type", "application/pdf");
@@ -5676,6 +5750,53 @@ app.get("/api/tenants/:id/assignaudit/export.csv", wrap(async (req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_${kind}_${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(csv);
+}));
+
+// Schreibend: nicht zugewiesene Richtlinien löschen (z. B. macOS-OIB in einem
+// Tenant ohne Macs). Vorher optional ein komplettes Intune-Backup, dazu je
+// Objekt ein JSON-Abzug unter state/deleted-policies/<tenant>/.
+app.post("/api/tenants/:id/assignaudit/policies/delete", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const items = Array.isArray(b.items) ? b.items : [];
+  if (!items.length) return res.status(400).json({ error: "items (Liste von { id, source }) erforderlich." });
+  if (items.length > 200) return res.status(400).json({ error: "Maximal 200 Richtlinien pro Durchgang." });
+  for (const it of items) {
+    if (!GUID_RE.test(String(it.id || "")) || !ASSIGNAUDIT.POLICY_PATHS[it.source]) return res.status(400).json({ error: "Ungültige Richtlinie: " + String(it.id).slice(0, 40) });
+  }
+  const running = tenantBusy(t);
+  if (running) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id });
+  const user = (req.session && req.session.user) || "unbekannt";
+  const job = createAppJob(t, [b.backup === false ? null : "Intune-Backup", "Richtlinien löschen"].filter(Boolean));
+  job.results = [];
+  (async () => {
+    const onProgress = appJobProgress(job);
+    const cert = certPemPath(t.tenantId);
+    try {
+      if (b.backup !== false) {
+        onProgress("Intune-Backup");
+        const bk = await IBACKUP.runBackup(STATE_DIR, t, cert, label => { job.phase = "Intune-Backup: " + label; });
+        job.backupId = bk && bk.backupId;
+      }
+      onProgress("Richtlinien löschen");
+      const dir = path.join(STATE_DIR, "deleted-policies", String(t.id).replace(/[^A-Za-z0-9_-]/g, ""));
+      for (const it of items) {
+        try {
+          const r = await ASSIGNAUDIT.deleteUnassignedPolicy(t, cert, it.source, it.id, dir);
+          job.results.push({ id: it.id, name: it.name || r.name, ...r });
+          if (r.status === "deleted") logBulkDelete(t.id, { objectId: it.id, type: it.source, name: r.name, result: `ok (Zuweisungs-Audit, ${user}, Abzug ${r.snapshot})` });
+        } catch (e) {
+          job.results.push({ id: it.id, name: it.name, status: "failed", reason: e.message });
+        }
+      }
+      const del = job.results.filter(r => r.status === "deleted").length;
+      console.log(`Zuweisungs-Audit: ${del} nicht zugewiesene Richtlinie(n) in Tenant ${t.name} gelöscht (${user}).`);
+      finishAppJob(job, true, null, job.results.some(r => r.status !== "deleted") ? "Nicht alle gelöscht — Details in der Ergebnisliste." : null);
+    } catch (e) {
+      finishAppJob(job, false, e.message, "Abgebrochen, bevor etwas gelöscht wurde, falls das Backup scheiterte.");
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
 }));
 
 // ---------- App-Zuweisungs-Fixer ----------
@@ -5786,6 +5907,269 @@ app.post("/api/tenants/:id/appassign/rename", wrap(async (req, res) => {
   APPFIX.appendLog(STATE_DIR, t.id, { type: "rename", user, status: "done", groupId: r.id, from: r.from, to: r.to });
   console.log(`App-Gruppe "${r.from}" in Tenant ${t.name} umbenannt in "${r.to}" (${user}).`);
   res.json({ ok: true, ...r });
+}));
+
+// ---------- Nachweise (Protokolle, Konten, Empfänger, Enterprise-Apps, Service-Status) ----------
+// Jede Erhebung läuft als Job und landet mit Zeitstempel und Ersteller im Archiv
+// unter state/evidence/<tenant>/ — das ist zugleich die Sicherung von Protokollen,
+// die Microsoft nach 30 (Entra) bzw. 180 Tagen (Unified Audit Log) löscht.
+// Alles hier liest den Tenant nur; die Routen sind deshalb auch im Prüfmandat offen.
+function evidenceJob(t, req, kind, title, params, fn) {
+  const user = (req.session && req.session.user) || "unbekannt";
+  const job = createAppJob(t, [title]);
+  job.kind = kind;
+  (async () => {
+    const onProgress = appJobProgress(job);
+    onProgress(title);
+    try {
+      const data = await fn(label => { job.phase = `${title}: ${label}`; });
+      const entry = EVIDENCE.archive(STATE_DIR, t.id, { kind, title, params, createdBy: user, data });
+      job.result = { archiveId: entry.id };
+      const gaps = (data && data.gaps) || [];
+      finishAppJob(job, true, null, gaps.length ? `Nicht alles lesbar (${gaps.length}) — Details im Nachweis.` : null);
+    } catch (e) {
+      finishAppJob(job, false, e.message, e.hint || null);
+    }
+  })();
+  return job;
+}
+function evidenceBusy(t, res) {
+  const running = tenantBusy(t);
+  if (running) { res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id }); return true; }
+  return false;
+}
+function registerOf(t) { return Array.isArray(t.exceptionRegister) ? t.exceptionRegister : []; }
+
+app.post("/api/tenants/:id/evidence/changelog", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const r = EVIDENCE.dayRange(b.from, b.to); // wirft bei ungültigem Zeitraum sofort
+  if (evidenceBusy(t, res)) return;
+  const params = { from: b.from, to: b.to || b.from, sources: Array.isArray(b.sources) ? b.sources : ["intune", "entra"], actor: b.actor || "", text: b.text || "", user: b.user || "", nonInteractive: !!b.nonInteractive };
+  const title = `Änderungsprotokoll ${params.from}${params.to !== params.from ? " bis " + params.to : ""}`;
+  const job = evidenceJob(t, req, "changelog", title, params, say => EVIDENCE.changeLog(t, certPemPath(t.tenantId), params, say));
+  res.json({ ok: true, jobId: job.id, range: r });
+}));
+
+app.post("/api/tenants/:id/evidence/accounts", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (evidenceBusy(t, res)) return;
+  const job = evidenceJob(t, req, "accounts", "Privilegierte Konten und Ausnahme-Register", {}, async say => {
+    const cert = certPemPath(t.tenantId);
+    const privileged = await ACCOUNTS.privilegedAccounts(t, cert, say);
+    const register = await ACCOUNTS.checkRegister(t, cert, registerOf(t), privileged, say);
+    return { privileged, register, gaps: privileged.gaps, summary: { ...privileged.summary, register: register.summary } };
+  });
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.post("/api/tenants/:id/evidence/dossier", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const upn = String((req.body || {}).upn || "").trim();
+  if (!upn || upn.length > 200) return res.status(400).json({ error: "UPN oder Objekt-Id angeben." });
+  if (evidenceBusy(t, res)) return;
+  const job = evidenceJob(t, req, "dossier", `Konto-Steckbrief ${upn}`, { upn },
+    say => ACCOUNTS.accountDossier(t, certPemPath(t.tenantId), upn, registerOf(t), say));
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.post("/api/tenants/:id/evidence/recipients", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const watch = String((req.body || {}).watch || "").split(/[,;\s]+/).map(x => x.trim()).filter(Boolean).slice(0, 20);
+  if (evidenceBusy(t, res)) return;
+  const job = evidenceJob(t, req, "recipients", "Benachrichtigungsempfänger", { watch },
+    say => RECIPIENTS.notificationRecipients(t, certPemPath(t.tenantId), { watch }, say));
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.get("/api/tenants/:id/evidence/apps", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, ...(await ENTAPPS.listEnterpriseApps(t, certPemPath(t.tenantId))) });
+}));
+
+app.post("/api/tenants/:id/evidence/app", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (!GUID_RE.test(String(b.spId || ""))) return res.status(400).json({ error: "spId (Service-Principal-Id) fehlt." });
+  if (evidenceBusy(t, res)) return;
+  const job = evidenceJob(t, req, "app", `Enterprise-App-Nachweis ${String(b.name || b.spId).slice(0, 80)}`, { spId: b.spId, name: b.name || "", days: Number(b.days) || 30 },
+    say => ENTAPPS.appEvidence(t, certPemPath(t.tenantId), b.spId, { days: b.days }, say));
+  res.json({ ok: true, jobId: job.id });
+}));
+
+app.post("/api/tenants/:id/evidence/health", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  if (evidenceBusy(t, res)) return;
+  const params = { days: Number(b.days) || 7, service: String(b.service || "").slice(0, 60) };
+  const job = evidenceJob(t, req, "health", `Service-Status ${params.days} Tage${params.service ? " · " + params.service : ""}`, params,
+    say => EVIDENCE.serviceHealth(t, certPemPath(t.tenantId), params, say));
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// ---- Unified Audit Log: Suche anlegen, Status nachfragen, Ergebnis archivieren
+app.get("/api/tenants/:id/evidence/ual", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, queries: EVIDENCE.readQueries(STATE_DIR, t.id) });
+}));
+
+app.post("/api/tenants/:id/evidence/ual", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const b = req.body || {};
+  const created = await EVIDENCE.ualCreate(t, certPemPath(t.tenantId), b);
+  const list = EVIDENCE.readQueries(STATE_DIR, t.id);
+  const q = {
+    id: crypto.randomBytes(5).toString("hex"), graphId: created.graphId, status: created.status,
+    name: String(b.name || "Audit-Log-Suche").slice(0, 100), from: b.from, to: b.to || b.from,
+    keyword: b.keyword || "", operations: created.body.operationFilters || [], users: created.body.userPrincipalNameFilters || [],
+    objectIds: created.body.objectIdFilters || [], appId: GUID_RE.test(String(b.appId || "")) ? b.appId : null,
+    createdAt: new Date().toISOString(), createdBy: (req.session && req.session.user) || "", archiveId: null
+  };
+  list.unshift(q);
+  EVIDENCE.writeQueries(STATE_DIR, t.id, list);
+  res.json({ ok: true, query: q });
+}));
+
+app.post("/api/tenants/:id/evidence/ual/:qid/refresh", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const list = EVIDENCE.readQueries(STATE_DIR, t.id);
+  const q = list.find(x => x.id === req.params.qid);
+  if (!q) return res.status(404).json({ error: "Suche nicht gefunden." });
+  if (q.archiveId) return res.json({ ok: true, query: q });
+  const st = await EVIDENCE.ualStatus(t, certPemPath(t.tenantId), q.graphId);
+  q.status = st.status;
+  q.checkedAt = new Date().toISOString();
+  let jobId = null;
+  if (st.status === "succeeded" && !q.fetching) {
+    const running = tenantBusy(t);
+    if (!running) {
+      q.fetching = true;
+      const job = evidenceJob(t, req, "ual", q.name, { from: q.from, to: q.to, keyword: q.keyword, operations: q.operations, users: q.users, appId: q.appId || "" }, async say => {
+        say("Einträge holen");
+        const r = await EVIDENCE.ualRecords(t, certPemPath(t.tenantId), q.graphId, 20000, q.appId);
+        return { ...r, query: { from: q.from, to: q.to, keyword: q.keyword, operations: q.operations, users: q.users }, appId: q.appId, gaps: [] };
+      });
+      jobId = job.id;
+      // archiveId nachtragen, sobald der Job fertig ist
+      const poll = setInterval(() => {
+        if (job.status === "running") return;
+        clearInterval(poll);
+        const l2 = EVIDENCE.readQueries(STATE_DIR, t.id);
+        const q2 = l2.find(x => x.id === q.id);
+        if (q2) { q2.fetching = false; if (job.result) q2.archiveId = job.result.archiveId; else q2.error = job.error; EVIDENCE.writeQueries(STATE_DIR, t.id, l2); }
+      }, 1500);
+    }
+  }
+  EVIDENCE.writeQueries(STATE_DIR, t.id, list);
+  res.json({ ok: true, query: q, jobId });
+}));
+
+// ---- Ausnahme-Register (lokal im Werkzeug, pro Tenant)
+app.get("/api/tenants/:id/evidence/register", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, entries: registerOf(t), kinds: ACCOUNTS.KINDS });
+}));
+
+app.post("/api/tenants/:id/evidence/register", wrap(async (req, res) => {
+  requireTenant(req);
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === req.params.id);
+  const list = Array.isArray(rec.exceptionRegister) ? rec.exceptionRegister : [];
+  const b = { ...(req.body || {}), _user: (req.session && req.session.user) || "" };
+  const prev = b.id ? list.find(e => e.id === b.id) : null;
+  const entry = ACCOUNTS.normalizeEntry(b, prev);
+  if (!prev && list.some(e => e.upn === entry.upn)) return res.status(409).json({ error: `${entry.upn} steht schon im Register.` });
+  rec.exceptionRegister = prev ? list.map(e => (e.id === prev.id ? entry : e)) : [entry, ...list];
+  saveState(s);
+  res.json({ ok: true, entry, entries: rec.exceptionRegister });
+}));
+
+app.delete("/api/tenants/:id/evidence/register/:rid", wrap(async (req, res) => {
+  requireTenant(req);
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === req.params.id);
+  rec.exceptionRegister = (rec.exceptionRegister || []).filter(e => e.id !== req.params.rid);
+  saveState(s);
+  res.json({ ok: true, entries: rec.exceptionRegister });
+}));
+
+// ---- Archiv
+app.get("/api/tenants/:id/evidence/archive", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, entries: EVIDENCE.listArchive(STATE_DIR, t.id) });
+}));
+
+app.get("/api/tenants/:id/evidence/archive/:aid", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const e = EVIDENCE.loadArchive(STATE_DIR, t.id, req.params.aid);
+  if (!e) return res.status(404).json({ error: "Nachweis nicht gefunden." });
+  res.json({ ok: true, entry: e });
+}));
+
+app.delete("/api/tenants/:id/evidence/archive/:aid", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (!EVIDENCE.deleteArchive(STATE_DIR, t.id, req.params.aid)) return res.status(404).json({ error: "Nachweis nicht gefunden." });
+  console.log(`Nachweis ${req.params.aid} in Tenant ${t.name} gelöscht (${(req.session && req.session.user) || "?"}).`);
+  res.json({ ok: true });
+}));
+
+app.get("/api/tenants/:id/evidence/archive/:aid/report.pdf", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const e = EVIDENCE.loadArchive(STATE_DIR, t.id, req.params.aid);
+  if (!e) return res.status(404).json({ error: "Nachweis nicht gefunden." });
+  const pdf = await EVIDENCEPDF.build(e, t);
+  const label = (EVIDENCEPDF.TITLES[e.kind] || { label: "Nachweis" }).label.replace(/[^A-Za-z0-9ÄÖÜäöü-]+/g, "-");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_Nachweis_${label}_${e.createdAt.slice(0, 10)}.pdf"`);
+  res.send(pdf);
+}));
+
+app.get("/api/tenants/:id/evidence/archive/:aid/export.csv", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const e = EVIDENCE.loadArchive(STATE_DIR, t.id, req.params.aid);
+  if (!e) return res.status(404).json({ error: "Nachweis nicht gefunden." });
+  const d = e.data || {};
+  const q = v => { const s = String(v == null ? "" : v); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  let rows = [];
+  if (e.kind === "changelog") {
+    rows.push(["Zeit (UTC)", "Quelle", "Akteur", "Art", "Vorgang", "Ergebnis", "Objekt", "Änderungen"]);
+    for (const x of d.events || []) rows.push([x.at, x.source, x.actor, x.actorType, x.activity, x.result, x.targets.map(tt => tt.name).join(" | "),
+      x.targets.flatMap(tt => tt.changes.map(c => `${c.name}: ${c.old} > ${c.new}`)).join(" | ")]);
+    if (d.signIns && d.signIns.length) {
+      rows.push([]); rows.push(["Anmeldung (UTC)", "Konto", "App", "IP", "Ort", "Client", "Gerät", "Ergebnis", "CA", "nicht interaktiv"]);
+      for (const s2 of d.signIns) rows.push([s2.at, s2.user, s2.app, s2.ip, s2.location, s2.client, s2.device, s2.result, s2.ca, s2.nonInteractive ? "ja" : ""]);
+    }
+  } else if (e.kind === "ual") {
+    rows.push(["Zeit (UTC)", "Vorgang", "Konto", "Dienst", "Datensatztyp", "Objekt", "IP", "App-Id", "ändernd", "löschend"]);
+    for (const r of d.records || []) rows.push([r.at, r.operation, r.user, r.service, r.recordType, r.target, r.ip, r.appId, r.changing ? "ja" : "", r.deleting ? "ja" : ""]);
+  } else if (e.kind === "accounts") {
+    rows.push(["Konto", "Name", "aktiv", "Angelegt", "Letzte Anmeldung", "MFA", "Rollen"]);
+    for (const a of (d.privileged && d.privileged.accounts) || []) rows.push([a.upn, a.name, a.enabled === false ? "nein" : "ja", a.created, a.lastSignIn, a.mfaRegistered === null ? "" : a.mfaRegistered ? "ja" : "nein", a.roles.map(r => `${r.name} (${r.how})`).join(" | ")]);
+    rows.push([]); rows.push(["Register: Konto", "Art", "Zweck", "Verantwortlich", "Ticket", "Gültig bis", "Stand"]);
+    for (const r of (d.register && d.register.entries) || []) rows.push([r.upn, r.kindLabel, r.purpose, r.owner, r.ticket, r.validUntil, r.state]);
+  } else if (e.kind === "recipients") {
+    rows.push(["Bereich", "Objekt", "Meldung", "Empfänger", "aktiv"]);
+    for (const x of d.entries || []) rows.push([x.area, x.object, x.trigger, x.recipients.join(" | "), x.enabled ? "ja" : "nein"]);
+  } else if (e.kind === "app") {
+    rows.push(["Art", "Ressource", "Recht", "Zustimmung / Konto", "heikel"]);
+    for (const g of d.delegated || []) for (const s2 of g.scopes) rows.push(["delegiert", g.resource, s2, `${g.consent}: ${g.who}`, g.risky.includes(s2) ? "ja" : ""]);
+    for (const a of d.application || []) rows.push(["Anwendung", a.resource, a.permission, "", a.risky ? "ja" : ""]);
+    rows.push([]); rows.push(["Konto", "interaktiv", "nicht interaktiv", "fehlgeschlagen", "zuletzt"]);
+    for (const u of (d.signIns && d.signIns.users) || []) rows.push([u.user, u.interactive, u.nonInteractive, u.failed, u.last]);
+  } else if (e.kind === "health") {
+    rows.push(["Id", "Titel", "Dienst", "Art", "Status", "behoben", "Beginn", "Ende"]);
+    for (const i of d.issues || []) rows.push([i.id, i.title, i.service, i.classification, i.status, i.resolved ? "ja" : "nein", i.start, i.end]);
+  } else if (e.kind === "dossier") {
+    rows.push(["Bereich", "Eintrag", "Detail"]);
+    for (const r of d.roles || []) rows.push(["Rolle", r.name, r.how]);
+    for (const g of d.groups || []) rows.push(["Gruppe", g.name, g.dynamic ? "dynamisch" : "statisch"]);
+    for (const m of d.methods || []) rows.push(["Anmeldemethode", m.type, m.detail]);
+    for (const s2 of d.signIns || []) rows.push(["Anmeldung", s2.at, `${s2.app} · ${s2.result}`]);
+  }
+  const csv = "﻿" + rows.map(r => r.map(q).join(";")).join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_Nachweis_${e.kind}_${e.createdAt.slice(0, 10)}.csv"`);
+  res.send(csv);
 }));
 
 // ---------- Remediations (Erkennen und Beheben) ----------
