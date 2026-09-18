@@ -84,7 +84,8 @@ const NOT_VIA_GRAPH = [
   { topic: "Standard-Linktyp und -Berechtigung", detail: "Welcher Link beim Teilen vorausgewählt ist (z. B. «Personen in der Organisation», Anzeigen oder Bearbeiten)." },
   { topic: "Ablauf von «Jeder»-Links und Gastzugriff", detail: "Gültigkeitsdauer anonymer Links und automatisches Entfernen von Gästen nach einer Frist." },
   { topic: "Besitzer und Mitglieder von Sites ohne M365-Gruppe", detail: "Websitesammlungsadministratoren und SharePoint-Gruppen (Besitzer, Mitglieder, Besucher) sind nur über SharePoint-REST bzw. PowerShell lesbar." },
-  { topic: "Zugriff von nicht verwalteten Geräten", detail: "Die SharePoint-eigene Zugriffssteuerung (nur Web, eingeschränkter Zugriff) ist nicht in Graph abgebildet; wirksame Conditional-Access-Richtlinien dokumentiert der Bereich Conditional Access." }
+  { topic: "Zugriff von nicht verwalteten Geräten", detail: "Die SharePoint-eigene Zugriffssteuerung (nur Web, eingeschränkter Zugriff) ist nicht in Graph abgebildet; wirksame Conditional-Access-Richtlinien dokumentiert der Bereich Conditional Access." },
+  { topic: "Loop- und Fluid-Komponenten", detail: "Graph liefert zwar isLoopEnabled, der Wert entspricht aber nicht den Schaltern der SharePoint-Verwaltung (IsLoopEnabled, IsFluidEnabled) und wird deshalb nicht übernommen." }
 ];
 
 // ============================================================== Helfer
@@ -105,6 +106,40 @@ const num = v => { if (v === null || v === undefined || v === "") return null; c
 const isoDate = v => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d.toISOString(); };
 const normUrl = u => String(u || "").trim().toLowerCase().replace(/\/+$/, "");
 const collectionIdOf = siteId => { const p = String(siteId || "").split(","); return (p.length >= 2 ? p[1] : "").toLowerCase(); };
+// GUID als Vergleichsschlüssel: nur die 32 Hex-Ziffern, klein — "{ABC…}", "abc…" und
+// "ABC…" ohne Bindestriche ergeben denselben Schlüssel. Kein GUID-Muster -> null.
+const guidKey = v => {
+  const s = String(v || "").trim();
+  if (!/^\{?[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}\}?$/i.test(s)) return null;
+  return s.toLowerCase().replace(/[^0-9a-f]/g, "");
+};
+// Alle GUIDs in einer Berichts-Id: einzelne GUID oder Graph-Form "host,sammlung,web".
+const guidKeys = v => String(v || "").split(",").map(guidKey).filter(Boolean);
+// Hex-Kennung beliebiger Länge (anonymisierte Felder), klein, ohne Trennzeichen.
+const hexKey = v => { const s = String(v || "").trim(); return /^[0-9a-f-]{16,}$/i.test(s) ? s.toLowerCase().replace(/-/g, "") : null; };
+/** Welche Form hat die "Site Id" im Bericht? guid | graphId | hash | empty | mixed */
+function classifySiteIds(rows) {
+  const kinds = new Set(rows.map(r => {
+    const v = String(r.siteId || "").trim();
+    if (!v) return "empty";
+    if (v.includes(",")) return guidKeys(v).length ? "graphId" : "other";
+    if (/^[0-9a-f]{32}$/i.test(v)) return "hex32";            // GUID ohne Bindestriche oder MD5-Prüfsumme
+    if (guidKey(v)) return "guid";
+    return hexKey(v) ? "hash" : "other";
+  }));
+  if (!kinds.size) return null;
+  return kinds.size === 1 ? [...kinds][0] : "mixed";
+}
+// Kandidaten, aus denen eine anonymisierte Site-Id als Prüfsumme entstanden sein
+// könnte. Ein Treffer ist ein Beleg (Kollision ausgeschlossen), kein Raten.
+function hashCandidates(s, coll, web) {
+  const crypto = require("crypto");
+  const url = String(s.webUrl || "");
+  const vals = new Set([coll, web, s.id, url, url + "/", url.toLowerCase(), url.toLowerCase() + "/"].filter(Boolean).flatMap(v => [v, String(v).toLowerCase(), String(v).toUpperCase()]));
+  const out = [];
+  for (const v of vals) for (const alg of ["md5", "sha1", "sha256"]) out.push(crypto.createHash(alg).update(String(v)).digest("hex"));
+  return out;
+}
 const isGuest = u => !!u && (u.userType === "Guest" || /#EXT#/i.test(String(u.userPrincipalName || "")));
 
 function fmtMB(mb) {
@@ -120,6 +155,12 @@ function fmtSec(s) {
   return n >= 3600 && n % 3600 === 0 ? `${n / 3600} Std.` : `${Math.round(n / 60)} Min.`;
 }
 const yesNo = (v, yes, no) => v === true ? yes : v === false ? no : null;
+/** Freigabestufe aus dem Nutzungsbericht (SharePoint-Schreibweise, Gross/Klein egal) -> Stufe aus SHARING. */
+function sharingFromReport(v) {
+  const raw = String(v || "").trim();
+  const key = SHARING_ORDER.find(k => k.toLowerCase() === raw.toLowerCase().replace(/\s+/g, ""));
+  return key ? { key, label: SHARING[key].label, tone: SHARING[key].tone, raw } : { key: null, label: raw, tone: "muted", raw };
+}
 
 // ============================================================== Nutzungsberichte (CSV)
 const HEADER_KEYS = {
@@ -233,7 +274,10 @@ function describeSettings(raw) {
       { label: "Standardkontingent neuer Sites", value: raw.isSitesStorageLimitAutomatic === true ? null : fmtMB(raw.siteCreationDefaultStorageLimitInMB) },
       { label: "Neue Seiten erstellen", value: yesNo(raw.isSitePagesCreationEnabled, "erlaubt", "gesperrt") },
       { label: "Kommentare auf Seiten", value: yesNo(raw.isCommentingOnSitePagesEnabled, "erlaubt", "gesperrt") },
-      { label: "Loop / Fluid-Komponenten", value: yesNo(raw.isLoopEnabled, "erlaubt", "gesperrt") },
+      // Loop/Fluid bewusst NICHT aus raw.isLoopEnabled: Graph meldete dort in einem
+      // Kundentenant false, während die SharePoint-Verwaltung IsLoopEnabled=True und
+      // IsFluidEnabled=True zeigte. Die Übersetzung war nicht invertiert — der
+      // Graph-Wert ist nicht derselbe Schalter. Steht deshalb in NOT_VIA_GRAPH.
       { label: "Zeitzone neuer Sites", value: raw.tenantDefaultTimezone || null }
     ] },
     { title: "OneDrive", items: [
@@ -314,11 +358,39 @@ async function collectInventory(tenant, cert, opts, onProgress) {
   const concealed = concealedSetting !== null ? concealedSetting : detected;
   const reportRefresh = (siteRows[0] || odRows[0] || {}).reportRefreshDate || null;
 
+  // Zuordnung Bericht -> Site. Die "Site Id" des Berichts wird nicht als fertiger
+  // Schlüssel verglichen, sondern in ihre GUID-Bestandteile zerlegt (Klammern,
+  // Bindestriche, Gross/Klein egal) — der Bericht kann die Websitesammlungs-GUID,
+  // die GUID des Stammwebs oder die volle Graph-Id "host,sammlung,web" liefern.
+  // Bei anonymisierten Berichten kommt sie womöglich als Prüfsumme: dann wird
+  // versucht, sie aus den bekannten Kennungen nachzurechnen (siehe siteJoin).
   const reportBySiteId = new Map();
   const reportByUrl = new Map();
+  const reportHashed = [];
   for (const r of siteRows) {
-    if (r.siteId) reportBySiteId.set(String(r.siteId).toLowerCase(), r);
+    const keys = guidKeys(r.siteId);
+    for (const k of keys) if (!reportBySiteId.has(k)) reportBySiteId.set(k, r);
+    // Hex ohne Bindestriche kann eine GUID oder eine Prüfsumme sein — beide Wege offen halten.
+    if (hexKey(r.siteId) && !/[-,{]/.test(String(r.siteId))) reportHashed.push(r);
     if (r.siteUrl && /^https?:/i.test(r.siteUrl)) reportByUrl.set(normUrl(r.siteUrl), r);
+  }
+  const siteIdFormat = classifySiteIds(siteRows);
+  const joinedBy = { collection: 0, web: 0, url: 0, hash: 0 };
+  const hashIndex = reportHashed.length ? new Map(reportHashed.map(r => [hexKey(r.siteId), r])) : null;
+  function siteJoin(s) {
+    const [, coll, web] = String(s.id || "").split(",");
+    const kc = guidKey(coll), kw = guidKey(web);
+    if (kc && reportBySiteId.has(kc)) { joinedBy.collection++; return reportBySiteId.get(kc); }
+    if (kw && reportBySiteId.has(kw)) { joinedBy.web++; return reportBySiteId.get(kw); }
+    const byUrl = reportByUrl.get(normUrl(s.webUrl));
+    if (byUrl) { joinedBy.url++; return byUrl; }
+    if (hashIndex) {
+      for (const cand of hashCandidates(s, coll, web)) {
+        const r = hashIndex.get(cand);
+        if (r) { joinedBy.hash++; return r; }
+      }
+    }
+    return null;
   }
 
   // ---------------------------------------------------------- M365-Gruppen
@@ -357,7 +429,7 @@ async function collectInventory(tenant, cert, opts, onProgress) {
   let memberErrors = 0;
   const sites = await mapLimit(spSites, PARALLEL, async s => {
     const cid = collectionIdOf(s.id);
-    const rep = reportBySiteId.get(cid) || reportByUrl.get(normUrl(s.webUrl)) || null;
+    const rep = siteJoin(s);
     const g = groupByCollection.get(cid) || null;
     const template = rep ? (rep.rootWebTemplate || null) : null;
     let url; try { url = new URL(s.webUrl); } catch (e) { url = null; }
@@ -384,8 +456,13 @@ async function collectInventory(tenant, cert, opts, onProgress) {
       pageViews: rep ? num(rep.pageViewCount) : null,
       storageUsed: rep ? num(rep.storageUsedInBytes) : null, storageAllocated: rep ? num(rep.storageAllocatedInBytes) : null,
       storageSource: rep && num(rep.storageUsedInBytes) !== null ? "report" : null,
+      // Neuere Fassungen des Berichts tragen die Freigabestufe je Site ("External
+      // Sharing"). Nur übernehmen, wenn die Spalte da ist — sonst bleibt es bei
+      // "nicht über Graph verfügbar".
+      reportSharing: rep && rep.externalSharing ? sharingFromReport(rep.externalSharing) : null,
       reportOwner: rep && !concealed && (rep.ownerDisplayName || rep.ownerPrincipalName) && !g ? { name: rep.ownerDisplayName || null, upn: rep.ownerPrincipalName || null } : null,
       inReport: !!rep,
+      _rep: rep,
       group: null
     };
 
@@ -430,8 +507,9 @@ async function collectInventory(tenant, cert, opts, onProgress) {
   sites.sort((a, b) => (KIND[a.kind].order - KIND[b.kind].order) || (b.isRoot - a.isRoot) || a.name.localeCompare(b.name, "de"));
 
   // Berichtszeilen ohne Site in der Liste (z. B. Sites, die getAllSites nicht zeigt).
-  const known = new Set(sites.map(s => s.collectionId));
-  const reportOnlySites = siteRows.filter(r => r.siteId && !known.has(String(r.siteId).toLowerCase())).length;
+  const joinedRows = new Set(sites.map(s => s._rep).filter(Boolean));
+  const reportOnlySites = siteRows.filter(r => !joinedRows.has(r)).length;
+  for (const s of sites) delete s._rep;
 
   // ---------------------------------------------------------- Konten (für OneDrive)
   const userById = new Map();
@@ -531,6 +609,8 @@ async function collectInventory(tenant, cert, opts, onProgress) {
     reports: {
       concealed, concealedSetting, concealedDetected: detected, refreshDate: reportRefresh,
       siteRows: siteRows.length, siteRowsJoined: sites.filter(s => s.inReport).length, reportOnlySites,
+      siteIdFormat, joinedBy,
+      joinNote: joinNote(siteRows.length, sites.filter(s => s.inReport).length, sites.length, siteIdFormat, joinedBy, concealed),
       oneDriveRows: odRows.length
     },
     sites, oneDrive,
@@ -539,6 +619,20 @@ async function collectInventory(tenant, cert, opts, onProgress) {
   };
   result.hints = buildHints(result);
   return result;
+}
+
+/**
+ * Ein Satz dazu, wie Berichtszeilen den Sites zugeordnet wurden — für Oberfläche
+ * und PDF gleich. Bei 0 Treffern steht der Grund da statt "0 von n zugeordnet".
+ */
+function joinNote(rows, joined, total, format, by, concealed) {
+  if (!rows) return null;
+  const via = [by.collection && "Websitesammlungs-Id", by.web && "Web-Id", by.url && "Adresse", by.hash && "Prüfsumme der Kennung"].filter(Boolean);
+  if (joined) return `${joined} von ${total} Sites dem Nutzungsbericht zugeordnet (über ${via.join(", ")}).`;
+  const what = "Art (ohne Gruppe), Aktivität und Berichtsspeicher bleiben offen; der Speicher kommt aus der Standardbibliothek der Site.";
+  if (format === "empty") return `Der ${concealed ? "anonymisierte " : ""}Bericht enthält keine Site-Id — keine Zuordnung möglich. ${what}`;
+  if (format === "hash" || format === "hex32" || format === "other") return `Die Site-Id ist im ${concealed ? "anonymisierten " : ""}Bericht ebenfalls verborgen (Kennung statt GUID) — keine Zuordnung möglich. ${what}`;
+  return `Die Site-Ids des Berichts (${format === "graphId" ? "Graph-Form" : "GUID"}) passen zu keiner Site aus Graph — keine Zuordnung. ${what}`;
 }
 
 // ============================================================== Hinweise (Anhang)

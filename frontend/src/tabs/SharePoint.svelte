@@ -257,7 +257,7 @@
         <div class="ld-banner warn">
           <strong>Nutzungsberichte anonymisiert.</strong> Microsoft 365 ersetzt in den Berichten dieses Tenants Namen und Adressen durch
           Kennungen (Admin Center › Einstellungen › Organisationseinstellungen › Berichte: «Display concealed user, group, and site names in all reports»).
-          Sites sind über die Site-Id zugeordnet ({data.reports.siteRowsJoined} von {data.sites.length}); bei OneDrive ist die letzte Aktivität je Konto
+          {data.reports.joinNote || `Sites sind über die Site-Id zugeordnet (${data.reports.siteRowsJoined} von ${data.sites.length}).`} Bei OneDrive ist die letzte Aktivität je Konto
           nicht zuordenbar, Speicher kommt direkt aus dem Laufwerk. Das Werkzeug ändert die Einstellung nicht.
         </div>
       {/if}

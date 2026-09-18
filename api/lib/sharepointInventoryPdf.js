@@ -109,7 +109,8 @@ function renderChapter(b, sp) {
   if (R.concealed) {
     b.note("Nutzungsberichte anonymisiert",
       "In diesem Tenant ersetzen die Microsoft-365-Nutzungsberichte Namen und Adressen durch Kennungen (Einstellung «Display concealed user, group, and site names in all reports» unter Einstellungen › Organisationseinstellungen › Berichte). " +
-      `Berichtszeilen zu Sites wurden über die Site-Id zugeordnet (${R.siteRowsJoined} von ${sp.sites.length} Sites). Für OneDrive ist die letzte Aktivität je Konto deshalb nicht zuordenbar; Speicher und Kontingent je OneDrive stammen direkt aus dem jeweiligen Laufwerk.`, "info");
+      (R.joinNote || `Berichtszeilen zu Sites wurden über die Site-Id zugeordnet (${R.siteRowsJoined} von ${sp.sites.length} Sites).`) +
+      " Für OneDrive ist die letzte Aktivität je Konto deshalb nicht zuordenbar; Speicher und Kontingent je OneDrive stammen direkt aus dem jeweiligen Laufwerk.", "info");
   }
 
   // ---------------------------------------------------------------- Freigabe
@@ -168,7 +169,7 @@ function renderChapter(b, sp) {
         g.guestCount ? [`davon Gäste (${g.guestCount})`, g.guests.slice(0, 60).map(x => x.upn && x.upn !== x.name ? `${x.name} (${x.upn})` : x.name).join(", ") + (g.guestCount > 60 ? ` … +${g.guestCount - 60}` : "")] : null,
         ["Speicher", s.storageUsed === null ? "—" : `${bytes(s.storageUsed)}${s.storageAllocated ? " von " + bytes(s.storageAllocated) : ""}`],
         s.lastActivity || s.fileCount !== null ? ["Nutzung", [s.lastActivity ? "letzte Aktivität " + day(s.lastActivity) : null, s.fileCount !== null ? pl(s.fileCount, "Datei", "Dateien") : null].filter(Boolean).join(" · ")] : null,
-        ["Freigabestufe der Site", "nicht über Graph verfügbar"],
+        ["Freigabestufe der Site", s.reportSharing ? `${s.reportSharing.label} (laut Nutzungsbericht)` : "nicht über Graph verfügbar"],
         g.error && ["Nicht lesbar", g.error, { tone: "warn" }]
       ].filter(Boolean));
     }
@@ -220,7 +221,7 @@ function methodBullets(sp) {
     `SharePoint: Sites aus ${sp.sitesSource === "search" ? "der Suche (/sites?search=*, ohne OneDrives)" : "/sites/getAllSites"}; gruppenverbundene Sites über die zugehörige Microsoft-365-Gruppe zugeordnet (nicht über den Namen), deren Besitzer, Mitglieder und Sichtbarkeit aus Entra ID. Die Art von Sites ohne Gruppe stammt aus der Vorlage im Nutzungsbericht.`,
     `Speicher und letzte Aktivität aus dem Nutzungsbericht (${sp.periodDays} Tage); für Sites, die der Bericht noch nicht kennt, der Speicher der Standard-Dokumentbibliothek. Der Bericht läuft Microsoft-seitig einige Tage hinterher.`
   ];
-  if (R.concealed) out.push(`Nutzungsberichte anonymisiert${R.concealedSetting === true ? " (laut Berichtseinstellung)" : R.concealedDetected ? " (an den Daten erkannt)" : ""}: ${R.siteRowsJoined} von ${sp.sites.length} Sites über die Site-Id zugeordnet; OneDrive-Aktivität je Konto nicht zuordenbar.`);
+  if (R.concealed) out.push(`Nutzungsberichte anonymisiert${R.concealedSetting === true ? " (laut Berichtseinstellung)" : R.concealedDetected ? " (an den Daten erkannt)" : ""}: ${R.joinNote || `${R.siteRowsJoined} von ${sp.sites.length} Sites über die Site-Id zugeordnet.`} OneDrive-Aktivität je Konto nicht zuordenbar.`);
   return out;
 }
 
