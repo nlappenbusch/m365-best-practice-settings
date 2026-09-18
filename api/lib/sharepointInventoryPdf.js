@@ -221,7 +221,7 @@ function methodBullets(sp) {
     `SharePoint: Sites aus ${sp.sitesSource === "search" ? "der Suche (/sites?search=*, ohne OneDrives)" : "/sites/getAllSites"}; gruppenverbundene Sites über die zugehörige Microsoft-365-Gruppe zugeordnet (nicht über den Namen), deren Besitzer, Mitglieder und Sichtbarkeit aus Entra ID. Die Art von Sites ohne Gruppe stammt aus der Vorlage im Nutzungsbericht.`,
     `Speicher und letzte Aktivität aus dem Nutzungsbericht (${sp.periodDays} Tage); für Sites, die der Bericht noch nicht kennt, der Speicher der Standard-Dokumentbibliothek. Der Bericht läuft Microsoft-seitig einige Tage hinterher.`
   ];
-  if (R.concealed) out.push(`Nutzungsberichte anonymisiert${R.concealedSetting === true ? " (laut Berichtseinstellung)" : R.concealedDetected ? " (an den Daten erkannt)" : ""}: ${R.joinNote || `${R.siteRowsJoined} von ${sp.sites.length} Sites über die Site-Id zugeordnet.`} OneDrive-Aktivität je Konto nicht zuordenbar.`);
+  if (R.concealed) out.push(`Nutzungsberichte anonymisiert${R.concealedSetting === true ? " (laut Berichtseinstellung)" : R.concealedDetected ? " (an den Daten erkannt)" : ""}: ${R.joinNote ? R.joinNote + " OneDrive-Aktivität" : `${R.siteRowsJoined} von ${sp.sites.length} Sites über die Site-Id zugeordnet; OneDrive-Aktivität`} je Konto nicht zuordenbar.`);
   return out;
 }
 

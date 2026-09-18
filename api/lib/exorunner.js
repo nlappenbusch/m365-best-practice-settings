@@ -55,7 +55,13 @@ const COMMANDS = [
   "Get-SafeAttachmentPolicy", "New-SafeAttachmentPolicy", "Set-SafeAttachmentPolicy",
   "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule",
   // Empfänger-Audit (Nachweise): Meldepostfach für vom Benutzer gemeldete Mails — nur lesend.
-  "Get-ReportSubmissionPolicy"
+  "Get-ReportSubmissionPolicy",
+  // Ist-Zustand-Doku (lib/istZustand.js) — nur lesend: welche Schutzrichtlinie wirkt
+  // (Voreinstellungen Standard/Streng haben Vorrang vor eigenen Richtlinien),
+  // Protokollierung, Weiterleitung nach extern, Connectoren.
+  "Get-EOPProtectionPolicyRule", "Get-ATPProtectionPolicyRule", "Get-ATPBuiltInProtectionRule",
+  "Get-HostedOutboundSpamFilterRule", "Get-AdminAuditLogConfig", "Get-RemoteDomain",
+  "Get-InboundConnector", "Get-OutboundConnector"
 ].join(",");
 
 

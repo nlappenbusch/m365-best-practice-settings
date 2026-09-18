@@ -163,4 +163,4 @@ async function notificationRecipients(tenant, certPemPath, opts, say) {
   };
 }
 
-module.exports = { notificationRecipients, MANUAL };
+module.exports = { notificationRecipients, ippsScript, MANUAL };

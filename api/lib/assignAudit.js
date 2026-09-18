@@ -1096,6 +1096,10 @@ async function auditPolicies(tenant, cert, opts, onProgress) {
       name,
       source: src.key,
       type: src.label,
+      // Feinere Art für die Ist-Zustand-Doku (Update-Ring, Endpoint Security …);
+      // die Konfig-Doku nutzt weiter nur `type`.
+      odataType: p["@odata.type"] || null,
+      templateFamily: (p.templateReference && p.templateReference.templateFamily) || null,
       platform: platformLabel(src.platform(p)),
       oib: isOib(name),
       oibParts: parsed,

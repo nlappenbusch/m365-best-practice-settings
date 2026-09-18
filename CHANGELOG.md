@@ -1,5 +1,75 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.57 - Ist-Zustand Microsoft 365 als Kunden-PDF, Register "Entscheide und Kommentare" (2026-09-19)
+
+**Neuer Bereich "Ist-Zustand (Doku)"** (Betrieb, Tab-Id `istzustand`) — das Kunden-
+dokument "Microsoft 365 — Konfiguration und Ist-Zustand", wie es fuer SG Value Partners
+von Hand entstand, jetzt vollstaendig aus dem Werkzeug. Erhebung rein lesend als Job,
+auch im Pruefmandat (`/istzustand/run` und `/istzustand/settings` in `READONLY_ALLOW`),
+Ablage `state/assignaudit/<tenant>-ist.json`.
+- **Kapitel:** 1 Zweck und Grundlage (Anlagen, "nicht Gegenstand", Luecken der
+  Erhebung), 2 Ueberblick, 3 Konten, Rollen, Lizenzen, Gaeste, 4 Anmeldung und
+  bedingter Zugriff (Methoden, CA-Richtlinien mit Wirkung "wirksam / Nur Bericht /
+  ohne Wirkung: Grund" und Kommentarzeile, Geltungs- und Ausnahmegruppen), 5 Geraete
+  und Intune (Geraete, Gruppen/Autopilot, Konformitaet, Windows, macOS, Apps),
+  6 E-Mail (SPF/DKIM/DMARC/MX, welche Schutzrichtlinie je Domain wirkt — mit der
+  Vorrangregel Streng > Standard > eigene Regeln > Default —, Verdikte, weitere
+  Einstellungen, Warnungsrichtlinien), 7 Anwendungen und Freigaben (Zustimmung,
+  weitreichende delegierte und Anwendungs-Freigaben, App-Registrierungen mit Ablauf,
+  Drittanbieter-Apps), 8 SharePoint, OneDrive und Teams (Kacheln, Freigabe, Sites mit
+  Speicherbalken, Gruppen, OneDrive, externe Personen), 9 Abweichungen und Hinweise,
+  10 Aenderungen (vorher / nachher / Begruendung), 11 Freigabe.
+- **Kapitel 9** regelbasiert (Globale Administratoren, MFA-Ausnahmen, Anmeldemethoden-
+  Migration, Vorrang der Microsoft-Voreinstellungen, Gruppen ohne Besitzer,
+  Admin-Konten in Gruppen, inaktive Gaeste, DMARC p=none, abgelaufene App-Geheimnisse,
+  Register-Konten abgelaufen aber aktiv …) plus bewusste Entscheide aus dem Register;
+  einzelne Hinweise abwaehlbar; Kapitel 9 im Hauptteil, als Anhang oder weggelassen.
+- **Kapitel 10** aus den Protokollen von Entra ID und Intune fuer einen waehlbaren
+  Zeitraum (hoechstens 92 Tage), gruppiert nach Tag und Bereich, Rauschen von
+  Microsoft-Diensten ausgeblendet; CA-Aenderungen als Differenz (Zustand, Gruppen,
+  Ausnahmen), Freigaben als ergaenzte/entfernte Berechtigungen, Intune-Zuweisungen mit
+  Gruppennamen.
+- **Kopfdaten** je Tenant gespeichert (Kunde, Untertitel, Fassung, Entwurf, ersetzt,
+  Erstellt von, Empfaenger, Verwendung, Anlagen, "nicht Gegenstand").
+- **Anlage A** sind die Rohdaten (`/istzustand/export.json`), die SHA-256-Pruefsumme
+  steht im PDF.
+- **Layout** (`lib/istPdfLayout.js`) nach der SGVP-Vorlage (ist.css): Kopfblock mit Logo,
+  nummerierte fette Ueberschriften ohne Deko-Striche, keine erzwungenen Umbrueche,
+  Ueberschriften bleiben beim naechsten Inhalt, Tabellenkopf wiederholt sich, Pillen,
+  Kennzahl-Kacheln, Speicherbalken, "Seite x von y". Die Konfig-Doku (pdfDesign.js)
+  bleibt unveraendert (Textvergleich gegen main mit denselben Erhebungen: keine
+  Abweichung; neu erhobene SharePoint-Daten zeigen die beiden Korrekturen unten).
+
+**Register "Entscheide und Kommentare"** — Erweiterung des Ausnahme-Registers aus
+"Nachweise" statt einer zweiten Ablage: gleiche Liste, gleiche Routen
+(`/evidence/register`), Eintraege mit `objectType` (CA-Richtlinie, Intune-Richtlinie,
+App, Geraet, Gruppe, Site, E-Mail, Anwendung, Kapiteltext, Aenderung, allgemeiner
+Hinweis), Text, "bewusster Entscheid", Autor, Datum. Die Konten-Pruefung in
+"Nachweise" sieht weiter nur Konten-Eintraege.
+
+**SharePoint-Inventar (2.56), zwei Fehler aus einem Kundentenant:**
+- Loop/Fluid wurde als "gesperrt" gezeigt, obwohl die SharePoint-Verwaltung
+  IsLoopEnabled=True und IsFluidEnabled=True meldete. Die Uebersetzung war nicht
+  invertiert — Graph `sharepointSettings.isLoopEnabled` ist nicht derselbe Schalter.
+  Die Zeile ist raus, der Punkt steht unter "nicht ueber Graph verfuegbar".
+- Anonymisierte Nutzungsberichte: "0 von 18 Sites ueber die Site-Id zugeordnet". Der
+  Vergleich nahm die Site-Id des Berichts nur als klein geschriebene GUID mit
+  Bindestrichen. Jetzt: GUID-Bestandteile (Klammern, Bindestriche, Gross/Klein egal),
+  Websitesammlungs- und Web-Id, Graph-Form "host,sammlung,web", Pruefsumme der Kennung;
+  Format und Zuordnungsweg werden gespeichert (`reports.siteIdFormat`, `joinedBy`,
+  `joinNote`), bei 0 Treffern steht der Grund. Freigabestufe je Site aus der
+  Berichtsspalte "External Sharing", wenn der Bericht sie liefert.
+
+Nebenbei: Aenderungsprotokoll (`evidence.js`) liefert Ereignis- und Objekt-Ids mit und
+kann vollstaendige alte/neue Werte liefern (`valueCap`, Standard weiter 200 Zeichen);
+Exchange-Runner kennt zusaetzlich nur lesende Cmdlets (EOP/ATP-Voreinstellungsregeln,
+Built-in Protection, Admin-Audit, Remote-Domains, Connectoren).
+
+**Berechtigungen:** keine neuen im Onboarding/Reparieren. Die Geraeteregistrierungs-
+Richtlinie (Entra-Join erlaubt, MFA beim Join, Geraete je Benutzer) braucht
+Policy.Read.DeviceConfiguration; die Voll-App hat Policy.ReadWrite.DeviceConfiguration
+(optional), der Nur-lesen-App fehlt sie — dort fehlt der Satz, die Luecke steht in Kapitel 1.
+
 ## Version 2.56 - SharePoint & OneDrive: Inventar und Kapitel in der Konfig-Doku (2026-09-18)
 
 **Neuer Bereich "SharePoint & OneDrive"** (Einrichtung, Tab-Id `sharepoint`) —

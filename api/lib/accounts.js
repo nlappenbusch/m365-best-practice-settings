@@ -297,6 +297,37 @@ function normalizeEntry(b, prev) {
   };
 }
 
+/**
+ * Register-Erweiterung «Entscheide und Kommentare» (seit 2.57): dieselbe Liste, dieselben
+ * Routen, dieselbe Ablage wie das Ausnahme-Register — Einträge mit objectType betreffen
+ * aber kein Konto, sondern ein Objekt (CA-Richtlinie, Intune-Richtlinie, Gruppe, Site,
+ * Änderung …) oder ein Kapitel der Ist-Zustand-Doku. Konten-Einträge bleiben, wie sie
+ * sind (ohne objectType), und werden weiter gegen den Tenant geprüft; Objekt-Einträge
+ * nicht — sie halten fest, was Entra und Intune nicht speichern: warum.
+ */
+function normalizeObjectEntry(b, prev, types) {
+  const objectType = String(b.objectType || "").trim();
+  if (!types[objectType]) throw Object.assign(new Error("Objektart unbekannt."), { status: 400 });
+  const objectName = String(b.objectName || "").trim().slice(0, 300);
+  const objectId = String(b.objectId || "").trim().slice(0, 200) || null;
+  if (!objectName && !objectId) throw Object.assign(new Error("Objekt fehlt — Name oder Id angeben."), { status: 400 });
+  const text = String(b.text || "").trim();
+  if (!text) throw Object.assign(new Error("Text fehlt — genau das soll das Register festhalten."), { status: 400 });
+  const date = String(b.date || "").trim();
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Object.assign(new Error("Datum im Format JJJJ-MM-TT."), { status: 400 });
+  return {
+    id: prev ? prev.id : (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+    objectType, objectId, objectName: objectName || objectId,
+    text: text.slice(0, 2000),
+    decision: !!b.decision,
+    ref: String(b.ref || "").trim().slice(0, 40) || null,
+    author: String(b.author || "").trim().slice(0, 120) || (prev ? prev.author : (b._user || "")),
+    date: date || (prev ? prev.date : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich" }).format(new Date())),
+    createdAt: prev ? prev.createdAt : new Date().toISOString(), createdBy: prev ? prev.createdBy : (b._user || ""),
+    updatedAt: new Date().toISOString(), updatedBy: b._user || ""
+  };
+}
+
 const SPECIAL_RE = /(^|[._-])(test|tst|admin|adm|svc|service|srv|brk|notfall|breakglass|emergency|temp|tmp|demo|extern|ext|scan|scanner|noreply|shared)([._-]|\d|$)/i;
 
 /** Register gegen den Tenant prüfen, dazu Vorschläge für noch nicht erfasste Sonderkonten. */
@@ -356,4 +387,4 @@ async function checkRegister(tenant, cert, entries, privileged, say) {
   };
 }
 
-module.exports = { privilegedAccounts, accountDossier, checkRegister, normalizeEntry, KINDS, PRIVILEGED };
+module.exports = { privilegedAccounts, accountDossier, checkRegister, normalizeEntry, normalizeObjectEntry, KINDS, PRIVILEGED };

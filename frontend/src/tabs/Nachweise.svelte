@@ -439,7 +439,7 @@
         <div class="nw-result-head">
           <div>
             <h4 style="margin:0">Ausnahme-Register ({register.length})</h4>
-            <p class="ld-section-hint" style="margin:0.2rem 0 0">Zweck, Verantwortung und Ablaufdatum von Test-, Admin-, Dienst- und Notfallkonten — das speichert Entra ID nicht. Nur im Werkzeug, am Tenant ändert sich nichts.</p>
+            <p class="ld-section-hint" style="margin:0.2rem 0 0">Zweck, Verantwortung und Ablaufdatum von Test-, Admin-, Dienst- und Notfallkonten — das speichert Entra ID nicht. Nur im Werkzeug, am Tenant ändert sich nichts. Entscheide und Kommentare zu Richtlinien, Gruppen, Sites und Änderungen stehen im selben Register und werden im Bereich <button class="nw-link" onclick={() => activeTab.set('istzustand')}>Ist-Zustand (Doku)</button> gepflegt.</p>
           </div>
           <button class="btn btn-secondary" onclick={() => newEntry()}>+ Eintrag</button>
         </div>

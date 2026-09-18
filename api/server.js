@@ -87,6 +87,9 @@ const RECIPIENTS = require("./lib/recipients");
 const ENTAPPS = require("./lib/enterpriseApps");
 const EVIDENCEPDF = require("./lib/evidencePdf");
 const SPINV = require("./lib/sharepointInventory");
+const ISTZ = require("./lib/istZustand");
+const ISTMODEL = require("./lib/istZustandModel");
+const ISTPDF = require("./lib/istZustandPdf");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
 
@@ -719,7 +722,7 @@ const READONLY_ALLOW = [
   /^\/maester\/run$/, /^\/maester\/runs\/[^/]+\/explain$/, /^\/maester\/schedule$/, /^\/intunebackup$/,
   /^\/onboarding\/[^/]+$/, /^\/config$/, /^\/deviations$/, /^\/naming$/, /^\/smtpauth$/, /^\/mcp-permissions$/,
   /^\/fix\/start$/, /^\/offboard\/(start|poll|local-only)$/, /^\/sharepointsites\/resolve$/, /^\/deploy\/auto-setting\/preview$/,
-  /^\/evidence\//, /^\/sharepoint\/run$/
+  /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];
@@ -5808,6 +5811,125 @@ app.get("/api/tenants/:id/sharepoint/export.csv", wrap(async (req, res) => {
   res.send(csv);
 }));
 
+// ---------- Ist-Zustand Microsoft 365 (Kunden-PDF) ----------
+// Erhebung rein lesend als Job (lib/istZustand.js), Ablage state/assignaudit/<tenant>-ist.json.
+// Daraus das PDF (lib/istZustandPdf.js) mit Kopfdaten und Optionen je Tenant
+// (tenant.istExport) und den Texten aus dem Register «Entscheide und Kommentare».
+// Erhebung und Kopfdaten sind im Prüfmandat erlaubt (READONLY_ALLOW): Der Tenant
+// wird nur gelesen, gespeichert wird nur im Werkzeug.
+const ISTEXPORT_FIELDS = {
+  kunde: 200, untertitel: 200, dokument: 400, fassung: 20, ersetzt: 100, erstelltVon: 200, empfaenger: 200, empfaengerFunktion: 120,
+  empfaengerLabel: 20, verwendung: 300, nichtGegenstand: 2000, anlagen: 2000, aendAkteur: 100
+};
+function sanitizeIstExport(b, prev) {
+  const out = { ...(prev || {}) };
+  for (const [k, max] of Object.entries(ISTEXPORT_FIELDS)) if (b[k] !== undefined) out[k] = String(b[k] || "").slice(0, max).trim();
+  if (b.entwurf !== undefined) out.entwurf = !!b.entwurf;
+  if (b.aendAlle !== undefined) out.aendAlle = !!b.aendAlle;
+  if (b.kapitel9 !== undefined) out.kapitel9 = ["haupt", "anhang", "weg"].includes(b.kapitel9) ? b.kapitel9 : "haupt";
+  if (b.skipHints !== undefined) out.skipHints = (Array.isArray(b.skipHints) ? b.skipHints : []).map(x => String(x).slice(0, 120)).slice(0, 300);
+  if (out.empfaengerLabel && !["Empfänger", "Empfängerin", "Empfänger:in"].includes(out.empfaengerLabel)) out.empfaengerLabel = "Empfänger";
+  out.savedAt = new Date().toISOString();
+  return out;
+}
+function istFile(tenantRecId) { return assignAuditFile(tenantRecId, "ist"); }
+function loadIst(tenantRecId) {
+  try {
+    const raw = fs.readFileSync(istFile(tenantRecId), "utf8");
+    return { raw, ds: JSON.parse(raw), hash: crypto.createHash("sha256").update(raw, "utf8").digest("hex") };
+  } catch (e) { return null; }
+}
+
+app.post("/api/tenants/:id/istzustand/run", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const running = tenantBusy(t);
+  if (running) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id });
+  const b = req.body || {};
+  let changes = null;
+  if (b.changesFrom) {
+    EVIDENCE.dayRange(b.changesFrom, b.changesTo || b.changesFrom); // wirft bei ungültigem Zeitraum sofort (höchstens 92 Tage)
+    changes = { from: b.changesFrom, to: b.changesTo || b.changesFrom };
+  }
+  const spPeriod = SPINV.PERIODS.includes(String(b.spPeriod)) ? String(b.spPeriod) : "D30";
+  const job = createAppJob(t, ["Konten und Rollen", "Bedingter Zugriff", "Geräte und Intune", "E-Mail", "Anwendungen", "SharePoint", ...(changes ? ["Änderungen"] : [])]);
+  (async () => {
+    const onProgress = appJobProgress(job);
+    try {
+      const ds = await ISTZ.collect(t, certPemPath(t.tenantId), { changes, spPeriod }, label => onProgress(label));
+      ds.createdBy = (req.session && req.session.user) || "";
+      storeAssignAudit(t.id, "ist", ds);
+      job.results = { gaps: ds.gaps.length, durationSec: ds.durationSec };
+      console.log(`Ist-Zustand ${t.name}: erhoben in ${ds.durationSec} s${ds.gaps.length ? `, ${ds.gaps.length} Lücke(n)` : ""}.`);
+      finishAppJob(job, true, null, ds.gaps.length ? `Erhoben, mit ${ds.gaps.length} Lücke(n) — Details im Bereich und in Kapitel 1 des PDFs.` : null);
+    } catch (e) {
+      finishAppJob(job, false, e.message);
+    }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
+
+// Übersicht für den Bereich: Stand, Lücken, Kapitel, Hinweise (Kapitel 9), Änderungen
+// mit Begründung, Objekte für das Register — nicht die ganze Erhebung.
+app.get("/api/tenants/:id/istzustand", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const settings = t.istExport || {};
+  const reg = registerAll(t);
+  const ist = loadIst(t.id);
+  if (!ist) return res.json({ ok: true, data: null, settings, register: registerObjects(t), objectTypes: ISTMODEL.OBJECT_TYPES });
+  const ds = ist.ds;
+  const S = ds.sections || {};
+  const groups = ISTMODEL.changeGroups(ds, reg, { actor: settings.aendAkteur || "", includeServiceChanges: !!settings.aendAlle });
+  res.json({
+    ok: true,
+    data: {
+      generatedAt: ds.generatedAt, finishedAt: ds.finishedAt, durationSec: ds.durationSec, createdBy: ds.createdBy || "", params: ds.params, gaps: ds.gaps, hash: ist.hash,
+      size: ist.raw.length, orgName: S.identity && S.identity.org ? S.identity.org.displayName : null,
+      counts: {
+        members: S.identity ? S.identity.users.filter(u => u.type === "Member").length : null, guests: S.identity ? S.identity.users.filter(u => u.type === "Guest").length : null,
+        ca: S.ca ? S.ca.policies.length : null, devices: S.devices ? S.devices.intune.length : null, policies: S.intune ? S.intune.policies.length : null,
+        sites: S.sharepoint ? S.sharepoint.summary.sites : null, changes: S.changes ? S.changes.events.length : null
+      },
+      status: ISTMODEL.chapterStatus(ds, reg),
+      hints: ISTMODEL.hints(ds, reg, { kapitel9: settings.kapitel9 || "haupt", changes: !!groups }),
+      changes: groups ? groups.map(g => ({ key: g.key, title: g.title, day: g.day, actors: g.actors, intro: g.intro, rows: g.rows.map(r => ({ id: r.id, at: r.at, actor: r.actor, objekt: r.objekt, activity: r.activity, vorher: r.vorher, nachher: r.nachher, begruendung: r.begruendung, begruendungFrom: r.begruendungFrom })) })) : null,
+      objects: ISTMODEL.objectsForRegister(ds)
+    },
+    settings, register: registerObjects(t), objectTypes: ISTMODEL.OBJECT_TYPES
+  });
+}));
+
+app.post("/api/tenants/:id/istzustand/settings", wrap(async (req, res) => {
+  requireTenant(req);
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === req.params.id);
+  rec.istExport = sanitizeIstExport(req.body || {}, rec.istExport);
+  saveState(s);
+  res.json({ ok: true, settings: rec.istExport });
+}));
+
+app.get("/api/tenants/:id/istzustand/report.pdf", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const ist = loadIst(t.id);
+  if (!ist) return res.status(404).json({ error: "Noch keine Erhebung — zuerst erheben." });
+  const settings = t.istExport || {};
+  const pdf = await ISTPDF.buildPdf({ ds: ist.ds, register: registerAll(t), settings, hash: ist.hash, now: new Date().toISOString() });
+  const kunde = String(settings.kunde || t.name).replace(/[^A-Za-z0-9ÄÖÜäöü_-]+/g, "_");
+  const fassung = String(settings.fassung || "1.0").replace(/[^0-9A-Za-z.]+/g, "");
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${kunde}_Ist-Zustand_M365_v${fassung}${settings.entwurf ? "-Entwurf" : ""}_${new Date().toISOString().slice(0, 10)}.pdf"`);
+  res.send(pdf);
+}));
+
+// Anlage A: die Rohdaten genau so, wie sie gespeichert sind — die Prüfsumme im PDF passt dazu.
+app.get("/api/tenants/:id/istzustand/export.json", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const ist = loadIst(t.id);
+  if (!ist) return res.status(404).json({ error: "Noch keine Erhebung." });
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "_")}_Ist-Zustand_Rohdaten_${String(ist.ds.generatedAt).slice(0, 10)}.json"`);
+  res.send(ist.raw);
+}));
+
 // Schreibend: nicht zugewiesene Richtlinien löschen (z. B. macOS-OIB in einem
 // Tenant ohne Macs). Vorher optional ein komplettes Intune-Backup, dazu je
 // Objekt ein JSON-Abzug unter state/deleted-policies/<tenant>/.
@@ -5994,7 +6116,12 @@ function evidenceBusy(t, res) {
   if (running) { res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: running.id }); return true; }
   return false;
 }
-function registerOf(t) { return Array.isArray(t.exceptionRegister) ? t.exceptionRegister : []; }
+// Das Register hält zwei Arten Einträge in einer Liste (tenant.exceptionRegister):
+// Konten (Ausnahme-Register, ohne objectType) und — seit 2.57 — «Entscheide und
+// Kommentare» zu Objekten (mit objectType). Die Konten-Prüfung sieht nur Konten.
+function registerAll(t) { return Array.isArray(t.exceptionRegister) ? t.exceptionRegister : []; }
+function registerOf(t) { return registerAll(t).filter(e => !e.objectType); }
+function registerObjects(t) { return registerAll(t).filter(e => e.objectType); }
 
 app.post("/api/tenants/:id/evidence/changelog", wrap(async (req, res) => {
   const t = requireTenant(req);
@@ -6121,9 +6248,10 @@ app.post("/api/tenants/:id/evidence/ual/:qid/refresh", wrap(async (req, res) => 
 }));
 
 // ---- Ausnahme-Register (lokal im Werkzeug, pro Tenant)
+// entries = Konten (Ausnahme-Register, wie bisher), objects = Entscheide und Kommentare.
 app.get("/api/tenants/:id/evidence/register", wrap(async (req, res) => {
   const t = requireTenant(req);
-  res.json({ ok: true, entries: registerOf(t), kinds: ACCOUNTS.KINDS });
+  res.json({ ok: true, entries: registerOf(t), kinds: ACCOUNTS.KINDS, objects: registerObjects(t), objectTypes: ISTMODEL.OBJECT_TYPES });
 }));
 
 app.post("/api/tenants/:id/evidence/register", wrap(async (req, res) => {
@@ -6133,11 +6261,17 @@ app.post("/api/tenants/:id/evidence/register", wrap(async (req, res) => {
   const list = Array.isArray(rec.exceptionRegister) ? rec.exceptionRegister : [];
   const b = { ...(req.body || {}), _user: (req.session && req.session.user) || "" };
   const prev = b.id ? list.find(e => e.id === b.id) : null;
-  const entry = ACCOUNTS.normalizeEntry(b, prev);
-  if (!prev && list.some(e => e.upn === entry.upn)) return res.status(409).json({ error: `${entry.upn} steht schon im Register.` });
+  if (prev && !!prev.objectType !== !!b.objectType) return res.status(400).json({ error: "Ein Konten-Eintrag lässt sich nicht in einen Objekt-Eintrag umwandeln (und umgekehrt)." });
+  let entry;
+  if (b.objectType) {
+    entry = ACCOUNTS.normalizeObjectEntry(b, prev, ISTMODEL.OBJECT_TYPES);
+  } else {
+    entry = ACCOUNTS.normalizeEntry(b, prev);
+    if (!prev && list.some(e => !e.objectType && e.upn === entry.upn)) return res.status(409).json({ error: `${entry.upn} steht schon im Register.` });
+  }
   rec.exceptionRegister = prev ? list.map(e => (e.id === prev.id ? entry : e)) : [entry, ...list];
   saveState(s);
-  res.json({ ok: true, entry, entries: rec.exceptionRegister });
+  res.json({ ok: true, entry, entries: registerOf(rec), objects: registerObjects(rec) });
 }));
 
 app.delete("/api/tenants/:id/evidence/register/:rid", wrap(async (req, res) => {
@@ -6146,7 +6280,7 @@ app.delete("/api/tenants/:id/evidence/register/:rid", wrap(async (req, res) => {
   const rec = (s.tenants || []).find(x => x.id === req.params.id);
   rec.exceptionRegister = (rec.exceptionRegister || []).filter(e => e.id !== req.params.rid);
   saveState(s);
-  res.json({ ok: true, entries: rec.exceptionRegister });
+  res.json({ ok: true, entries: registerOf(rec), objects: registerObjects(rec) });
 }));
 
 // ---- Archiv

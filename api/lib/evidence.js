@@ -75,9 +75,11 @@ function retentionInfo(fromIso) {
 }
 
 // ============================================================== Änderungsprotokoll
-function mapIntune(e) {
+function mapIntune(e, cap) {
   const a = e.actor || {};
+  cap = cap || 200;
   return {
+    id: e.id || null,
     source: "Intune",
     at: e.activityDateTime,
     actor: a.userPrincipalName || a.applicationDisplayName || a.servicePrincipalName || a.userId || "—",
@@ -88,17 +90,20 @@ function mapIntune(e) {
     result: e.activityResult || "",
     category: e.category || e.componentName || "",
     targets: (e.resources || []).map(r => ({
+      id: r.resourceId || null,
       name: r.displayName || r.resourceId || "",
       type: r.type || r.auditResourceType || "",
-      changes: (r.modifiedProperties || []).slice(0, 40).map(m => ({ name: m.displayName, old: trunc(m.oldValue, 200), new: trunc(m.newValue, 200) }))
+      changes: (r.modifiedProperties || []).slice(0, 40).map(m => ({ name: m.displayName, old: trunc(m.oldValue, cap), new: trunc(m.newValue, cap) }))
     }))
   };
 }
 
-function mapEntra(e) {
+function mapEntra(e, cap) {
   const ib = e.initiatedBy || {};
+  cap = cap || 200;
   const actor = (ib.user && (ib.user.userPrincipalName || ib.user.displayName)) || (ib.app && (ib.app.displayName || ib.app.servicePrincipalName)) || "—";
   return {
+    id: e.id || null,
     source: "Entra",
     at: e.activityDateTime,
     actor,
@@ -109,9 +114,10 @@ function mapEntra(e) {
     result: e.result || "",
     category: [e.loggedByService, e.category].filter(Boolean).join(" / "),
     targets: (e.targetResources || []).map(t => ({
+      id: t.id || null,
       name: t.displayName || t.userPrincipalName || t.id || "",
       type: t.type || "",
-      changes: (t.modifiedProperties || []).slice(0, 40).map(m => ({ name: m.displayName, old: trunc(m.oldValue, 200), new: trunc(m.newValue, 200) }))
+      changes: (t.modifiedProperties || []).slice(0, 40).map(m => ({ name: m.displayName, old: trunc(m.oldValue, cap), new: trunc(m.newValue, cap) }))
     }))
   };
 }
@@ -139,6 +145,10 @@ async function changeLog(tenant, cert, opts, say) {
   const { from, to } = dayRange(opts.from, opts.to);
   const sources = Array.isArray(opts.sources) && opts.sources.length ? opts.sources : ["intune", "entra"];
   const cap = Math.min(Math.max(Number(opts.cap) || 10000, 100), 50000);
+  // Länge alter/neuer Werte: 200 Zeichen reichen fürs Protokoll-PDF; die Ist-Zustand-
+  // Doku braucht die vollständigen Werte (z. B. das CA-Richtlinien-JSON), um vorher
+  // und nachher lesbar zusammenzufassen.
+  const valueCap = Math.min(Math.max(Number(opts.valueCap) || 200, 200), 20000);
   const actor = String(opts.actor || "").trim().toLowerCase();
   const text = String(opts.text || "").trim().toLowerCase();
   const user = String(opts.user || "").trim().toLowerCase();
@@ -158,7 +168,7 @@ async function changeLog(tenant, cert, opts, say) {
       let r;
       try { r = await readCapped(tenant, cert, `/deviceManagement/auditEvents?$filter=activityDateTime ge ${from} and activityDateTime le ${to}&$orderby=activityDateTime desc&$top=500`, cap, BETA); }
       catch (e) { r = await readCapped(tenant, cert, `/deviceManagement/auditEvents?$filter=activityDateTime ge ${from} and activityDateTime le ${to}&$top=500`, cap, BETA); }
-      out.events.push(...r.items.map(mapIntune).filter(hit));
+      out.events.push(...r.items.map(x => mapIntune(x, valueCap)).filter(hit));
       out.capped.intune = r.capped;
     } catch (e) { out.gaps.push("Intune-Protokoll nicht lesbar: " + e.message); }
   }
@@ -167,7 +177,7 @@ async function changeLog(tenant, cert, opts, say) {
     if (out.retention.entraAlreadyGone) out.gaps.push("Entra hält Audit-Einträge 30 Tage — Einträge vor dem " + new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10) + " sind bei Microsoft bereits gelöscht.");
     try {
       const r = await readCapped(tenant, cert, `/auditLogs/directoryAudits?$filter=activityDateTime ge ${from} and activityDateTime le ${to}&$top=999`, cap, V1);
-      out.events.push(...r.items.map(mapEntra).filter(hit));
+      out.events.push(...r.items.map(x => mapEntra(x, valueCap)).filter(hit));
       out.capped.entra = r.capped;
     } catch (e) { out.gaps.push("Entra-Protokoll nicht lesbar: " + e.message); }
   }
