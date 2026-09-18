@@ -750,7 +750,7 @@ function objectsForRegister(ds) {
     for (const g of grantRows(A)) if (!out.anwendung.some(x => x.id === g.clientSpId)) out.anwendung.push({ id: g.clientSpId, name: g.client, detail: "Freigabe" });
   }
   const nb = numbering({ kapitel9: "haupt", changes: true, hasOtherPlatforms: true });
-  for (const key of Object.keys(nb.titles)) if (!["zweck", "freigabe"].includes(key)) out.kapitel.push({ id: key, name: `${nb.n[key]} ${nb.titles[key]}` });
+  for (const key of Object.keys(nb.titles)) out.kapitel.push({ id: key, name: `${nb.n[key]} ${nb.titles[key]}` });
   for (const o of Object.values(out)) o.sort((a, b) => String(a.name).localeCompare(String(b.name), "de"));
   out.kapitel.sort((a, b) => a.name.localeCompare(b.name, "de", { numeric: true }));
   return out;
