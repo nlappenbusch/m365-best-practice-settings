@@ -845,11 +845,12 @@
 
   {#if job}
     {@const total = job.steps.length}
-    {@const finished = job.steps.filter(s => s.state === 'done' || s.state === 'failed').length}
+    {@const finished = job.steps.filter(s => s.state === 'done' || s.state === 'failed' || s.state === 'skipped').length}
     {@const pct = total ? Math.round(finished / total * 100) : 0}
     {@const running = job.status === 'running'}
     {@const manualCount = job.steps.filter(s => s.state === 'manual').length}
     {@const failedCount = job.steps.filter(s => s.state === 'failed').length}
+    {@const skipped = job.steps.filter(s => s.state === 'skipped')}
     <div class="ld-job">
       <div class="ld-job-head">
         <strong>{running ? '⏳' : ''} Deploy nach {$activeTenant.name}</strong>
@@ -869,6 +870,8 @@
           <div class="ld-banner ok">Alle automatischen Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}) — {manualCount} manueller Schritt übrig (siehe „📋 Manuelle Schritte" unten).</div>
         {:else if manualCount > 0}
           <div class="ld-banner ok">Fertig — alle automatischen Schritte erfolgreich, manuelle Schritte von dir bestätigt.</div>
+        {:else if skipped.length}
+          <div class="ld-banner ok">Fertig — {total - skipped.length} Schritte erfolgreich, {skipped.length} übersprungen ({elapsed(job.startedAt, job.finishedAt)}).</div>
         {:else}
           <div class="ld-banner ok">Fertig — alle {total} Schritte erfolgreich ({elapsed(job.startedAt, job.finishedAt)}).</div>
         {/if}
@@ -878,6 +881,13 @@
         <div class="ld-banner warn">{failedCount} von {total} Schritten fehlgeschlagen (Details unten). Einfach erneut deployen — erfolgreiche Schritte werden dabei nur aktualisiert.</div>
       {:else if job.status === 'failed'}
         <div class="ld-banner fail">{job.error || 'Deploy fehlgeschlagen'}{#if job.hint}<br /><small>💡 {job.hint}</small>{/if}</div>
+      {/if}
+
+      <!-- Uebersprungene Schritte: kein Fehler, aber der Kunde bekommt weniger
+           Schutz als die Vorlage vorsieht — das gehoert sichtbar und in die
+           Dokumentation, nicht kleingedruckt an jeden einzelnen Schritt. -->
+      {#if skipped.length}
+        <div class="ld-banner warn">{skipped.length} Schritte übersprungen: {skipped[0].info}</div>
       {/if}
 
       <!-- Dehydrierter Tenant: EXO sperrt eigene Policies, bis die
@@ -936,7 +946,7 @@
       {#if phases.length}
         <div class="ld-step-section-title">⚙️ Automatische Schritte</div>
         {#each phases as ph (ph.name)}
-          {@const allDone = ph.steps.every(s => s.state === 'done')}
+          {@const allDone = ph.steps.every(s => s.state === 'done' || s.state === 'skipped')}
           {@const anyActive = ph.steps.some(s => s.state === 'running' || s.state === 'retry')}
           <div class="ld-phase" class:active={anyActive} class:complete={!anyActive && allDone}>
             <div class="ld-phase-title">{LD_PHASE_ICONS[ph.name] || '⚙️'} {ph.name}</div>
@@ -949,6 +959,8 @@
                 <div class="ld-step retry"><span class="ld-ico">🔁</span> {s.name} <small>{s.try}. Versuch läuft… ({(s.lastError || '').slice(0, 120)})</small></div>
               {:else if s.state === 'done'}
                 <div class="ld-step ok"><span class="ld-ico">✅</span> {s.name} <small>({LD_ACTION_DE[s.action] || s.action}{s.tries > 1 ? ', ' + s.tries + '. Versuch' : ''})</small></div>
+              {:else if s.state === 'skipped'}
+                <div class="ld-step pending"><span class="ld-ico">⏭</span> {s.name} <small>übersprungen (keine Lizenz)</small></div>
               {:else}
                 <div class="ld-step fail"><span class="ld-ico">❌</span> {s.name} — <small>{s.error || 'Fehler'}</small></div>
               {/if}

@@ -207,8 +207,16 @@ const RETRY_HELPER = [
   // Ein falscher/entfernter Cmdlet-Parameter verschwindet auch beim vierten
   // Versuch nicht -- ohne diese Erkennung laeuft der Schritt vier Runden mit
   // Wartezeit, bevor er dieselbe Meldung zeigt wie beim ersten Mal.
+  // Fehlendes Cmdlet: Windows PowerShell schreibt "as the name of a cmdlet",
+  // pwsh 7 "as a name of a cmdlet". Die alte Fassung kannte nur die erste
+  // Variante -- im Container laeuft pwsh, also lief der Schritt trotz der
+  // Erkennung vier Mal (beobachtet an Set-AtpPolicyForO365 in einem Tenant
+  // ohne Defender for Office 365).
+  "function Test-BPMissingCmdlet { param([string]$Message)",
+  "  return $Message -match 'is not recognized as (the|a) name of a cmdlet'",
+  "}",
   "function Test-BPPermanentError { param([string]$Message)",
-  "  return ($Message -match 'A parameter cannot be found that matches parameter name') -or ($Message -match 'is not recognized as the name of a cmdlet')",
+  "  return ($Message -match 'A parameter cannot be found that matches parameter name') -or (Test-BPMissingCmdlet $Message)",
   "}",
   "function Test-BPNeedsOrgCustomization { param([string]$Message)",
   "  return ($Message -match \"isn't currently allowed in your organization\") -or ($Message -match 'Enable-OrganizationCustomization')",
@@ -226,6 +234,12 @@ const RETRY_HELPER = [
   "      return",
   "    } catch {",
   "      $msg = $_.Exception.Message",
+  "      if (Test-BPMissingCmdlet $msg) {",
+  "        $hint = 'Dieses Cmdlet kennt die Exchange-Sitzung dieses Tenants nicht. Bei Safe Links/Safe Attachments heisst das fast immer: keine Defender-for-Office-365-Lizenz (P1 steckt z.B. in Business Premium, Business Standard hat sie nicht). Wiederholen hilft nicht.'",
+  "        $steps.Add(@{ name = $Name; ok = $false; error = $msg; hint = $hint; permanent = $true; missingCmdlet = $true; tries = $try })",
+  "        Send-BPProgress @{ type = 'step'; name = $Name; state = 'failed'; error = $msg; hint = $hint; permanent = $true; missingCmdlet = $true; tries = $try }",
+  "        return",
+  "      }",
   "      if (Test-BPPermanentError $msg) {",
   "        $hint = 'Der Aufruf passt nicht mehr zum Cmdlet (Microsoft hat den Parameter entfernt oder umbenannt) — Wiederholen hilft nicht, die Vorlage muss angepasst werden.'",
   "        $steps.Add(@{ name = $Name; ok = $false; error = $msg; hint = $hint; permanent = $true; tries = $try })",
@@ -247,6 +261,14 @@ const RETRY_HELPER = [
   "      Start-Sleep -Seconds (10 * $try)",
   "    }",
   "  }",
+  "}",
+  // Bewusst ausgelassener Schritt -- zaehlt als erledigt (ok = $true), damit der
+  // Lauf am Ende nicht als "teilweise fehlgeschlagen" dasteht, bleibt aber als
+  // "uebersprungen" samt Grund sichtbar. Stilles Weglassen waere schlechter:
+  // dann fehlten die Zeilen in der Anzeige und niemand wuesste, warum.
+  "function Invoke-BPSkip { param([string]$Name, [string]$Reason)",
+  "  $steps.Add(@{ name = $Name; ok = $true; action = 'skipped'; skipped = $true; info = $Reason })",
+  "  Send-BPProgress @{ type = 'step'; name = $Name; state = 'skipped'; info = $Reason }",
   "}"
 ].join("\r\n");
 
@@ -258,14 +280,22 @@ const STEP_AUTOFWD = "Automatische Weiterleitung nach aussen sperren";
 const STEP_DIRECTSEND = "Direct Send abweisen";
 const STEP_SMTPAUTH = "SMTP AUTH aus, Ausnahmen je Postfach";
 
+const SAFE_LINKS_PHASE = "Safe Links & Safe Attachments";
 const SAFE_LINKS_STEPS = ["Safe-Links-Org-Schalter", "Safe-Links-Policy", "Safe-Links-Rule", "Safe-Attachments-Policy", "Safe-Attachments-Rule"];
+
+/**
+ * Begruendung, die an jedem uebersprungenen Safe-Links-Schritt steht. Sie muss
+ * ohne Vorwissen verstaendlich sein: wer das Ergebnis spaeter im Ticket oder
+ * beim Kunden liest, soll nicht raten muessen, ob da etwas schiefging.
+ */
+const SAFE_LINKS_SKIP_REASON = "Defender for Office 365 ist in diesem Tenant nicht lizenziert — Safe Links und Safe Attachments gibt es dort nicht (Plan 1 steckt z.B. in Business Premium; Business Standard enthaelt ihn nicht). Schritt uebersprungen.";
 
 const DEPLOY_PLAN = [
   { phase: "Quarantine Policies", steps: ["Quarantine-Policy SelfRelease", "Quarantine-Policy RequestRelease"] },
   { phase: "Anti-Phishing", steps: ["Anti-Phishing-Policy", "Anti-Phishing-Rule"] },
   { phase: "Anti-Spam", steps: ["Anti-Spam-Policy", "Anti-Spam-Rule"] },
   { phase: "Anti-Malware", steps: ["Anti-Malware-Policy", "Anti-Malware-Rule"] },
-  { phase: "Safe Links & Safe Attachments", steps: SAFE_LINKS_STEPS },
+  { phase: SAFE_LINKS_PHASE, steps: SAFE_LINKS_STEPS },
   { phase: "Ausgehend & Organisation", steps: [STEP_OUTBOUND, STEP_EXT_TAG, STEP_AUTOFWD, STEP_DIRECTSEND, STEP_SMTPAUTH] },
   { phase: "Alert Policy (Security & Compliance)", steps: ["Alert-Policy Quarantine-Release"] }
 ];
@@ -281,7 +311,7 @@ function deployPlan(cfg) {
   const ob = (cfg && cfg.outbound) || {};
   const sl = (cfg && cfg.safeLinks) || {};
   return DEPLOY_PLAN
-    .filter(ph => ph.phase !== "Safe Links & Safe Attachments" || sl.enabled !== false)
+    .filter(ph => ph.phase !== SAFE_LINKS_PHASE || sl.enabled !== false)
     .map(ph => {
       if (ph.phase !== "Ausgehend & Organisation") return ph;
       const steps = [STEP_OUTBOUND];
@@ -527,9 +557,15 @@ function buildDeployBody(cfg) {
     "",
     ...(sl.enabled ? [
       "# --- Safe Links & Safe Attachments (Defender for Office 365 P1/P2) ---",
-      "# Lizenzabhaengig -- fehlt sie, schlagen die Cmdlets mit 'nicht erkannt'",
-      "# fehl, Invoke-BPStep zeigt das isoliert fuer diese Phase, der Rest laeuft.",
-      phaseMarker("Safe Links & Safe Attachments"),
+      "# Lizenzabhaengig. Der Deploy-Start prueft die Tenant-SKUs vorher per Graph",
+      "# und nimmt die Phase dann ganz aus dem Plan. Das hier ist die zweite",
+      "# Sicherung fuer den Fall, dass der Lizenz-Check nicht moeglich war (fehlende",
+      "# Berechtigung, Graph nicht erreichbar): fehlen die Cmdlets in der Sitzung,",
+      "# werden die fuenf Schritte als uebersprungen gemeldet statt vergeblich",
+      "# probiert. Get-Command traegt hier: EXO laedt genau die Cmdlets in die",
+      "# Sitzung, die der Tenant lizenziert hat.",
+      phaseMarker(SAFE_LINKS_PHASE),
+      "if (Get-Command New-SafeLinksPolicy -ErrorAction SilentlyContinue) {",
       ...orgStep("Safe-Links-Org-Schalter", atpOrgLines),
       ...step("Safe-Links-Policy", "BP_SafeLinks", "Get-SafeLinksPolicy",
         slParams("New-SafeLinksPolicy", "-Name 'BP_SafeLinks'"),
@@ -539,6 +575,9 @@ function buildDeployBody(cfg) {
         saParams("New-SafeAttachmentPolicy", "-Name 'BP_SafeAttachments'"),
         saParams("Set-SafeAttachmentPolicy", "-Identity 'BP_SafeAttachments'")),
       ...ruleStep("Safe-Attachments-Rule", "BP_SafeAttachments_Rule", "Get-SafeAttachmentRule", "New-SafeAttachmentRule", "Set-SafeAttachmentRule", "SafeAttachmentPolicy", "BP_SafeAttachments"),
+      "} else {",
+      ...SAFE_LINKS_STEPS.map(n => "  Invoke-BPSkip " + psQuote(n) + " " + psQuote(SAFE_LINKS_SKIP_REASON)),
+      "}",
       ""
     ] : []),
     "# --- Ausgehend & Organisation ---",
@@ -684,4 +723,7 @@ function buildAuditBody() {
   ].join("\r\n");
 }
 
-module.exports = { sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN, deployPlan, NON_MAIL_DOMAIN_PS_FILTER };
+module.exports = {
+  sanitizeConfig, buildDeployBody, buildAlertPolicySnippet, buildAuditBody, DEPLOY_PLAN, deployPlan,
+  NON_MAIL_DOMAIN_PS_FILTER, SAFE_LINKS_PHASE, SAFE_LINKS_STEPS, SAFE_LINKS_SKIP_REASON
+};

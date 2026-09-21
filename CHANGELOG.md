@@ -1,5 +1,39 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.58 - Safe Links wird ohne Defender-Lizenz uebersprungen statt probiert (2026-09-21)
+
+**Der Deploy prueft vor dem Start die Lizenzen des Ziel-Tenants.** Safe Links und
+Safe Attachments brauchen Defender for Office 365 Plan 1 (steckt z.B. in Business
+Premium) oder Plan 2. Fehlt beides — etwa bei Business Standard —, kennt die
+Exchange-Sitzung die Cmdlets gar nicht, und die fuenf Schritte der Phase liefen in
+eine Fehlermeldung, die nach einem Defekt des Werkzeugs aussah
+(`The term 'Set-AtpPolicyForO365' is not recognized ...`).
+- **Vorpruefung** in `POST /api/tenants/:id/deploy` ueber `getDefenderO365LicenseStatus`
+  (dieselbe Quelle wie der Lizenz-Hinweis im Tab Ist-Zustand/Audit). Ist die Lizenz
+  eindeutig nicht vorhanden, faellt die Phase aus dem Plan; die fuenf Schritte stehen
+  als **uebersprungen** samt Begruendung und Liste der Tenant-Lizenzen im Protokoll,
+  statt zu fehlen.
+- **Kein Blockieren bei Unsicherheit:** Fehler oder Zeitueberschreitung (15 s) bei der
+  Lizenzabfrage lassen den Deploy unveraendert laufen. Lieber einmal zu viel versucht
+  als einen lizenzierten Tenant stillschweigend ohne Safe Links gelassen.
+- **Zweite Sicherung im PowerShell-Teil:** Die Phase laeuft nur, wenn
+  `Get-Command New-SafeLinksPolicy` etwas findet; sonst meldet der neue Helfer
+  `Invoke-BPSkip` die Schritte als uebersprungen. Greift auch, wenn die Lizenzabfrage
+  nicht moeglich war (z.B. fehlende Graph-Berechtigung).
+- **Fehlendes Cmdlet wird jetzt wirklich als endgueltig erkannt.** `Test-BPPermanentError`
+  kannte nur die Windows-PowerShell-Formulierung "is not recognized as **the** name of a
+  cmdlet"; im Container laeuft pwsh 7 und schreibt "as **a** name of a cmdlet". Deshalb
+  lief jeder solche Schritt vier Mal mit Wartezeit, bevor dieselbe Meldung kam. Neu deckt
+  `Test-BPMissingCmdlet` beide Varianten ab und gibt den passenden Hinweis (fehlende
+  Lizenz) statt "Parameter entfernt oder umbenannt".
+- **Anzeige:** eigener Zustand `skipped` (⏭, gedaempft) im Fortschritt, die Begruendung
+  einmal als Banner statt fuenf Mal am Schritt, uebersprungene Schritte zaehlen fuer
+  Balken und Abschluss als erledigt — der Lauf endet als "fertig", nicht als "teilweise
+  fehlgeschlagen". Abschlusszeile nennt die Zahl ("12 Schritte erfolgreich, 5
+  uebersprungen").
+- **Tab Vorlage:** Der Hinweis bei "Beim Ausrollen mit deployen" sagt jetzt, dass das
+  Haekchen gesetzt bleiben kann — der Deploy entscheidet je Tenant selbst.
+
 ## Version 2.57 - Ist-Zustand Microsoft 365 als Kunden-PDF, Register "Entscheide und Kommentare" (2026-09-19)
 
 **Neuer Bereich "Ist-Zustand (Doku)"** (Betrieb, Tab-Id `istzustand`) — das Kunden-

@@ -332,7 +332,7 @@
         <h4>Voraussetzung</h4>
         <label class="checkbox-label"><input type="checkbox" bind:checked={$config.safeLinks.enabled}><span>Beim Ausrollen mit deployen</span></label>
         <div class="policy-info">
-          <small>💡 Braucht Defender for Office 365 Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in E5). Ohne passende Lizenz schlägt nur dieser eine Baustein fehl — der Rest des Deploys läuft trotzdem durch. Lizenz-Status vor dem Ausrollen im Audit-Tab prüfen.</small>
+          <small>💡 Braucht Defender for Office 365 Plan 1 (u.a. in Business Premium enthalten) oder Plan 2 (u.a. in E5). Das Häkchen kann angehakt bleiben: Der Deploy liest vorher die Lizenzen des Ziel-Tenants und lässt den Baustein weg, wenn die Lizenz fehlt (z.&nbsp;B. Business Standard) — die Schritte stehen dann als „übersprungen" im Protokoll, der Rest läuft normal durch.</small>
         </div>
       </div>
       <div class="settings-group">

@@ -3324,12 +3324,18 @@ app.post("/api/tenants/:id/enable-org-customization", wrap(async (req, res) => {
 const jobs = new Map(); // jobId -> Job
 const JOB_KEEP = 20;
 
-function createJob(t, cfg) {
+function createJob(t, cfg, skippedPhases) {
   const id = crypto.randomBytes(8).toString("hex");
   const steps = [];
   // Der Plan haengt an der Konfiguration: abgewaehlte Organisationsschritte
   // duerfen gar nicht erst als "ausstehend" in der Anzeige stehen.
   for (const ph of DEPLOY.deployPlan(cfg)) for (const name of ph.steps) steps.push({ phase: ph.phase, name, state: "pending" });
+  // Phasen, die die Vorpruefung ausgeschlossen hat (aktuell: Safe Links ohne
+  // Defender-Lizenz), stehen mit Begruendung drin statt einfach zu fehlen --
+  // sonst wirkt die Anzeige, als waere der Bereich nie vorgesehen gewesen.
+  for (const sk of skippedPhases || []) {
+    for (const name of sk.steps) steps.push({ phase: sk.phase, name, state: "skipped", info: sk.reason });
+  }
   const job = {
     id, tenantId: t.id, tenantName: t.name,
     status: "running", phase: "Vorbereitung", steps,
@@ -3361,6 +3367,7 @@ function jobProgressHandler(job) {
       if (evt.state === "running") { st.state = "running"; st.try = evt.try || 1; }
       else if (evt.state === "retry") { st.state = "retry"; st.try = evt.try; st.lastError = evt.error; }
       else if (evt.state === "done") { st.state = "done"; st.action = evt.action; st.tries = evt.tries; }
+      else if (evt.state === "skipped") { st.state = "skipped"; st.info = evt.info; }
       else if (evt.state === "failed") {
         st.state = "failed"; st.error = evt.error; st.tries = evt.tries;
         if (evt.hint) st.hint = evt.hint;
@@ -3376,8 +3383,9 @@ function mergeStepResults(job, resultSteps) {
   for (const s of resultSteps || []) {
     const st = job.steps.find(x => x.name === s.name);
     if (!st) continue;
-    if (st.state !== "done" && st.state !== "failed") {
-      st.state = s.ok ? "done" : "failed";
+    if (st.state !== "done" && st.state !== "failed" && st.state !== "skipped") {
+      st.state = s.skipped ? "skipped" : (s.ok ? "done" : "failed");
+      if (s.info) st.info = s.info;
       st.action = s.action; st.error = s.error; st.tries = s.tries;
       if (s.hint) st.hint = s.hint;
       if (s.needsOrgCustomization) { st.needsOrgCustomization = true; job.needsOrgCustomization = true; }
@@ -3390,8 +3398,9 @@ function finishJob(job) {
   // auslaufende Lauf den Abbruch mit "partial"/"done".
   if (job.status === "cancelled") return;
   job.phase = "Fertig";
-  // "manual" zaehlt nicht als Fehlschlag — der Schritt ist bewusst dem Admin ueberlassen.
-  job.status = job.steps.every(s => s.state === "done" || s.state === "manual") ? "done" : "partial";
+  // "manual" zaehlt nicht als Fehlschlag — der Schritt ist bewusst dem Admin
+  // ueberlassen. "skipped" ebenso wenig: die Lizenz fehlt, da ist nichts zu holen.
+  job.status = job.steps.every(s => s.state === "done" || s.state === "manual" || s.state === "skipped") ? "done" : "partial";
   job.finishedAt = new Date().toISOString();
 }
 
@@ -3607,13 +3616,41 @@ app.post("/api/tenants/:id/deploy", wrap(async (req, res) => {
   const fremd = await checkAdminEmailFitsTenant(t, cfg.adminEmail);
   if (fremd) return res.status(400).json({ error: fremd });
 
+  // Safe Links / Safe Attachments brauchen Defender for Office 365 (Plan 1
+  // steckt z.B. in Business Premium; Business Standard hat ihn nicht). Fehlt
+  // die Lizenz, kennt die Exchange-Sitzung die Cmdlets gar nicht -- frueher
+  // liefen dann fuenf Schritte in eine Fehlermeldung, die nach einem Defekt
+  // des Werkzeugs aussieht. Deshalb vorher die Tenant-SKUs lesen (dieselbe
+  // Quelle wie im Audit-Tab) und die Phase gleich ganz weglassen.
+  //
+  // Nur ein EINDEUTIGES Ergebnis zaehlt: Bei Fehler oder Zeitueberschreitung
+  // bleibt es beim bisherigen Weg -- die Phase laeuft, und die Cmdlet-Pruefung
+  // im PowerShell-Teil faengt den Fall ab. Lieber einmal zu viel versucht als
+  // einen lizenzierten Tenant stillschweigend ohne Safe Links gelassen.
+  const skippedPhases = [];
+  if (cfg.safeLinks && cfg.safeLinks.enabled && process.env.FAKE_DEPLOY !== "1") {
+    const lic = await Promise.race([
+      LICENSES.getDefenderO365LicenseStatus(t, certPemPath(t.tenantId)).catch(e => ({ error: e.message })),
+      new Promise(r => setTimeout(() => r({ error: "Zeitueberschreitung" }), 15000))
+    ]);
+    if (lic && !lic.error && !lic.licensed) {
+      cfg.safeLinks.enabled = false;
+      skippedPhases.push({
+        phase: DEPLOY.SAFE_LINKS_PHASE,
+        steps: DEPLOY.SAFE_LINKS_STEPS,
+        reason: DEPLOY.SAFE_LINKS_SKIP_REASON
+          + " Lizenzen in diesem Tenant: " + ((lic.tenantSkus || []).join(", ") || "keine gefunden")
+      });
+    }
+  }
+
   for (const j of jobs.values()) {
     if (j.tenantId === t.id && j.status === "running") {
       return res.status(409).json({ error: "Fuer diesen Tenant laeuft bereits ein Deploy.", jobId: j.id });
     }
   }
 
-  const job = createJob(t, cfg);
+  const job = createJob(t, cfg, skippedPhases);
   runDeployJob(job, t, cfg).catch(e => {
     job.status = "failed"; job.error = e.message; job.finishedAt = new Date().toISOString();
   });
