@@ -385,9 +385,14 @@ function buildDeployBody(cfg) {
   const sl = cfg.safeLinks, sa = cfg.safeAttach;
   const onOff = v => v ? "'On'" : "'Off'";
 
+  // -Enabled wird hier bewusst NICHT gesetzt: Microsoft fuehrt den Parameter bei
+  // New-/Set-AntiPhishPolicy als "reserved for internal Microsoft use". Er wird
+  // zwar angenommen (der Schritt lief gruen durch), landet aber nicht in der
+  // Richtlinie -- Get-AntiPhishPolicy gab Enabled danach leer zurueck. Aktiv oder
+  // nicht entscheidet die Regel: Enable-/Disable-AntiPhishRule bzw. New-AntiPhishRule
+  // -Enabled, sichtbar als State in Get-AntiPhishRule (siehe ruleStep unten).
   const phishParams = (cmdlet, nameArg) => [
     cmdlet + " " + nameArg + " `",
-    "  -Enabled $true `",
     "  -EnableSpoofIntelligence " + bool(ap.spoofIntelligence) + " `",
     "  -EnableFirstContactSafetyTips " + bool(ap.firstContactTip) + " `",
     "  -EnableUnauthenticatedSender " + bool(ap.unauthSenderSymbol) + " `",
@@ -692,7 +697,7 @@ function buildAuditBody() {
     "  acceptedDomains  = @(Get-Safe { Get-AcceptedDomain | ForEach-Object DomainName | " + NON_MAIL_DOMAIN_PS_FILTER + " })",
     "  quarantineSelf   = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-SelfReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
     "  quarantineRequest = Get-Safe { Get-QuarantinePolicy -Identity 'BP_Quarantine-RequestReleaseNotification' -ErrorAction SilentlyContinue | Select-Object Name, ESNEnabled, IncludeMessagesFromBlockedSenderAddress, @{ n = 'Permissions'; e = { '' + $_.EndUserQuarantinePermissions } } }",
-    "  antiPhish        = Get-Safe { Get-AntiPhishPolicy -Identity 'BP_AntiPhishing' -ErrorAction SilentlyContinue | Select-Object Name, Enabled, EnableSpoofIntelligence, EnableFirstContactSafetyTips, EnableUnauthenticatedSender, EnableViaTag, HonorDmarcPolicy, DmarcQuarantineAction, DmarcRejectAction, AuthenticationFailAction, SpoofQuarantineTag }",
+    "  antiPhish        = Get-Safe { Get-AntiPhishPolicy -Identity 'BP_AntiPhishing' -ErrorAction SilentlyContinue | Select-Object Name, EnableSpoofIntelligence, EnableFirstContactSafetyTips, EnableUnauthenticatedSender, EnableViaTag, HonorDmarcPolicy, DmarcQuarantineAction, DmarcRejectAction, AuthenticationFailAction, SpoofQuarantineTag }",
     "  antiPhishRule    = Get-Safe { Get-AntiPhishRule -Identity 'BP_AntiPhishing_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",
     "  antiSpam         = Get-Safe { Get-HostedContentFilterPolicy -Identity 'BP_AntiSpam_Inbound' -ErrorAction SilentlyContinue | Select-Object Name, BulkThreshold, SpamAction, HighConfidenceSpamAction, BulkSpamAction, PhishSpamAction, HighConfidencePhishAction, QuarantineRetentionPeriod, SpamQuarantineTag, HighConfidenceSpamQuarantineTag, BulkQuarantineTag, PhishQuarantineTag, HighConfidencePhishQuarantineTag, IncreaseScoreWithBizOrInfoUrls, IncreaseScoreWithNumericIps, IncreaseScoreWithRedirectToOtherPort, MarkAsSpamEmptyMessages, MarkAsSpamJavaScriptInHtml, MarkAsSpamFramesInHtml, MarkAsSpamSensitiveWordList, MarkAsSpamSpfRecordHardFail, MarkAsSpamFromAddressAuthFail }",
     "  antiSpamRule     = Get-Safe { Get-HostedContentFilterRule -Identity 'BP_AntiSpam_Inbound_Rule' -ErrorAction SilentlyContinue | Select-Object Name, State, Priority, RecipientDomainIs }",

@@ -1,5 +1,22 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.59 - Anti-Phishing: "Policy aktiv" war ein Vergleich gegen ein totes Feld (2026-09-21)
+
+Der Audit meldete bei Anti-Phishing dauerhaft `Policy aktiv — Soll: true · Ist: (leer)`,
+obwohl der Deploy-Schritt gruen durchlief. Grund: `New-/Set-AntiPhishPolicy -Enabled` ist
+laut Microsoft-Doku "reserved for internal Microsoft use". Der Parameter wird angenommen,
+landet aber nicht in der Richtlinie — `Get-AntiPhishPolicy` gibt `Enabled` danach leer
+zurueck. Ob eine Anti-Phish-Richtlinie wirkt, entscheidet die **Regel**
+(`Enable-/Disable-AntiPhishRule`, sichtbar als `State` in `Get-AntiPhishRule`).
+- **Deploy** setzt `-Enabled` nicht mehr mit (`New-/Set-AntiPhishPolicy`). Der Parameter
+  hatte keine Wirkung und haette beim naechsten Umbau durch Microsoft den Schritt
+  gekippt.
+- **Audit** erhebt `Enabled` nicht mehr und vergleicht es nicht mehr. Die Aussage steckt
+  unveraendert in der Zeile "Rule aktiv" (Soll `Enabled`) direkt darunter.
+- **Demo-Daten** (`FAKE_DEPLOY`) entsprechend angeglichen.
+
+Quelle: Microsoft Learn, Set-AntiPhishPolicy / New-AntiPhishPolicy, Parameter `-Enabled`.
+
 ## Version 2.58 - Safe Links wird ohne Defender-Lizenz uebersprungen statt probiert (2026-09-21)
 
 **Der Deploy prueft vor dem Start die Lizenzen des Ziel-Tenants.** Safe Links und

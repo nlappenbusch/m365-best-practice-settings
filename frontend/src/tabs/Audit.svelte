@@ -71,7 +71,9 @@
     if (!audit.antiPhish) missing(gp, 'BP_AntiPhishing')
     else {
       const p = audit.antiPhish
-      cmpBool(gp, 'Policy aktiv', true, p.Enabled)
+      // Kein "Policy aktiv"-Check: Enabled ist bei Anti-Phish-Richtlinien laut
+      // Microsoft-Doku fuer internen Gebrauch reserviert und kommt leer zurueck.
+      // Ob die Richtlinie wirkt, steht in der Regel -- "Rule aktiv" weiter unten.
       cmpBool(gp, 'Spoof Intelligence', ap.spoofIntelligence, p.EnableSpoofIntelligence)
       cmpBool(gp, 'First Contact Safety Tip', ap.firstContactTip, p.EnableFirstContactSafetyTips)
       cmpBool(gp, 'Unauth-Sender-Symbol (?)', ap.unauthSenderSymbol, p.EnableUnauthenticatedSender)
