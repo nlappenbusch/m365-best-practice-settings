@@ -64,7 +64,7 @@ deploy-prod:
     - 'git config http.sslVerify false'
     - 'git remote set-url origin "https://oauth2:${GITOPS_PUSH_TOKEN}@gitlab.igeeks.ch/igeeks/igeeks-apps/m365-configurator.git"'
     - 'git fetch origin main && git checkout main && git pull --rebase origin main'
-    - 'sed -i "s|^\([[:space:]]*imageTag:\).*|\1 ${TAG}|" deploy/chart/values-${OVERLAY}.yaml'
+    - 'sed -i "s|^\([[:space:]]*imageTag:\).*|\1 \"${TAG}\"|" deploy/chart/values-${OVERLAY}.yaml'
     - 'git add deploy/chart/values-${OVERLAY}.yaml'
     - 'git commit -m "deploy ${OVERLAY} m365-configurator ${TAG} [skip ci]" || echo "kein Diff"'
     - 'git push origin main'
