@@ -121,6 +121,13 @@ const SKU_CONTAINS = {
   ENTERPRISEPREMIUM: ["MCOEV", "MCOMEETADV", "POWER_BI_PRO", "THREAT_INTELLIGENCE", "ATP_ENTERPRISE", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
   ENTERPRISEPREMIUM_NOPSTNCONF: ["MCOEV", "POWER_BI_PRO", "THREAT_INTELLIGENCE", "ATP_ENTERPRISE", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
   SPE_E3: ["AAD_PREMIUM", "INTUNE_A", "EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION", "EMS"],
+  // Frontline-Suiten: beide enthalten Entra ID P1 und Intune Plan 1. Bewusst
+  // nur diese beiden Plaene gelistet -- F1 hat z.B. KEIN eigenes Postfach, F3
+  // nur Exchange Kiosk; die hier nicht aufzufuehren ist die sichere Seite.
+  // Ohne diese Zeilen zaehlte die Bestandsaufnahme F1-/F3-Konten faelschlich
+  // als nicht blueprint-faehig.
+  SPE_F1: ["AAD_PREMIUM", "INTUNE_A"],
+  M365_F1: ["AAD_PREMIUM", "INTUNE_A"],
   ENTERPRISEPACK: ["EXCHANGEENTERPRISE", "EXCHANGESTANDARD", "OFFICESUBSCRIPTION"],
   SPB: ["EXCHANGESTANDARD", "ATP_ENTERPRISE", "AAD_PREMIUM", "INTUNE_A", "MDE_SMB", "O365_BUSINESS_PREMIUM", "O365_BUSINESS_ESSENTIALS", "SMB_BUSINESS", "O365_BUSINESS"],
   // Copilot-Bundles: enthalten die jeweilige Suite UND Copilot

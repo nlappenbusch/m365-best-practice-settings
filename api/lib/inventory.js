@@ -265,13 +265,29 @@ const STALE_DEVICE_DAYS = 180;
 // SKU-Bestandteile, die ueberhaupt erst erlauben, den Blueprint umzusetzen:
 // ohne Intune keine Geraeteverwaltung, ohne Entra ID P1 kein Conditional Access
 // mit Geraetebedingung. Beides steckt in Business Premium, E3 und E5.
-const BLUEPRINT_PARTS = ["INTUNE_A", "AAD_PREMIUM"];
+//
+// Die beiden werden GETRENNT ausgewiesen und nur fuer den Blueprint-Befund
+// UND-verknuepft. Frueher stand hier ein .some() ueber beide Teile -- damit
+// zaehlte ein Konto mit "Intune Plan 1" als Add-on zu Business Basic/Standard
+// als blueprint-tauglich, obwohl ihm Entra ID P1 und damit Conditional Access
+// fehlt. Real beobachtet bei Acons (11.09.2026): gemeldet "4 von 25", richtig
+// war 1 von 25 -- die anderen drei hatten Intune Plan 1 ohne P1. Aus solchen
+// Zahlen werden Lizenzentscheidungen abgeleitet, deshalb: Intune-Abdeckung
+// (MDM) und P1-Abdeckung (Conditional Access) sind zwei verschiedene Aussagen.
+const BLUEPRINT_INTUNE_PART = "INTUNE_A";
+const BLUEPRINT_P1_PART = "AAD_PREMIUM";
 
-function providesBlueprint(parts) {
+// Hat das Konto den Service-Plan -- direkt gekauft oder in einer Suite
+// enthalten (SKU_CONTAINS, z.B. SPB/SPE_E3/SPE_E5/EMS -> INTUNE_A+AAD_PREMIUM)?
+function ownsPart(parts, need) {
   const owned = new Set(parts || []);
-  return BLUEPRINT_PARTS.some(need =>
-    owned.has(need) || [...owned].some(p => (LICENSES.SKU_CONTAINS[p] || []).includes(need)));
+  if (owned.has(need)) return true;
+  return [...owned].some(p => (LICENSES.SKU_CONTAINS[p] || []).includes(need));
 }
+
+const hasIntune = (parts) => ownsPart(parts, BLUEPRINT_INTUNE_PART);
+const hasEntraP1 = (parts) => ownsPart(parts, BLUEPRINT_P1_PART);
+const providesBlueprint = (parts) => hasIntune(parts) && hasEntraP1(parts);
 
 /**
  * Querschnitte und Beobachtungen. Die vier Sektionen fuer sich sind Inventar --
@@ -314,21 +330,81 @@ function buildAnalysis(result) {
   const activeReal = realUsers.filter(u => u.accountEnabled !== false);
 
   // --- Blueprint-Faehigkeit: der zentrale Befund fuer jede Security-Offerte.
+  //     Intune (MDM) und Entra ID P1 (Conditional Access) werden getrennt
+  //     gezaehlt: "Intune Plan 1" als Add-on zu Business Basic/Standard bringt
+  //     Geraeteverwaltung, aber KEIN Conditional Access. Eine gemeinsame Zahl
+  //     verdeckt genau den Unterschied, aus dem der Kunde seine Lizenzent-
+  //     scheidung ableitet.
   if (userLic.length && activeReal.length) {
     const licByUpn = new Map(userLic.map(u => [String(u.upn || "").toLowerCase(), u]));
-    const equipped = activeReal.filter(u => {
+    const partsOf = (u) => {
       const l = licByUpn.get(String(u.userPrincipalName || "").toLowerCase());
-      return l && providesBlueprint(l.parts);
-    });
-    const missing = activeReal.filter(u => !equipped.includes(u));
+      return l ? (l.parts || []) : [];
+    };
+    const licNamesOf = (u) => {
+      const l = licByUpn.get(String(u.userPrincipalName || "").toLowerCase());
+      return l ? (l.licenses || []).join(", ") : "keine Lizenz";
+    };
+
+    const withIntune = activeReal.filter(u => hasIntune(partsOf(u)));
+    const withP1 = activeReal.filter(u => hasEntraP1(partsOf(u)));
+    const equipped = activeReal.filter(u => providesBlueprint(partsOf(u)));
+    const missing = activeReal.filter(u => !providesBlueprint(partsOf(u)));
+    // Intune ja, P1 nein: genau die Konten, bei denen MDM moeglich ist,
+    // Conditional Access mit Geraetebedingung aber nicht.
+    const intuneOnly = activeReal.filter(u => hasIntune(partsOf(u)) && !hasEntraP1(partsOf(u)));
+    const p1Only = activeReal.filter(u => hasEntraP1(partsOf(u)) && !hasIntune(partsOf(u)));
+
     if (missing.length) {
       add("Blueprint-Lizenzen fehlen für einen Teil der Belegschaft",
-        `${equipped.length} von ${activeReal.length} aktiven Benutzerkonten haben eine Lizenz, die Intune und Entra ID P1 enthält ` +
-        `(Business Premium, E3 oder E5). Für die übrigen ${missing.length} sind Geräteverwaltung und Conditional Access mit ` +
-        `Gerätebedingung heute nicht lizenziert — der Blueprint lässt sich dort nicht vollständig umsetzen.`,
-        missing.map(u => u.displayName || u.userPrincipalName).sort());
-      crossChecks.push(list("noBlueprintLicense", "Aktive Konten ohne Intune-/P1-Lizenz", ["Konto", "UPN"],
-        missing.map(u => [u.displayName, u.userPrincipalName])));
+        `${equipped.length} von ${activeReal.length} aktiven Benutzerkonten haben eine Lizenz, die Intune UND Entra ID P1 ` +
+        `enthält (Business Premium, E3 oder E5). Getrennt betrachtet: ${withIntune.length} Konten sind für Intune ` +
+        `lizenziert (Geräteverwaltung), ${withP1.length} für Entra ID P1 (Conditional Access). Für die übrigen ` +
+        `${missing.length} lässt sich der Blueprint heute nicht vollständig umsetzen.`,
+        missing.map(u => {
+          const parts = partsOf(u);
+          const fehlt = [!hasIntune(parts) && "Intune", !hasEntraP1(parts) && "Entra ID P1"].filter(Boolean).join(" + ");
+          return `${u.displayName || u.userPrincipalName} — es fehlt: ${fehlt}`;
+        }).sort());
+      crossChecks.push(list("noBlueprintLicense", "Aktive Konten ohne vollständige Intune-/P1-Lizenz",
+        ["Konto", "UPN", "Lizenzen", "Intune", "Entra ID P1"],
+        missing.map(u => {
+          const parts = partsOf(u);
+          return [u.displayName, u.userPrincipalName, licNamesOf(u),
+            hasIntune(parts) ? "ja" : "nein", hasEntraP1(parts) ? "ja" : "nein"];
+        })));
+    }
+
+    // Die beiden Abdeckungen gehen auseinander -- eigener Befund, weil die
+    // Konsequenz eine andere ist: Geräteverwaltung vorhanden, Zugriffs-
+    // steuerung nicht (oder umgekehrt).
+    if (intuneOnly.length || p1Only.length) {
+      const teile = [];
+      if (intuneOnly.length) {
+        teile.push(`${intuneOnly.length} Konten haben Intune, aber kein Entra ID P1 — Geräte lassen sich verwalten, ` +
+          `Conditional Access (Gerätebedingung, MFA-Erzwingung über Richtlinie) ist für sie nicht lizenziert.`);
+      }
+      if (p1Only.length) {
+        teile.push(`${p1Only.length} Konten haben Entra ID P1, aber kein Intune — Conditional Access ist lizenziert, ` +
+          `eine Gerätebedingung läuft mangels Verwaltung aber ins Leere.`);
+      }
+      add("Intune-Abdeckung und Entra-ID-P1-Abdeckung gehen auseinander",
+        teile.join(" ") + " Beide Zahlen getrennt zu führen ist wichtig: Intune Plan 1 als Zusatz zu Business Basic " +
+        "oder Standard enthält kein Entra ID P1.",
+        [...intuneOnly, ...p1Only].map(u => {
+          const parts = partsOf(u);
+          return `${u.displayName || u.userPrincipalName} — ${licNamesOf(u)} (Intune: ${hasIntune(parts) ? "ja" : "nein"}, ` +
+            `Entra ID P1: ${hasEntraP1(parts) ? "ja" : "nein"})`;
+        }).sort());
+      crossChecks.push(list("intuneP1Gap", "Intune-/P1-Abdeckung im Vergleich",
+        ["Konto", "UPN", "Lizenzen", "Intune", "Entra ID P1"],
+        [...intuneOnly, ...p1Only]
+          .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""))
+          .map(u => {
+            const parts = partsOf(u);
+            return [u.displayName, u.userPrincipalName, licNamesOf(u),
+              hasIntune(parts) ? "ja" : "nein", hasEntraP1(parts) ? "ja" : "nein"];
+          })));
     }
   }
 

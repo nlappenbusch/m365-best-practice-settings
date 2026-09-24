@@ -1,5 +1,35 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.60 - Bestandsaufnahme: Blueprint-Lizenzen wurden zu hoch gezaehlt (2026-09-24)
+
+Die Beobachtung "Blueprint-Lizenzen fehlen fuer einen Teil der Belegschaft" pruefte mit
+`BLUEPRINT_PARTS.some(...)` — also **Intune ODER Entra ID P1** statt UND. Ein Konto mit
+"Intune Plan 1" als Add-on zu Business Basic/Standard zaehlte damit als blueprint-faehig,
+obwohl ihm Entra ID P1 und damit Conditional Access fehlt.
+
+Bei Acons (Erhebung 11.09.2026) meldete der Bericht dadurch "4 von 25 aktiven
+Benutzerkonten" — richtig war **1 von 25** (nur die eine Business-Premium-Lizenz). Aus
+dieser Zahl werden Lizenzentscheidungen beim Kunden abgeleitet; hier haette sie nahegelegt,
+Conditional Access sei fuer vier Konten nutzbar.
+
+- **`providesBlueprint()`** verlangt jetzt beide Service-Plaene (`INTUNE_A` **und**
+  `AAD_PREMIUM`), direkt gekauft oder in einer Suite enthalten.
+- **Intune-Abdeckung und P1-Abdeckung werden getrennt ausgewiesen.** Der Fliesstext nennt
+  beide Zahlen einzeln, weil die Konsequenz eine andere ist: Intune = Geraeteverwaltung,
+  P1 = Conditional Access.
+- **Neue Beobachtung** "Intune-Abdeckung und Entra-ID-P1-Abdeckung gehen auseinander" mit
+  Cross-Check-Liste `intuneP1Gap` — listet Konten mit Intune ohne P1 (und umgekehrt).
+- Die Liste `noBlueprintLicense` zeigt jetzt zusaetzlich die zugewiesenen Lizenzen und je
+  eine Spalte "Intune" / "Entra ID P1", statt nur Konto und UPN.
+- **`SKU_CONTAINS`**: `SPE_F1` (M365 F3) und `M365_F1` (M365 F1) ergaenzt — beide enthalten
+  Entra ID P1 und Intune Plan 1 und wurden vorher faelschlich als nicht blueprint-faehig
+  gezaehlt (Gegenrichtung desselben Fehlers).
+
+Geprueft gegen den Acons-Bestand: Business Premium / E3 / E5 / Business Standard + EMS E3 /
+M365 F3 = blueprint-faehig; Business Standard + Intune Plan 1, Business Basic + Intune Plan 1,
+Business Standard + Entra ID P1, Office 365 F3, Exchange Online Plan 1 = nicht.
+
+
 ## Version 2.59 - Anti-Phishing: "Policy aktiv" war ein Vergleich gegen ein totes Feld (2026-09-21)
 
 Der Audit meldete bei Anti-Phishing dauerhaft `Policy aktiv — Soll: true · Ist: (leer)`,
