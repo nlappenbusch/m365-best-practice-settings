@@ -25,11 +25,49 @@
 const fs = require("fs");
 const path = require("path");
 const CA = require("./conditionalAccess");
+const { CA_POLICY_TEMPLATES } = require("./conditionalAccessPolicies");
 
 const TEMPLATE_DIRNAME = "ca-templates";
 const ERLAUBTE_ZUSTAENDE = ["enabled", "enabledForReportingButNotEnforced", "disabled"];
 // Zustaende, die nichts erzwingen und deshalb ohne allowEnable gesetzt werden duerfen
 const UNGEFAEHRLICH = ["enabledForReportingButNotEnforced", "disabled"];
+
+
+/**
+ * Aus welcher Vorlage stammt eine Policy? Der Katalog fuehrt die Policies je
+ * Tier mit "<Nr> - <RING> - ..." als Namen; die Nummer ist der stabile Teil.
+ * Zurueckgegeben wird das KLEINSTE Tier, das die Nummer enthaelt — die
+ * groesseren enthalten die kleineren mit, und wer nachziehen muss, will den
+ * geringsten Eingriff.
+ */
+const TIER_REIHENFOLGE = ["bareMinimum", "aadp1", "aadp1p2"];
+let NUMMER_ZU_TIER = null;
+
+function nummerAusName(displayName) {
+  const m = String(displayName || "").match(/^(\d+)\s*-/);
+  return m ? m[1] : null;
+}
+
+function tierIndex() {
+  if (NUMMER_ZU_TIER) return NUMMER_ZU_TIER;
+  NUMMER_ZU_TIER = new Map();
+  for (const tier of TIER_REIHENFOLGE) {
+    for (const pol of (CA_POLICY_TEMPLATES[tier] || [])) {
+      const nr = nummerAusName(pol.displayName);
+      if (nr && !NUMMER_ZU_TIER.has(nr)) NUMMER_ZU_TIER.set(nr, tier);
+    }
+  }
+  return NUMMER_ZU_TIER;
+}
+
+function tierFuerPolicy(displayName) {
+  const nr = nummerAusName(displayName);
+  if (!nr) return null;
+  const tier = tierIndex().get(nr) || null;
+  if (!tier) return null;
+  const meta = (CA.TIER_META || {})[tier] || {};
+  return { key: tier, label: meta.shortLabel || meta.label || tier };
+}
 
 function templateDir(stateDir) {
   const d = path.join(stateDir, TEMPLATE_DIRNAME);
@@ -65,7 +103,8 @@ async function captureTemplate(stateDir, tenant, certPemPath, opts = {}) {
     key: CA.policyKey(p.displayName),
     displayName: p.displayName,
     state: p.state,
-    managed: !!p.managed
+    managed: !!p.managed,
+    tier: p.managed ? tierFuerPolicy(p.displayName) : null
   })).sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), "de"));
 
   const verwaltet = eintraege.filter(e => e.managed);
@@ -139,10 +178,14 @@ async function compareToTemplate(tenant, certPemPath, template) {
     if (!soll.managed) continue; // Fremd-Policies der Quelle sind nicht uebertragbar
     const ist = nachKey.get(soll.key);
     if (!ist) {
+      const tier = soll.tier || tierFuerPolicy(soll.displayName);
       zeilen.push({
         key: soll.key, displayName: soll.displayName,
-        sollState: soll.state, istState: null,
-        aktion: "fehlt", hinweis: "Policy im Ziel-Mandanten nicht vorhanden — zuerst ausrollen."
+        sollState: soll.state, istState: null, tier: tier,
+        aktion: "fehlt",
+        hinweis: tier
+          ? `Nicht vorhanden — steckt in der Vorlage «${tier.label}», die zuerst ausgerollt werden muss.`
+          : "Policy im Ziel-Mandanten nicht vorhanden — zuerst ausrollen."
       });
       continue;
     }
@@ -188,6 +231,15 @@ async function compareToTemplate(tenant, certPemPath, template) {
   return {
     template: { id: template.id, name: template.name, quelle: template.quelle },
     zeilen,
+    fehlendeTiers: (() => {
+      const m = new Map();
+      for (const z of zeilen) {
+        if (z.aktion !== "fehlt" || !z.tier) continue;
+        const e = m.get(z.tier.key) || { key: z.tier.key, label: z.tier.label, anzahl: 0 };
+        e.anzahl++; m.set(z.tier.key, e);
+      }
+      return [...m.values()].sort((a, b) => b.anzahl - a.anzahl);
+    })(),
     zusammenfassung: {
       zuAendern: zeilen.filter(z => z.aktion === "aendern").length,
       davonScharf: zeilen.filter(z => z.aktion === "aendern" && z.sollState === "enabled").length,

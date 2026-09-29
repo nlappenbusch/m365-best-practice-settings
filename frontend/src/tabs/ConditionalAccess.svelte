@@ -537,6 +537,19 @@
   let tplAllowEnable = $state(false)
   let tplResult = $state(null)
 
+  let tplZeigeUnbetroffen = $state(false)
+
+  // Fuehrt zum bestehenden Ausroll-Ablauf, statt einen zweiten zu bauen:
+  // oeffnet die Vorschau des passenden Tiers und scrollt hin. Ring-Auswahl
+  // und Bestaetigung bleiben dort, wo sie geprueft sind.
+  function zumTierSpringen(tierKey) {
+    previewOpen = { ...previewOpen, [tierKey]: true }
+    setTimeout(() => {
+      const el = document.getElementById('ca-tier-' + tierKey)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 60)
+  }
+
   const AKTION_META = {
     'aendern': { label: 'wird geändert', cls: 'warn' },
     'unveraendert': { label: 'unverändert', cls: '' },
@@ -630,7 +643,7 @@
     <div class="settings-grid" style="margin-bottom:1.5rem;">
       {#each tierOrder as key}
         {@const t = tiers[key]}
-        <div class="policy-card" style="margin-bottom:0;">
+        <div class="policy-card" id={'ca-tier-' + key} style="margin-bottom:0;">
           <div class="policy-details active" style="display:block; padding:1rem 1.1rem;">
             <h4 style="margin-bottom:0.3rem;">{t.label}</h4>
             <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:0.5rem;">{t.description}</p>
@@ -979,7 +992,7 @@
       </div>
       {#each caTemplates.filter((t) => t.id === tplChosen) as t (t.id)}
         <small style="color:var(--text-dim);">
-          Quelle: {t.quelle?.tenantName || '—'}{#if t.notiz} · {t.notiz}{/if}
+          Quelle: {t.quelle?.tenantName || '—'}{#if t.notiz}&nbsp;· {t.notiz}{/if}
         </small>
       {/each}
     </div>
@@ -990,10 +1003,23 @@
         <span class="ld-job-meta">
           {tplCompare.zusammenfassung.zuAendern} zu ändern{#if tplCompare.zusammenfassung.davonScharf}&nbsp;· davon {tplCompare.zusammenfassung.davonScharf} scharf{/if} · {tplCompare.zusammenfassung.unveraendert} unverändert{#if tplCompare.zusammenfassung.fehlt}&nbsp;· {tplCompare.zusammenfassung.fehlt} fehlen{/if}
         </span>
+        {#if tplCompare.fehlendeTiers && tplCompare.fehlendeTiers.length}
+          <div class="ld-banner warn" style="margin:0.5rem 0; display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center;">
+            <span>
+              {tplCompare.zusammenfassung.fehlt} Policy(s) sind im Mandanten nicht vorhanden. Zuerst ausrollen — dann setzt die Vorlage die Zustände.
+            </span>
+            {#each tplCompare.fehlendeTiers as ft (ft.key)}
+              <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8rem;"
+                      onclick={() => zumTierSpringen(ft.key)}>
+                ↑ {ft.label} ausrollen ({ft.anzahl})
+              </button>
+            {/each}
+          </div>
+        {/if}
         <table class="ld-table" style="margin-top:0.4rem;">
           <thead><tr><th>Policy</th><th>Ist</th><th>Soll</th><th>Aktion</th></tr></thead>
           <tbody>
-            {#each tplCompare.zeilen as z (z.key + z.displayName)}
+            {#each tplCompare.zeilen.filter((z) => tplZeigeUnbetroffen || z.aktion !== 'nicht-in-vorlage') as z (z.key + z.displayName)}
               <tr>
                 <td>{z.displayName}</td>
                 <td>{z.istState ? (STATE_META[z.istState]?.label || z.istState) : '—'}</td>
@@ -1006,6 +1032,12 @@
             {/each}
           </tbody>
         </table>
+        {#if tplCompare.zeilen.some((z) => z.aktion === 'nicht-in-vorlage')}
+          <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem; margin-top:0.3rem;"
+                  onclick={() => tplZeigeUnbetroffen = !tplZeigeUnbetroffen}>
+            {tplZeigeUnbetroffen ? '− ' : '+ '}{tplCompare.zeilen.filter((z) => z.aktion === 'nicht-in-vorlage').length} Policy(s) im Mandanten, die die Vorlage nicht kennt
+          </button>
+        {/if}
 
         {#if tplCompare.zusammenfassung.zuAendern}
           <div class="ld-oib-target" style="margin-top:0.5rem;">
