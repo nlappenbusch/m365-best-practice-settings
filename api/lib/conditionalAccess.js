@@ -323,6 +323,6 @@ async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
 module.exports = {
   TIER_META, SUPPORT_GROUPS,
   ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName, supportGroupName,
-  substitutePolicy, listManagedPolicies, listAllPolicies, deletePolicy,
+  substitutePolicy, listManagedPolicies, listAllPolicies, deletePolicy, policyKey,
   deployTier, setPolicyState, setPolicyScope
 };

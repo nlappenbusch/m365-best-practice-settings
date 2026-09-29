@@ -58,6 +58,7 @@ const IBACKUP = require("./lib/intuneBackup");
 const DRIVEMAP = require("./lib/driveMapping");
 const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
+const CATEMPLATES = require("./lib/caTemplates");
 const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const SDPDB = require("./lib/sdpDb");
@@ -6769,6 +6770,60 @@ app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(asy
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
   await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, pilotGroupId);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// CA-Zustandsvorlagen: Ist-Zustand eines eingespielten Mandanten festhalten und
+// auf einem anderen nachziehen. Aendert nur Zustaende bestehender Policies —
+// angelegt wird weiterhin ausschliesslich ueber den Deploy, und zwar
+// report-only (siehe Leitplanken in lib/conditionalAccess.js).
+// ---------------------------------------------------------------------------
+
+app.get("/api/ca-templates", wrap(async (_req, res) => {
+  res.json({ ok: true, templates: CATEMPLATES.listTemplates(STATE_DIR) });
+}));
+
+app.get("/api/ca-templates/:templateId", wrap(async (req, res) => {
+  const doc = CATEMPLATES.loadTemplate(STATE_DIR, req.params.templateId);
+  if (!doc) return res.status(404).json({ error: "Vorlage nicht gefunden." });
+  res.json({ ok: true, template: doc });
+}));
+
+app.delete("/api/ca-templates/:templateId", wrap(async (req, res) => {
+  res.json({ ok: CATEMPLATES.deleteTemplate(STATE_DIR, req.params.templateId) });
+}));
+
+// Ist-Zustand des Mandanten als Vorlage sichern (rein lesend am Mandanten).
+app.post("/api/tenants/:id/conditionalaccess/capture-template", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const body = req.body || {};
+  const doc = await CATEMPLATES.captureTemplate(STATE_DIR, t, certPemPath(t.tenantId), {
+    name: body.name, id: body.id, notiz: body.notiz
+  });
+  res.json({ ok: true, template: doc });
+}));
+
+// Vorschau: was wuerde die Vorlage im Ziel-Mandanten aendern? Aendert nichts.
+app.post("/api/tenants/:id/conditionalaccess/compare-template", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const doc = CATEMPLATES.loadTemplate(STATE_DIR, String((req.body || {}).templateId || ""));
+  if (!doc) return res.status(404).json({ error: "Vorlage nicht gefunden." });
+  res.json({ ok: true, vergleich: await CATEMPLATES.compareToTemplate(t, certPemPath(t.tenantId), doc) });
+}));
+
+// Anwenden. Scharfschalten passiert nur mit allowEnable — sonst werden
+// ausschliesslich Zustaende gesetzt, die nichts erzwingen.
+app.post("/api/tenants/:id/conditionalaccess/apply-template", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const body = req.body || {};
+  const doc = CATEMPLATES.loadTemplate(STATE_DIR, String(body.templateId || ""));
+  if (!doc) return res.status(404).json({ error: "Vorlage nicht gefunden." });
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, ergebnis: { gesamt: 0, gesetzt: 0, ergebnisse: [] } });
+  const ergebnis = await CATEMPLATES.applyTemplateStates(t, certPemPath(t.tenantId), doc, {
+    allowEnable: body.allowEnable === true,
+    nurKeys: Array.isArray(body.nurKeys) ? body.nurKeys : null
+  });
+  res.json({ ok: true, ergebnis });
 }));
 
 // Loeschen ist unumkehrbar (anders als Deaktivieren/Report-only) -- bewusst
