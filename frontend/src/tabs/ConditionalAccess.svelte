@@ -132,6 +132,7 @@
     policiesError = null
     try {
       const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies`)
+      loadTemplates()
       supportGroups = r.supportGroups || []
       policies = r.policies || []
     } catch (e) {
@@ -520,6 +521,92 @@
   const managedCount = $derived(policies.filter(p => p.managed).length)
   const foreignCount = $derived(policies.length - managedCount)
   const activeCount = $derived(policies.filter(p => p.state === 'enabled').length)
+
+  // ---------------------------------------------------------------------
+  // Zustandsvorlagen: den erprobten Ist-Zustand eines Mandanten festhalten
+  // und auf einem anderen nachziehen. Legt nie Policies an — das bleibt dem
+  // Deploy vorbehalten, der weiterhin nur Report-only erzeugt.
+  // ---------------------------------------------------------------------
+  let caTemplates = $state([])
+  let tplError = $state(null)
+  let tplNewName = $state('')
+  let tplNewNote = $state('')
+  let tplBusy = $state(false)
+  let tplChosen = $state('')
+  let tplCompare = $state(null)
+  let tplAllowEnable = $state(false)
+  let tplResult = $state(null)
+
+  const AKTION_META = {
+    'aendern': { label: 'wird geändert', cls: 'warn' },
+    'unveraendert': { label: 'unverändert', cls: '' },
+    'fehlt': { label: 'fehlt im Mandanten', cls: 'warn' },
+    'uebersprungen': { label: 'übersprungen', cls: '' },
+    'nicht-in-vorlage': { label: 'nicht in Vorlage', cls: '' }
+  }
+
+  async function loadTemplates() {
+    tplError = null
+    try {
+      const r = await apiGet('/api/ca-templates')
+      caTemplates = r.templates || []
+    } catch (e) { tplError = e.message }
+  }
+
+  async function captureTemplate() {
+    if (!$activeTenant) return
+    const name = (tplNewName || '').trim() || ($activeTenant.name || 'Vorlage')
+    tplBusy = true; tplError = null; tplResult = null
+    try {
+      const r = await apiPost('/api/tenants/' + encodeURIComponent($activeTenant.id) + '/conditionalaccess/capture-template',
+        { name: name, notiz: tplNewNote })
+      const z = r.template && r.template.zusammenfassung ? r.template.zusammenfassung : {}
+      tplNewName = ''; tplNewNote = ''
+      await loadTemplates()
+      tplChosen = (r.template && r.template.id) || ''
+      tplResult = { text: 'Vorlage «' + ((r.template && r.template.name) || name) + '» gesichert: ' +
+        (z.verwaltet || 0) + ' Policies, davon ' + (z.aktiv || 0) + ' aktiv und ' + (z.reportOnly || 0) + ' im Report-only.' }
+    } catch (e) { tplError = e.message } finally { tplBusy = false }
+  }
+
+  async function compareTemplate() {
+    if (!$activeTenant || !tplChosen) return
+    tplBusy = true; tplError = null; tplCompare = null; tplResult = null
+    try {
+      const r = await apiPost('/api/tenants/' + encodeURIComponent($activeTenant.id) + '/conditionalaccess/compare-template',
+        { templateId: tplChosen })
+      tplCompare = r.vergleich
+    } catch (e) { tplError = e.message } finally { tplBusy = false }
+  }
+
+  async function applyTemplate() {
+    if (!$activeTenant || !tplChosen) return
+    const scharf = (tplCompare && tplCompare.zusammenfassung && tplCompare.zusammenfassung.davonScharf) || 0
+    if (tplAllowEnable && scharf) {
+      const warn = breakGlassEmpty ? ('\n\nACHTUNG: ' + bgName + ' ist leer — es gibt keinen Notfallzugriff!') : ''
+      const frage = scharf + ' Policy(s) werden scharf geschaltet und wirken sofort auf alle Anmeldungen im Geltungsbereich.' + warn + '\n\nFortfahren?'
+      if (!confirm(frage)) return
+    }
+    tplBusy = true; tplError = null
+    try {
+      const r = await apiPost('/api/tenants/' + encodeURIComponent($activeTenant.id) + '/conditionalaccess/apply-template',
+        { templateId: tplChosen, allowEnable: tplAllowEnable })
+      const e2 = r.ergebnis || {}
+      tplResult = { text: (e2.gesetzt || 0) + ' gesetzt, ' + (e2.uebersprungen || 0) + ' übersprungen, ' + (e2.fehler || 0) + ' Fehler.' }
+      await loadPolicies()
+      await compareTemplate()
+    } catch (e) { tplError = e.message } finally { tplBusy = false }
+  }
+
+  async function deleteTemplate(id) {
+    if (!confirm('Vorlage löschen? Der Mandant selbst wird dabei nicht verändert.')) return
+    tplBusy = true
+    try {
+      await fetch('/api/ca-templates/' + encodeURIComponent(id), { method: 'DELETE' })
+      if (tplChosen === id) { tplChosen = ''; tplCompare = null }
+      await loadTemplates()
+    } catch (e) { tplError = e.message } finally { tplBusy = false }
+  }
 </script>
 
 <TenantContext>
@@ -850,4 +937,100 @@
       {/each}
     </div>
   {/if}
+
+  <h4 style="margin-bottom:0.5rem;"><span class="step-n">4</span> Zustandsvorlagen</h4>
+  <div class="ld-job">
+    <div class="ld-job-head"><strong>Erprobten Zustand übernehmen</strong>
+      <span class="ld-job-meta">{caTemplates.length} Vorlage(n)</span></div>
+    <p class="ld-section-hint">
+      Nach dem Ausrollen liegt jede Policy im Report-only-Zustand. Welche davon in einem
+      eingespielten Mandanten tatsächlich scharf ist und welche bewusst im Beobachtungsmodus
+      bleibt, hält eine Vorlage fest. <b>Es werden ausschliesslich Zustände gesetzt</b> — Policies
+      werden dabei weder angelegt noch gelöscht, und fremde Policies bleiben unberührt.
+    </p>
+
+    {#if tplError}<div class="ld-banner fail" style="margin-bottom:0.5rem">{tplError}</div>{/if}
+
+    <div class="ld-step">
+      <b>Ist-Zustand dieses Mandanten sichern</b>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; margin-top:0.4rem;">
+        <input type="text" bind:value={tplNewName} placeholder="Name der Vorlage" style="min-width:12rem;" />
+        <input type="text" bind:value={tplNewNote} placeholder="Notiz (optional)" style="min-width:14rem;" />
+        <button class="btn btn-secondary" onclick={captureTemplate} disabled={tplBusy || !policies.length}>
+          Als Vorlage sichern
+        </button>
+      </div>
+      {#if !policies.length}<small style="color:var(--text-dim);">Erst Policies laden.</small>{/if}
+    </div>
+
+    <div class="ld-step">
+      <b>Vorlage auf diesen Mandanten anwenden</b>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; margin-top:0.4rem;">
+        <select bind:value={tplChosen} onchange={() => { tplCompare = null; tplResult = null }}>
+          <option value="">— Vorlage wählen —</option>
+          {#each caTemplates as t (t.id)}
+            <option value={t.id}>{t.name} · {t.zusammenfassung?.aktiv ?? 0} aktiv / {t.zusammenfassung?.reportOnly ?? 0} report-only</option>
+          {/each}
+        </select>
+        <button class="btn btn-secondary" onclick={compareTemplate} disabled={tplBusy || !tplChosen}>Vorschau</button>
+        {#if tplChosen}
+          <button class="ca-btn ca-btn-del" onclick={() => deleteTemplate(tplChosen)} disabled={tplBusy} title="Vorlage löschen">✕</button>
+        {/if}
+      </div>
+      {#each caTemplates.filter((t) => t.id === tplChosen) as t (t.id)}
+        <small style="color:var(--text-dim);">
+          Quelle: {t.quelle?.tenantName || '—'}{#if t.notiz} · {t.notiz}{/if}
+        </small>
+      {/each}
+    </div>
+
+    {#if tplCompare}
+      <div class="ld-step">
+        <b>Vorschau</b>
+        <span class="ld-job-meta">
+          {tplCompare.zusammenfassung.zuAendern} zu ändern{#if tplCompare.zusammenfassung.davonScharf}&nbsp;· davon {tplCompare.zusammenfassung.davonScharf} scharf{/if} · {tplCompare.zusammenfassung.unveraendert} unverändert{#if tplCompare.zusammenfassung.fehlt}&nbsp;· {tplCompare.zusammenfassung.fehlt} fehlen{/if}
+        </span>
+        <table class="ld-table" style="margin-top:0.4rem;">
+          <thead><tr><th>Policy</th><th>Ist</th><th>Soll</th><th>Aktion</th></tr></thead>
+          <tbody>
+            {#each tplCompare.zeilen as z (z.key + z.displayName)}
+              <tr>
+                <td>{z.displayName}</td>
+                <td>{z.istState ? (STATE_META[z.istState]?.label || z.istState) : '—'}</td>
+                <td>{z.sollState ? (STATE_META[z.sollState]?.label || z.sollState) : '—'}</td>
+                <td>
+                  <span class="tbadge {AKTION_META[z.aktion]?.cls || ''}">{AKTION_META[z.aktion]?.label || z.aktion}</span>
+                  {#if z.hinweis}<br /><small style="color:var(--text-dim);">{z.hinweis}</small>{/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+
+        {#if tplCompare.zusammenfassung.zuAendern}
+          <div class="ld-oib-target" style="margin-top:0.5rem;">
+            <label title="Ohne diesen Haken werden nur Zustände gesetzt, die nichts erzwingen.">
+              <input type="checkbox" bind:checked={tplAllowEnable} />
+              Scharfschalten erlauben{#if tplCompare.zusammenfassung.davonScharf}&nbsp;({tplCompare.zusammenfassung.davonScharf} Policy(s)){/if}
+            </label>
+            <button class="btn btn-primary" onclick={applyTemplate} disabled={tplBusy}
+                    title={breakGlassEmpty && tplAllowEnable ? 'Achtung: Notfallkonto-Gruppe ist leer!' : ''}>
+              {#if tplBusy}<span class="ld-spinner"></span>{/if}
+              Vorlage anwenden
+            </button>
+          </div>
+          {#if tplAllowEnable && breakGlassEmpty}
+            <div class="ld-banner fail" style="margin-top:0.4rem">
+              {bgName} ist leer — ohne Notfallkonto kann eine scharfe Policy den Mandanten aussperren.
+            </div>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+
+    {#if tplResult}
+      <div class="ld-banner ok" style="margin-top:0.5rem">{tplResult.text}</div>
+    {/if}
+  </div>
 </TenantContext>
+
