@@ -60,7 +60,58 @@
   let policies = $state([])
 
   let groups = $state([])
-  let pilotChoice = $state({}) // policyId -> groupId
+  let pilotChoice = $state({}) // policyId -> groupId (Bestandsfeld, Batch-Aktion)
+
+  // Geltungsbereich je Policy: Entra laesst Gruppen UND einzelne Benutzer zu,
+  // bisher konnte das Tool nur eine einzige Gruppe oder "alle". Fuer einen
+  // echten Pilotbetrieb mit zwei, drei Personen ist das zu grob.
+  let scopeMode = $state({})       // policyId -> 'alle' | 'auswahl'
+  let scopeGroups = $state({})     // policyId -> [groupId]
+  let scopeUsers = $state({})      // policyId -> [{ id, displayName, userPrincipalName }]
+  let scopeQuery = $state({})      // policyId -> Suchtext
+  let scopeHits = $state({})       // policyId -> Treffer
+  let scopeSearching = $state({})  // policyId -> bool
+
+  // Beim Aufklappen mit dem Ist-Zustand vorbelegen, statt leer zu starten -
+  // sonst setzt ein unbedachtes "Scope anwenden" den Bereich auf etwas, das
+  // niemand ausgewaehlt hat.
+  function scopeInit(p) {
+    if (scopeMode[p.id]) return
+    const grp = (p.scopeInclude || []).filter(e => e.art === 'gruppe').map(e => e.id)
+    const usr = (p.scopeInclude || []).filter(e => e.art === 'benutzer')
+      .map(e => ({ id: e.id, displayName: e.name, userPrincipalName: '' }))
+    scopeMode = { ...scopeMode, [p.id]: p.scopeAlleBenutzer ? 'alle' : 'auswahl' }
+    scopeGroups = { ...scopeGroups, [p.id]: grp }
+    scopeUsers = { ...scopeUsers, [p.id]: usr }
+  }
+
+  function toggleScopeGroup(p, gid) {
+    const cur = scopeGroups[p.id] || []
+    scopeGroups = { ...scopeGroups, [p.id]: cur.includes(gid) ? cur.filter(x => x !== gid) : [...cur, gid] }
+  }
+
+  async function scopeUserSearch(p) {
+    const q = (scopeQuery[p.id] || '').trim()
+    if (q.length < 2) { scopeHits = { ...scopeHits, [p.id]: [] }; return }
+    scopeSearching = { ...scopeSearching, [p.id]: true }
+    try {
+      const r = await apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/users?q=${encodeURIComponent(q)}`)
+      scopeHits = { ...scopeHits, [p.id]: r.users || [] }
+    } catch (e) {
+      scopeHits = { ...scopeHits, [p.id]: [] }
+    }
+    scopeSearching = { ...scopeSearching, [p.id]: false }
+  }
+
+  function scopeAddUser(p, u) {
+    const cur = scopeUsers[p.id] || []
+    if (!cur.some(x => x.id === u.id)) scopeUsers = { ...scopeUsers, [p.id]: [...cur, u] }
+    scopeQuery = { ...scopeQuery, [p.id]: '' }
+    scopeHits = { ...scopeHits, [p.id]: [] }
+  }
+  function scopeRemoveUser(p, id) {
+    scopeUsers = { ...scopeUsers, [p.id]: (scopeUsers[p.id] || []).filter(x => x.id !== id) }
+  }
 
   let deploying = $state(false)
   let jobId = $state(null)
@@ -273,12 +324,41 @@
   }
 
   async function applyScope(p) {
-    const groupId = pilotChoice[p.id] || null
-    const gname = groupId ? (groups.find(g => g.id === groupId)?.displayName || groupId) : 'Alle'
-    if (!confirm(`Scope von „${p.displayName}" auf „${gname}" setzen?`)) return
+    const modus = scopeMode[p.id] || 'alle'
+    const gids = scopeGroups[p.id] || []
+    const uids = (scopeUsers[p.id] || []).map(u => u.id)
+
+    if (modus === 'auswahl' && !gids.length && !uids.length) {
+      alert('Kein Ziel gewählt. Eine Policy ohne Include trifft niemanden — wähle mindestens eine Gruppe oder einen Benutzer, oder nimm „alle Benutzer".')
+      return
+    }
+
+    const teile = [
+      ...gids.map(id => groups.find(g => g.id === id)?.displayName || id),
+      ...(scopeUsers[p.id] || []).map(u => u.userPrincipalName || u.displayName)
+    ]
+    const beschreibung = modus === 'alle' ? 'alle Benutzer' : teile.join(', ')
+
+    // Die Ausnahmen bleiben, wie sie sind — das sagen wir hier ausdruecklich,
+    // weil die naheliegende Sorge beim Scope-Wechsel der Break-Glass-Ausschluss ist.
+    const bestehen = (p.scopeExclude || []).map(e => e.name).join(', ')
+    if (!confirm(
+      `Geltungsbereich von „${p.displayName}" setzen?
+
+` +
+      `Neu:  ${beschreibung}
+` +
+      `Bisher: ${p.scope}
+
+` +
+      (bestehen ? `Die Ausnahmen bleiben unberührt (${bestehen}).` : 'Diese Policy hat keine Ausnahmen.')
+    )) return
+
     actionBusy = { ...actionBusy, [p.id]: true }
     try {
-      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(p.id)}/scope`, { pilotGroupId: groupId })
+      await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/conditionalaccess/policies/${encodeURIComponent(p.id)}/scope`,
+        modus === 'alle' ? { alle: true } : { groupIds: gids, userIds: uids })
+      scopeMode = { ...scopeMode, [p.id]: undefined }  // beim naechsten Aufklappen neu vom Ist-Zustand lesen
       await loadPolicies()
     } catch (e) {
       alert('Fehler: ' + e.message)
@@ -909,24 +989,86 @@
                     </td>
                     <td class="ca-c-num">{p._parts.number || ''}</td>
                     <td class="ca-c-name">
-                      <button class="ca-name" onclick={() => (expandedRow[p.id] = !expandedRow[p.id])} title="Details und Scope ändern">
+                      <button class="ca-name" onclick={() => { expandedRow[p.id] = !expandedRow[p.id]; if (expandedRow[p.id]) scopeInit(p) }} title="Details und Geltungsbereich ändern">
                         {p._parts.rest || p.displayName}
                       </button>
                       {#if !p.managed}<span class="tbadge warn">fremd</span>{/if}
                       {#if expandedRow[p.id]}
                         <div class="ca-details">
                           <div class="ca-full">{p.displayName}</div>
-                          <div class="ld-oib-target" style="margin-top:0.4rem">
-                            <select bind:value={pilotChoice[p.id]}>
-                              <option value="">— Alle (kein Pilot) —</option>
-                              {#each groups as g (g.id)}<option value={g.id}>{g.displayName}</option>{/each}
-                            </select>
-                            <button class="btn btn-secondary" onclick={() => applyScope(p)} disabled={actionBusy[p.id]}>Scope anwenden</button>
+
+                          <div style="margin-top:0.5rem;">
+                            <b style="font-size:0.85rem;">Geltungsbereich</b>
+                            <div style="font-size:0.8rem; color:var(--text-dim); margin:0.2rem 0 0.4rem;">
+                              Aktuell: {p.scope}
+                            </div>
+
+                            <label style="display:block; font-size:0.85rem;">
+                              <input type="radio" value="alle" checked={(scopeMode[p.id] || 'alle') === 'alle'}
+                                     onchange={() => (scopeMode = { ...scopeMode, [p.id]: 'alle' })} />
+                              Alle Benutzer
+                            </label>
+                            <label style="display:block; font-size:0.85rem;">
+                              <input type="radio" value="auswahl" checked={scopeMode[p.id] === 'auswahl'}
+                                     onchange={() => (scopeMode = { ...scopeMode, [p.id]: 'auswahl' })} />
+                              Nur diese Gruppen und Benutzer
+                            </label>
+
+                            {#if scopeMode[p.id] === 'auswahl'}
+                              <div style="margin:0.4rem 0 0 1.2rem;">
+                                <div style="font-size:0.8rem; margin-bottom:0.2rem;">Sicherheitsgruppen</div>
+                                <div style="max-height:9rem; overflow:auto; border:1px solid var(--border, #ddd); border-radius:4px; padding:0.3rem;">
+                                  {#each groups as g (g.id)}
+                                    <label style="display:block; font-size:0.8rem;">
+                                      <input type="checkbox" checked={(scopeGroups[p.id] || []).includes(g.id)}
+                                             onchange={() => toggleScopeGroup(p, g.id)} />
+                                      {g.displayName}
+                                    </label>
+                                  {/each}
+                                </div>
+
+                                <div style="font-size:0.8rem; margin:0.5rem 0 0.2rem;">Einzelne Benutzer</div>
+                                {#each (scopeUsers[p.id] || []) as u (u.id)}
+                                  <div style="font-size:0.8rem;">
+                                    {u.displayName}{#if u.userPrincipalName}&nbsp;({u.userPrincipalName}){/if}
+                                    <button class="ca-btn" style="padding:0 0.3rem;" onclick={() => scopeRemoveUser(p, u.id)} title="Entfernen">✕</button>
+                                  </div>
+                                {/each}
+                                <div style="display:flex; gap:0.3rem; margin-top:0.2rem;">
+                                  <input type="text" placeholder="Name oder UPN suchen (ab 2 Zeichen)"
+                                         bind:value={scopeQuery[p.id]} style="font-size:0.8rem; min-width:14rem;"
+                                         onkeydown={(e) => { if (e.key === 'Enter') scopeUserSearch(p) }} />
+                                  <button class="btn btn-secondary" style="padding:0.15rem 0.5rem; font-size:0.78rem;"
+                                          onclick={() => scopeUserSearch(p)} disabled={scopeSearching[p.id]}>Suchen</button>
+                                </div>
+                                {#each (scopeHits[p.id] || []) as h (h.id)}
+                                  <div style="font-size:0.8rem;">
+                                    <button class="ca-btn" style="padding:0 0.3rem;" onclick={() => scopeAddUser(p, h)} title="Hinzufügen">+</button>
+                                    {h.displayName} ({h.userPrincipalName})
+                                  </div>
+                                {/each}
+                              </div>
+                            {/if}
+
+                            <div class="ld-oib-target" style="margin-top:0.5rem">
+                              <button class="btn btn-secondary" onclick={() => applyScope(p)} disabled={actionBusy[p.id]}>
+                                Geltungsbereich anwenden
+                              </button>
+                              <small style="color:var(--text-dim);">Ausnahmen bleiben unberührt.</small>
+                            </div>
                           </div>
                         </div>
                       {/if}
                     </td>
-                    <td class="ca-c-scope"><small>{p.scope}</small></td>
+                    <td class="ca-c-scope">
+                      <small>{p.scope}</small>
+                      <!-- "trifft niemanden" ist der stille Fehler: scharf im
+                           Portal, wirkungslos in der Praxis. Gehoert in die Liste,
+                           nicht in ein Detailpanel. -->
+                      {#each (p.scopeWarnungen || []).filter((w) => /trifft niemanden/.test(w)) as w}
+                        <br /><small style="color:var(--warn, #b45309);">⚠ {w}</small>
+                      {/each}
+                    </td>
                     <td class="ca-c-state"><span class="tbadge {st.cls}">{st.label}</span></td>
                     <td class="ca-c-act">
                       {#if p.state === 'enabled'}
@@ -1003,6 +1145,22 @@
         <span class="ld-job-meta">
           {tplCompare.zusammenfassung.zuAendern} zu ändern{#if tplCompare.zusammenfassung.davonScharf}&nbsp;· davon {tplCompare.zusammenfassung.davonScharf} scharf{/if} · {tplCompare.zusammenfassung.unveraendert} unverändert{#if tplCompare.zusammenfassung.fehlt}&nbsp;· {tplCompare.zusammenfassung.fehlt} fehlen{/if}
         </span>
+        <!-- Die zwei Zahlen, die den Unterschied machen: wie viele der scharf zu
+             schaltenden Policies den ganzen Mandanten treffen, und wie viele
+             scharf werden, ohne ueberhaupt jemanden zu treffen. -->
+        {#if tplCompare.zusammenfassung.davonScharfAlleBenutzer}
+          <div class="ld-banner warn" style="margin:0.5rem 0;">
+            {tplCompare.zusammenfassung.davonScharfAlleBenutzer} der {tplCompare.zusammenfassung.davonScharf} scharf zu schaltenden Policies gelten für
+            <b>alle Benutzer</b> — es gibt dort keinen Pilotkreis. Wer stufenweise vorgehen will,
+            setzt vorher in der Policy-Liste oben den Geltungsbereich auf eine Gruppe.
+          </div>
+        {/if}
+        {#if tplCompare.zusammenfassung.davonScharfOhneWirkung}
+          <div class="ld-banner warn" style="margin:0.5rem 0;">
+            {tplCompare.zusammenfassung.davonScharfOhneWirkung} Policy(s) würden scharf geschaltet, treffen aber
+            <b>niemanden</b> — leere Zielgruppe oder kein Include. Scharf im Portal, wirkungslos in der Praxis.
+          </div>
+        {/if}
         {#if tplCompare.fehlendeTiers && tplCompare.fehlendeTiers.length}
           <div class="ld-banner warn" style="margin:0.5rem 0; display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center;">
             <span>
@@ -1017,13 +1175,26 @@
           </div>
         {/if}
         <table class="ld-table" style="margin-top:0.4rem;">
-          <thead><tr><th>Policy</th><th>Ist</th><th>Soll</th><th>Aktion</th></tr></thead>
+          <thead><tr><th>Policy</th><th>Ist</th><th>Soll</th><th>Geltungsbereich</th><th>Aktion</th></tr></thead>
           <tbody>
             {#each tplCompare.zeilen.filter((z) => tplZeigeUnbetroffen || z.aktion !== 'nicht-in-vorlage') as z (z.key + z.displayName)}
               <tr>
                 <td>{z.displayName}</td>
                 <td>{z.istState ? (STATE_META[z.istState]?.label || z.istState) : '—'}</td>
                 <td>{z.sollState ? (STATE_META[z.sollState]?.label || z.sollState) : '—'}</td>
+                <td class="ca-c-scope">
+                  {#if z.scope}
+                    <small>{z.scope.text}</small>
+                    {#each (z.scope.warnungen || []) as w}
+                      <br /><small style="color:var(--warn, #b45309);">{w}</small>
+                    {/each}
+                    {#if z.quelleScopeText && z.quelleScopeText !== z.scope.text}
+                      <br /><small style="color:var(--text-dim);">In der Quelle: {z.quelleScopeText} — Geltungsbereiche werden nicht übertragen.</small>
+                    {/if}
+                  {:else}
+                    <small style="color:var(--text-dim);">— (Policy nicht vorhanden)</small>
+                  {/if}
+                </td>
                 <td>
                   <span class="tbadge {AKTION_META[z.aktion]?.cls || ''}">{AKTION_META[z.aktion]?.label || z.aktion}</span>
                   {#if z.hinweis}<br /><small style="color:var(--text-dim);">{z.hinweis}</small>{/if}

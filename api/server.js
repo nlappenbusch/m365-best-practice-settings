@@ -6633,10 +6633,32 @@ function fakeCaPolicies() {
       { key: "ring:PILOT", name: "AAD-CA-RING-PILOT", id: "ca-g5", exists: true, memberCount: 0 }
     ],
     policies: [
-      { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins", state: "enabledForReportingButNotEnforced", scope: "Rollen: Admins", managed: true },
-      { id: "ca-p2", displayName: "200 - PILOT - Base protection - All apps: Require Strong Auth or trusted device or trusted location", state: "enabledForReportingButNotEnforced", scope: "AAD-CA-RING-PILOT", managed: true },
-      { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients", state: "enabled", scope: "Alle", managed: true },
-      { id: "ca-p4", displayName: "Legacy - Block Legacy Auth (manuell im Portal angelegt)", state: "enabled", scope: "Alle", managed: false }
+      { id: "ca-p1", displayName: "100 - PILOT - Admin protection - All apps: Require Strong Auth For admins",
+        state: "enabledForReportingButNotEnforced",
+        scope: "Rolle: Globaler Administrator — ohne AAD-CA-BreakGlass (LEER)",
+        scopeInclude: [{ art: "rolle", id: "r1", name: "Globaler Administrator" }],
+        scopeExclude: [{ art: "gruppe", id: "ca-g1", name: "AAD-CA-BreakGlass", mitglieder: 0 }],
+        scopeAlleBenutzer: false, scopeWarnungen: [], managed: true },
+      { id: "ca-p2", displayName: "200 - PILOT - Base protection - All apps: Require Strong Auth or trusted device or trusted location",
+        state: "enabledForReportingButNotEnforced",
+        scope: "AAD-CA-RING-PILOT (LEER) — ohne AAD-CA-BreakGlass (LEER)",
+        scopeInclude: [{ art: "gruppe", id: "ca-g5", name: "AAD-CA-RING-PILOT", mitglieder: 0 }],
+        scopeExclude: [{ art: "gruppe", id: "ca-g1", name: "AAD-CA-BreakGlass", mitglieder: 0 }],
+        scopeAlleBenutzer: false,
+        scopeWarnungen: ["Zielgruppe leer: AAD-CA-RING-PILOT — die Policy trifft niemanden."], managed: true },
+      { id: "ca-p3", displayName: "300 - BP - Attack surface reduction - All apps: Block access When using other clients",
+        state: "enabled",
+        scope: "alle Benutzer — ohne AAD-CA-BreakGlass (LEER), AAD-CA-SyncAccounts (1)",
+        scopeInclude: [{ art: "pseudo", id: "All", name: "alle Benutzer" }],
+        scopeExclude: [{ art: "gruppe", id: "ca-g1", name: "AAD-CA-BreakGlass", mitglieder: 0 },
+                       { art: "gruppe", id: "ca-g2", name: "AAD-CA-SyncAccounts", mitglieder: 1 }],
+        scopeAlleBenutzer: true,
+        scopeWarnungen: ["Gilt für ALLE Benutzer — Scharfschalten wirkt sofort auf den ganzen Mandanten."], managed: true },
+      { id: "ca-p4", displayName: "Legacy - Block Legacy Auth (manuell im Portal angelegt)",
+        state: "enabled", scope: "alle Benutzer",
+        scopeInclude: [{ art: "pseudo", id: "All", name: "alle Benutzer" }], scopeExclude: [],
+        scopeAlleBenutzer: true,
+        scopeWarnungen: ["Gilt für ALLE Benutzer — Scharfschalten wirkt sofort auf den ganzen Mandanten."], managed: false }
     ]
   };
 }
@@ -6669,6 +6691,7 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
     GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true })
   ]);
   const groupName = new Map(groups.map(g => [g.id, g.displayName]));
+  const scopeLookup = await CONDACCESS.buildScopeLookup(t, cert, policies, { groups });
   const countMembers = async (groupId) => {
     try { return (await GRAPHLIB.graphAllPages(t, cert, `/groups/${groupId}/members?$select=id`, { retryTransient: true })).length; }
     catch (e) { return 0; /* ein Zaehlfehler darf die Liste nicht kippen */ }
@@ -6701,11 +6724,17 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
     ok: true,
     supportGroups,
     policies: policies.map(p => {
-      const u = (p.conditions && p.conditions.users) || {};
-      const scope = (u.includeGroups || []).length ? (u.includeGroups.map(id => groupName.get(id) || id).join(", "))
-        : (u.includeRoles || []).length ? "Rollen (" + u.includeRoles.length + ")"
-        : "Alle";
-      return { id: p.id, displayName: p.displayName, state: p.state, scope, managed: !!p.managed };
+      // describeScope loest BEIDE Seiten auf. Die alte Kurzform zeigte nur die
+      // Includes und meldete bei includeUsers=["All"] schlicht "Alle" — die
+      // Break-Glass-Ausnahmen blieben unsichtbar, und eine leere Zielgruppe sah
+      // aus wie ein gesetzter Scope.
+      const sc = CONDACCESS.describeScope(p, scopeLookup);
+      return {
+        id: p.id, displayName: p.displayName, state: p.state,
+        scope: sc.text, scopeInclude: sc.include, scopeExclude: sc.exclude,
+        scopeAlleBenutzer: sc.alleBenutzer, scopeWarnungen: sc.warnungen,
+        managed: !!p.managed
+      };
     })
   });
 }));
@@ -6766,10 +6795,31 @@ app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/state", wrap(asy
 
 app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(async (req, res) => {
   const t = requireTenant(req);
-  const pilotGroupId = (req.body || {}).pilotGroupId || null;
+  const b = req.body || {};
+  // Drei Aufrufformen, damit aeltere Clients weiterlaufen:
+  //   { pilotGroupId: "<id>" | null }        - bisherige Form
+  //   { alle: true }                         - zurueck auf alle Benutzer
+  //   { groupIds: [...], userIds: [...] }    - Gruppen und/oder einzelne Benutzer
+  let ziel;
+  if (Array.isArray(b.groupIds) || Array.isArray(b.userIds) || b.alle === true || b.all === true) {
+    ziel = { alle: b.alle === true || b.all === true,
+             groupIds: Array.isArray(b.groupIds) ? b.groupIds : [],
+             userIds: Array.isArray(b.userIds) ? b.userIds : [] };
+  } else {
+    ziel = b.pilotGroupId || null;
+  }
   if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true });
-  await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, pilotGroupId);
-  res.json({ ok: true });
+  try {
+    const r = await CONDACCESS.setPolicyScope(t, certPemPath(t.tenantId), req.params.policyId, ziel);
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    // Ein leerer oder widerspruechlicher Geltungsbereich ist ein Bedienfehler,
+    // kein Serverfehler — als 400 melden, damit die UI den Text zeigt.
+    if (/Geltungsbereich leer|schliessen sich aus/.test(String(e.message || ""))) {
+      return res.status(400).json({ error: e.message });
+    }
+    throw e;
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -6797,8 +6847,10 @@ app.delete("/api/ca-templates/:templateId", wrap(async (req, res) => {
 app.post("/api/tenants/:id/conditionalaccess/capture-template", wrap(async (req, res) => {
   const t = requireTenant(req);
   const body = req.body || {};
-  const doc = await CATEMPLATES.captureTemplate(STATE_DIR, t, certPemPath(t.tenantId), {
-    name: body.name, id: body.id, notiz: body.notiz
+  const cert = certPemPath(t.tenantId);
+  const groups = await GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true });
+  const doc = await CATEMPLATES.captureTemplate(STATE_DIR, t, cert, {
+    name: body.name, id: body.id, notiz: body.notiz, groups
   });
   res.json({ ok: true, template: doc });
 }));
@@ -6808,7 +6860,9 @@ app.post("/api/tenants/:id/conditionalaccess/compare-template", wrap(async (req,
   const t = requireTenant(req);
   const doc = CATEMPLATES.loadTemplate(STATE_DIR, String((req.body || {}).templateId || ""));
   if (!doc) return res.status(404).json({ error: "Vorlage nicht gefunden." });
-  res.json({ ok: true, vergleich: await CATEMPLATES.compareToTemplate(t, certPemPath(t.tenantId), doc) });
+  const cert = certPemPath(t.tenantId);
+  const groups = await GRAPHLIB.graphAllPages(t, cert, "/groups?$select=id,displayName", { retryTransient: true });
+  res.json({ ok: true, vergleich: await CATEMPLATES.compareToTemplate(t, cert, doc, { groups }) });
 }));
 
 // Anwenden. Scharfschalten passiert nur mit allowEnable — sonst werden

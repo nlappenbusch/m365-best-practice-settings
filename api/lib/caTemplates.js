@@ -99,13 +99,24 @@ async function captureTemplate(stateDir, tenant, certPemPath, opts = {}) {
 
   const policies = await CA.listAllPolicies(tenant, certPemPath);
 
-  const eintraege = policies.map(p => ({
-    key: CA.policyKey(p.displayName),
-    displayName: p.displayName,
-    state: p.state,
-    managed: !!p.managed,
-    tier: p.managed ? tierFuerPolicy(p.displayName) : null
-  })).sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), "de"));
+  // Geltungsbereich der Quelle wird MITGESCHRIEBEN, aber NIE angewendet:
+  // Gruppen- und Benutzer-Ids sind pro Mandant verschieden, eine uebertragene
+  // Id zeigt im Ziel auf nichts oder — schlimmer — auf etwas anderes. Er dient
+  // allein dem Vergleich: "in der Quelle galt die Policy fuer X, hier fuer Y".
+  const lookup = await CA.buildScopeLookup(tenant, certPemPath, policies, { groups: opts.groups });
+
+  const eintraege = policies.map(p => {
+    const sc = CA.describeScope(p, lookup);
+    return {
+      key: CA.policyKey(p.displayName),
+      displayName: p.displayName,
+      state: p.state,
+      managed: !!p.managed,
+      tier: p.managed ? tierFuerPolicy(p.displayName) : null,
+      scopeText: sc.text,
+      scopeAlleBenutzer: sc.alleBenutzer
+    };
+  }).sort((a, b) => String(a.displayName).localeCompare(String(b.displayName), "de"));
 
   const verwaltet = eintraege.filter(e => e.managed);
   const doc = {
@@ -168,10 +179,20 @@ function deleteTemplate(stateDir, id) {
  * Liefert je Policy, was passieren wuerde — Grundlage fuer die Anzeige vor
  * dem Anwenden.
  */
-async function compareToTemplate(tenant, certPemPath, template) {
+async function compareToTemplate(tenant, certPemPath, template, opts = {}) {
   const vorhanden = await CA.listAllPolicies(tenant, certPemPath);
   const nachKey = new Map();
   for (const p of vorhanden) nachKey.set(CA.policyKey(p.displayName), p);
+
+  // Wen trifft es? Ohne diese Angabe sagt die Vorschau nur, DASS eine Policy
+  // scharf wird, nicht WEN sie erwischt — und das ist die Frage, die vor dem
+  // Klick zaehlt.
+  const lookup = await CA.buildScopeLookup(tenant, certPemPath, vorhanden, { groups: opts.groups });
+  const scopeVon = (p) => {
+    const sc = CA.describeScope(p, lookup);
+    return { text: sc.text, alleBenutzer: sc.alleBenutzer, warnungen: sc.warnungen,
+             include: sc.include, exclude: sc.exclude };
+  };
 
   const zeilen = [];
   for (const soll of (template.policies || [])) {
@@ -193,6 +214,7 @@ async function compareToTemplate(tenant, certPemPath, template) {
       zeilen.push({
         key: soll.key, displayName: ist.displayName,
         sollState: soll.state, istState: ist.state,
+        scope: scopeVon(ist), quelleScopeText: soll.scopeText || null,
         aktion: "uebersprungen", hinweis: "Policy folgt nicht dem eigenen Namensschema — wird nicht angefasst."
       });
       continue;
@@ -201,16 +223,19 @@ async function compareToTemplate(tenant, certPemPath, template) {
       zeilen.push({
         key: soll.key, displayName: ist.displayName, policyId: ist.id,
         sollState: soll.state, istState: ist.state,
+        scope: scopeVon(ist), quelleScopeText: soll.scopeText || null,
         aktion: "unveraendert", hinweis: ""
       });
       continue;
     }
+    const sc = scopeVon(ist);
     zeilen.push({
       key: soll.key, displayName: ist.displayName, policyId: ist.id,
       sollState: soll.state, istState: ist.state,
+      scope: sc, quelleScopeText: soll.scopeText || null,
       aktion: "aendern",
       hinweis: soll.state === "enabled"
-        ? "Schaltet die Policy scharf — wirkt sofort auf alle Anmeldungen im Geltungsbereich."
+        ? `Schaltet die Policy scharf — wirkt dann auf: ${sc.text}.`
         : ""
     });
   }
@@ -223,6 +248,7 @@ async function compareToTemplate(tenant, certPemPath, template) {
     zeilen.push({
       key: k, displayName: p.displayName, policyId: p.id,
       sollState: null, istState: p.state,
+      scope: scopeVon(p), quelleScopeText: null,
       aktion: "nicht-in-vorlage",
       hinweis: "Im Ziel vorhanden, in der Vorlage nicht enthalten — bleibt unberuehrt."
     });
@@ -240,12 +266,21 @@ async function compareToTemplate(tenant, certPemPath, template) {
       }
       return [...m.values()].sort((a, b) => b.anzahl - a.anzahl);
     })(),
-    zusammenfassung: {
-      zuAendern: zeilen.filter(z => z.aktion === "aendern").length,
-      davonScharf: zeilen.filter(z => z.aktion === "aendern" && z.sollState === "enabled").length,
-      fehlt: zeilen.filter(z => z.aktion === "fehlt").length,
-      unveraendert: zeilen.filter(z => z.aktion === "unveraendert").length
-    }
+    zusammenfassung: (() => {
+      const scharf = zeilen.filter(z => z.aktion === "aendern" && z.sollState === "enabled");
+      return {
+        zuAendern: zeilen.filter(z => z.aktion === "aendern").length,
+        davonScharf: scharf.length,
+        // Die Zahl, die vor dem Klick zaehlt: wie viele der scharfzuschaltenden
+        // Policies gelten fuer ALLE Benutzer statt fuer einen Pilotkreis.
+        davonScharfAlleBenutzer: scharf.filter(z => z.scope && z.scope.alleBenutzer).length,
+        // Und die Gegenprobe: Policies, die scharf werden, aber niemanden treffen.
+        davonScharfOhneWirkung: scharf.filter(z => z.scope && z.scope.warnungen
+          && z.scope.warnungen.some(w => /trifft niemanden/.test(w))).length,
+        fehlt: zeilen.filter(z => z.aktion === "fehlt").length,
+        unveraendert: zeilen.filter(z => z.aktion === "unveraendert").length
+      };
+    })()
   };
 }
 

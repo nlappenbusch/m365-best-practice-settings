@@ -1,5 +1,43 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.61 - Geltungsbereich sichtbar machen, Scope auf Gruppen und Benutzer (2026-10-01)
+
+Die Vorlagen-Vorschau zeigte, **dass** eine Policy scharf geschaltet wird, aber nicht,
+**wen** sie trifft. Bei PSP standen alle 21 Policies auf `includeUsers: ["All"]` — der
+Name "PILOT" versprach einen Pilotkreis, den es nicht gab. Ein Klick auf
+"Scharfschalten erlauben" haette alle vier produktiven Benutzer gleichzeitig erwischt,
+ohne dass das irgendwo stand.
+
+Dazu kam eine zweite Luecke in dieselbe Richtung: Die Scope-Spalte der Policy-Liste
+zeigte nur die Include-Seite und meldete bei `includeUsers: ["All"]` schlicht "Alle".
+Die **Ausnahmen** — also genau die Break-Glass- und Sync-Konten-Ausschluesse, auf denen
+die Sicherheit beim Scharfschalten beruht — waren unsichtbar. Eine Policy, die auf eine
+**leere** Gruppe zeigt, sah aus wie eine mit gesetztem Scope.
+
+- **`describeScope()`** (lib/conditionalAccess.js) loest beide Seiten auf: Benutzer,
+  Gruppen und Rollen fuer Include **und** Exclude, mit Namen statt GUIDs und mit der
+  **Mitgliederzahl** je Gruppe. Geloeschte Benutzer, die als Id in einer Policy
+  stehenbleiben, werden als solche benannt statt als nackte GUID gezeigt.
+- **Zwei Warnungen**, die bisher nirgends standen: "Gilt fuer ALLE Benutzer" und
+  "trifft niemanden" (leere Zielgruppe oder gar kein Include). Die zweite ist der
+  stillere Fehler — scharf im Portal, wirkungslos in der Praxis.
+- **Vorlagen-Vorschau** hat eine Spalte **Geltungsbereich**, und die Zusammenfassung
+  nennt jetzt zwei Zahlen vor dem Klick: wie viele der scharfzuschaltenden Policies
+  **alle Benutzer** treffen, und wie viele **niemanden**.
+- Der Geltungsbereich der Quelle wird in der Vorlage **mitgeschrieben, aber nie
+  angewendet** — Gruppen- und Benutzer-Ids sind pro Mandant verschieden. Er dient nur
+  dem Vergleich ("in der Quelle galt sie fuer X, hier fuer Y").
+- **Scope setzen auf Gruppen UND einzelne Benutzer.** Bisher ging genau eine Gruppe
+  oder "alle" — fuer einen echten Pilotbetrieb mit zwei, drei Personen zu grob.
+  Mehrfachauswahl bei Gruppen, Benutzersuche fuer Einzelpersonen. Die Route nimmt
+  weiterhin die alte Form `{ pilotGroupId }` entgegen.
+- **Ein leerer Geltungsbereich wird abgewiesen** (HTTP 400 statt stiller Erfolg). Eine
+  Policy ohne Include trifft niemanden; das ist fast immer ein Bedienfehler und waere
+  hinterher schwer zu bemerken.
+- Die **Ausnahmen bleiben beim Scope-Wechsel unberuehrt** — unveraendert gegenueber
+  vorher, aber jetzt steht es im Bestaetigungsdialog, weil genau das die Sorge ist.
+
+
 ## Version 2.60 - Bestandsaufnahme: Blueprint-Lizenzen wurden zu hoch gezaehlt (2026-09-24)
 
 Die Beobachtung "Blueprint-Lizenzen fehlen fuer einen Teil der Belegschaft" pruefte mit

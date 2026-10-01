@@ -295,6 +295,146 @@ async function setPolicyState(tenant, certPemPath, policyId, state) {
   await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccess/policies/${policyId}`, { state }, { retryTransient: true });
 }
 
+/* -------------------------------------------------------------------------
+ * Geltungsbereich: wen trifft eine Policy?
+ *
+ * Wozu: Die Policy-Liste zeigte bisher nur die Include-Seite und bei
+ * includeUsers=["All"] schlicht "Alle" — die AUSNAHMEN blieben unsichtbar.
+ * Genau die sind aber der Unterschied zwischen "trifft alle" und "trifft alle
+ * ausser Break-Glass und Sync-Konten". Wer vor dem Scharfschalten wissen will,
+ * wen es erwischt, braucht beide Seiten. Und die Vorlagen-Vorschau zeigte den
+ * Geltungsbereich gar nicht, obwohl sie Policies scharf schalten kann.
+ * ------------------------------------------------------------------------- */
+
+/** Pseudo-Ids, die Entra in includeUsers/excludeUsers zulaesst. */
+const PSEUDO_USER = {
+  All: "alle Benutzer",
+  None: "niemand",
+  GuestsOrExternalUsers: "Gäste und externe Benutzer"
+};
+
+function alsListe(x) { return Array.isArray(x) ? x.filter(Boolean) : []; }
+
+/**
+ * Namensnachschlag fuer die Ids, die in den Policies vorkommen. Bewusst nur
+ * fuer die TATSAECHLICH referenzierten Benutzer — ein Mandant kann tausende
+ * haben, und fuer die Anzeige braucht es nur die paar aus den Ausnahmen.
+ * Rollen kommen vollstaendig, das sind wenige.
+ */
+async function buildScopeLookup(tenant, certPemPath, policies, opts = {}) {
+  const gruppen = new Map(alsListe(opts.groups).map(g => [g.id, g.displayName]));
+  const rollen = new Map();
+  const benutzer = new Map();
+
+  const brauchtRollen = policies.some(p => {
+    const u = (p.conditions && p.conditions.users) || {};
+    return alsListe(u.includeRoles).length || alsListe(u.excludeRoles).length;
+  });
+  if (brauchtRollen) {
+    try {
+      // directoryRoleTemplates deckt auch Rollen ab, die im Mandanten nie
+      // aktiviert wurden — in einer Policy darf eine solche Id trotzdem stehen.
+      const tmpl = await graphAllPages(tenant, certPemPath, "/directoryRoleTemplates?$select=id,displayName", { retryTransient: true });
+      for (const r of tmpl) rollen.set(r.id, r.displayName);
+    } catch { /* ohne Namen zeigen wir die Id — besser als nichts */ }
+  }
+
+  const userIds = new Set();
+  for (const p of policies) {
+    const u = (p.conditions && p.conditions.users) || {};
+    for (const id of [...alsListe(u.includeUsers), ...alsListe(u.excludeUsers)]) {
+      if (!PSEUDO_USER[id]) userIds.add(id);
+    }
+  }
+  for (const id of userIds) {
+    try {
+      const u = await graphReq(tenant, certPemPath, "GET",
+        `/users/${encodeURIComponent(id)}?$select=id,displayName,userPrincipalName`, null, { retryTransient: true });
+      benutzer.set(id, u.userPrincipalName ? `${u.displayName} (${u.userPrincipalName})` : u.displayName);
+    } catch {
+      // Ein geloeschter Benutzer bleibt als Id in der Policy stehen. Das ist
+      // ein Befund, kein Fehler — also benennen statt verschweigen.
+      benutzer.set(id, `${id} (nicht auffindbar, evtl. gelöscht)`);
+    }
+  }
+
+  // Leere Gruppen sind der haeufigste stille Fehler: eine Policy, die auf eine
+  // leere Pilotgruppe zeigt, trifft NIEMANDEN und sieht trotzdem scharf aus.
+  const mitglieder = new Map();
+  const gruppenIds = new Set();
+  for (const p of policies) {
+    const u = (p.conditions && p.conditions.users) || {};
+    for (const id of [...alsListe(u.includeGroups), ...alsListe(u.excludeGroups)]) gruppenIds.add(id);
+  }
+  for (const id of gruppenIds) {
+    try {
+      const m = await graphAllPages(tenant, certPemPath, `/groups/${id}/members?$select=id`, { retryTransient: true });
+      mitglieder.set(id, m.length);
+    } catch { /* Zaehlfehler darf die Anzeige nicht kippen */ }
+  }
+
+  return { gruppen, rollen, benutzer, mitglieder };
+}
+
+/** Eine Seite (include oder exclude) in benannte Eintraege aufloesen. */
+function seiteAufloesen(users, groups, roles, lookup) {
+  const out = [];
+  for (const id of alsListe(users)) {
+    out.push(PSEUDO_USER[id]
+      ? { art: "pseudo", id, name: PSEUDO_USER[id] }
+      : { art: "benutzer", id, name: (lookup.benutzer.get(id) || id) });
+  }
+  for (const id of alsListe(groups)) {
+    const anzahl = lookup.mitglieder.has(id) ? lookup.mitglieder.get(id) : null;
+    out.push({ art: "gruppe", id, name: (lookup.gruppen.get(id) || id), mitglieder: anzahl });
+  }
+  for (const id of alsListe(roles)) {
+    out.push({ art: "rolle", id, name: (lookup.rollen.get(id) || id) });
+  }
+  return out;
+}
+
+function eintragText(e) {
+  if (e.art === "gruppe" && e.mitglieder === 0) return `${e.name} (LEER)`;
+  if (e.art === "gruppe" && typeof e.mitglieder === "number") return `${e.name} (${e.mitglieder})`;
+  if (e.art === "rolle") return `Rolle: ${e.name}`;
+  return e.name;
+}
+
+/**
+ * Geltungsbereich einer Policy beschreiben — strukturiert und als Text.
+ * lookup kommt aus buildScopeLookup(); ohne lookup werden rohe Ids gezeigt.
+ */
+function describeScope(policy, lookup) {
+  const lk = lookup || { gruppen: new Map(), rollen: new Map(), benutzer: new Map(), mitglieder: new Map() };
+  const u = (policy.conditions && policy.conditions.users) || {};
+
+  const include = seiteAufloesen(u.includeUsers, u.includeGroups, u.includeRoles, lk);
+  const exclude = seiteAufloesen(u.excludeUsers, u.excludeGroups, u.excludeRoles, lk);
+
+  const alleBenutzer = alsListe(u.includeUsers).includes("All");
+  const nurGaeste = alsListe(u.includeUsers).includes("GuestsOrExternalUsers") && !alleBenutzer;
+
+  const incText = include.length ? include.map(eintragText).join(", ") : "niemand (kein Include gesetzt)";
+  const excText = exclude.length ? exclude.map(eintragText).join(", ") : null;
+  const text = excText ? `${incText} — ohne ${excText}` : incText;
+
+  // Die zwei Faelle, in denen eine Policy anders wirkt als ihr Name verspricht.
+  const warnungen = [];
+  if (!include.length) {
+    warnungen.push("Kein Include gesetzt — die Policy trifft niemanden, auch scharf geschaltet nicht.");
+  }
+  const leereIncludeGruppen = include.filter(e => e.art === "gruppe" && e.mitglieder === 0);
+  if (leereIncludeGruppen.length && !alleBenutzer) {
+    warnungen.push(`Zielgruppe leer: ${leereIncludeGruppen.map(e => e.name).join(", ")} — die Policy trifft niemanden.`);
+  }
+  if (alleBenutzer) {
+    warnungen.push("Gilt für ALLE Benutzer — Scharfschalten wirkt sofort auf den ganzen Mandanten.");
+  }
+
+  return { text, include, exclude, alleBenutzer, nurGaeste, warnungen };
+}
+
 /**
  * Nutzer-Scope einer Policy auf eine Pilotgruppe einschraenken oder auf "Alle"
  * zuruecksetzen. Liest die Policy VOLLSTAENDIG aus und schickt beim Update das
@@ -305,24 +445,57 @@ async function setPolicyState(tenant, certPemPath, policyId, state) {
  * verlassen (ein unbeabsichtigt geleertes excludeGroups wuerde die Break-
  * Glass-/Sync-Konten-Ausschluesse aufheben).
  */
-async function setPolicyScope(tenant, certPemPath, policyId, pilotGroupId) {
+async function setPolicyScope(tenant, certPemPath, policyId, ziel) {
+  // Rueckwaertskompatibel: frueher kam hier eine einzelne Gruppen-Id oder null.
+  let soll;
+  if (ziel === null || ziel === undefined || ziel === "") {
+    soll = { alle: true, groupIds: [], userIds: [] };
+  } else if (typeof ziel === "string") {
+    soll = { alle: false, groupIds: [ziel], userIds: [] };
+  } else {
+    soll = {
+      alle: ziel.alle === true || ziel.all === true,
+      groupIds: alsListe(ziel.groupIds),
+      userIds: alsListe(ziel.userIds)
+    };
+  }
+
+  // Ein Scope ohne Include trifft niemanden. Das ist fast immer ein Versehen
+  // (Gruppe im Dialog nicht gewaehlt) und waere hinterher schwer zu bemerken,
+  // weil die Policy scharf aussieht und nichts tut.
+  if (!soll.alle && !soll.groupIds.length && !soll.userIds.length) {
+    throw new Error("Geltungsbereich leer: mindestens eine Gruppe, ein Benutzer oder «alle Benutzer» angeben.");
+  }
+  if (soll.alle && (soll.groupIds.length || soll.userIds.length)) {
+    throw new Error("«Alle Benutzer» und eine Auswahl schliessen sich aus — Entra wertet dann nur «alle» aus.");
+  }
+
   const current = await graphReq(tenant, certPemPath, "GET", `/identity/conditionalAccess/policies/${policyId}`, null, { retryTransient: true });
   const conditions = JSON.parse(JSON.stringify(current.conditions || {}));
   conditions.users = conditions.users || {};
-  if (pilotGroupId) {
-    conditions.users.includeUsers = [];
-    conditions.users.includeGroups = [pilotGroupId];
-  } else {
+
+  if (soll.alle) {
+    // Rollen-Policies (Admin-Schutz) haben kein includeUsers — dort wuerde
+    // "All" den Rollenbezug aushebeln und die Policy auf jeden ausweiten.
     conditions.users.includeUsers = (conditions.users.includeRoles || []).length ? [] : ["All"];
     conditions.users.includeGroups = [];
+  } else {
+    conditions.users.includeUsers = soll.userIds;
+    conditions.users.includeGroups = soll.groupIds;
   }
+
+  // Die Ausnahmen bleiben unberuehrt. Sie tragen die Break-Glass- und
+  // Sync-Konten-Ausschluesse; ein geleertes excludeGroups wuerde den
+  // Notfallzugang mit aussperren.
   await graphReq(tenant, certPemPath, "PATCH", `/identity/conditionalAccess/policies/${policyId}`,
     { conditions }, { retryTransient: true });
+  return { include: { groupIds: conditions.users.includeGroups, userIds: conditions.users.includeUsers } };
 }
 
 module.exports = {
   TIER_META, SUPPORT_GROUPS,
   ensureSupportGroups, ensureRingGroup, normalizeRing, ringGroupName, supportGroupName,
   substitutePolicy, listManagedPolicies, listAllPolicies, deletePolicy, policyKey,
-  deployTier, setPolicyState, setPolicyScope
+  deployTier, setPolicyState, setPolicyScope,
+  describeScope, buildScopeLookup
 };
