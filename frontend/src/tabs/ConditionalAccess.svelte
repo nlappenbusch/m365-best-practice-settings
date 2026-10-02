@@ -60,6 +60,7 @@
   let policies = $state([])
 
   let groups = $state([])
+  let breakGlass = $state(null)
   let pilotChoice = $state({}) // policyId -> groupId (Bestandsfeld, Batch-Aktion)
 
   // Geltungsbereich je Policy: Entra laesst Gruppen UND einzelne Benutzer zu,
@@ -186,6 +187,7 @@
       loadTemplates()
       supportGroups = r.supportGroups || []
       policies = r.policies || []
+      breakGlass = r.breakGlass || null
     } catch (e) {
       policiesError = e.message
     }
@@ -539,7 +541,17 @@
 
   onDestroy(() => { if (jobTimer) clearTimeout(jobTimer); if (memberSearchTimer) clearTimeout(memberSearchTimer) })
 
-  const breakGlassEmpty = $derived(supportGroups.find(g => g.key === 'breakGlass' && g.memberCount === 0))
+  // Bis zum 02.10.2026 galt die Gruppe als «gefuellt», sobald sie ein Mitglied
+  // hatte — und damit verschwanden auch die Warnungen vor dem Scharfschalten.
+  // Bei PSP lag dort ein Konto OHNE Rolle und OHNE zweiten Faktor: im Ernstfall
+  // waere es hereingekommen und haette nichts reparieren koennen. Entwarnt wird
+  // jetzt erst, wenn mindestens ein Mitglied alle vier Kriterien erfuellt.
+  const breakGlassUnbrauchbar = $derived(
+    breakGlass ? !breakGlass.brauchbar
+               : !!supportGroups.find(g => g.key === 'breakGlass' && g.memberCount === 0)
+  )
+  // Bestandsname beibehalten: er steckt in mehreren Bestaetigungsdialogen.
+  const breakGlassEmpty = $derived(breakGlassUnbrauchbar)
 
   // ---------- Aufbereitung der Policy-Liste ----------
   // 30 bis 53 Policies als flache Kartenliste sind nicht lesbar. Die Namen der
@@ -858,10 +870,46 @@
     <div class="ld-banner fail">{policiesError}</div>
   {:else if supportGroups.length}
     <div class="step-card" style="margin-bottom:1.25rem;">
-      <h4><span class="step-n">2</span> Schutzgruppen befüllen
-        <span class="step-state {breakGlassEmpty ? 'open' : 'done'}">{breakGlassEmpty ? 'Break-Glass leer' : '✓ Break-Glass gefüllt'}</span></h4>
-      {#if breakGlassEmpty}
+      <h4><span class="step-n">2</span> Notfallzugriff
+        <span class="step-state {breakGlassUnbrauchbar ? 'open' : 'done'}">{breakGlassUnbrauchbar ? 'nicht benutzbar' : '✓ benutzbar'}</span></h4>
+
+      <!-- Ein Notfallkonto braucht vier Dinge. Drei davon sieht man an der
+           Mitgliederzahl nicht, und genau daran ist PSP vorbeigelaufen. -->
+      {#if breakGlass && breakGlass.mitglieder && breakGlass.mitglieder.length}
+        <table class="ld-table" style="margin-bottom:0.6rem;">
+          <thead><tr>
+            <th>Konto</th><th>Aktiv</th><th>Rolle</th><th>2. Faktor</th><th>Ausgenommen</th><th>Benutzt</th>
+          </tr></thead>
+          <tbody>
+            {#each breakGlass.mitglieder as m (m.id)}
+              <tr>
+                <td><code>{m.upn}</code>
+                  {#each m.maengel as f}<br /><small style="color:var(--warn, #b45309);">⚠ {f}</small>{/each}
+                </td>
+                <td><span class="tbadge {m.aktiv ? 'ok' : 'warn'}">{m.aktiv ? 'ja' : 'NEIN'}</span></td>
+                <td><span class="tbadge {m.globalerAdmin ? 'ok' : 'warn'}">{m.globalerAdmin ? 'Globaler Admin' : 'keine'}</span></td>
+                <td><span class="tbadge {m.zweiterFaktor ? 'ok' : 'warn'}">{m.zweiterFaktor ? m.methoden.filter((x) => x !== 'Kennwort').join(', ') : 'KEINER'}</span></td>
+                <td><span class="tbadge {m.nichtAusgenommen.length ? 'warn' : 'ok'}">{m.ausgenommenAus} / {m.policiesGesamt}</span></td>
+                <td><span class="tbadge {m.jeBenutzt ? 'ok' : ''}">{m.jeBenutzt ? 'ja' : 'nie'}</span></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+
+      {#each (breakGlass && breakGlass.befunde) || [] as b}
+        <div class="ld-banner warn">{b}</div>
+      {/each}
+
+      {#if breakGlassUnbrauchbar && !(breakGlass && breakGlass.mitglieder && breakGlass.mitglieder.length)}
         <div class="ld-banner warn"><b>{bgName} ist leer!</b> Trage mindestens ein Notfallzugriffskonto ein, bevor Policies aktiviert werden — sonst kann eine strengere Regel den einzigen Weg zurück in den Tenant blockieren.</div>
+      {/if}
+      {#if breakGlass && breakGlass.brauchbar && breakGlass.mitglieder.some((m) => m.brauchbar && !m.jeBenutzt)}
+        <div class="ld-banner" style="margin-bottom:0.5rem;">
+          Technisch ist alles da. <b>Ausgenommen zu sein ist aber keine Funktionsprüfung</b> — einmal
+          anmelden, Passwort wechseln und im Einsatzprotokoll festhalten. Erst dann ist belegt, dass
+          der Weg zurück offen ist.
+        </div>
       {/if}
       {#each supportGroups as g}
         {@const critical = g.memberCount === 0 && g.key === 'breakGlass'}
@@ -943,7 +991,7 @@
           <button class="btn btn-secondary" onclick={batchSetScope} disabled={batchBusy}>Scope für Auswahl setzen</button>
           <button class="btn btn-secondary" onclick={batchDeactivate} disabled={batchBusy}>⏸ Auswahl auf Report-only</button>
           <button class="btn btn-primary" onclick={batchActivate} disabled={batchBusy}
-                  title={breakGlassEmpty ? `Achtung: ${bgName} ist leer — kein Notfallzugriff vorhanden!` : ''}>
+                  title={breakGlassEmpty ? `Achtung: Notfallzugriff nicht benutzbar (${bgName})!` : ''}>
             {breakGlassEmpty ? '🚨' : '🔓'} Auswahl aktivieren
           </button>
           <button class="btn btn-secondary" onclick={batchDelete} disabled={batchBusy}>Auswahl löschen</button>
@@ -1076,7 +1124,7 @@
                                 title="Auf Report-only zurücknehmen">⏸</button>
                       {:else}
                         <button class="ca-btn ca-btn-go" onclick={() => activate(p)} disabled={actionBusy[p.id]}
-                                title={breakGlassEmpty ? `Achtung: ${bgName} ist leer — kein Notfallzugriff!` : 'Scharf schalten'}>
+                                title={breakGlassEmpty ? `Achtung: Notfallzugriff nicht benutzbar (${bgName})!` : 'Scharf schalten'}>
                           {breakGlassEmpty ? '🚨' : '▶'}
                         </button>
                       {/if}
@@ -1224,7 +1272,7 @@
           </div>
           {#if tplAllowEnable && breakGlassEmpty}
             <div class="ld-banner fail" style="margin-top:0.4rem">
-              {bgName} ist leer — ohne Notfallkonto kann eine scharfe Policy den Mandanten aussperren.
+              Notfallzugriff nicht benutzbar — eine scharfe Policy kann den Mandanten aussperren.
             </div>
           {/if}
         {/if}

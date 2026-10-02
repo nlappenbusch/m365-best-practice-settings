@@ -59,6 +59,8 @@ const DRIVEMAP = require("./lib/driveMapping");
 const PRINTMAP = require("./lib/printerMapping");
 const CONDACCESS = require("./lib/conditionalAccess");
 const CATEMPLATES = require("./lib/caTemplates");
+const BREAKGLASS = require("./lib/breakGlass");
+const AUTHMETHODS = require("./lib/authMethods");
 const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const SDPDB = require("./lib/sdpDb");
@@ -6623,8 +6625,53 @@ app.get("/api/conditionalaccess/tiers", (req, res) => {
   res.json({ ok: true, tiers });
 });
 
+// Mock deckt die drei Faelle ab, die unterschiedlich aussehen muessen:
+// aus-aber-registriert, abschaltbar, und nicht abschaltbar.
+function fakeAuthMethods() {
+  return {
+    ok: true,
+    migration: { stand: "preMigration", abgeschlossen: false },
+    zeilen: [
+      { id: "microsoftAuthenticator", label: "Authenticator-App", zustand: "disabled", soll: "enabled", registriert: 4, ziel: "", befund: "In der Richtlinie aus, aber von 4 Konto(en) registriert — die Richtlinie ist hier nicht die wirksame Stelle." },
+      { id: "softwareOath", label: "OATH-Token (Software)", zustand: "enabled", soll: "enabled", registriert: 2, ziel: "alle Benutzer", befund: null },
+      { id: "sms", label: "SMS", zustand: "enabled", soll: "disabled", registriert: 7, ziel: "alle Benutzer", befund: "Empfohlen abzuschalten." },
+      { id: "email", label: "E-Mail", zustand: "enabled", soll: "disabled", registriert: 0, ziel: "alle Benutzer", befund: "Empfohlen abzuschalten." }
+    ],
+    folgen: [
+      { id: "sms", label: "SMS", betroffen: 7, verlierenAllesText: ["info@example.com"], sperrbar: false },
+      { id: "email", label: "E-Mail", betroffen: 0, verlierenAllesText: [], sperrbar: true }
+    ],
+    konten: [
+      { upn: "anna.admin@example.com", name: "Anna Admin", istAdmin: true, mfaRegistriert: true, faktoren: ["sms", "softwareOath"] },
+      { upn: "info@example.com", name: "Info", istAdmin: false, mfaRegistriert: true, faktoren: ["sms"] },
+      { upn: "max.mustermann@example.com", name: "Max Mustermann", istAdmin: false, mfaRegistriert: false, faktoren: [] }
+    ],
+    ohneMfa: ["max.mustermann@example.com"],
+    befunde: [
+      { state: "warn", text: "Migration nicht abgeschlossen (preMigration). Bis dahin gilt die alte MFA-/SSPR-Verwaltung teilweise parallel weiter — die Methodenrichtlinie allein beschreibt den Mandanten nicht." },
+      { state: "fail", text: "1 Konto(en) ohne jeden zweiten Faktor: max.mustermann@example.com" },
+      { state: "warn", text: "Authenticator-App: In der Richtlinie aus, aber von 4 Konto(en) registriert — die Richtlinie ist hier nicht die wirksame Stelle." },
+      { state: "warn", text: "SMS abzuschalten würde 1 Konto(en) ohne zweiten Faktor zurücklassen: info@example.com. Erst Alternative registrieren lassen." },
+      { state: "ok", text: "E-Mail ist abschaltbar: 0 Konto(en) nutzen es, alle haben eine Alternative." }
+    ],
+    luecken: []
+  };
+}
+
 function fakeCaPolicies() {
   return {
+    breakGlass: {
+      vorhanden: true, brauchbar: false, anzahlBrauchbar: 0,
+      mitglieder: [{
+        id: "bg1", upn: "breakglass-01@example.onmicrosoft.com", name: "Break-Glass (breakglass-01)",
+        aktiv: true, rollen: [], globalerAdmin: false, methoden: ["Kennwort"], zweiterFaktor: 0,
+        ausgenommenAus: 4, policiesGesamt: 4, nichtAusgenommen: [], letzteAnmeldung: null, jeBenutzt: false,
+        maengel: ["keine Rolle Globaler Administrator — kaeme herein, koennte aber nichts reparieren",
+                  "kein zweiter Faktor — wird von der ersten scharfen MFA-Richtlinie mit ausgesperrt"],
+        brauchbar: false
+      }],
+      befunde: ["Kein Mitglied der Break-Glass-Gruppe ist benutzbar. Vor dem Scharfschalten von Conditional Access beheben."]
+    },
     supportGroups: [
       { key: "breakGlass", name: "AAD-CA-BreakGlass", id: "ca-g1", exists: true, memberCount: 0 },
       { key: "syncAccounts", name: "AAD-CA-SyncAccounts", id: "ca-g2", exists: true, memberCount: 1 },
@@ -6720,9 +6767,22 @@ app.get("/api/tenants/:id/conditionalaccess/policies", wrap(async (req, res) => 
     if (!ring) continue;
     supportGroups.push({ key: "ring:" + ring, name: g.displayName, id: g.id, exists: true, memberCount: await countMembers(g.id) });
   }
+  // Die Mitgliederzahl allein hat bei PSP am 01.10.2026 «✓ gefuellt» gemeldet
+  // fuer ein Konto ohne Rolle und ohne zweiten Faktor. Darum pruefen, statt
+  // zu zaehlen.
+  const bgGroup = supportGroups.find(g => g.key === "breakGlass");
+  let breakGlass = null;
+  try {
+    breakGlass = await BREAKGLASS.checkBreakGlass(t, cert, bgGroup && bgGroup.id, policies);
+  } catch (e) {
+    breakGlass = { vorhanden: !!(bgGroup && bgGroup.id), brauchbar: false, mitglieder: [],
+                   befunde: ["Pruefung des Notfallkontos fehlgeschlagen: " + e.message] };
+  }
+
   res.json({
     ok: true,
     supportGroups,
+    breakGlass,
     policies: policies.map(p => {
       // describeScope loest BEIDE Seiten auf. Die alte Kurzform zeigte nur die
       // Includes und meldete bei includeUsers=["All"] schlicht "Alle" — die
@@ -6820,6 +6880,19 @@ app.post("/api/tenants/:id/conditionalaccess/policies/:policyId/scope", wrap(asy
     }
     throw e;
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Authentifizierungsmethoden: Richtlinie gegen Realitaet.
+// Rein lesend. Das Schreiben braucht Policy.ReadWrite.AuthenticationMethod, das
+// die App bewusst nicht hat -- die Aenderung gehoert ins Skript oder ins Portal,
+// mit Protokoll.
+// ---------------------------------------------------------------------------
+app.get("/api/tenants/:id/authmethods", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (process.env.FAKE_DEPLOY === "1") return res.json({ ok: true, analyse: fakeAuthMethods() });
+  const analyse = await AUTHMETHODS.analyse(t, certPemPath(t.tenantId));
+  res.json({ ok: analyse.ok !== false, analyse });
 }));
 
 // ---------------------------------------------------------------------------

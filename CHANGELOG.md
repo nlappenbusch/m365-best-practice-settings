@@ -1,5 +1,57 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.62 - Notfallzugriff wirklich pruefen, Methodenrichtlinie gegen Realitaet (2026-10-02)
+
+### Der Notfallzugriff wurde falsch entwarnt
+
+Im Conditional-Access-Tab galt die Break-Glass-Gruppe als «gefuellt», sobald sie **ein
+Mitglied** hatte (`memberCount === 0`). Damit verschwand auch die Warnung vor dem
+Scharfschalten. Bei PSP war das am 01.10.2026 nachweislich falsch: Das Konto lag in der
+Gruppe, war sauber aus allen 21 Richtlinien ausgenommen — und hatte **weder eine
+Verzeichnisrolle noch einen zweiten Faktor**. Es waere im Ernstfall hereingekommen und
+haette nichts reparieren koennen. Das Werkzeug meldete «✓ Break-Glass gefuellt».
+
+Ein Notfallkonto braucht vier Dinge, und drei davon sieht man an der Mitgliederzahl nicht:
+
+- **Konto aktiviert**
+- **Verzeichnisrolle**, mit der es reparieren kann (Globaler Administrator)
+- **zweiter Faktor** — sonst sperrt die erste scharfe MFA-Richtlinie auch das Notfallkonto aus
+- **aus JEDER Richtlinie ausgenommen**, nicht nur aus den eigenen. Microsoft-managed
+  Policies erscheinen nachtraeglich und kennen die eigenen Ausschlussgruppen nicht
+
+- **`lib/breakGlass.js`** prueft alle vier je Mitglied und zeigt sie als Tabelle mit den
+  konkreten Maengeln. Entwarnt wird erst, wenn **mindestens ein Mitglied alle vier
+  erfuellt** — der Abschnitt heisst jetzt «Notfallzugriff», nicht «Schutzgruppen befuellen».
+- Dazu: **wurde das Konto je benutzt?** Ausgenommen zu sein ist keine Funktionspruefung.
+  Weil `signInActivity` bei Entra bis zu zwei Stunden nachhinkt, wird auch das
+  Anmeldeprotokoll gelesen. Steht alles auf gruen, aber nie benutzt, sagt der Tab das.
+- Die Bestaetigungsdialoge vor dem Scharfschalten haengen jetzt an «nicht benutzbar»
+  statt an «leer» — vorher waren sie bei einem unbrauchbaren Konto abgeschaltet.
+
+### Authentifizierungsmethoden: Richtlinie gegen Realitaet
+
+Neuer Bereich im Tab **Tenant-Haertung**. Die Methodenrichtlinie sagt, was **erlaubt**
+ist; was **benutzt** wird, steht an den Benutzern. Bei PSP standen am 02.10.2026 alle
+fuenf relevanten Methoden auf `disabled` — und vier Benutzer hatten trotzdem Microsoft
+Authenticator registriert. Kein Widerspruch, sondern der Beleg dafuer, dass die
+**Migration nicht abgeschlossen** war und die alte MFA-Verwaltung parallel weiterlief.
+
+Daraus folgt etwas, das der Bereich jetzt ausspricht: **ein Blick in die
+Methodenrichtlinie allein beschreibt den Mandanten nicht.** Ein Screenshot davon ist bis
+zum Abschluss der Migration kein Beleg.
+
+- **`lib/authMethods.js`** stellt je Methode den Zustand der Richtlinie der Zahl der
+  tatsaechlichen Registrierungen gegenueber (aus `userRegistrationDetails`, ein Abruf
+  statt einer Schleife ueber alle Benutzer).
+- **Folgenabschaetzung**: Telefon gilt als phishbar und gehoert abgeschaltet — aber nur,
+  wenn niemand es als **einzige** Methode hat. Der Bereich nennt die Konten namentlich,
+  die dadurch ohne zweiten Faktor dastuenden. Diese Zahl steht nirgends im Portal.
+- **Konten ohne jeden zweiten Faktor** werden eigens ausgewiesen.
+- Der Bereich ist **rein lesend**. Das Schreiben der Methodenrichtlinie braucht
+  `Policy.ReadWrite.AuthenticationMethod`, das die App bewusst nicht hat — die Aenderung
+  gehoert ins Skript oder ins Portal, mit Protokoll.
+
+
 ## Version 2.61 - Geltungsbereich sichtbar machen, Scope auf Gruppen und Benutzer (2026-10-01)
 
 Die Vorlagen-Vorschau zeigte, **dass** eine Policy scharf geschaltet wird, aber nicht,

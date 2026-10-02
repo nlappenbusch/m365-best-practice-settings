@@ -53,6 +53,12 @@
     load()
   })
 
+  // Methodenrichtlinie gegen die Realitaet. Rein lesend — das Schreiben braucht
+  // einen Scope, den die App bewusst nicht hat.
+  let auth = $state(null)
+  let amError = $state(null)
+  let authKonten = $state(false)
+
   async function load() {
     loading = true
     notice = null
@@ -60,12 +66,13 @@
 
     // Bewusst einzeln abgefangen: Fehlt eine Berechtigung, soll der Rest der
     // Seite trotzdem nutzbar bleiben und nur der betroffene Block das sagen.
-    const [h, d, l, g, dyn] = await Promise.all([
+    const [h, d, l, g, dyn, am] = await Promise.all([
       apiGet(`/api/tenants/${id}/hardening`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/entra/devicesettings`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/localadmins`).catch(err => ({ __err: err.message })),
       apiGet(`/api/tenants/${id}/groups`).catch(() => ({ groups: [] })),
-      apiPost('/api/grouptags/groups', { tenantId: $activeTenant.id }).catch(() => ({ groups: [] }))
+      apiPost('/api/grouptags/groups', { tenantId: $activeTenant.id }).catch(() => ({ groups: [] })),
+      apiGet(`/api/tenants/${id}/authmethods`).catch(err => ({ __err: err.message }))
     ])
 
     hardError = h.__err || null; hard = h.__err ? null : h.settings; score = h.__err ? null : h.score
@@ -73,6 +80,8 @@
     laError = l.__err || null; la = l.__err ? null : l
     groups = Array.isArray(g?.groups) ? g.groups : []
     deviceGroupIds = (Array.isArray(dyn?.groups) ? dyn.groups : []).filter(x => (x.tags || []).length).map(x => x.id)
+    amError = am.__err || (am.analyse && am.analyse.error) || null
+    auth = amError ? null : am.analyse
     loading = false
   }
 
@@ -518,6 +527,67 @@
             Ausnahme ausrollen
           </button>
         </div>
+      {/if}
+    </section>
+
+    <!-- Authentifizierungsmethoden: Richtlinie gegen Realitaet -->
+    <section class="hd-card">
+      <div class="hd-head"><h4>Authentifizierungsmethoden</h4></div>
+      <p class="hd-why" style="margin-top:0">
+        Die Methodenrichtlinie sagt, was <em>erlaubt</em> ist. Was <em>benutzt</em> wird, steht an
+        den Benutzern. Beides auseinander zu halten ist der Punkt: eine Methode kann in der
+        Richtlinie aus sein und trotzdem von halben Belegschaft genutzt werden — dann ist die
+        Richtlinie nicht die wirksame Stelle.
+      </p>
+
+      {#if amError}
+        <div class="ld-banner fail">{amError}</div>
+      {:else if !auth}
+        <div class="hd-why">Noch nicht geladen.</div>
+      {:else}
+        {#each auth.befunde || [] as b}
+          <div class="ld-banner {b.state === 'fail' ? 'fail' : b.state === 'ok' ? 'ok' : 'warn'}" style="margin-bottom:0.4rem;">{b.text}</div>
+        {/each}
+
+        <table class="ld-table" style="margin-top:0.5rem;">
+          <thead><tr><th>Methode</th><th>Richtlinie</th><th>Registriert</th><th>Empfehlung</th></tr></thead>
+          <tbody>
+            {#each auth.zeilen as z (z.id)}
+              <tr>
+                <td>{z.label}{#if z.ziel}<br /><small style="color:var(--text-dim);">{z.ziel}</small>{/if}</td>
+                <td><span class="tbadge {z.zustand === 'enabled' ? 'ok' : ''}">{z.zustand === 'enabled' ? 'ein' : z.zustand === 'disabled' ? 'aus' : z.zustand}</span></td>
+                <td>{z.registriert}</td>
+                <td>
+                  {#if z.soll}<small>{z.soll === 'enabled' ? 'ein' : 'aus'} — {z.grund}</small>{:else}<small style="color:var(--text-dim);">optional</small>{/if}
+                  {#if z.befund}<br /><small style="color:var(--warn, #b45309);">{z.befund}</small>{/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.78rem; margin-top:0.4rem;"
+                onclick={() => (authKonten = !authKonten)}>
+          {authKonten ? '−' : '+'} {(auth.konten || []).length} Konten mit ihren Faktoren
+        </button>
+        {#if authKonten}
+          <table class="ld-table" style="margin-top:0.3rem;">
+            <thead><tr><th>Konto</th><th>Zweiter Faktor</th></tr></thead>
+            <tbody>
+              {#each auth.konten as k (k.upn)}
+                <tr>
+                  <td><code>{k.upn}</code>{#if k.istAdmin}&nbsp;<span class="tbadge warn">Admin</span>{/if}</td>
+                  <td>{#if k.faktoren.length}{k.faktoren.join(', ')}{:else}<span class="tbadge warn">KEINER</span>{/if}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+
+        <p class="hd-why" style="margin-top:0.5rem;">
+          Geändert wird die Richtlinie hier <b>nicht</b> — das gehört ins Skript oder ins Portal,
+          mit Protokoll. Dieser Bereich liest nur.
+        </p>
       {/if}
     </section>
 
