@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO_DIR="/opt/m365-security"
+REPO_DIR="/opt/m365-control-plane"
 cd "$REPO_DIR"
 
 echo "🔄 Pulling latest changes from GitHub..."
@@ -47,7 +47,7 @@ docker compose up -d
 
 # Self-healing: in manchen LXCs bleibt ein Container nach up in "Created" haengen.
 sleep 3
-for c in m365-security-website m365-security-api; do
+for c in m365-control-plane-website m365-control-plane-api; do
   if ! docker ps --filter "name=$c" --filter status=running -q | grep -q .; then
     docker start "$c" || true
     sleep 3
@@ -73,7 +73,7 @@ if [ "$health_ok" = "1" ]; then
   echo "  ✓ API health OK"
 else
   echo "ERROR: /api/health nicht OK"
-  docker logs m365-security-api --tail=40 || true
+  docker logs m365-control-plane-api --tail=40 || true
   exit 1
 fi
 
@@ -81,4 +81,4 @@ docker image prune -f >/dev/null
 
 echo "✅ Deployment completed successfully!"
 echo "📊 Container status:"
-docker ps --format 'table {{.Names}}\t{{.Status}}' | grep m365-security
+docker ps --format 'table {{.Names}}\t{{.Status}}' | grep m365-control-plane
