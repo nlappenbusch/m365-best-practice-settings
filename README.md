@@ -2,6 +2,17 @@
 
 **igeeks Security Policy Manager** – Web-basiertes Tool zur Konfiguration und Deployment von Microsoft 365 Security Best Practices.
 
+## M365 Control Plane
+
+Seit Oktober 2026 ist das Tool zum tenant-zentrischen Control Plane ausgebaut (vorher separates Repo `m365-control-plane`, jetzt hier zusammengeführt):
+
+- **Overview** – Tenant Health, Security, Changes, Evidence und Jobs auf einen Blick
+- **Changes / Evidence 3.0** – deduplizierter Event-Store über dem unveränderten JSON-Evidence-Archiv, Resource-Historie, Baseline-Korrelation, Impact, Remediation-Plan. Bestehende Change-Archive werden beim ersten Aufruf automatisch backfilled.
+- **Risks** – gemeinsame Queue aus Maester-Findings und kritischen Changes
+- **Automations** – lokale Graph-/PowerShell-Jobs, optional Semaphore als Runner (`SEMAPHORE_URL`, `SEMAPHORE_PROJECT_ID` als Variables, `SEMAPHORE_API_TOKEN` als Secret)
+
+Architektur: [docs/PRODUCT-REWORK.md](docs/PRODUCT-REWORK.md)
+
 ## Features
 
 - 🛡️ **Anti-Phishing Policy** Configuration

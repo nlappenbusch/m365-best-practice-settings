@@ -17,8 +17,8 @@
   <div class="sb-brand">
     <div class="sb-logo" aria-hidden="true"><Icon name="shieldCheck" size={17} stroke={2} /></div>
     <div class="sb-brand-text">
-      <strong>Security Policy Manager</strong>
-      <span>igeeks · Microsoft 365</span>
+      <strong>M365 Control Plane</strong>
+      <span>igeeks · Assurance & Operations</span>
     </div>
     <button class="sb-drawer-close" onclick={closeMobileNav} aria-label="Menü schliessen"><Icon name="x" size={18} /></button>
   </div>

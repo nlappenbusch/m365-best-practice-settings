@@ -56,4 +56,10 @@ jobs:
           SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           ZOHO_REGION: ${{ vars.ZOHO_REGION }}
+
+          # --- Optional: Semaphore als Execution Engine ---
+          # Leer/nicht gesetzt = bestehende lokale Execution.
+          SEMAPHORE_API_TOKEN: ${{ secrets.SEMAPHORE_API_TOKEN }}
+          SEMAPHORE_URL: ${{ vars.SEMAPHORE_URL }}
+          SEMAPHORE_PROJECT_ID: ${{ vars.SEMAPHORE_PROJECT_ID }}
         run: bash /opt/m365-security/deploy.sh
