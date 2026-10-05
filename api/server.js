@@ -89,6 +89,8 @@ const ACCOUNTS = require("./lib/accounts");
 const RECIPIENTS = require("./lib/recipients");
 const ENTAPPS = require("./lib/enterpriseApps");
 const EVIDENCEPDF = require("./lib/evidencePdf");
+const EVIDENCESTORE = require("./lib/evidenceStore");
+const EVIDENCEANALYZE = require("./lib/evidenceAnalyze");
 const SPINV = require("./lib/sharepointInventory");
 const ISTZ = require("./lib/istZustand");
 const ISTMODEL = require("./lib/istZustandModel");
@@ -6188,6 +6190,45 @@ app.post("/api/tenants/:id/appassign/rename", wrap(async (req, res) => {
 // unter state/evidence/<tenant>/ — das ist zugleich die Sicherung von Protokollen,
 // die Microsoft nach 30 (Entra) bzw. 180 Tagen (Unified Audit Log) löscht.
 // Alles hier liest den Tenant nur; die Routen sind deshalb auch im Prüfmandat offen.
+function backfillEvidenceV3(t) {
+  const m = EVIDENCESTORE.meta(STATE_DIR, t.id);
+  if (m.archiveBackfillComplete) return { skipped: true, meta: m };
+  let archives = 0, inserted = 0, duplicates = 0;
+  for (const meta of EVIDENCE.listArchive(STATE_DIR, t.id).filter(x => x.kind === "changelog").reverse()) {
+    const e = EVIDENCE.loadArchive(STATE_DIR, t.id, meta.id);
+    if (!e || !e.data) continue;
+    const r = EVIDENCESTORE.ingestChangeLog(STATE_DIR, t.id, e.data, {
+      archiveId: e.id, archiveTitle: e.title, collectedAt: e.createdAt,
+      collectedBy: e.createdBy, params: e.params || {}
+    });
+    archives++; inserted += r.inserted.length; duplicates += r.duplicates.length;
+  }
+  const done = EVIDENCESTORE.updateMeta(STATE_DIR, t.id, {
+    archiveBackfillComplete: true,
+    archiveBackfillAt: new Date().toISOString()
+  });
+  return { skipped: false, archives, inserted, duplicates, meta: done };
+}
+
+async function refreshEvidenceCaSnapshot(t, say) {
+  const cert = certPemPath(t.tenantId);
+  if (say) say("Conditional Access: aktuellen Zustand korrelieren");
+  const audit = await ASSIGNAUDIT.auditConditionalAccess(t, cert, { signIns: false }, label => {
+    if (say) say("Conditional Access: " + label);
+  });
+  const resources = EVIDENCEANALYZE.caResources(audit, BASELINE.meta());
+  const snap = EVIDENCESTORE.ingestSnapshotCollection(
+    STATE_DIR, t.id, "conditionalAccessPolicy", resources,
+    {
+      observedAt: new Date().toISOString(),
+      complete: true,
+      collector: "assignAudit.auditConditionalAccess",
+      baseline: BASELINE.meta()
+    }
+  );
+  return { audit, snap };
+}
+
 function evidenceJob(t, req, kind, title, params, fn) {
   const user = (req.session && req.session.user) || "unbekannt";
   const job = createAppJob(t, [title]);
@@ -6199,8 +6240,37 @@ function evidenceJob(t, req, kind, title, params, fn) {
       const data = await fn(label => { job.phase = `${title}: ${label}`; });
       const entry = EVIDENCE.archive(STATE_DIR, t.id, { kind, title, params, createdBy: user, data });
       job.result = { archiveId: entry.id };
+
+      if (kind === "changelog") {
+        const ingested = EVIDENCESTORE.ingestChangeLog(STATE_DIR, t.id, data, {
+          archiveId: entry.id, archiveTitle: entry.title, collectedAt: entry.createdAt,
+          collectedBy: entry.createdBy, params: entry.params || {}
+        });
+        let snapshot = null, snapshotError = null;
+        try {
+          const ca = await refreshEvidenceCaSnapshot(t, label => { job.phase = `${title}: ${label}`; });
+          snapshot = { collectionId: ca.snap.collectionId, changed: ca.snap.changed.length, unchanged: ca.snap.unchanged.length };
+        } catch (e) {
+          snapshotError = e.message;
+        }
+
+        const ids = [...new Set([...(ingested.inserted || []), ...(ingested.duplicates || [])])];
+        const current = (loadState().tenants || []).find(x => x.id === t.id) || t;
+        const analyzed = EVIDENCEANALYZE.analyzeEvents(STATE_DIR, t.id, ids, { registerEntries: registerObjects(current) });
+        job.result.evidenceV3 = {
+          inserted: ingested.inserted.length,
+          deduplicated: ingested.duplicates.length,
+          analyzed: analyzed.length,
+          caSnapshot: snapshot,
+          caSnapshotError: snapshotError
+        };
+      }
+
       const gaps = (data && data.gaps) || [];
-      finishAppJob(job, true, null, gaps.length ? `Nicht alles lesbar (${gaps.length}) — Details im Nachweis.` : null);
+      const hints = [];
+      if (gaps.length) hints.push(`Nicht alles lesbar (${gaps.length}) — Details im Nachweis.`);
+      if (job.result && job.result.evidenceV3 && job.result.evidenceV3.caSnapshotError) hints.push("CA-Snapshot nicht vollständig: " + job.result.evidenceV3.caSnapshotError);
+      finishAppJob(job, true, null, hints.length ? hints.join(" ") : null);
     } catch (e) {
       finishAppJob(job, false, e.message, e.hint || null);
     }
@@ -6317,6 +6387,62 @@ async function evidenceScheduleTick() {
 }
 setInterval(evidenceScheduleTick, EVIDENCE_SCHEDULE_TICK_MS);
 setTimeout(evidenceScheduleTick, 75 * 1000);
+
+// ---- Evidence 3.0: deduplizierte Events, Snapshots und Korrelationen
+app.get("/api/tenants/:id/evidence/v3/stats", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const backfill = backfillEvidenceV3(t);
+  res.json({ ok: true, stats: EVIDENCESTORE.stats(STATE_DIR, t.id), backfill });
+}));
+
+app.get("/api/tenants/:id/evidence/v3/events", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  backfillEvidenceV3(t);
+  const events = EVIDENCESTORE.listEvents(STATE_DIR, t.id, {
+    days: Number(req.query.days) || 30,
+    limit: Number(req.query.limit) || 500,
+    source: req.query.source || null,
+    level: req.query.level || null
+  });
+  res.json({ ok: true, events, stats: EVIDENCESTORE.stats(STATE_DIR, t.id) });
+}));
+
+app.get("/api/tenants/:id/evidence/v3/resources", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  const type = String(req.query.type || "").trim() || null;
+  const resources = EVIDENCESTORE.latestResources(STATE_DIR, t.id, type).map(r => ({
+    resourceType: r.resourceType, resourceId: r.resourceId, name: r.name, hash: r.hash,
+    observedAt: r.observedAt, lastObservedAt: r.lastObservedAt, deleted: r.deleted,
+    baseline: r.snapshot && r.snapshot.baseline || null,
+    impact: r.snapshot && r.snapshot.impact || null
+  }));
+  res.json({ ok: true, resources });
+}));
+
+app.get("/api/tenants/:id/evidence/v3/resources/:type/:rid/history", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, history: EVIDENCESTORE.resourceHistory(STATE_DIR, t.id, req.params.type, req.params.rid) });
+}));
+
+app.post("/api/tenants/:id/evidence/v3/snapshot/ca", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  if (evidenceBusy(t, res)) return;
+  const job = createAppJob(t, ["Conditional Access Snapshot"]);
+  job.kind = "evidence-v3-ca-snapshot";
+  (async () => {
+    try {
+      const onProgress = appJobProgress(job);
+      onProgress("Conditional Access Snapshot");
+      const ca = await refreshEvidenceCaSnapshot(t, label => { job.phase = label; });
+      const events = EVIDENCESTORE.listEvents(STATE_DIR, t.id, { days: 180, limit: 5000 });
+      const current = (loadState().tenants || []).find(x => x.id === t.id) || t;
+      EVIDENCEANALYZE.analyzeEvents(STATE_DIR, t.id, events.map(x => x.eventId), { registerEntries: registerObjects(current) });
+      job.result = { collectionId: ca.snap.collectionId, changed: ca.snap.changed.length, unchanged: ca.snap.unchanged.length };
+      finishAppJob(job, true);
+    } catch (e) { finishAppJob(job, false, e.message, e.hint || null); }
+  })();
+  res.json({ ok: true, jobId: job.id });
+}));
 
 app.post("/api/tenants/:id/evidence/changelog", wrap(async (req, res) => {
   const t = requireTenant(req);
