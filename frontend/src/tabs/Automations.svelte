@@ -16,6 +16,8 @@
   let action = $state('evidence')
   let payloadText = $state('{}')
   let remoteTask = $state(null)
+  let evidenceSchedule = $state({ enabled: false, hour: 3 })
+  let scheduleSaving = $state(false)
   let loadedFor = $state(null)
 
   let localJobs = $derived(jobs.filter(j => !$activeTenant || j.tenantId === $activeTenant.id).slice(0,12))
@@ -25,12 +27,16 @@
     if (!$session.loggedIn || loading) return
     loading = true; error = null
     try {
-      const [s, j] = await Promise.all([
+      const [s, j, es] = await Promise.all([
         apiGet('/api/execution/status'),
-        apiGet('/api/appjobs')
+        apiGet('/api/appjobs'),
+        $activeTenant
+          ? apiGet(`/api/tenants/${encodeURIComponent($activeTenant.id)}/evidence/schedule`)
+          : Promise.resolve({ schedule: { enabled: false, hour: 3 } })
       ])
       status = s
       jobs = j.jobs || []
+      evidenceSchedule = es.schedule || { enabled: false, hour: 3 }
       if (s.semaphore?.configured) {
         const t = await apiGet('/api/execution/templates')
         templates = t.templates || []
@@ -45,6 +51,23 @@
 
   function terminal(s) {
     return ['success','failed','error','stopped','cancelled','canceled'].includes(String(s || '').toLowerCase())
+  }
+
+
+  async function saveEvidenceSchedule() {
+    if (!$activeTenant || scheduleSaving) return
+    scheduleSaving = true; error = null; notice = null
+    try {
+      const r = await apiPost(`/api/tenants/${encodeURIComponent($activeTenant.id)}/evidence/schedule`, {
+        enabled: !!evidenceSchedule.enabled,
+        hour: Number(evidenceSchedule.hour)
+      })
+      evidenceSchedule = r.schedule
+      notice = evidenceSchedule.enabled
+        ? `Continuous Evidence aktiv: täglich ab ${String(evidenceSchedule.hour).padStart(2,'0')}:00 Uhr (Europe/Zurich).`
+        : 'Continuous Evidence deaktiviert.'
+    } catch (e) { error = errText(e) }
+    scheduleSaving = false
   }
 
   function pollRemote(id) {
@@ -116,6 +139,37 @@
         <small>{status?.semaphore?.configured ? `Projekt ${status.semaphore.projectId} · ${templates.length} Templates` : 'SEMAPHORE_URL / API_TOKEN / PROJECT_ID nicht gesetzt'}</small>
       </div>
     </div>
+
+    <section class="auto-card auto-schedule">
+      <div class="auto-card-head">
+        <div><span class="auto-eyebrow">CONTINUOUS EVIDENCE</span><h3>Änderungen automatisch sichern</h3></div>
+        <span>{evidenceSchedule.enabled ? 'aktiv' : 'aus'}</span>
+      </div>
+      <div class="auto-schedule-row">
+        <label class="auto-toggle"><input type="checkbox" bind:checked={evidenceSchedule.enabled} /> täglich erheben</label>
+        <label>Start ab
+          <select bind:value={evidenceSchedule.hour}>
+            {#each [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23] as h}
+              <option value={h}>{String(h).padStart(2,'0')}:00</option>
+            {/each}
+          </select>
+          <small>Europe/Zurich</small>
+        </label>
+        <button class="btn btn-primary" onclick={saveEvidenceSchedule} disabled={scheduleSaving}>{scheduleSaving ? 'Speichere…' : 'Zeitplan speichern'}</button>
+        <div class="auto-schedule-meta">
+          {#if evidenceSchedule.lastRunAt}
+            Letzter erfolgreicher Lauf: {fmtDateTime(evidenceSchedule.lastRunAt)} · gesichert: {evidenceSchedule.lastRunDay || '—'}
+          {:else}
+            Noch kein automatischer Lauf.
+          {/if}
+          {#if evidenceSchedule.lastResult === 'failed'}<span class="fail">Letzter Versuch fehlgeschlagen: {evidenceSchedule.lastError || 'unbekannt'}</span>{/if}
+        </div>
+      </div>
+      <p class="auto-schedule-note">
+        Aktuell wird bewusst der vollständig abgeschlossene Vortag archiviert. So entstehen keine überlappenden Teilfenster,
+        solange Evidence noch als Erhebungsarchiv statt als deduplizierter Event-Store arbeitet.
+      </p>
+    </section>
 
     <div class="auto-grid">
       <section class="auto-card">
@@ -216,6 +270,17 @@
   .auto-engine{border:1px solid var(--rule);border-radius:var(--radius-lg);padding:.85rem .95rem;background:var(--bg-raised)}
   .auto-engine>div{display:flex;align-items:center;gap:.45rem}.auto-engine p{margin:.35rem 0 .2rem;color:var(--text-dim);font-size:.82rem}.auto-engine small{color:var(--text-faint)}
   .auto-dot{width:8px;height:8px;border-radius:999px;background:var(--text-faint)}.auto-engine.ok .auto-dot{background:var(--ok)}.auto-engine.off{opacity:.8}
+
+  .auto-schedule{display:flex;flex-direction:column;gap:.35rem}
+  .auto-schedule-row{display:flex;align-items:flex-end;gap:.8rem;flex-wrap:wrap}
+  .auto-schedule-row>label:not(.auto-toggle){display:flex;flex-direction:column;gap:.18rem;font-size:.74rem;color:var(--text-dim)}
+  .auto-schedule-row select{border:1px solid var(--rule);border-radius:var(--radius-sm);background:var(--bg-inset);color:var(--text);padding:.38rem .5rem;font:inherit}
+  .auto-schedule-row label small{font-size:.65rem;color:var(--text-faint)}
+  .auto-toggle{display:flex;align-items:center;gap:.4rem;font-size:.82rem;font-weight:700;padding-bottom:.42rem}
+  .auto-toggle input{accent-color:var(--accent)}
+  .auto-schedule-meta{margin-left:auto;font-size:.7rem;color:var(--text-dim);max-width:420px}
+  .auto-schedule-meta .fail{display:block;color:var(--crit);margin-top:.15rem}
+  .auto-schedule-note{margin:.25rem 0 0;font-size:.72rem;color:var(--text-faint);line-height:1.45}
   .auto-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
   .auto-card{border:1px solid var(--rule);border-radius:var(--radius-lg);padding:.95rem;background:var(--bg-raised);box-shadow:var(--shadow-sm)}
   .auto-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.8rem;margin-bottom:.65rem}.auto-card-head h3{margin:.1rem 0 0;font-size:1rem}.auto-card-head>span{font-size:.7rem;color:var(--text-faint)}
