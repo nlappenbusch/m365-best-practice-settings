@@ -1,5 +1,5 @@
 {
-  "name": "m365-frontend",
+  "name": "m365-control-plane-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
