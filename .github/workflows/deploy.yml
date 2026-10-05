@@ -37,6 +37,7 @@ jobs:
           RMM_API_KEY: ${{ secrets.RMM_API_KEY }}
           SDP_API_KEY: ${{ secrets.SDP_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SEMAPHORE_API_TOKEN: ${{ secrets.SEMAPHORE_API_TOKEN }}
 
           # --- SDP-CRM-Matcher (/plan/-Dashboard): Zoho-Self-Client, nur lesend (Secrets) ---
           # Leer/nicht gesetzt = der CRM-Abgleich im Dashboard bleibt inaktiv, kein Fehler.
@@ -56,4 +57,6 @@ jobs:
           SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           ZOHO_REGION: ${{ vars.ZOHO_REGION }}
+          SEMAPHORE_URL: ${{ vars.SEMAPHORE_URL }}
+          SEMAPHORE_PROJECT_ID: ${{ vars.SEMAPHORE_PROJECT_ID }}
         run: bash /opt/m365-security/deploy.sh
