@@ -1,16 +1,16 @@
 name: Deploy to Production
 
 on:
-  push:
-    branches:
-      - main
+  # New standalone product repo: production deployment is deliberately manual
+  # until its own host, secrets and DNS are configured. Never deploy this tree
+  # automatically over the legacy m365.nerdag.ch installation.
   workflow_dispatch:
 
 # Gruppe am 26.08.2026 umbenannt: ein GitHub-seitig kaputter Run (queued ohne
 # Job, weder cancel- noch force-cancelbar) hielt die alte Gruppe besetzt —
 # neue Push-Runs wurden dadurch stillschweigend verworfen.
 concurrency:
-  group: deploy-m365-security-v2
+  group: deploy-m365-control-plane
   cancel-in-progress: false
 
 jobs:
@@ -59,4 +59,4 @@ jobs:
           ZOHO_REGION: ${{ vars.ZOHO_REGION }}
           SEMAPHORE_URL: ${{ vars.SEMAPHORE_URL }}
           SEMAPHORE_PROJECT_ID: ${{ vars.SEMAPHORE_PROJECT_ID }}
-        run: bash /opt/m365-security/deploy.sh
+        run: bash /opt/m365-control-plane/deploy.sh
