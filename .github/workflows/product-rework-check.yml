@@ -26,6 +26,8 @@ jobs:
           node --check api/server.js
           node --check api/lib/execution.js
           node --check api/lib/evidence.js
+          node --check api/lib/evidenceStore.js
+          node --check api/lib/evidenceAnalyze.js
 
       - name: Frontend build
         working-directory: frontend
