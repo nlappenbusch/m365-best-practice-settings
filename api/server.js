@@ -6219,6 +6219,105 @@ function registerAll(t) { return Array.isArray(t.exceptionRegister) ? t.exceptio
 function registerOf(t) { return registerAll(t).filter(e => !e.objectType); }
 function registerObjects(t) { return registerAll(t).filter(e => e.objectType); }
 
+// ---- Continuous Evidence: einmal täglich den vollständig abgeschlossenen Vortag sichern.
+// Das vermeidet überlappende Teilfenster und Duplikate, solange das Evidence-Modell
+// noch archivbasiert statt eventbasiert persistiert. Europe/Zurich inkl. DST.
+const EVIDENCE_SCHEDULE_TICK_MS = 10 * 60 * 1000;
+function zurichClock(now) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", hourCycle: "h23"
+  }).formatToParts(now || new Date());
+  const get = type => (parts.find(p => p.type === type) || {}).value;
+  return { day: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) };
+}
+function previousIsoDay(day) {
+  const d = new Date(day + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+function sanitizeEvidenceSchedule(v, prev) {
+  const b = v || {}, old = prev || {};
+  const hour = Number(b.hour);
+  return {
+    ...old,
+    enabled: b.enabled === undefined ? !!old.enabled : !!b.enabled,
+    hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : (Number.isInteger(old.hour) ? old.hour : 3)
+  };
+}
+
+app.get("/api/tenants/:id/evidence/schedule", wrap(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ ok: true, schedule: sanitizeEvidenceSchedule({}, t.evidenceSchedule) });
+}));
+
+app.post("/api/tenants/:id/evidence/schedule", wrap(async (req, res) => {
+  requireTenant(req);
+  const s = loadState();
+  const rec = (s.tenants || []).find(x => x.id === req.params.id);
+  rec.evidenceSchedule = sanitizeEvidenceSchedule(req.body || {}, rec.evidenceSchedule);
+  saveState(s);
+  res.json({ ok: true, schedule: rec.evidenceSchedule });
+}));
+
+async function evidenceScheduleTick() {
+  try {
+    const s = loadState();
+    const clock = zurichClock(new Date());
+    for (const t of s.tenants || []) {
+      const sch = sanitizeEvidenceSchedule({}, t.evidenceSchedule);
+      if (!sch.enabled || clock.hour < sch.hour || sch.lastAttemptDay === clock.day) continue;
+      if (!t.organization || !t.clientId || !fs.existsSync(certPemPath(t.tenantId))) continue;
+      if (tenantBusy(t)) continue;
+
+      // Versuch vor dem Start verbuchen: Ein langsamer Lauf darf beim nächsten
+      // 10-Minuten-Tick nicht doppelt gestartet werden.
+      const s2 = loadState();
+      const rec = (s2.tenants || []).find(x => x.id === t.id);
+      if (!rec) continue;
+      rec.evidenceSchedule = sanitizeEvidenceSchedule({}, rec.evidenceSchedule);
+      rec.evidenceSchedule.lastAttemptDay = clock.day;
+      rec.evidenceSchedule.lastAttemptAt = new Date().toISOString();
+      saveState(s2);
+
+      const day = previousIsoDay(clock.day);
+      const params = { from: day, to: day, sources: ["intune", "entra"], scheduled: true };
+      const title = `Änderungsprotokoll ${day} (automatisch)`;
+      console.log(`Evidence-Zeitplan: starte ${t.name} für ${day}`);
+      evidenceJob(t, { session: { user: "schedule:continuous-evidence" } }, "changelog", title, params, async say => {
+        try {
+          const data = await EVIDENCE.changeLog(t, certPemPath(t.tenantId), params, say);
+          const sx = loadState();
+          const rx = (sx.tenants || []).find(x => x.id === t.id);
+          if (rx) {
+            rx.evidenceSchedule = sanitizeEvidenceSchedule({}, rx.evidenceSchedule);
+            rx.evidenceSchedule.lastRunAt = new Date().toISOString();
+            rx.evidenceSchedule.lastRunDay = day;
+            rx.evidenceSchedule.lastResult = "ok";
+            saveState(sx);
+          }
+          return data;
+        } catch (e) {
+          const sx = loadState();
+          const rx = (sx.tenants || []).find(x => x.id === t.id);
+          if (rx) {
+            rx.evidenceSchedule = sanitizeEvidenceSchedule({}, rx.evidenceSchedule);
+            rx.evidenceSchedule.lastResult = "failed";
+            rx.evidenceSchedule.lastError = String(e.message || e).slice(0, 500);
+            saveState(sx);
+          }
+          throw e;
+        }
+      });
+      return; // pro Tick nur einen Tenant starten; andere kommen im nächsten dran.
+    }
+  } catch (e) {
+    console.log("Evidence-Zeitplan-Fehler: " + e.message);
+  }
+}
+setInterval(evidenceScheduleTick, EVIDENCE_SCHEDULE_TICK_MS);
+setTimeout(evidenceScheduleTick, 75 * 1000);
+
 app.post("/api/tenants/:id/evidence/changelog", wrap(async (req, res) => {
   const t = requireTenant(req);
   const b = req.body || {};
