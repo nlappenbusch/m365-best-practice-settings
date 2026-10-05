@@ -4,21 +4,20 @@
   import { activeTab, goToTab } from '../lib/tabStore.js'
   import { session } from '../lib/session.js'
   import TenantContext from '../lib/TenantContext.svelte'
-  import { ageLabel, fmtDateTime, latestByKind, rankEvents } from '../lib/product.js'
+  import { ageLabel, fmtDateTime, latestByKind } from '../lib/product.js'
 
   let loading = $state(false)
   let error = $state(null)
   let archive = $state([])
-  let changelog = $state(null)
+  let events = $state([])
+  let stats = $state(null)
   let maester = $state(null)
   let jobs = $state([])
   let loadedFor = $state(null)
 
   const tenantId = () => encodeURIComponent($activeTenant?.id || '')
-  let latestChangeMeta = $derived(latestByKind(archive, 'changelog'))
   let latestHealth = $derived(latestByKind(archive, 'health'))
-  let ranked = $derived(rankEvents(changelog?.data?.events || []))
-  let attention = $derived(ranked.filter(x => ['critical', 'high'].includes(x.risk.level)).slice(0, 6))
+  let attention = $derived(events.filter(x => ['critical','high'].includes(x.analysis?.risk?.level)).slice(0,6))
   let runningJobs = $derived(jobs.filter(j => j.status === 'running'))
   let lastEvidence = $derived(archive[0] || null)
 
@@ -26,26 +25,19 @@
     if (!$activeTenant || !$session.loggedIn || loading) return
     loading = true; error = null
     try {
-      const [a, m, j] = await Promise.all([
+      const [a, m, j, ev] = await Promise.all([
         apiGet(`/api/tenants/${tenantId()}/evidence/archive`),
         apiGet(`/api/tenants/${tenantId()}/maester/latest`).catch(() => ({ maester: null })),
-        apiGet('/api/appjobs').catch(() => ({ jobs: [] }))
+        apiGet('/api/appjobs').catch(() => ({ jobs: [] })),
+        apiGet(`/api/tenants/${tenantId()}/evidence/v3/events?days=30&limit=200`)
       ])
       archive = a.entries || []
       maester = m.maester || null
       jobs = (j.jobs || []).filter(x => x.tenantId === $activeTenant.id)
-
-      const cm = archive.find(x => x.kind === 'changelog')
-      if (cm) {
-        const c = await apiGet(`/api/tenants/${tenantId()}/evidence/archive/${encodeURIComponent(cm.id)}`)
-        changelog = c.entry || null
-      } else {
-        changelog = null
-      }
+      events = ev.events || []
+      stats = ev.stats || null
       loadedFor = $activeTenant.id
-    } catch (e) {
-      error = errText(e)
-    }
+    } catch (e) { error = errText(e) }
     loading = false
   }
 
@@ -89,10 +81,10 @@
         <strong>{maester?.score != null ? maester.score + '%' : '—'}</strong>
         <small>{maester?.counts?.failed != null ? maester.counts.failed + ' Findings' : 'noch kein Audit'}</small>
       </button>
-      <button class="cc-metric {attention.length ? 'crit' : latestChangeMeta ? 'ok' : 'neutral'}" onclick={() => goToTab('changes')}>
+      <button class="cc-metric {attention.length ? 'crit' : stats?.events ? 'ok' : 'neutral'}" onclick={() => goToTab('changes')}>
         <span class="cc-metric-label">Changes</span>
-        <strong>{changelog?.data?.summary?.events ?? '—'}</strong>
-        <small>{attention.length ? attention.length + ' auffällig' : latestChangeMeta ? ageLabel(latestChangeMeta.createdAt) : 'noch nicht erhoben'}</small>
+        <strong>{stats?.events ?? '—'}</strong>
+        <small>{attention.length ? attention.length + ' auffällig' : stats?.lastEventIngestAt ? ageLabel(stats.lastEventIngestAt) : 'noch nicht erhoben'}</small>
       </button>
       <button class="cc-metric {lastEvidence ? 'ok' : 'warn'}" onclick={() => goToTab('nachweise')}>
         <span class="cc-metric-label">Evidence</span>
@@ -121,26 +113,29 @@
           <button class="linklike" onclick={() => goToTab('changes')}>Alle Changes →</button>
         </div>
 
-        {#if !latestChangeMeta}
+        {#if !stats?.events}
           <div class="cc-empty">
-            <strong>Noch kein Änderungsprotokoll.</strong>
-            <span>Erhebe Entra- und Intune-Changes, damit hier automatisch priorisiert wird.</span>
-            <button class="btn btn-primary" onclick={() => goToTab('changes')}>Changes erfassen</button>
+            <strong>Noch keine Change-Events.</strong>
+            <span>Bestehende Archive werden beim ersten Aufruf automatisch in Evidence 3.0 dedupliziert.</span>
+            <button class="btn btn-primary" onclick={() => goToTab('changes')}>Changes öffnen</button>
           </div>
         {:else if attention.length === 0}
-          <div class="cc-good">Keine kritischen oder hohen Änderungen im letzten archivierten Change-Lauf.</div>
+          <div class="cc-good">Keine kritischen oder hohen Änderungen in Evidence 3.0.</div>
         {:else}
           <div class="cc-list">
             {#each attention as ev}
               <button class="cc-row" onclick={() => goToTab('changes')}>
-                <span class="cc-dot {ev.risk.level}"></span>
+                <span class="cc-dot {ev.analysis?.risk?.level || 'info'}"></span>
                 <div class="cc-row-main">
                   <strong>{ev.activity || ev.operation || 'Änderung'}</strong>
-                  <small>{ev.targets?.[0]?.name || ev.category || ev.source} · {ev.actor || 'unbekannter Akteur'}</small>
+                  <small>{ev.analysis?.resource?.name || ev.targets?.[0]?.name || ev.category || ev.source} · {ev.actor || 'unbekannter Akteur'}</small>
+                  {#if ev.analysis?.baseline?.compliant === false}
+                    <small class="cc-baseline">Baseline {ev.analysis.baseline.version || '—'} · Abweichung · {ev.analysis?.impact?.users != null ? ev.analysis.impact.users + ' Benutzer' : 'Impact offen'}</small>
+                  {/if}
                 </div>
                 <div class="cc-row-side">
-                  <span class="cc-risk {ev.risk.level}">{ev.risk.label}</span>
-                  <small>{fmtDateTime(ev.at)}</small>
+                  <span class="cc-risk {ev.analysis?.risk?.level || 'info'}">{ev.analysis?.risk?.reason || 'Analyse offen'}</span>
+                  <small>{fmtDateTime(ev.occurredAt)}</small>
                 </div>
               </button>
             {/each}
@@ -172,15 +167,23 @@
 
       <section class="cc-card">
         <div class="cc-card-head">
-          <div>
-            <span class="cc-eyebrow">NEXT ACTIONS</span>
-            <h3>Pragmatisch weiter</h3>
-          </div>
+          <div><span class="cc-eyebrow">EVIDENCE 3.0</span><h3>Store</h3></div>
+          <button class="linklike" onclick={() => goToTab('changes')}>Details →</button>
         </div>
+        <div class="cc-store">
+          <div><strong>{stats?.events ?? 0}</strong><span>Events</span></div>
+          <div><strong>{stats?.activeResources ?? 0}</strong><span>Resources</span></div>
+          <div><strong>{stats?.duplicateObservations ?? 0}</strong><span>Dedup-Treffer</span></div>
+          <div><strong>{stats?.levels?.critical ?? 0}</strong><span>Critical</span></div>
+        </div>
+      </section>
+
+      <section class="cc-card">
+        <div class="cc-card-head"><div><span class="cc-eyebrow">NEXT ACTIONS</span><h3>Pragmatisch weiter</h3></div></div>
         <div class="cc-actions">
-          <button onclick={() => goToTab('changes')}><strong>Changes prüfen</strong><span>24h Change-Lauf starten und priorisieren</span></button>
+          <button onclick={() => goToTab('changes')}><strong>Changes prüfen</strong><span>Evidence 3.0, Baseline, Impact und Historie</span></button>
           <button onclick={() => goToTab('risks')}><strong>Risiken bearbeiten</strong><span>Maester Findings und kritische Changes</span></button>
-          <button onclick={() => goToTab('automations')}><strong>Automationen</strong><span>Jobs, Semaphore und Execution Engine</span></button>
+          <button onclick={() => goToTab('automations')}><strong>Automationen</strong><span>Jobs, Continuous Evidence und Semaphore</span></button>
           <button onclick={() => goToTab('istzustand')}><strong>Kundendoku</strong><span>Ist-Zustand und Entscheide als PDF</span></button>
         </div>
       </section>
@@ -200,45 +203,19 @@
   .cc-metric strong { display:block; font-size:1.45rem; margin:0.25rem 0 0.1rem; }
   .cc-metric small { display:block; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cc-metric-label { font-size:0.72rem; font-weight:800; color:var(--text-dim); }
-  .cc-metric.ok { border-top:3px solid var(--ok); }
-  .cc-metric.warn { border-top:3px solid var(--warn); }
-  .cc-metric.crit { border-top:3px solid var(--crit); }
-  .cc-metric.neutral { border-top:3px solid var(--rule); }
+  .cc-metric.ok { border-top:3px solid var(--ok); }.cc-metric.warn { border-top:3px solid var(--warn); }.cc-metric.crit { border-top:3px solid var(--crit); }.cc-metric.neutral { border-top:3px solid var(--rule); }
   .cc-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(280px,0.8fr); gap:0.85rem; }
   .cc-card { border:1px solid var(--rule); border-radius:var(--radius-lg); padding:1rem; background:var(--bg-raised); box-shadow:var(--shadow-sm); min-width:0; }
-  .cc-card-wide { grid-row:span 2; }
-  .cc-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:0.75rem; }
-  .cc-card h3 { margin:0.1rem 0 0; font-size:1rem; }
-  .cc-list { display:flex; flex-direction:column; }
-  .cc-row { width:100%; display:flex; gap:0.7rem; align-items:center; border:0; border-top:1px solid var(--rule); background:transparent; padding:0.7rem 0.15rem; color:inherit; text-align:left; cursor:pointer; }
-  .cc-row:first-child { border-top:0; }
-  .cc-row:hover { background:var(--bg-inset); }
-  .cc-dot { width:8px; height:8px; border-radius:999px; flex:0 0 auto; }
-  .cc-dot.critical { background:var(--crit); }
-  .cc-dot.high { background:var(--warn); }
-  .cc-dot.medium { background:var(--accent); }
-  .cc-row-main { flex:1; min-width:0; }
-  .cc-row-main strong,.cc-row-main small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .cc-row-main small,.cc-row-side small { color:var(--text-dim); font-size:0.74rem; margin-top:0.15rem; }
-  .cc-row-side { text-align:right; flex:0 0 auto; }
-  .cc-risk { font-size:0.68rem; padding:0.15rem 0.45rem; border-radius:999px; font-weight:800; }
-  .cc-risk.critical { color:var(--crit); background:var(--crit-wash); }
-  .cc-risk.high { color:var(--warn); background:var(--warn-wash); }
-  .cc-stack { display:flex; flex-direction:column; gap:0.55rem; }
-  .cc-mini { display:flex; justify-content:space-between; align-items:flex-start; gap:0.8rem; padding-bottom:0.55rem; border-bottom:1px solid var(--rule); font-size:0.82rem; }
-  .cc-mini:last-child { border-bottom:0; padding-bottom:0; }
-  .cc-mini strong,.cc-mini small { display:block; }
-  .cc-mini small,.cc-mini > span { color:var(--text-dim); font-size:0.72rem; }
-  .cc-mini > span { white-space:nowrap; }
-  .cc-actions { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; }
-  .cc-actions button { border:1px solid var(--rule); background:var(--bg-inset); border-radius:var(--radius-md); padding:0.7rem; text-align:left; color:inherit; cursor:pointer; }
-  .cc-actions button:hover { border-color:var(--accent); }
-  .cc-actions strong,.cc-actions span { display:block; }
-  .cc-actions span { color:var(--text-dim); font-size:0.74rem; margin-top:0.15rem; line-height:1.35; }
-  .cc-empty { display:flex; flex-direction:column; align-items:flex-start; gap:0.45rem; padding:1.1rem; border:1px dashed var(--rule); border-radius:var(--radius-md); color:var(--text-dim); }
-  .cc-empty strong { color:var(--text); }
-  .cc-empty.compact { padding:0.8rem; }
-  .cc-good { padding:0.8rem; border-radius:var(--radius-md); background:var(--ok-wash); color:var(--ok); font-weight:600; }
+  .cc-card-wide { grid-row:span 3; }
+  .cc-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:0.75rem; }.cc-card h3 { margin:0.1rem 0 0; font-size:1rem; }
+  .cc-list { display:flex; flex-direction:column; }.cc-row { width:100%; display:flex; gap:0.7rem; align-items:center; border:0; border-top:1px solid var(--rule); background:transparent; padding:0.7rem 0.15rem; color:inherit; text-align:left; cursor:pointer; }.cc-row:first-child { border-top:0; }.cc-row:hover { background:var(--bg-inset); }
+  .cc-dot { width:8px; height:8px; border-radius:999px; flex:0 0 auto; }.cc-dot.critical { background:var(--crit); }.cc-dot.high { background:var(--warn); }.cc-dot.medium { background:var(--accent); }
+  .cc-row-main { flex:1; min-width:0; }.cc-row-main strong,.cc-row-main small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.cc-row-main small,.cc-row-side small { color:var(--text-dim); font-size:0.74rem; margin-top:0.15rem; }.cc-row-main .cc-baseline{color:var(--crit)}
+  .cc-row-side { text-align:right; flex:0 0 auto; max-width:280px; }.cc-risk { font-size:0.68rem; padding:0.15rem 0.45rem; border-radius:999px; font-weight:800; }.cc-risk.critical { color:var(--crit); background:var(--crit-wash); }.cc-risk.high { color:var(--warn); background:var(--warn-wash); }
+  .cc-stack { display:flex; flex-direction:column; gap:0.55rem; }.cc-mini { display:flex; justify-content:space-between; align-items:flex-start; gap:0.8rem; padding-bottom:0.55rem; border-bottom:1px solid var(--rule); font-size:0.82rem; }.cc-mini:last-child { border-bottom:0; padding-bottom:0; }.cc-mini strong,.cc-mini small { display:block; }.cc-mini small,.cc-mini > span { color:var(--text-dim); font-size:0.72rem; }.cc-mini > span { white-space:nowrap; }
+  .cc-store{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}.cc-store>div{padding:.55rem;background:var(--bg-inset);border-radius:var(--radius-sm)}.cc-store strong,.cc-store span{display:block}.cc-store strong{font-size:1.05rem}.cc-store span{font-size:.68rem;color:var(--text-dim)}
+  .cc-actions { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; }.cc-actions button { border:1px solid var(--rule); background:var(--bg-inset); border-radius:var(--radius-md); padding:0.7rem; text-align:left; color:inherit; cursor:pointer; }.cc-actions button:hover { border-color:var(--accent); }.cc-actions strong,.cc-actions span { display:block; }.cc-actions span { color:var(--text-dim); font-size:0.74rem; margin-top:0.15rem; line-height:1.35; }
+  .cc-empty { display:flex; flex-direction:column; align-items:flex-start; gap:0.45rem; padding:1.1rem; border:1px dashed var(--rule); border-radius:var(--radius-md); color:var(--text-dim); }.cc-empty strong { color:var(--text); }.cc-empty.compact { padding:0.8rem; }.cc-good { padding:0.8rem; border-radius:var(--radius-md); background:var(--ok-wash); color:var(--ok); font-weight:600; }
   @media (max-width:1100px) { .cc-metrics{grid-template-columns:repeat(3,1fr)} .cc-grid{grid-template-columns:1fr} .cc-card-wide{grid-row:auto} }
-  @media (max-width:700px) { .cc-metrics{grid-template-columns:1fr 1fr} .cc-actions{grid-template-columns:1fr} .cc-hero{flex-direction:column} }
+  @media (max-width:700px) { .cc-metrics{grid-template-columns:1fr 1fr} .cc-actions{grid-template-columns:1fr} .cc-hero{flex-direction:column} .cc-row-side{display:none} }
 </style>
