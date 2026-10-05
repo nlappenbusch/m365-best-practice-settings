@@ -3,7 +3,7 @@ version: '3.8'
 services:
   website:
     build: .
-    container_name: m365-security-website
+    container_name: m365-control-plane-website
     restart: unless-stopped
     environment:
       # IP-Allowlist fuer den Tool-Zugriff (GitHub-Secret ALLOWED_IPS).
@@ -25,11 +25,11 @@ services:
   # Kein eigener Port nach aussen — nur ueber den nginx-Proxy (/api/) erreichbar.
   api:
     build: ./api
-    container_name: m365-security-api
+    container_name: m365-control-plane-api
     restart: unless-stopped
     environment:
       # Optional vorbelegen; ohne ADMIN_PASSWORD wird beim ersten Start eins
-      # generiert und einmalig ins Container-Log geschrieben (docker logs m365-security-api).
+      # generiert und einmalig ins Container-Log geschrieben (docker logs m365-control-plane-api).
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       # Agent-Downloads: API-Keys bleiben im Backend, nie im Browser.
