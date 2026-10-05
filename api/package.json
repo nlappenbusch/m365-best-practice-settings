@@ -1,8 +1,8 @@
 {
-  "name": "m365-security-policy-api",
+  "name": "m365-control-plane-api",
   "version": "1.0.0",
   "private": true,
-  "description": "Live-Deploy-Backend: wendet die Best-Practice-Policies app-only per Exchange Online PowerShell an",
+  "description": "M365 Control Plane backend for tenant assurance, evidence, automation and operations",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
