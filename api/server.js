@@ -95,6 +95,7 @@ const ISTMODEL = require("./lib/istZustandModel");
 const ISTPDF = require("./lib/istZustandPdf");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
+const EXECUTION = require("./lib/execution");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -3762,6 +3763,61 @@ app.get("/api/appjobs/:id", (req, res) => {
   const { _child, ...rest } = job;
   res.json(rest);
 });
+
+// Product-facing job list. The existing per-job endpoint remains unchanged;
+// this compact list powers Control Center and Automation without exposing child processes.
+app.get("/api/appjobs", (req, res) => {
+  const jobs = [...appJobs.values()]
+    .map(j => { const { _child, ...safe } = j; return safe; })
+    .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")))
+    .slice(0, 50);
+  res.json({ ok: true, jobs });
+});
+
+// ---------- Execution adapter (lokal + optional Semaphore UI) ----------
+app.get("/api/execution/status", (req, res) => {
+  res.json({ ok: true, ...EXECUTION.publicStatus() });
+});
+
+app.get("/api/execution/templates", wrap(async (req, res) => {
+  res.json({ ok: true, templates: await EXECUTION.templates() });
+}));
+
+app.post("/api/execution/run", wrap(async (req, res) => {
+  const b = req.body || {};
+  const templateId = Number(b.templateId);
+  if (!Number.isInteger(templateId) || templateId <= 0) return res.status(400).json({ error: "templateId fehlt oder ist ungültig." });
+
+  const tenantId = String(b.tenantId || "");
+  const s = loadState();
+  const t = (s.tenants || []).find(x => x.id === tenantId);
+  if (!t) return res.status(404).json({ error: "Tenant nicht gefunden." });
+
+  const action = String(b.action || "automation").slice(0, 80);
+  // Externe Ausführung liegt nicht unter /api/tenants/:id und wird deshalb
+  // explizit noch einmal gegen den Prüfmandat-Modus abgesichert.
+  const readOnlyActions = new Set(["evidence", "maester", "audit", "terraform-plan", "plan"]);
+  if (t.readOnly && !readOnlyActions.has(action)) {
+    return res.status(403).json({
+      error: `Prüfmandat: ${t.name} ist nur lesend angebunden — Aktion „${action}“ ist gesperrt.`
+    });
+  }
+
+  const task = await EXECUTION.runTemplate(templateId, {
+    action,
+    tenantId: t.id,
+    tenantName: t.name,
+    organization: t.organization || null,
+    payload: (b.payload && typeof b.payload === "object") ? b.payload : {},
+    requestedBy: (req.session && req.session.user) || "",
+    requestedAt: new Date().toISOString()
+  });
+  res.json({ ok: true, task });
+}));
+
+app.get("/api/execution/tasks/:taskId", wrap(async (req, res) => {
+  res.json({ ok: true, task: await EXECUTION.task(req.params.taskId) });
+}));
 
 const APP_PUBLISHER_BY_VENDOR = { bitdefender: "Bitdefender", forticlient: "Fortinet", bitwarden: "Bitwarden Inc." };
 
