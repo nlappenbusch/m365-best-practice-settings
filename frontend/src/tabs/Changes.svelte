@@ -94,7 +94,7 @@
       </div>
       <div class="chg-actions">
         <button class="btn btn-secondary" onclick={openLatest} disabled={loading || running}>↻ Aktualisieren</button>
-        <button class="btn btn-primary" onclick={collect24h} disabled={running}>{running ? 'Erhebung läuft…' : 'Letzte 24h erheben'}</button>
+        <button class="btn btn-primary" onclick={collect24h} disabled={running}>{running ? 'Erhebung läuft…' : 'Seit gestern erheben'}</button>
       </div>
     </div>
 
@@ -170,7 +170,7 @@
     {:else if !loading}
       <div class="chg-empty chg-empty-big">
         <strong>Noch kein Change-Evidence vorhanden.</strong>
-        <span>Starte einen 24h-Lauf. Entra und Intune werden gelesen, archiviert und anschliessend hier priorisiert.</span>
+        <span>Starte einen Lauf seit gestern. Entra und Intune werden gelesen, archiviert und anschliessend hier priorisiert.</span>
         <button class="btn btn-primary" onclick={collect24h} disabled={running}>Jetzt erheben</button>
       </div>
     {/if}
