@@ -12,6 +12,10 @@
   import LoginScreen from './lib/LoginScreen.svelte'
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
+  import Overview from './tabs/Overview.svelte'
+  import Changes from './tabs/Changes.svelte'
+  import Risks from './tabs/Risks.svelte'
+  import Automations from './tabs/Automations.svelte'
   import Config from './tabs/Config.svelte'
   import TenantsOverview from './tabs/TenantsOverview.svelte'
   import Bestandsaufnahme from './tabs/Bestandsaufnahme.svelte'
@@ -98,7 +102,7 @@
             </div>
           </div>
         {:else}
-          <h1>M365 Security Policy Manager</h1>
+          <h1>M365 Control Plane</h1>
         {/if}
       </div>
 
@@ -126,6 +130,10 @@
          Device-Code-/Job-Polls beim Wechsel nicht abbrechen. -->
     <main class="content">
       <div class="content-card">
+        <div class:tab-hidden={$activeTab !== 'overview'}><Overview /></div>
+        <div class:tab-hidden={$activeTab !== 'changes'}><Changes /></div>
+        <div class:tab-hidden={$activeTab !== 'risks'}><Risks /></div>
+        <div class:tab-hidden={$activeTab !== 'automations'}><Automations /></div>
         <div class:tab-hidden={$activeTab !== 'config'}><Config /></div>
         <div class:tab-hidden={$activeTab !== 'tenants'}><TenantsOverview /></div>
         <div class:tab-hidden={$activeTab !== 'bestandsaufnahme'}><Bestandsaufnahme /></div>

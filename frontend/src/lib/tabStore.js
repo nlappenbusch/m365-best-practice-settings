@@ -5,7 +5,7 @@ import { writable } from 'svelte/store'
 import { navItem } from './nav.js'
 import { closeMobileNav } from './sidebarStore.js'
 
-const FALLBACK = 'tenants'
+const FALLBACK = 'overview'
 
 function initial() {
   try {

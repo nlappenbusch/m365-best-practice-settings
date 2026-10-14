@@ -53,6 +53,12 @@ services:
       - ZOHO_CLIENT_ID=${ZOHO_CLIENT_ID:-}
       - ZOHO_CLIENT_SECRET=${ZOHO_CLIENT_SECRET:-}
       - ZOHO_REFRESH_TOKEN=${ZOHO_REFRESH_TOKEN:-}
+      # Optionale Execution Engine: bleibt leer = bestehender lokaler Runner.
+      # Bei Konfiguration kann das Control Plane Semaphore-Templates starten;
+      # der API-Token bleibt ausschliesslich im Backend.
+      - SEMAPHORE_URL=${SEMAPHORE_URL:-}
+      - SEMAPHORE_PROJECT_ID=${SEMAPHORE_PROJECT_ID:-}
+      - SEMAPHORE_API_TOKEN=${SEMAPHORE_API_TOKEN:-}
     volumes:
       - api-state:/app/state
     networks:

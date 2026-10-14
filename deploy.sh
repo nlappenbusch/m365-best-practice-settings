@@ -20,6 +20,9 @@ git reset --hard origin/main
 # erzeugt und der Downloads-Tab ist bis zum naechsten Pipeline-Deploy inaktiv.
 # Wer manuell deployen will: Vars vorher exportieren oder in /opt/m365-security/.env
 # legen (docker compose liest die automatisch).
+# Semaphore ist ebenso optional: SEMAPHORE_API_TOKEN als Secret sowie
+# SEMAPHORE_URL / SEMAPHORE_PROJECT_ID als Variables. Ohne diese drei nutzt
+# das Produkt unverändert seine lokale Execution.
 
 # Erst bauen, dann neu starten — haelt die Downtime minimal
 # (der api-Build mit pwsh + ExchangeOnlineManagement dauert beim ersten Mal einige Minuten).
