@@ -11,6 +11,12 @@
 const S = require("./managedService");
 
 const esc = v => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// Secure-Score-Massnahmen: Microsoft-Werte lesbar machen, "Unknown" ausblenden.
+const known = v => { const t = String(v == null ? "" : v).trim(); return /^(unknown|none|n\/a|-)?$/i.test(t) ? "" : t; };
+const LEVEL_DE = { low: "gering", moderate: "mittel", medium: "mittel", high: "hoch" };
+const CAT_DE = { identity: "Identität", data: "Daten", device: "Geräte", apps: "Apps", infrastructure: "Infrastruktur" };
+const lvl = v => { const k = known(v); return k ? (LEVEL_DE[k.toLowerCase()] || k) : ""; };
+const cat = v => { const k = known(v); return k ? (CAT_DE[k.toLowerCase()] || k) : ""; };
 const SEV_DE = { critical: "Kritisch", high: "Hoch", medium: "Mittel", low: "Niedrig", info: "Info" };
 const SEV_COL = { critical: "#c62828", high: "#e07b00", medium: "#0081ad", low: "#6b7c86", info: "#9aa7ae" };
 
@@ -206,10 +212,16 @@ function build(stateDir, tenant, quarter, meta) {
 
   ${measures.length ? `<section>
     <h2>Empfohlene Massnahmen <small>Stand ${esc(stand("score"))} · grösster Punktegewinn zuerst</small></h2>
-    <p class="lead">Umgesetzt würden diese Massnahmen den Score auf etwa <b>${esc(score.current.potential)}%</b> heben.</p>
+    ${(() => {
+      const sum = Math.round(measures.reduce((n, m) => n + (Number(m.gain) || 0), 0) * 10) / 10;
+      const to = score.current.max ? Math.min(100, Math.round(((score.current.score + sum) / score.current.max) * 1000) / 10) : null;
+      const dev = measures.filter(m => /device/i.test(m.category || "")).length;
+      return `<p class="lead">Diese ${measures.length} Massnahmen bringen zusammen bis zu <b>+${esc(sum)} Punkte</b>${to !== null ? ` — der Score stiege von ${esc(score.current.pct)}% auf rund <b>${esc(to)}%</b>` : ""}.` +
+        (dev ? ` ${dev === measures.length ? (dev === 1 ? "Sie betrifft" : "Alle betreffen") : dev === 1 ? "Eine davon betrifft" : dev + " davon betreffen"} Geräte. Gerätemassnahmen setzen voraus, dass die Geräte in Microsoft Defender for Endpoint eingebunden sind — ohne Einbindung lassen sie sich nicht umsetzen.` : "") + `</p>`;
+    })()}
     ${measures.map(m => `<div class="measure"><div class="gain">+${esc(m.gain)}</div><div><b>${esc(m.title)}</b><br>
-      <span class="tag">${esc(m.category || "")}</span>${m.cost ? `<span class="tag">Aufwand ${esc(m.cost)}</span>` : ""}${m.impact ? `<span class="tag">Benutzer: ${esc(m.impact)}</span>` : ""}${m.quickWin ? `<span class="tag qw">Quick Win</span>` : ""}
-      ${m.why ? `<div class="muted" style="margin-top:4px">${esc(m.why.slice(0, 260))}</div>` : ""}</div></div>`).join("")}
+      ${cat(m.category) ? `<span class="tag">${esc(cat(m.category))}</span>` : ""}<span class="tag">Aufwand ${esc(lvl(m.cost) || "keine Angabe von Microsoft")}</span>${lvl(m.impact) ? `<span class="tag">Auswirkung auf Benutzer: ${esc(lvl(m.impact))}</span>` : ""}${m.quickWin ? `<span class="tag qw">Quick Win</span>` : ""}
+      ${known(m.why) ? `<div class="muted" style="margin-top:4px">${esc(known(m.why).slice(0, 260))}</div>` : ""}</div></div>`).join("")}
   </section>` : ""}
 
   <section>

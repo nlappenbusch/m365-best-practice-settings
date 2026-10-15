@@ -41,6 +41,11 @@
   // Fachansicht-Filter
   let mbOnly = $state('attention')
 
+  // Secure-Score-Werte von Microsoft: "Unknown" ausblenden, auf Deutsch zeigen.
+  const known = v => { const t = String(v ?? '').trim(); return /^(unknown|none|n\/a|-)?$/i.test(t) ? '' : t }
+  const mLvl = v => { const k = known(v); return k ? ({ low: 'gering', moderate: 'mittel', medium: 'mittel', high: 'hoch' }[k.toLowerCase()] || k) : '' }
+  const mCat = v => { const k = known(v); return k ? ({ identity: 'Identität', data: 'Daten', device: 'Geräte', apps: 'Apps', infrastructure: 'Infrastruktur' }[k.toLowerCase()] || k) : '' }
+
   const tid = () => $activeTenant?.id
 
   let findings = $derived((ov?.findings || [])
@@ -309,12 +314,12 @@
                     <summary>
                       <span class="gain">+{m.gain}</span>
                       <span class="mt"><strong>{m.title}</strong>
-                        <span class="mtags"><i>{m.category}</i>{#if m.service}<i>{m.service}</i>{/if}{#if m.cost}<i>Aufwand {m.cost}</i>{/if}{#if m.impact}<i>Benutzer: {m.impact}</i>{/if}{#if m.quickWin}<i class="qw">Quick Win</i>{/if}</span>
+                        <span class="mtags">{#if mCat(m.category)}<i>{mCat(m.category)}</i>{/if}{#if known(m.service)}<i>{m.service}</i>{/if}<i>Aufwand {mLvl(m.cost) || 'keine Angabe'}</i>{#if mLvl(m.impact)}<i>Benutzer: {mLvl(m.impact)}</i>{/if}{#if m.quickWin}<i class="qw">Quick Win</i>{/if}</span>
                       </span>
                       <span class="gbar"><i style="width:{Math.min(100, m.gain / (d.measures[0]?.gain || 1) * 100)}%"></i></span>
                     </summary>
-                    {#if m.why}<p class="why">{m.why}</p>{/if}
-                    {#if m.remediation}<pre class="rem">{m.remediation}</pre>{/if}
+                    {#if known(m.why)}<p class="why">{known(m.why)}</p>{/if}
+                    {#if known(m.remediation)}<pre class="rem">{m.remediation}</pre>{:else}<p class="why">Microsoft liefert für diese Massnahme keine Anleitung — im Defender-Portal öffnen.</p>{/if}
                     <a href={m.url} target="_blank" rel="noreferrer">Im Defender-Portal öffnen ↗</a>
                   </details>
                 {/each}

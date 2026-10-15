@@ -274,6 +274,7 @@ async function collectRisk(tenant, cert) {
 }
 
 // ============================================================ Secure Score
+const known = v => { const t = String(v == null ? "" : v).trim(); return /^(unknown|none|n\/a|-)?$/i.test(t) ? "" : t; };
 async function collectScore(tenant, cert) {
   const scores = (await graphReq(tenant, cert, "GET", "/security/secureScores?$top=90", null, V1)).value || [];
   if (!scores.length) throw new Error("Keine Secure-Score-Daten (SecurityEvents.Read.All fehlt oder Tenant zu neu).");
@@ -303,8 +304,9 @@ async function collectScore(tenant, cert) {
     if (gain <= 0) continue;
     measures.push({
       id: p.id, title: p.title, category: p.controlCategory, service: p.service, gain, maxScore: p.maxScore, have,
-      cost: p.implementationCost || "", impact: p.userImpact || "", tier: p.tier || "", actionType: p.actionType || "",
-      rank: p.rank || 999, remediation: cut(strip(p.remediation), 1200), why: cut(strip(p.remediationImpact), 600),
+      // Microsoft liefert bei vielen Defender-Geraetekontrollen "Unknown" — als fehlend behandeln.
+      cost: known(p.implementationCost), impact: known(p.userImpact), tier: known(p.tier), actionType: known(p.actionType),
+      rank: p.rank || 999, remediation: known(cut(strip(p.remediation), 1200)), why: known(cut(strip(p.remediationImpact), 600)),
       url: p.actionUrl || PORTAL.secureScore, implementation: cs ? (cs.implementationStatus || "") : ""
     });
   }
