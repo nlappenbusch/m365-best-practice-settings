@@ -35,20 +35,67 @@
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('de-CH', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
   const title = m => m.ai?.titel || m.title
 
-  // [[Text|URL]] -> Links; Rest bleibt Text.
+  // [[Text|URL]] und Verweise auf andere Meldungen (MC1227622) -> Links.
+  const MC_URL = id => `https://admin.microsoft.com/#/MessageCenter/:/messages/${id}`
   function parts(line) {
-    const out = []; const re = /\[\[([^|\]]+)\|([^\]]+)\]\]/g; let last = 0, x
+    const out = []; const re = /\[\[([^|\]]+)\|([^\]]+)\]\]|\b(MC\d{5,8})\b|(https?:\/\/[^\s)]+)/g; let last = 0, x
     while ((x = re.exec(line)) !== null) {
       if (x.index > last) out.push({ t: line.slice(last, x.index) })
-      out.push({ t: x[1], href: x[2] }); last = re.lastIndex
+      if (x[1]) out.push({ t: x[1], href: x[2] })
+      else if (x[3]) out.push({ t: x[3], href: MC_URL(x[3]), mc: true })
+      else out.push({ t: x[4].replace(/^https?:\/\/(www\.)?/, '').slice(0, 48), href: x[4] })
+      last = re.lastIndex
     }
     if (last < line.length) out.push({ t: line.slice(last) })
     return out
   }
 
+  // Aeltere Datensaetze (vor der Gliederung erhoben) haben nur Fliesstext:
+  // hier dieselbe Gliederung nachholen wie im Backend (mcSections).
+  const HEAD = [[/what and why|what is happening|what'?s changing|summary/i, 'Was ändert sich', 'what'], [/when this will happen|schedule|timeline|rollout/i, 'Zeitplan', 'when'],
+    [/how this (will )?affect|impact|who is affected/i, 'Auswirkung', 'impact'], [/what you (need|can) (to )?do|prepare|action|recommend/i, 'Was zu tun ist', 'todo'],
+    [/compliance/i, 'Compliance', 'compliance'], [/additional information|learn more|more information/i, 'Weitere Informationen', 'more']]
+  function fallbackSections(text) {
+    let t = String(text || '').replace(/^Updated [A-Z][a-z]+ \d{1,2}, \d{4}:?[^[]*/, '')
+    t = t.replace(/\s*\[(?!\[)([A-Za-z][^[\]\n|]{2,60}?)\s*:?\]\s*:?\s*/g, '\n[$1]\n')
+    const out = []; let cur = { key: 'intro', title: '', lines: [] }
+    for (const l of t.split('\n').map(x => x.trim()).filter(Boolean)) {
+      const h = l.match(/^\[([^\]]+)\]$/)
+      if (h) { if (cur.lines.length) out.push(cur); const m = HEAD.find(([re]) => re.test(h[1])); cur = { key: m ? m[2] : 'other', title: m ? m[1] : h[1], original: h[1], lines: [] }; continue }
+      cur.lines.push(l)
+    }
+    if (cur.lines.length) out.push(cur)
+    return out
+  }
+  // Lange Absaetze in Saetze-Gruppen zerlegen — liest sich besser als eine Wand.
+  function paras(line) {
+    if (line.length < 320) return [line]
+    const s = line.split(/(?<=[.!?])\s+(?=[A-Z])/); const out = []; let buf = ''
+    for (const x of s) { if ((buf + ' ' + x).length > 260 && buf) { out.push(buf); buf = x } else buf = buf ? buf + ' ' + x : x }
+    if (buf) out.push(buf)
+    return out
+  }
+  const secsOf = m => m.sections?.length ? m.sections : fallbackSections(m.summary)
+  // Kernaussage / Betroffene fuer alte Datensaetze aus der nachgeholten Gliederung.
+  function leadOf(m) {
+    if (m.lead) return m.lead
+    const w = secsOf(m).find(s => s.key === 'what') || secsOf(m)[0]
+    return w ? (w.lines.join(' ').split(/(?<=[.!?])\s+/)[0] || '') : ''
+  }
+  function affectedOf(m) {
+    if (m.affected?.length) return m.affected
+    const imp = secsOf(m).find(s => s.key === 'impact')
+    const l = imp && imp.lines.find(x => /who is affected/i.test(x))
+    const rest = l ? l.replace(/^.*?who is affected\s*:?\s*/i, '').trim() : ''
+    return rest ? [rest.split(/(?<=[.!?])\s+/)[0]] : []
+  }
+  const fmtUpd = s => { const d = new Date(s); return isNaN(d) ? s : d.toLocaleDateString('de-CH', { day: 'numeric', month: 'long', year: 'numeric' }) }
+  // "Who is affected: …" u. ä. als Zwischenueberschrift mit Text darunter.
+  const isSubhead = l => /^(who is affected|platforms\/services|what will happen|what you need to do)\s*:/i.test(l)
+
   // Zeitstrahl: heute, Meilensteine aus dem Text, Stichtag.
   function timeline(m) {
-    const pts = [...(m.milestones || []).map(x => ({ d: x.date, label: x.label, approx: x.approx }))]
+    const pts = [...(m.milestones || []).map(x => ({ d: x.date, label: x.label, approx: x.approx, old: !!x.superseded }))]
     if (m.due && !pts.some(p => p.d === String(m.due).slice(0, 10))) pts.push({ d: String(m.due).slice(0, 10), label: 'Stichtag laut Microsoft', due: true })
     else for (const p of pts) if (m.due && p.d === String(m.due).slice(0, 10)) p.due = true
     if (!pts.length) return null
@@ -97,7 +144,7 @@
           <span class="badge t-{vv.tone}">{vv.label}</span>
           <span class="rid">{sel.id}</span>
           {#if sel.major}<span class="tagm">Major Change</span>{/if}
-          {#if sel.updated}<span class="tagu" title={sel.updated.note}>aktualisiert {sel.updated.date}</span>{/if}
+          {#if sel.updated}<span class="tagu" title={sel.updated.note}>aktualisiert {fmtUpd(sel.updated.date)}</span>{/if}
           <a class="mclink" href={sel.url} target="_blank" rel="noreferrer">Message Center ↗</a>
         </div>
         <h3>{title(sel)}</h3>
@@ -121,18 +168,18 @@
           <div class="tl-bar"></div>
           <div class="tl-today" style="left:{tl.today}%"><span>Heute</span></div>
           {#each tl.pts as p}
-            <div class="tl-pt" class:due={p.due} class:past={p.past} style="left:{p.x}%" title={p.label}>
-              <i></i><b>{p.approx ? '≈ ' : ''}{fmt(p.d)}</b><span>{p.due ? 'Stichtag' : p.label.length > 42 ? p.label.slice(0, 40) + '…' : p.label}</span>
+            <div class="tl-pt" class:due={p.due} class:past={p.past} class:old={p.old} style="left:{p.x}%" title={p.label}>
+              <i></i><b>{p.approx ? '≈ ' : ''}{p.approx ? new Date(p.d).toLocaleDateString('de-CH', { month: 'short', year: 'numeric' }) : fmt(p.d)}</b><span>{p.due ? 'Stichtag' : p.old ? 'ursprünglich geplant' : p.label.length > 44 ? p.label.slice(0, 42) + '…' : p.label}</span>
             </div>
           {/each}
         </div>
       {/if}
 
       <div class="q4">
-        <section class="qa"><h4><i>◆</i>Was ändert sich</h4><p>{sel.ai?.kurz || sel.lead || '—'}</p></section>
+        <section class="qa"><h4><i>◆</i>Was ändert sich</h4><p>{sel.ai?.kurz || leadOf(sel) || '—'}</p></section>
         <section class="qa"><h4><i>◷</i>Wann</h4><p>{sel.ai?.wann || (sel.due ? 'Stichtag ' + fmt(sel.due) : sel.start ? 'Seit ' + fmt(sel.start) : '—')}</p></section>
         <section class="qa"><h4><i>◎</i>Wer ist betroffen</h4>
-          {#if sel.ai?.wer}<p>{sel.ai.wer}</p>{:else if sel.affected?.length}<ul>{#each sel.affected as a}<li>{a}</li>{/each}</ul>{:else}<p>Keine Angabe von Microsoft.</p>{/if}
+          {#if sel.ai?.wer}<p>{sel.ai.wer}</p>{:else if affectedOf(sel).length}<ul>{#each affectedOf(sel) as a}<li>{a}</li>{/each}</ul>{:else}<p>Keine Angabe von Microsoft.</p>{/if}
           {#if sel.platforms?.length}<div class="plats">{#each sel.platforms as p}<span>{p}</span>{/each}</div>{/if}
         </section>
         <section class="qa todo"><h4><i>✓</i>Was ist zu tun</h4>
@@ -141,20 +188,20 @@
       </div>
 
       <details class="orig">
-        <summary>Microsoft-Originaltext <span>{sel.sections?.length || 0} Abschnitte · Englisch</span></summary>
+        <summary>Microsoft-Originaltext <span>{secsOf(sel).length} Abschnitte · Englisch</span></summary>
         <div class="doc">
-          {#if sel.sections?.length}
-            {#each sel.sections as s}
-              <section>
-                {#if s.title}<h5><i>{SEC_ICON[s.key] || '•'}</i>{s.title}{#if s.original && s.original !== s.title}<small>{s.original}</small>{/if}</h5>{/if}
-                {#each s.lines as l}
-                  {#if l.startsWith('•')}<p class="li">{#each parts(l.slice(1).trim()) as p}{#if p.href}<a href={p.href} target="_blank" rel="noreferrer">{p.t}</a>{:else}{p.t}{/if}{/each}</p>
-                  {:else if l.length < 48 && !/[.:]$/.test(l) && !/^https?:/.test(l)}<h6>{l}</h6>
-                  {:else}<p>{#each parts(l) as p}{#if p.href}<a href={p.href} target="_blank" rel="noreferrer">{p.t}</a>{:else}{p.t}{/if}{/each}</p>{/if}
-                {/each}
-              </section>
-            {/each}
-          {:else}<p>{sel.summary}</p>{/if}
+          {#if sel.updated}<div class="upd"><b>Aktualisiert am {fmtUpd(sel.updated.date)}</b>{#if sel.updated.note} — {sel.updated.note}{/if}</div>{/if}
+          {#each secsOf(sel) as s}
+            <section>
+              {#if s.title}<h5><i>{SEC_ICON[s.key] || '•'}</i>{s.title}{#if s.original && s.original !== s.title}<small>{s.original}</small>{/if}</h5>{/if}
+              {#each s.lines as l}
+                {#if l.startsWith('•')}<p class="li">{#each parts(l.slice(1).trim()) as p}{#if p.href}<a href={p.href} target="_blank" rel="noreferrer" class:mcref={p.mc}>{p.t}</a>{:else}{p.t}{/if}{/each}</p>
+                {:else if l.length < 48 && !/[.:!?]$/.test(l) && !/^https?:/.test(l)}<h6>{l}</h6>
+                {:else if isSubhead(l)}<h6>{l.split(':')[0]}</h6><p>{#each parts(l.slice(l.indexOf(':') + 1).trim()) as p}{#if p.href}<a href={p.href} target="_blank" rel="noreferrer" class:mcref={p.mc}>{p.t}</a>{:else}{p.t}{/if}{/each}</p>
+                {:else}{#each paras(l) as para}<p>{#each parts(para) as p}{#if p.href}<a href={p.href} target="_blank" rel="noreferrer" class:mcref={p.mc}>{p.t}</a>{:else}{p.t}{/if}{/each}</p>{/each}{/if}
+              {/each}
+            </section>
+          {/each}
         </div>
       </details>
     </article>
@@ -217,6 +264,10 @@
   .tl-pt.due i{border-color:var(--crit);background:var(--crit)}.tl-pt.past i{border-color:var(--text-faint)}
   .tl-pt b{font-size:.68rem;margin-top:.2rem}.tl-pt span{font-size:.6rem;color:var(--text-faint);line-height:1.2}
   .tl-pt.due b{color:var(--crit)}
+  .tl-pt.old b{text-decoration:line-through;color:var(--text-faint)}.tl-pt.old i{border-style:dashed;border-color:var(--text-faint)}
+  .upd{font-size:.76rem;color:var(--text-dim);background:var(--bg-inset);border-radius:8px;padding:.45rem .65rem;margin-top:.6rem}
+  .upd b{color:var(--text)}
+  .doc a.mcref{font-family:var(--font-mono);font-size:.76rem;background:var(--accent-wash);padding:.05rem .35rem;border-radius:5px;text-decoration:none}
 
   .q4{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;padding:1rem 1.3rem}
   .qa{border:1px solid var(--rule);border-radius:12px;padding:.7rem .85rem;background:var(--bg)}

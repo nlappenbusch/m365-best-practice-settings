@@ -683,8 +683,9 @@ const MC_HEADINGS = [
 const MONTHS = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
 function mcMilestones(sections) {
   const out = [];
-  const sec = sections.filter(s => s.key === "when" || s.key === "what" || s.key === "intro");
-  for (const s of sec) for (const raw of s.lines) {
+  const when = sections.filter(s => s.key === "when");
+  const scan = list => { for (const s of list) for (const raw of s.lines) scanLine(raw); };
+  const scanLine = raw => {
     const l = raw.replace(/\[\[([^|\]]+)\|[^\]]+\]\]/g, "$1");
     const re = /\b(early|mid|late|end of|beginning of)?\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2},\s*)?(\d{4})\b/gi;
     let m;
@@ -692,10 +693,16 @@ function mcMilestones(sections) {
       const mon = MONTHS[m[2].toLowerCase()];
       const day = m[3] ? parseInt(m[3], 10) : (/late|end/i.test(m[1] || "") ? 25 : /mid/i.test(m[1] || "") ? 15 : 1);
       const d = new Date(Date.UTC(parseInt(m[4], 10), mon, day));
-      const label = cut(l.replace(/^•\s*/, "").replace(/:?\s*$/, ""), 140);
-      if (!out.some(x => x.date === d.toISOString().slice(0, 10))) out.push({ date: d.toISOString().slice(0, 10), approx: !m[3], label });
+      // Beschriftung = Satzteil um das Datum ("extended into October 2026"),
+      // nicht der ganze Absatz. Verschobene Alt-Termine als solche markieren.
+      const before = l.slice(0, m.index).split(/[.;,!?]\s+|\s[-–]\s/).pop().replace(/^•\s*/, "").trim();
+      const superseded = /originally|previously|initially|was planned|urspr/i.test(before);
+      const label = cut((before ? before + " " : "") + m[0].trim(), 70);
+      if (!out.some(x => x.date === d.toISOString().slice(0, 10))) out.push({ date: d.toISOString().slice(0, 10), approx: !m[3], label, superseded });
     }
-  }
+  };
+  scan(when);
+  if (!out.length) scan(sections.filter(s => s.key === "what" || s.key === "intro"));
   return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
 }
 
@@ -706,7 +713,12 @@ function mcSections(html) {
     .replace(/<li[^>]*>/gi, "\n• ").replace(/<\/li>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|h\d|ul|ol)>/gi, "\n").replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+    .replace(/[ \t]+/g, " ")
+    // Ueberschriften stehen nicht immer auf eigener Zeile: "… patience. [What and
+    // Why:] The TAC …" — auf eigene Zeile ziehen, Doppelpunkt in der Klammer weg.
+    // "|" ausgeschlossen, damit [[Linktext|URL]] unangetastet bleibt.
+    .replace(/\s*\[(?!\[)([A-Za-z][^[\]\n|]{2,60}?)\s*:?\]\s*:?\s*/g, "\n[$1]\n")
+    .replace(/\n\s*\n+/g, "\n").trim();
   let updated = null;
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
   const sections = [];
@@ -724,14 +736,18 @@ function mcSections(html) {
     cur.lines.push(l);
   }
   if (cur.lines.length || cur.title) sections.push(cur);
-  const out = sections.map(s => ({ key: s.key, title: s.title, original: s.original || null, lines: s.lines.slice(0, 40).map(x => cut(x, 600)) }));
+  const out = sections.map(s => ({ key: s.key, title: s.title, original: s.original || null, lines: s.lines.slice(0, 60).map(x => cut(x, 2000)) }));
   const what = out.find(s => s.key === "what") || out.find(s => s.key === "intro") || out[0];
-  const lead = what ? cut(what.lines.filter(x => !x.startsWith("•")).join(" ").split(/(?<=[.!?])\s+/).slice(0, 2).join(" "), 320) : "";
+  const sentences = what ? what.lines.filter(x => !x.startsWith("•")).join(" ").split(/(?<=[.!?])\s+/).filter(Boolean) : [];
+  let lead = sentences[0] || "";
+  if (sentences[1] && (lead + " " + sentences[1]).length <= 300) lead += " " + sentences[1];
   const impact = out.find(s => s.key === "impact");
   // "Who is affected" steht meist als Unterzeile im Auswirkungsabschnitt.
   let affected = [];
   if (impact) {
     const i = impact.lines.findIndex(x => /who is affected|betroffen/i.test(x));
+    const inline = i >= 0 ? impact.lines[i].replace(/^.*?who is affected\s*:?\s*/i, "").trim() : "";
+    if (inline) affected.push(inline.split(/(?<=[.!?])\s+/)[0]);
     const from = i >= 0 ? impact.lines.slice(i + 1) : impact.lines;
     // Nur die Aufzaehlung direkt unter "Who is affected" — die naechste
     // Zwischenzeile ("Platforms/Services", "What will happen") beendet sie.
@@ -855,7 +871,7 @@ async function collectMessages(tenant, cert, facts, cache) {
       verdict: v.verdict, verdictReason: v.reason, platforms: v.platforms || [], checkUrl: v.check || null,
       lead: parsed.lead, affected: parsed.affected, updated: parsed.updated, milestones: parsed.milestones,
       sections: parsed.sections.filter(s => s.key !== "intro" || s.lines.length).slice(0, 8),
-      summary: cut(parsed.plain, 700),
+      summary: cut(parsed.plain, 4000),
       actions, ai,
       url: PORTAL.messageCenter(m.id)
     };
