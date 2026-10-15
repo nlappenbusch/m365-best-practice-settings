@@ -35,10 +35,12 @@ function register(app, deps) {
     const prompt =
       `Du bist M365-Betriebsingenieur bei einem Schweizer MSP. Bewerte Microsoft-Message-Center-Meldungen für EINEN konkreten Kundentenant.\n` +
       `Tenant-Fakten (JSON): ${JSON.stringify(facts).slice(0, 3000)}\n\n` +
-      `Meldungen (JSON): ${JSON.stringify(todo.map(m => ({ id: m.id, title: m.title, services: m.services, due: m.due, tags: m.tags, text: m.summary })))}\n\n` +
-      `Antworte AUSSCHLIESSLICH mit JSON: {"items":[{"id":string,"relevant":boolean,"impact":string,"actions":[string]}]}. ` +
-      `"impact": ein Satz auf Deutsch (Schweizer Schreibweise, ss statt ß), was die Änderung für DIESEN Tenant konkret bedeutet — mit Zahlen aus den Fakten, wenn vorhanden. ` +
-      `"actions": 1–4 konkrete Handlungsschritte für das Operations-Team (Portal, Einstellung, Zeitpunkt). Keine Allgemeinplätze. ` +
+      `Meldungen (JSON): ${JSON.stringify(todo.map(m => ({ id: m.id, title: m.title, services: m.services, due: m.due, tags: m.tags, verdict: m.verdict, affected: m.affected, text: m.summary })))}\n\n` +
+      `Antworte AUSSCHLIESSLICH mit JSON: {"items":[{"id":string,"relevant":boolean,"titel":string,"kurz":string,"wer":string,"wann":string,"impact":string,"actions":[string]}]}. ` +
+      `Alle Texte auf Deutsch, Schweizer Schreibweise (ss statt ß), sachlich, ohne Marketing. ` +
+      `"titel": deutscher Titel, max. 90 Zeichen. "kurz": was sich ändert, 1–2 Sätze. "wer": wer laut Microsoft betroffen ist, 1 Satz. "wann": Zeitplan in einem Satz mit Datum. ` +
+      `"impact": ein Satz, was die Änderung für DIESEN Tenant konkret bedeutet — mit Zahlen aus den Fakten, wenn vorhanden. ` +
+      `"actions": 1–4 konkrete Handlungsschritte für das Operations-Team (Portal, Einstellung, Zeitpunkt). Keine Allgemeinplätze; leer, wenn nichts zu tun ist. ` +
       `relevant=false, wenn der Tenant den Dienst/die Funktion laut Fakten nicht nutzt.`;
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -53,7 +55,10 @@ function register(app, deps) {
     for (const it of parsed.items || []) {
       const m = todo.find(x => x.id === it.id);
       if (!m) continue;
-      next[m.id] = { modified: m.modified, ai: { relevant: !!it.relevant, impact: cut(it.impact, 400), actions: (it.actions || []).map(a => cut(a, 300)).slice(0, 4) } };
+      next[m.id] = { modified: m.modified, ai: {
+        relevant: !!it.relevant, titel: cut(it.titel, 120), kurz: cut(it.kurz, 500), wer: cut(it.wer, 300), wann: cut(it.wann, 200),
+        impact: cut(it.impact, 400), actions: (it.actions || []).map(a => cut(a, 300)).slice(0, 4)
+      } };
     }
     return next;
   }

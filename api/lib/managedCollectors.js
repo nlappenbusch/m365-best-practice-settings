@@ -666,6 +666,132 @@ function serviceInTenant(service, plans) {
  * Kollektoren im selben Lauf erhoben haben. Regelbasiert und nachvollziehbar —
  * die optionale KI-Einordnung (managedService.js) kommt obendrauf.
  */
+// ---------- Message-Center-Text gliedern
+// Microsoft schreibt die Meldungen fast immer in festen Abschnitten
+// ("[What and Why]", "[When this will happen]", ...). Die Gliederung geht beim
+// blossen Entfernen der Tags verloren — deshalb vorher Abschnitte schneiden.
+const MC_HEADINGS = [
+  [/what and why|what is happening|what'?s changing|summary/i, "Was ändert sich", "what"],
+  [/when this will happen|schedule|timeline|rollout|availability/i, "Zeitplan", "when"],
+  [/how this (will )?affect|impact|who is affected/i, "Auswirkung", "impact"],
+  [/what you (need|can) (to )?do|prepare|action|recommend/i, "Was zu tun ist", "todo"],
+  [/compliance/i, "Compliance", "compliance"],
+  [/additional information|learn more|more information|resources/i, "Weitere Informationen", "more"]
+];
+// Datumsangaben im Zeitplan ("October 31, 2026", "late October 2026") fuer den
+// Zeitstrahl in der Oberflaeche.
+const MONTHS = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+function mcMilestones(sections) {
+  const out = [];
+  const sec = sections.filter(s => s.key === "when" || s.key === "what" || s.key === "intro");
+  for (const s of sec) for (const raw of s.lines) {
+    const l = raw.replace(/\[\[([^|\]]+)\|[^\]]+\]\]/g, "$1");
+    const re = /\b(early|mid|late|end of|beginning of)?\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2},\s*)?(\d{4})\b/gi;
+    let m;
+    while ((m = re.exec(l)) !== null) {
+      const mon = MONTHS[m[2].toLowerCase()];
+      const day = m[3] ? parseInt(m[3], 10) : (/late|end/i.test(m[1] || "") ? 25 : /mid/i.test(m[1] || "") ? 15 : 1);
+      const d = new Date(Date.UTC(parseInt(m[4], 10), mon, day));
+      const label = cut(l.replace(/^•\s*/, "").replace(/:?\s*$/, ""), 140);
+      if (!out.some(x => x.date === d.toISOString().slice(0, 10))) out.push({ date: d.toISOString().slice(0, 10), approx: !m[3], label });
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
+}
+
+function mcSections(html) {
+  const text = String(html || "")
+    // Links erhalten: [[Text|URL]] — die Oberflaeche macht daraus echte Links.
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, u, t) => `[[${t.replace(/<[^>]+>/g, "").trim() || u}|${u}]]`)
+    .replace(/<li[^>]*>/gi, "\n• ").replace(/<\/li>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|h\d|ul|ol)>/gi, "\n").replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  let updated = null;
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const sections = [];
+  let cur = { key: "intro", title: "", lines: [] };
+  for (const l of lines) {
+    const up = l.match(/^Updated ([A-Z][a-z]+ \d{1,2}, \d{4})\s*:?\s*(.*)$/);
+    if (up && !sections.length && !cur.lines.length) { updated = { date: up[1], note: up[2] || "" }; continue; }
+    const h = l.match(/^\[([^\]]{3,60})\]\s*(.*)$/);
+    if (h) {
+      if (cur.lines.length || cur.title) sections.push(cur);
+      const m = MC_HEADINGS.find(([re]) => re.test(h[1]));
+      cur = { key: m ? m[2] : "other", title: m ? m[1] : h[1], original: h[1], lines: h[2] ? [h[2]] : [] };
+      continue;
+    }
+    cur.lines.push(l);
+  }
+  if (cur.lines.length || cur.title) sections.push(cur);
+  const out = sections.map(s => ({ key: s.key, title: s.title, original: s.original || null, lines: s.lines.slice(0, 40).map(x => cut(x, 600)) }));
+  const what = out.find(s => s.key === "what") || out.find(s => s.key === "intro") || out[0];
+  const lead = what ? cut(what.lines.filter(x => !x.startsWith("•")).join(" ").split(/(?<=[.!?])\s+/).slice(0, 2).join(" "), 320) : "";
+  const impact = out.find(s => s.key === "impact");
+  // "Who is affected" steht meist als Unterzeile im Auswirkungsabschnitt.
+  let affected = [];
+  if (impact) {
+    const i = impact.lines.findIndex(x => /who is affected|betroffen/i.test(x));
+    const from = i >= 0 ? impact.lines.slice(i + 1) : impact.lines;
+    // Nur die Aufzaehlung direkt unter "Who is affected" — die naechste
+    // Zwischenzeile ("Platforms/Services", "What will happen") beendet sie.
+    for (const x of from) {
+      if (x.startsWith("•")) { affected.push(x.replace(/^•\s*/, "")); continue; }
+      if (affected.length || i >= 0) break;
+      affected.push(x);
+    }
+    affected = affected.slice(0, 4);
+  }
+  const plainLead = lead.replace(/\[\[([^|\]]+)\|[^\]]+\]\]/g, "$1");
+  return { updated, sections: out, lead: plainLead, affected, milestones: mcMilestones(out), plain: text.replace(/\[\[([^|\]]+)\|[^\]]+\]\]/g, "$1") };
+}
+
+// ---------- Betrifft das den Tenant?
+// Plattform-spezifische Meldungen (z. B. "Defender for Endpoint auf Amazon
+// Linux ARM64") gegen die Geraete abgleichen. Server erscheinen nicht in
+// Intune — dort lautet das Urteil "pruefen" mit dem Ort, wo man nachsieht.
+const MC_PLATFORMS = [
+  { key: "amazonlinux", re: /Amazon Linux/i, label: "Amazon Linux", server: true },
+  { key: "rhel", re: /\b(Red Hat|RHEL)\b/i, label: "Red Hat Enterprise Linux", server: true },
+  { key: "suse", re: /\b(SUSE|SLES)\b/i, label: "SUSE Linux", server: true },
+  { key: "oracle", re: /Oracle Linux/i, label: "Oracle Linux", server: true },
+  { key: "debian", re: /\bDebian\b/i, label: "Debian", server: true },
+  { key: "ubuntu", re: /\bUbuntu\b/i, label: "Ubuntu", server: true, intune: /linux|ubuntu/i },
+  { key: "linux", re: /\bLinux\b/i, label: "Linux", server: true, intune: /linux/i },
+  { key: "winserver", re: /Windows Server/i, label: "Windows Server", server: true },
+  { key: "macos", re: /\bmacOS\b/i, label: "macOS", intune: /mac/i },
+  { key: "ios", re: /\b(iOS|iPadOS)\b/i, label: "iOS/iPadOS", intune: /ios|ipad/i },
+  { key: "android", re: /\bAndroid\b/i, label: "Android", intune: /android/i },
+  { key: "windows", re: /\bWindows (10|11)\b/i, label: "Windows 10/11", intune: /windows/i }
+];
+function mcPlatforms(msg, parsed) {
+  // Plattform aus Titel + "Wer ist betroffen" — nicht aus dem ganzen Text, sonst
+  // macht "AL2 on AMD64 is not affected" oder ein Nebensatz jede Meldung plattformspezifisch.
+  const hay = [msg.title, ...(parsed.affected || [])].join(" \n ");
+  const found = MC_PLATFORMS.filter(p => p.re.test(hay));
+  // "Linux" allein nur, wenn keine konkretere Distribution genannt ist.
+  const specific = found.filter(p => p.key !== "linux" || found.length === 1);
+  return specific;
+}
+function mcVerdict(msg, parsed, facts, svc) {
+  if (svc.notInTenant) return { verdict: "nein", reason: `Dienst nicht lizenziert (${msg.services.join(", ")}).` };
+  const plats = mcPlatforms(msg, parsed);
+  if (plats.length) {
+    const dev = facts.devices && facts.devices.byOs;
+    const hits = [], zero = [], servers = [];
+    for (const p of plats) {
+      if (p.server && !p.intune) { servers.push(p.label); continue; }
+      const n = dev ? Object.entries(dev).filter(([k]) => p.intune.test(k)).reduce((a, [, v]) => a + v.total, 0) : null;
+      if (n === null) servers.push(p.label); else if (n > 0) hits.push(`${n} ${p.label}`); else zero.push(p.label);
+    }
+    if (hits.length) return { verdict: "ja", reason: `Betrifft ${hits.join(", ")}-Geräte in diesem Tenant.`, platforms: plats.map(p => p.label) };
+    if (servers.length) return { verdict: "pruefen", reason: `Nur ${servers.join(", ")} betroffen. Server und Linux-Systeme erscheinen nicht in Intune — im Defender-Portal unter Geräteinventar nach Betriebssystem filtern.`, platforms: plats.map(p => p.label), check: "https://security.microsoft.com/machines" };
+    return { verdict: "nein", reason: `Nur ${zero.join(", ")} betroffen — in diesem Tenant keine solchen Geräte verwaltet.`, platforms: plats.map(p => p.label) };
+  }
+  if (svc.inTenant) return { verdict: msg.actionRequiredByDateTime || svc.adminImpact ? "ja" : "info", reason: `Dienst im Einsatz (${msg.services.join(", ")}).` };
+  return { verdict: "pruefen", reason: "Dienstzuordnung nicht eindeutig." };
+}
+
 function contextActions(msg, facts) {
   const text = `${msg.title} ${strip(msg.body && msg.body.content).slice(0, 4000)}`;
   const out = [];
@@ -682,7 +808,6 @@ function contextActions(msg, facts) {
   if (/(quarantine|quarantäne|anti-?spam|anti-?phish|safe links|safe attachments)/i.test(text) && facts.threat) out.push(`Threat Policies: ${facts.threat.summary} — geänderte Standardwerte gegen die igeeks-Baseline prüfen.`);
   if (/(mailbox|postfach|outlook)/i.test(text) && facts.exo && facts.exo.mailboxes) out.push(`Betrifft potenziell ${facts.exo.mailboxes} Postfächer (${facts.exo.shared || 0} freigegebene).`);
   if (/(license|lizenz|SKU)/i.test(text) && facts.licenses) out.push(`Lizenzbestand: ${facts.licenses.licensedUsers} lizenzierte Benutzer — betroffene SKU im Bestand prüfen.`);
-  if (msg.actionRequiredByDateTime) out.push(`Stichtag ${String(msg.actionRequiredByDateTime).slice(0, 10)}: Umsetzung als Ticket einplanen, Kunde vorab informieren, falls Benutzer betroffen sind.`);
   return out;
 }
 
@@ -710,27 +835,41 @@ async function collectMessages(tenant, cert, facts, cache) {
     if (m.category === "preventOrFixIssue") score += 15;
     if (m.category === "stayInformed") score -= 8;
     if (tags.some(t => /new feature|feature update/i.test(t)) && !due) score -= 6;
+    const parsed = mcSections(m.body && m.body.content);
+    const adminImpact = tags.some(t => /admin impact|retirement|breaking/i.test(t));
+    const v = mcVerdict({ ...m, services }, parsed, facts, { inTenant, notInTenant, adminImpact });
+    // Das Urteil uebersteuert den Score: "nicht betroffen" ist nie relevant,
+    // "betroffen + Stichtag" immer oben.
+    if (v.verdict === "nein") score = Math.min(score, 15);
+    if (v.verdict === "ja" && due) score = Math.max(score, 70);
     const relevance = score >= 60 ? "hoch" : score >= 35 ? "mittel" : "gering";
     const ai = cache && cache[m.id] && cache[m.id].modified === m.lastModifiedDateTime ? cache[m.id].ai : null;
+    const actions = v.verdict === "nein" ? [] : contextActions(m, facts);
+    if (v.check) actions.unshift(`Prüfen: ${v.reason}`);
+    if (due && v.verdict === "ja") actions.push(`Bis ${new Date(due).toLocaleDateString("de-CH")} umsetzen: als Ticket einplanen und den Kunden vorab informieren, falls Benutzer etwas merken.`);
+    if (due && v.verdict === "pruefen") actions.push(`Betroffenheit vor dem ${new Date(due).toLocaleDateString("de-CH")} klären; wenn nicht betroffen, Meldung als gelesen markieren.`);
     return {
       id: m.id, title: m.title, services, category: m.category, severity: m.severity, tags, major: !!m.isMajorChange,
       due: m.actionRequiredByDateTime || null, start: m.startDateTime, modified: m.lastModifiedDateTime,
       score: Math.max(0, Math.min(100, score)), relevance, inTenant, notInTenant: !!notInTenant,
-      summary: cut(strip(m.body && m.body.content), 700),
-      actions: contextActions(m, facts), ai,
+      verdict: v.verdict, verdictReason: v.reason, platforms: v.platforms || [], checkUrl: v.check || null,
+      lead: parsed.lead, affected: parsed.affected, updated: parsed.updated, milestones: parsed.milestones,
+      sections: parsed.sections.filter(s => s.key !== "intro" || s.lines.length).slice(0, 8),
+      summary: cut(parsed.plain, 700),
+      actions, ai,
       url: PORTAL.messageCenter(m.id)
     };
   }).sort((a, b) => b.score - a.score || String(b.modified).localeCompare(String(a.modified)));
 
-  const relevant = scored.filter(m => !m.notInTenant && m.relevance !== "gering");
+  const relevant = scored.filter(m => m.verdict !== "nein" && m.verdict !== "info" && m.relevance !== "gering");
   const findings = [];
   for (const m of relevant.filter(x => x.due && new Date(x.due).getTime() > now - 7 * DAY)) {
     const days = Math.round((new Date(m.due).getTime() - now) / DAY);
     findings.push({
-      key: "mc:" + m.id, severity: days <= 14 ? "high" : days <= 45 ? "medium" : "low",
-      title: `Microsoft-Änderung mit Stichtag ${String(m.due).slice(0, 10)}: ${m.title}`,
-      summary: `${m.id} · ${m.services.join(", ")} · ${days >= 0 ? "noch " + days + " Tage" : "Stichtag überschritten"}.`,
-      context: [["Meldung", m.id], ["Dienste", m.services.join(", ")], ["Relevanz", `${m.relevance} (${m.score})`]],
+      key: "mc:" + m.id, severity: m.verdict === "pruefen" ? "low" : days <= 14 ? "high" : days <= 45 ? "medium" : "low",
+      title: `${m.verdict === "pruefen" ? "Prüfen" : "Microsoft-Änderung"} bis ${new Date(m.due).toLocaleDateString("de-CH")}: ${m.title}`,
+      summary: `${m.lead || m.id} — ${m.verdictReason} ${days >= 0 ? "Noch " + days + " Tage." : "Stichtag überschritten."}`,
+      context: [["Meldung", m.id], ["Dienste", m.services.join(", ")], ["Betroffen", m.verdict === "ja" ? "ja" : "unklar — prüfen"], ...(m.affected.length ? [["Laut Microsoft betroffen", m.affected.join(" · ")]] : [])],
       steps: (m.ai && m.ai.actions && m.ai.actions.length ? m.ai.actions : m.actions).concat(["Meldung im Message Center als gelesen markieren, sobald eingeplant."]),
       links: [{ label: "Im Message Center öffnen", url: m.url }], tab: "messages"
     });
@@ -1213,5 +1352,5 @@ const GRAPH_COLLECTORS = {
 };
 
 module.exports = {
-  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr
+  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr, mcSections, mcVerdict
 };

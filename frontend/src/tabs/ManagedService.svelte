@@ -7,6 +7,8 @@
   import { ageLabel, fmtDateTime } from '../lib/product.js'
   import { msApi, followJob, SEV, SEV_DE, STATUS_DE, KIND_DE, hoursLabel, linePath, pctOf } from '../lib/managed.js'
   import ManagedRing from '../lib/ManagedRing.svelte'
+  import ManagedMessages from '../lib/ManagedMessages.svelte'
+  import ManagedThreat from '../lib/ManagedThreat.svelte'
 
   const VIEWS = [
     ['queue', 'Arbeitsliste'], ['score', 'Secure Score'], ['messages', 'Message Center'],
@@ -38,7 +40,6 @@
   let reportQ = $state('')
   // Fachansicht-Filter
   let mbOnly = $state('attention')
-  let mcOnlyRelevant = $state(true)
 
   const tid = () => $activeTenant?.id
 
@@ -310,29 +311,7 @@
             {@const d = areaCache.messages?.data}
             {#if !d}<div class="empty">{areaCache.messages?.error || 'Noch keine Meldungen erhoben.'}</div>
             {:else}
-              <div class="qtool">
-                <label class="tgl"><input type="checkbox" bind:checked={mcOnlyRelevant} /> Nur für diesen Tenant relevante</label>
-                <span class="dim">Relevanz aus lizenzierten Diensten ({d.servicePlans} Service Plans), Stichtag, Major Change und Tags{d.aiError ? ' · KI: ' + d.aiError : ''}.</span>
-              </div>
-              <div class="mclist">
-                {#each d.messages.filter(m => !mcOnlyRelevant || (!m.notInTenant && m.relevance !== 'gering')) as m}
-                  {@const dd = days(m.due)}
-                  <article class="mc" class:dim2={m.notInTenant}>
-                    <div class="mchead">
-                      <span class="rel {m.relevance}"><i style="width:{m.score}%"></i></span>
-                      <strong>{m.title}</strong>
-                      {#if m.due}<span class="due" class:soon={dd != null && dd <= 30}>{dd >= 0 ? `noch ${dd} T` : 'überfällig'} · {new Date(m.due).toLocaleDateString('de-CH')}</span>{/if}
-                    </div>
-                    <div class="mcmeta"><i>{m.id}</i>{#each m.services as s}<i>{s}</i>{/each}{#if m.major}<i class="maj">Major Change</i>{/if}{#if m.notInTenant}<i>Dienst nicht lizenziert</i>{/if}</div>
-                    {#if m.ai?.impact}<div class="ai"><b>Für {$activeTenant.name}:</b> {m.ai.impact}</div>{/if}
-                    {#if (m.ai?.actions?.length ? m.ai.actions : m.actions).length}
-                      <ul class="acts">{#each (m.ai?.actions?.length ? m.ai.actions : m.actions) as a}<li>{a}</li>{/each}</ul>
-                    {/if}
-                    <details><summary>Microsoft-Text</summary><p class="mctext">{m.summary}</p></details>
-                    <a href={m.url} target="_blank" rel="noreferrer">Im Message Center ↗</a>
-                  </article>
-                {/each}
-              </div>
+              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} />
             {/if}
 
           <!-- ---------- POSTFAECHER ---------- -->
@@ -480,12 +459,7 @@
                         <td>{#if df}<button class="linkb" onclick={() => openFinding(df)}>{SEV_DE[df.severity]} ansehen</button>{:else}<span class="okt">✓</span>{/if}</td></tr>
                     {/each}</tbody></table></div>
                 {:else if a === 'threat' && c?.data?.policies}
-                  {@const pol = c.data.policies}
-                  <div class="tpol">
-                    {#each [['antiPhish', 'Anti-Phishing'], ['contentFilter', 'Antispam'], ['malware', 'Antimalware'], ['outbound', 'Ausgehend'], ['safeLinks', 'Safe Links'], ['safeAttachments', 'Safe Attachments'], ['presetEop', 'Voreinst. EOP'], ['presetAtp', 'Voreinst. Defender']] as [k, kl]}
-                      <div class="tp"><span>{kl}</span><strong>{c.data.errors?.[k] ? 'n/a' : (pol[k] || []).length}</strong><em>{(pol[k] || []).map(p => p.Name + (p.State ? ' (' + p.State + ')' : '')).slice(0, 3).join(', ')}</em></div>
-                    {/each}
-                  </div>
+                  <ManagedThreat data={c.data} findings={ov.findings || []} onFinding={openFinding} />
                 {:else if c?.error}<div class="alert alert-warning">{c.error}</div>{/if}
               </div>
             {/each}
@@ -732,6 +706,30 @@
   .ai{font-size:.8rem;background:linear-gradient(90deg,var(--accent-wash),transparent);border-left:3px solid var(--accent);padding:.4rem .6rem;border-radius:6px}
   .acts{margin:0;padding-left:1.1rem;font-size:.78rem}.acts li{margin:.12rem 0}
   .mc details summary{font-size:.72rem;color:var(--text-faint);cursor:pointer}.mctext{font-size:.76rem;color:var(--text-dim);white-space:pre-wrap}
+  .mc{border-left:4px solid var(--rule);gap:.55rem;padding:.8rem .9rem}
+  .mc.v-ja{border-left-color:var(--crit)}.mc.v-pruefen{border-left-color:var(--warn)}.mc.v-info{border-left-color:var(--accent)}.mc.v-nein{opacity:.62}
+  .mchead{grid-template-columns:auto minmax(0,1fr) auto;align-items:start}.mchead strong{font-size:.92rem;line-height:1.3}
+  .verd{font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.05em;padding:.22rem .55rem;border-radius:999px;white-space:nowrap;background:var(--bg-inset);color:var(--text-dim)}
+  .verd.v-ja{background:var(--crit);color:#fff}.verd.v-pruefen{background:var(--warn);color:#fff}.verd.v-info{background:var(--accent-wash);color:var(--accent)}
+  .due{display:grid;grid-template-columns:auto auto;grid-template-rows:auto auto;column-gap:.3rem;align-items:baseline;padding:.3rem .6rem;border-radius:10px;text-align:left}
+  .due b{grid-row:span 2;font-size:1.25rem;line-height:1;letter-spacing:-.03em}.due small{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;font-weight:800}.due em{font-style:normal;font-size:.66rem;opacity:.8}
+  .due.over{background:var(--crit);color:#fff}
+  .mcwhy{display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap;font-size:.84rem;padding:.5rem .7rem;border-radius:10px;background:var(--bg-inset)}
+  .mcwhy.v-ja{background:var(--crit-wash)}.mcwhy.v-pruefen{background:var(--warn-wash)}.mcwhy.v-info{background:var(--accent-wash)}
+  .mcwhy-l{font-size:.6rem;text-transform:uppercase;letter-spacing:.08em;font-weight:900;color:var(--text-faint)}
+  .mcwhy a{margin-left:auto;font-weight:700}
+  .mcgrid{display:grid;grid-template-columns:1.3fr 1fr;gap:.8rem}
+  .mc h5{margin:0 0 .2rem;font-size:.62rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-faint)}
+  .mcgrid p{margin:0;font-size:.8rem;line-height:1.45}.mcgrid ul{margin:0;padding-left:1rem;font-size:.78rem;line-height:1.4}
+  .mctodo ol{margin:0;padding-left:0;list-style:none;counter-reset:t;display:flex;flex-direction:column;gap:.3rem}
+  .mctodo li{counter-increment:t;position:relative;padding-left:1.7rem;font-size:.8rem;line-height:1.4}
+  .mctodo li:before{content:counter(t);position:absolute;left:0;top:0;width:1.2rem;height:1.2rem;border-radius:50%;background:var(--accent-wash);color:var(--accent);font-weight:900;font-size:.66rem;display:grid;place-items:center}
+  .mcfoot{display:flex;justify-content:space-between;gap:.6rem;align-items:center;flex-wrap:wrap}
+  .mcmeta .plat{background:#ede7f6;color:#5e35b1;font-weight:800}
+  .mcorig{border-top:1px solid var(--rule);padding-top:.4rem}.mcorig summary{font-size:.72rem;color:var(--text-faint);cursor:pointer}
+  .mcsec{margin-top:.5rem}.mcsec h6{margin:0 0 .15rem;font-size:.74rem;color:var(--text)}.mcsec h6 small{font-weight:500;color:var(--text-faint);margin-left:.3rem}
+  .mcsec p{margin:.1rem 0;font-size:.76rem;color:var(--text-dim);line-height:1.45}.mcsec p.bul{padding-left:.9rem;position:relative}.mcsec p.bul:before{content:"•";position:absolute;left:.2rem}
+  @media(max-width:760px){.mcgrid{grid-template-columns:1fr}.mchead{grid-template-columns:1fr}}
 
   .cards3{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
   .mini{border:1px solid var(--rule);background:var(--bg-raised);border-radius:12px;padding:.7rem .8rem;display:flex;flex-direction:column;gap:.15rem}
