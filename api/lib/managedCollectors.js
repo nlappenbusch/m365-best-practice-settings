@@ -88,7 +88,23 @@ async function collectCa(tenant, cert) {
     });
   }
   // igeeks-verwaltete Baseline-Policies (BP_), die nicht erzwungen sind.
-  for (const p of all.filter(x => x.managed && x.state !== "enabled")) {
+  // Ab sechs gebuendelt: ein komplett im Report-only-Modus stehender Rollout
+  // (z. B. 32 Policies) soll die Arbeitsliste nicht mit Einzelbefunden fluten.
+  const notEnforced = all.filter(x => x.managed && x.state !== "enabled");
+  if (notEnforced.length > 5) {
+    findings.push({
+      key: "bp-not-enforced-bulk", severity: enabled.length ? "medium" : "high",
+      title: `${notEnforced.length} Baseline-Policies nicht erzwungen`,
+      summary: `${notEnforced.filter(p => p.state === "enabledForReportingButNotEnforced").length} im Report-only-Modus, ${notEnforced.filter(p => p.state === "disabled").length} deaktiviert. Der Baseline-Rollout ist nicht abgeschlossen — die Policies protokollieren nur, sie schützen nicht.`,
+      context: [["Beispiele", notEnforced.slice(0, 6).map(p => p.displayName).join(" · ")]],
+      steps: ["Report-only-Ergebnisse der letzten 14 Tage in den Anmeldeprotokollen prüfen (Filter «Conditional Access: Report-only»).",
+        "Ringweise scharf schalten (Pilot → UAT → Broad) im Bereich «Conditional Access», zuerst MFA und Block Legacy Auth.",
+        "Bewusst nicht erzwungene Policies einzeln dokumentieren und diesen Befund mit Begründung quittieren."],
+      links: [{ label: "CA-Policies", url: PORTAL.caList }], tab: "ca",
+      evidence: notEnforced.slice(0, 40).map(p => ({ policy: p.displayName, status: p.state === "disabled" ? "Deaktiviert" : "Report-only" }))
+    });
+  }
+  for (const p of notEnforced.length > 5 ? [] : notEnforced) {
     findings.push({
       key: "bp-not-enforced:" + p.id, severity: "medium",
       title: `Baseline-Policy nicht erzwungen: ${p.displayName}`,
