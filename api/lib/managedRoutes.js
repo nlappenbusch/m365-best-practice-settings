@@ -30,7 +30,8 @@ function register(app, deps) {
   async function aiEnrich(tenant, messages, facts, cache) {
     const cfg = AISUGGEST.config();
     if (!cfg.enabled) return null;
-    const todo = messages.filter(m => !(cache[m.id] && cache[m.id].modified === m.modified)).slice(0, 10);
+    // Eintraege ohne deutsche Kurzfassung (aeltere Cache-Generation) neu bewerten.
+    const todo = messages.filter(m => !(cache[m.id] && cache[m.id].modified === m.modified && cache[m.id].ai && cache[m.id].ai.kurz !== undefined)).slice(0, 10);
     if (!todo.length) return null;
     const prompt =
       `Du bist M365-Betriebsingenieur bei einem Schweizer MSP. Bewerte Microsoft-Message-Center-Meldungen für EINEN konkreten Kundentenant.\n` +
