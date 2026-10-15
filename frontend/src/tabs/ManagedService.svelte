@@ -412,6 +412,7 @@
           {:else if view === 'devices'}
             {@const d = areaCache.devices?.data}
             {#if !d}<div class="empty">{areaCache.devices?.error || 'Noch nicht erhoben.'}</div>
+            {:else if d.unlicensed}<div class="empty"><strong>Nicht lizenziert ({d.unlicensed}).</strong> {d.note}</div>
             {:else}
               <div class="devhead">
                 <ManagedRing value={d.rate} size={130} stroke={12} label="Konform" />

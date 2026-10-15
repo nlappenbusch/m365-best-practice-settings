@@ -59,6 +59,24 @@ const PORTAL = {
   outbound: "https://security.microsoft.com/antispam"
 };
 
+// Aktive Service Plans des Tenants (fuer "nicht lizenziert" statt "Fehler").
+// null = nicht lesbar -> der Aufrufer meldet dann den urspruenglichen Fehler.
+async function tenantPlans(tenant, cert) {
+  try {
+    const skus = await graphAllPages(tenant, cert, "/subscribedSkus", V1);
+    const plans = new Set();
+    for (const s of skus) {
+      if (!((s.prepaidUnits && s.prepaidUnits.enabled > 0) || s.consumedUnits > 0)) continue;
+      for (const p of arr(s.servicePlans)) if (p.provisioningStatus === "Success") plans.add(String(p.servicePlanName || ""));
+    }
+    return plans;
+  } catch (e) { return null; }
+}
+// Bereich ohne passende Lizenz: laeuft "ok", zeigt den Grund, erzeugt keine Befunde.
+function unlicensed(product, note) {
+  return { metrics: [metric("Lizenz", "kein " + product, "ok")], data: { unlicensed: product, note }, snapshot: {}, findings: [] };
+}
+
 // ============================================================ Conditional Access
 // Felder, die sich bei jedem Lesen aendern oder nichts ueber die Wirkung sagen.
 const CA_VOLATILE = new Set(["id", "createdDateTime", "modifiedDateTime", "templateId", "managed", "@odata.context"]);
@@ -76,13 +94,31 @@ async function collectCa(tenant, cert) {
   const reportOnly = all.filter(p => p.state === "enabledForReportingButNotEnforced");
   const disabled = all.filter(p => p.state === "disabled");
 
+  // Security Defaults: kleine Tenants (ohne Entra P1) schuetzen sich darueber
+  // statt ueber CA. Beides schliesst sich aus — ohne erzwungene CA, aber mit
+  // Security Defaults ist der Tenant nicht ungeschuetzt. null = nicht lesbar.
+  let securityDefaults = null;
+  try {
+    const sd = await graphReq(tenant, cert, "GET", "/policies/identitySecurityDefaultsEnforcementPolicy", null, V1);
+    securityDefaults = !!sd.isEnabled;
+  } catch (e) { /* Policy.Read.All fehlt — dann bleibt es bei der CA-Sicht */ }
+
   const findings = [];
-  if (!enabled.length) {
+  if (!enabled.length && securityDefaults) {
+    findings.push({
+      key: "secdefaults-only", severity: "low", title: "Schutz nur über Security Defaults",
+      summary: `Keine CA-Policy erzwungen (${all.length} vorhanden, davon ${reportOnly.length} Report-only), aber Security Defaults sind aktiv: MFA-Registrierung, MFA für Admins, Legacy Auth blockiert. Grundschutz vorhanden, aber ohne Ausnahmen, Gerätebedingungen oder Standortregeln.`,
+      steps: ["Bewusster Zustand (kein Entra ID P1)? Dann quittieren.",
+        "Mit Entra ID P1 (z. B. Business Premium): CA-Baseline vorbereiten und Security Defaults erst beim Scharfschalten der CA-Policies abschalten — beides gleichzeitig geht nicht."],
+      links: [{ label: "CA-Policies", url: PORTAL.caList }], tab: "ca"
+    });
+  } else if (!enabled.length) {
     findings.push({
       key: "no-enabled", severity: "critical", title: "Keine aktive Conditional-Access-Policy",
-      summary: `Im Tenant ist keine einzige CA-Policy erzwungen (${all.length} vorhanden, davon ${reportOnly.length} Report-only).`,
-      steps: ["Prüfen, ob Security Defaults stattdessen aktiv sind (Entra → Eigenschaften).",
-        "Falls nein: igeeks-CA-Baseline im Bereich «Conditional Access» ausrollen — zuerst Report-only, dann Pilot-Ring.",
+      summary: `Im Tenant ist keine einzige CA-Policy erzwungen (${all.length} vorhanden, davon ${reportOnly.length} Report-only)${securityDefaults === false ? " und Security Defaults sind aus — kein MFA-Zwang über Entra." : "."}`,
+      context: [["Security Defaults", securityDefaults === false ? "aus" : "nicht lesbar"]],
+      steps: [securityDefaults === false ? "Sofort: entweder Security Defaults einschalten (ohne P1) oder die CA-Baseline scharf schalten." : "Prüfen, ob Security Defaults stattdessen aktiv sind (Entra → Eigenschaften).",
+        "igeeks-CA-Baseline im Bereich «Conditional Access»: Report-only-Ergebnisse prüfen, dann ringweise erzwingen.",
         "Mindestens MFA für alle Benutzer und Block Legacy Auth erzwingen."],
       links: [{ label: "CA-Policies", url: PORTAL.caList }], tab: "ca"
     });
@@ -156,7 +192,13 @@ async function collectRisk(tenant, cert) {
     detections = await graphAllPages(tenant, cert,
       `/identityProtection/riskDetections?$filter=${encodeURIComponent("detectedDateTime ge " + isoDaysAgo(14))}&$top=500`, V1);
   } catch (e) { gaps.push("Risikoerkennungen nicht lesbar (IdentityRiskEvent.Read.All): " + e.message); }
-  if (gaps.length === 2) throw new Error(gaps.join(" · "));
+  if (gaps.length === 2) {
+    // Ohne Entra ID P1/P2 gibt es keine Identity Protection — das ist kein
+    // Lesefehler, sondern ein Lizenzzustand, und soll auch so dastehen.
+    const plans = await tenantPlans(tenant, cert);
+    if (plans && ![...plans].some(p => /^AAD_PREMIUM/.test(p))) return unlicensed("Entra ID P1/P2", "Risikobenutzer und Anmelderisiken gibt es erst mit Entra ID P1 (eingeschränkt) bzw. P2.");
+    throw new Error(gaps.join(" · "));
+  }
 
   const atRisk = riskyUsers.filter(u => u.riskState === "atRisk" || u.riskState === "confirmedCompromised");
   const signIn = detections.filter(d => String(d.activity || "").toLowerCase() === "signin");
@@ -402,8 +444,15 @@ async function collectConsent(tenant, cert) {
 
 // ============================================================ Geraete-Compliance
 async function collectDevices(tenant, cert) {
-  const devices = await graphAllPages(tenant, cert,
-    "/deviceManagement/managedDevices?$select=id,deviceName,operatingSystem,osVersion,complianceState,lastSyncDateTime,userPrincipalName,managedDeviceOwnerType,isEncrypted,model,manufacturer&$top=999", V1);
+  let devices;
+  try {
+    devices = await graphAllPages(tenant, cert,
+      "/deviceManagement/managedDevices?$select=id,deviceName,operatingSystem,osVersion,complianceState,lastSyncDateTime,userPrincipalName,managedDeviceOwnerType,isEncrypted,model,manufacturer&$top=999", V1);
+  } catch (e) {
+    const plans = await tenantPlans(tenant, cert);
+    if (plans && ![...plans].some(p => /INTUNE/.test(p))) return unlicensed("Intune", "Ohne Intune-Lizenz gibt es keine verwalteten Geräte und keine Compliance.");
+    throw e;
+  }
   let policies = null, settings = null;
   try { policies = await graphAllPages(tenant, cert, "/deviceManagement/deviceCompliancePolicies?$select=id,displayName", V1); } catch (e) { /* optional */ }
   try { settings = (await graphReq(tenant, cert, "GET", "/deviceManagement/settings", null, BETA)) || null; } catch (e) {
@@ -1033,7 +1082,7 @@ function evaluateExo(raw, parts) {
       for (const r of rules.filter(x => x.enabled && x.external.length)) {
         findings.push({
           key: "fwdrule:" + r.mailbox + ":" + r.ruleId, severity: fwdBlocked ? "medium" : "critical", entity: r.mailbox,
-          title: `${fwdBlocked ? "Drift" : "Datenabfluss möglich"}: Inbox-Regel leitet nach extern weiter — ${r.mailbox}`,
+          title: `${fwdBlocked ? "Drift" : "Datenabfluss möglich"}: Inbox-Regel «${r.name}» leitet nach extern weiter — ${r.mailbox}`,
           summary: fwdBlocked
             ? `Regel «${r.name}» → ${r.external.join(", ")}. Die Organisation blockiert externe Weiterleitung (${fwdMode}) — die Regel ist wirkungslos und erzeugt NDRs beim Benutzer. Abweichung vom Soll-Zustand.`
             : `Regel «${r.name}» → ${r.external.join(", ")}. Externe Weiterleitung ist erlaubt (${fwdMode || "unbekannt"}) — Mails verlassen den Tenant.`,
@@ -1049,7 +1098,7 @@ function evaluateExo(raw, parts) {
       for (const r of rules.filter(x => x.suspicious && !x.external.length)) {
         findings.push({
           key: "susprule:" + r.mailbox + ":" + r.ruleId, severity: "high", entity: r.mailbox,
-          title: `Verdächtige Inbox-Regel (BEC-Muster): ${r.mailbox}`,
+          title: `Verdächtige Inbox-Regel (BEC-Muster) «${r.name}»: ${r.mailbox}`,
           summary: `Regel «${r.name}» ${r.delete ? "löscht" : "verschiebt nach «" + r.moveTo + "»"}${r.markRead ? " und markiert als gelesen" : ""}${r.keywordHit ? " — Schlüsselwörter wie Rechnung/Zahlung/Bank" : ""}. Typisch für kompromittierte Konten, die Rückfragen verstecken.`,
           context: [["Postfach", r.mailbox], ["Regel", r.name], ["Bedingungen", r.conditions.join(" · ") || "alle Mails"]],
           steps: ["Regel deaktivieren (nicht sofort löschen — Beweissicherung).", "Benutzer telefonisch fragen, ob die Regel von ihm stammt.",
