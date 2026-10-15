@@ -3,7 +3,7 @@
   // Reihenfolge der Information: zuerst das Urteil fuer DIESEN Tenant, dann
   // Zeitstrahl, dann die vier Fragen (was / wann / wer / was tun), ganz unten
   // der Microsoft-Originaltext — sauber gesetzt statt als Textblock.
-  let { data, tenantName = '', onRefresh = null, refreshing = false } = $props()
+  let { data, tenantName = '', onRefresh = null, refreshing = false, autoRefresh = false } = $props()
   // schema 2 = ungekuerzter Text + Gliederung (seit 15.10.2026). Aeltere Daten
   // sind beim Speichern nach 700 Zeichen abgeschnitten worden.
   let stale = $derived(data && data.schema !== 2)
@@ -127,8 +127,8 @@
   <aside class="mcl">
     {#if stale}
       <div class="stale">
-        <b>Mit älterer Version erhoben</b>
-        <span>Texte sind dort gekürzt gespeichert, die Einordnung ist vereinfacht. Ein neuer Abruf dauert nur Sekunden.</span>
+        <b>{autoRefresh || refreshing ? 'Wird gerade neu abgerufen …' : 'Mit älterer Version erhoben'}</b>
+        <span>Diese Meldungen stammen aus einem Abruf, der Texte gekürzt gespeichert hat. {autoRefresh || refreshing ? 'Die vollständigen Texte erscheinen in wenigen Sekunden.' : 'Ein neuer Abruf dauert nur Sekunden.'}</span>
         {#if onRefresh}<button onclick={onRefresh} disabled={refreshing}>{refreshing ? 'Wird abgerufen…' : 'Message Center neu erheben'}</button>{/if}
       </div>
     {/if}
@@ -222,6 +222,9 @@
               {/each}
             </section>
           {/each}
+          {#if stale && /…\s*$/.test(sel.summary || '')}
+            <p class="cutnote">Text gekürzt — {autoRefresh || refreshing ? 'wird gerade neu abgerufen, die vollständige Fassung erscheint gleich' : 'bitte links «Message Center neu erheben»'}.</p>
+          {/if}
         </div>
       </details>
     </article>
@@ -233,6 +236,7 @@
 <style>
   .mcw{display:grid;grid-template-columns:340px minmax(0,1fr);gap:1rem;align-items:start}
   .mcl{position:sticky;top:calc(var(--topbar-h) + .8rem);max-height:calc(100vh - var(--topbar-h) - 1.6rem);overflow:auto;display:flex;flex-direction:column;gap:.4rem;padding-right:.2rem}
+  .cutnote{font-size:.74rem !important;font-weight:700;color:var(--warn) !important;background:var(--warn-wash);border-radius:8px;padding:.35rem .6rem}
   .stale{border:1px solid color-mix(in srgb,var(--warn) 45%,var(--rule));background:var(--warn-wash);border-radius:12px;padding:.6rem .7rem;display:flex;flex-direction:column;gap:.3rem;font-size:.74rem}
   .stale b{font-size:.78rem}.stale span{color:var(--text-dim);line-height:1.35}
   .stale button{align-self:flex-start;font:inherit;font-size:.74rem;font-weight:800;border:0;border-radius:999px;padding:.35rem .8rem;background:var(--warn);color:#fff;cursor:pointer}

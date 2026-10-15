@@ -97,6 +97,21 @@
     if (view === 'settings' && !reports) loadReports()
   })
 
+  // Message Center mit alter Datengeneration (Text beim Speichern gekuerzt):
+  // einmal pro Tenant und Sitzung automatisch neu abrufen — nur lesend, Sekunden.
+  let mcAutoDone = $state({})
+  let mcAutoRunning = $state(false)
+  $effect(() => {
+    const d = areaCache.messages
+    const t = $activeTenant?.id
+    if (view !== 'messages' || !t || !d || d.error || mcAutoDone[t] || mcAutoRunning) return
+    if (!d.data || d.data.schema === 2) return
+    if (job?.status === 'running' || ov?.running) return
+    mcAutoDone = { ...mcAutoDone, [t]: true }
+    mcAutoRunning = true
+    runNow(['messages']).then(() => area('messages', true)).finally(() => { mcAutoRunning = false })
+  })
+
   async function runNow(areas) {
     try {
       const s = await msApi.run(tid(), areas)
@@ -311,7 +326,7 @@
             {@const d = areaCache.messages?.data}
             {#if !d}<div class="empty">{areaCache.messages?.error || 'Noch keine Meldungen erhoben.'}</div>
             {:else}
-              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running'} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }} />
+              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running' || mcAutoRunning} autoRefresh={mcAutoRunning} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }} />
             {/if}
 
           <!-- ---------- POSTFAECHER ---------- -->
