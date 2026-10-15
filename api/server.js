@@ -98,6 +98,7 @@ const ISTPDF = require("./lib/istZustandPdf");
 const REMEDIATIONS = require("./lib/remediations");
 const LOCALADMIN = require("./lib/localAdminSetup");
 const EXECUTION = require("./lib/execution");
+const MANAGED_ROUTES = require("./lib/managedRoutes");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
@@ -178,6 +179,12 @@ const GRAPH_APP_PERMS_MAESTER = ["Directory.Read.All", "DirectoryRecommendations
 const TEAMS_ADMIN_ROLE_TEMPLATE = "69091246-20e8-4a56-aa4d-066075b2a7a8"; // Teams Administrator
 const SPO_APP_ID = "00000003-0000-0ff1-ce00-000000000000"; // Office 365 SharePoint Online
 const SPO_APP_PERMS_MAESTER = ["Sites.FullControl.All"];
+// Managed Service (MSP-Monitoring, lib/managedService.js): nur lesende Rechte
+// fuer Risikobenutzer, Secure Score, Message Center, Consent-Anfragen und das
+// Audit-Log (Freigabelinks). Tolerant aufgeloest wie die Maester-Liste — fehlt
+// eine im Graph-SP (z. B. ohne Entra P2), meldet nur der betroffene Bereich eine
+// Luecke. Bestehende Tenants: einmal "Reparieren" im Tab Tenants.
+const GRAPH_APP_PERMS_MONITOR = ["IdentityRiskyUser.Read.All", "IdentityRiskEvent.Read.All", "SecurityEvents.Read.All", "ServiceMessage.Read.All", "ConsentRequest.Read.All", "DeviceManagementManagedDevices.Read.All", "AuditLogsQuery.Read.All", "SharePointTenantSettings.Read.All"];
 
 // ---------- Persistenz ----------
 function loadState() {
@@ -288,9 +295,9 @@ async function resolvePermissionTargets(token, readOnly) {
   // kennt, wird uebersprungen (siehe Kommentar an GRAPH_APP_PERMS_MAESTER).
   const graphRolesMaester = [];
   const maesterMissing = [];
-  for (const v of GRAPH_APP_PERMS_MAESTER) {
+  for (const v of [...new Set([...GRAPH_APP_PERMS_MAESTER, ...GRAPH_APP_PERMS_MONITOR])]) {
     const role = (graphSp.appRoles || []).find(x => x.value === v && (x.allowedMemberTypes || []).includes("Application"));
-    if (role) graphRolesMaester.push(role); else maesterMissing.push(v);
+    if (role) { if (!graphRolesMaester.some(r => r.id === role.id)) graphRolesMaester.push(role); } else maesterMissing.push(v);
   }
   if (maesterMissing.length) console.log("Maester-Permissions im Tenant nicht verfuegbar (uebersprungen): " + maesterMissing.join(", "));
 
@@ -360,7 +367,7 @@ async function provisionAppReg(token, opts) {
   const readOnly = !!(opts && opts.readOnly);
   const appName = readOnly ? APP_DISPLAY_NAME_READONLY : APP_DISPLAY_NAME;
   const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester } = await resolvePermissionTargets(token, readOnly);
-  const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
+  const allGraphRoles = [...new Map([...graphRoles, ...graphRolesMaester, ...graphRolesOptional].map(r => [r.id, r])).values()];
   const requiredResourceAccess = [
     { resourceAppId: EXO_APP_ID, resourceAccess: [{ id: manageRole.id, type: "Role" }] },
     { resourceAppId: GRAPH_APP_ID, resourceAccess: allGraphRoles.map(r => ({ id: r.id, type: "Role" })) }
@@ -442,7 +449,7 @@ async function repairAppReg(token, rec, opts) {
   const readOnly = !!rec.readOnly;
   if (readOnly) push("Modus", "ok", "Prüfmandat — nur Lese-Berechtigungen, Rolle Globaler Leser");
   const { exoSp, manageRole, graphSp, graphRoles, graphRolesMaester, graphRolesOptional, spoSp, spoRolesMaester, optionalMissing, maesterMissing } = await resolvePermissionTargets(token, readOnly);
-  const allGraphRoles = [...graphRoles, ...graphRolesMaester, ...graphRolesOptional];
+  const allGraphRoles = [...new Map([...graphRoles, ...graphRolesMaester, ...graphRolesOptional].map(r => [r.id, r])).values()];
 
   // Optionale Permissions, die der Graph-Service-Principal dieses Tenants nicht
   // kennt, werden beim Aufloesen uebersprungen — das Reparieren kann sie nicht
@@ -728,7 +735,9 @@ const READONLY_ALLOW = [
   /^\/maester\/run$/, /^\/maester\/runs\/[^/]+\/explain$/, /^\/maester\/schedule$/, /^\/intunebackup$/,
   /^\/onboarding\/[^/]+$/, /^\/config$/, /^\/deviations$/, /^\/naming$/, /^\/smtpauth$/, /^\/mcp-permissions$/,
   /^\/fix\/start$/, /^\/offboard\/(start|poll|local-only)$/, /^\/sharepointsites\/resolve$/, /^\/deploy\/auto-setting\/preview$/,
-  /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/
+  /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/,
+  // Managed Service: liest den Tenant nur, speichert lokal bzw. legt SDP-Tickets an.
+  /^\/managed\/(run|settings|baseline\/[^/]+|findings\/[^/]+\/action)$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];
@@ -7436,5 +7445,11 @@ app.post("/api/tenants/:id/deviations", wrap(async (req, res) => {
   saveState(s);
   res.json({ ok: true, acceptedDeviations: list });
 }));
+
+// ---------- Managed Service (MSP-Monitoring) ----------
+MANAGED_ROUTES.register(app, {
+  STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap,
+  createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST
+});
 
 app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));

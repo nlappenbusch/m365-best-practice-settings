@@ -61,7 +61,11 @@ const COMMANDS = [
   // Protokollierung, Weiterleitung nach extern, Connectoren.
   "Get-EOPProtectionPolicyRule", "Get-ATPProtectionPolicyRule", "Get-ATPBuiltInProtectionRule",
   "Get-HostedOutboundSpamFilterRule", "Get-AdminAuditLogConfig", "Get-RemoteDomain",
-  "Get-InboundConnector", "Get-OutboundConnector"
+  "Get-InboundConnector", "Get-OutboundConnector",
+  // Managed Service (lib/managedCollectors.js) — nur lesend: Inbox-Regeln je
+  // Postfach, persoenliche Sichere/Blockierte Absender, Quarantaene-
+  // Freigabeanfragen und die Tenant Allow/Block List.
+  "Get-InboxRule", "Get-MailboxJunkEmailConfiguration", "Get-QuarantineMessage", "Get-TenantAllowBlockListItems"
 ].join(",");
 
 

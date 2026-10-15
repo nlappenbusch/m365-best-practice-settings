@@ -8,6 +8,16 @@
 
 export const NAV_GROUPS = [
   {
+    id: 'managed',
+    label: 'Managed Service',
+    items: [
+      { id: 'mspfleet', icon: 'building', label: 'Service-Cockpit', isNew: true,
+        desc: 'Alle betreuten Tenants: offene Befunde, SLA, Secure Score, Live-Meldungen und Teams-Anbindung' },
+      { id: 'managed', icon: 'shieldCheck', label: 'Managed Service', isNew: true,
+        desc: 'Überwachung pro Tenant: CA- und Policy-Drift, Risiken, Anfragen, Postfachregeln, Freigaben, Geräte, Lizenzen, Quartalsreport' }
+    ]
+  },
+  {
     id: 'control',
     label: 'Control Center',
     items: [
