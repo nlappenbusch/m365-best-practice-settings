@@ -430,7 +430,7 @@ async function collectMail(tenant, cert, gaps, say) {
   }
 
   say("Security & Compliance lesen (Warnungsrichtlinien)");
-  const sc = await EXO.runPwsh(RECIPIENTS.ippsScript(tenant, cert), 150000);
+  const sc = await EXO.runPwsh(RECIPIENTS.ippsScript(tenant, cert), 150000, null, null, { asFile: true });
   if (!sc.ok || !sc.data || sc.data.ok === false) {
     gaps.push("Security & Compliance nicht abrufbar (Warnungsrichtlinien): " + ((sc.data && sc.data.error) || sc.error || "unbekannt"));
   } else {

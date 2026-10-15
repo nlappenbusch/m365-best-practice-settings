@@ -602,7 +602,9 @@ function renderSharePoint(b, SP, I, N, Lk) {
   if (od.length) {
     const omax = Math.max(1, ...od.map(a => a.storageUsed || 0));
     table([{ label: "Konto", w: 0.34 }, { label: "Speicher", w: 0.34 }, { label: "geändert", w: 0.16 }, { label: "angelegt", w: 0.16 }],
-      od.map(a => [[M(a.upn ? a.upn.split("@")[0] + "@" : a.name), SUB(a.enabled === false ? "Konto deaktiviert" : null)].filter(Boolean), { bar: { v: a.storageUsed || 0, max: omax, label: bytes(a.storageUsed) } }, fmtDay(a.modified), fmtDay(a.created)]), { size: 7.3 });
+      od.map(a => [[M(a.upn ? a.upn.split("@")[0] + "@" : a.name), SUB([a.enabled === false ? "Konto deaktiviert" : null, a.locked ? "OneDrive gesperrt" : null].filter(Boolean).join(" · ") || null)].filter(Boolean), { bar: { v: a.storageUsed || 0, max: omax, label: bytes(a.storageUsed) } }, fmtDay(a.modified), fmtDay(a.created)]), { size: 7.3 });
+    const lockedN = od.filter(a => a.locked).length;
+    if (lockedN) p(`${lockedN === 1 ? "Ein OneDrive ist" : lockedN + " OneDrives sind"} von SharePoint gesperrt (Zugriff blockiert). Das betrifft typischerweise Konten ohne Lizenz oder ausgetretene Personen, deren OneDrive in der Aufbewahrung liegt. Der Speicher stammt dort aus dem Nutzungsbericht.`);
   } else p("Keine OneDrive-Konten.");
 
   h3(N["sp.extern"], "Externe Personen");

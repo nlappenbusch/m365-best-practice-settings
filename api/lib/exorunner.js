@@ -12,6 +12,10 @@
  * der Runner gibt sie strukturiert zurueck (kein Crash).
  */
 const { spawn } = require("child_process");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const crypto = require("crypto");
 
 const PWSH = process.env.PWSH_PATH || "pwsh";
 
@@ -73,15 +77,29 @@ const COMMANDS = [
 // onProgress (optional) bekommt live jedes BPPROGRESS-Objekt aus dem stdout-Stream.
 // onChild (optional) bekommt den Kindprozess, damit ein laufender Job von aussen
 // abgebrochen werden kann (siehe /api/deploy/:jobId/cancel).
-function runPwsh(script, timeoutMs, onProgress, onChild) {
+// opts.asFile: Skript als temporaere Datei mit -File statt ueber stdin starten.
+// Noetig fuer Connect-IPPSSession: im stdin-Modus verschluckt es den Rest der
+// Eingabe, pwsh endet still mit Exit 0 und gibt nur Terminal-Steuerzeichen aus
+// (ESC[?1h) — beim Ist-Zustand am 15.10.2026 reproduziert, mit -File laeuft
+// derselbe Lauf sauber durch.
+const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+function runPwsh(script, timeoutMs, onProgress, onChild, opts) {
   timeoutMs = timeoutMs || 180000;
+  const asFile = !!(opts && opts.asFile);
   return new Promise((resolve) => {
-    let ps;
+    let ps, tmp = null;
     try {
-      ps = spawn(PWSH, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"], { stdio: ["pipe", "pipe", "pipe"] });
+      if (asFile) {
+        tmp = path.join(os.tmpdir(), "bp-" + crypto.randomBytes(6).toString("hex") + ".ps1");
+        fs.writeFileSync(tmp, script, { encoding: "utf8", mode: 0o600 });
+      }
+      const args = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", ...(asFile ? ["-File", tmp] : ["-Command", "-"])];
+      ps = spawn(PWSH, args, { stdio: [asFile ? "ignore" : "pipe", "pipe", "pipe"] });
     } catch (e) {
+      if (tmp) { try { fs.unlinkSync(tmp); } catch (x) { /* egal */ } }
       return resolve({ ok: false, error: "pwsh nicht startbar: " + e.message, raw: "" });
     }
+    const cleanup = () => { if (tmp) { try { fs.unlinkSync(tmp); } catch (x) { /* schon weg */ } tmp = null; } };
     if (onChild) { try { onChild(ps); } catch (e) { /* Abbruch-Handle ist optional */ } }
     let out = "", err = "", done = false, scanned = 0;
     const scanProgress = () => {
@@ -96,7 +114,7 @@ function runPwsh(script, timeoutMs, onProgress, onChild) {
         try { onProgress(JSON.parse(payload)); } catch (x) { /* kaputter Marker — ignorieren */ }
       }
     };
-    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ps.kill(); } catch (e) {} resolve(r); };
+    const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ps.kill(); } catch (e) {} cleanup(); resolve(r); };
     const timer = setTimeout(() => finish({ ok: false, error: "Zeitueberschreitung (" + Math.round(timeoutMs / 1000) + "s)", raw: out + err }), timeoutMs);
     ps.on("error", e => finish({ ok: false, error: "pwsh-Fehler: " + e.message, raw: "" }));
     ps.stdout.on("data", d => { out += d.toString(); scanProgress(); });
@@ -105,11 +123,16 @@ function runPwsh(script, timeoutMs, onProgress, onChild) {
       const m = out.match(/BEGINJSON([\s\S]*?)ENDJSON/);
       if (m) { try { return finish({ ok: true, data: JSON.parse(m[1]), raw: out }); } catch (e) { return finish({ ok: false, error: "JSON-Parse-Fehler: " + e.message, raw: m[1].slice(0, 500) }); } }
       // Kein Marker -> wahrscheinlich Connect-/Auth-Fehler in stderr
-      const reason = (err || out).trim().split(/\r?\n/).filter(Boolean).slice(-4).join(" | ") || "keine Ausgabe";
-      finish({ ok: false, error: reason.slice(0, 600), raw: (out + err).slice(0, 2000) });
+      // Steuerzeichen raus: sonst steht im UI/PDF nur "[?1h[?1l…" statt einer Meldung.
+      const clean = s => String(s || "").replace(ANSI_RE, "");
+      const reason = clean(err).trim() || clean(out).trim();
+      const msg = reason.split(/\r?\n/).filter(Boolean).slice(-4).join(" | ") || "pwsh endete ohne Ausgabe";
+      finish({ ok: false, error: msg.slice(0, 600), raw: clean(out + err).slice(0, 2000) });
     });
-    ps.stdin.write(script + "\r\n");
-    ps.stdin.end();
+    if (!asFile) {
+      ps.stdin.write(script + "\r\n");
+      ps.stdin.end();
+    }
   });
 }
 

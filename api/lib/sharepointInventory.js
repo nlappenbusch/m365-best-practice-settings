@@ -528,11 +528,15 @@ async function collectInventory(tenant, cert, opts, onProgress) {
   if (!concealed) for (const r of odRows) if (r.siteUrl) odByUrl.set(normUrl(r.siteUrl), r);
   const odList = personalSites.slice(0, ONEDRIVE_CAP);
   if (personalSites.length > ONEDRIVE_CAP) gaps.push(`${personalSites.length} OneDrives — Speicher je Laufwerk nur für die ersten ${ONEDRIVE_CAP} einzeln abgerufen.`);
-  let driveErrors = 0;
+  let driveErrors = 0, driveLocked = 0;
   const accounts = await mapLimit(odList, PARALLEL, async s => {
-    let d = null;
+    let d = null, locked = false;
+    // 423 resourceLocked ist kein Lesefehler, sondern ein Zustand im Tenant:
+    // SharePoint sperrt OneDrives von Konten ohne Lizenz bzw. nach Austritt
+    // (Aufbewahrung / "Unlicensed OneDrive"). Gehoert als Befund in die Doku,
+    // nicht als "nicht erhoben" — Speicher kommt dann aus dem Nutzungsbericht.
     try { d = await graphReq(tenant, cert, "GET", `/sites/${encodeURIComponent(s.id)}/drive?$select=id,quota,owner,lastModifiedDateTime`, null, ONE); }
-    catch (e) { if (e.status !== 404) driveErrors++; }
+    catch (e) { if (e.status === 423) { locked = true; driveLocked++; } else if (e.status !== 404) driveErrors++; }
     const ownerUser = d && d.owner && d.owner.user ? d.owner.user : null;
     const u = ownerUser && ownerUser.id ? userById.get(ownerUser.id) : null;
     const rep = odByUrl.get(normUrl(s.webUrl)) || null;
@@ -550,10 +554,12 @@ async function collectInventory(tenant, cert, opts, onProgress) {
       storageAllocated: d && d.quota && num(d.quota.total) !== null ? num(d.quota.total) : (rep ? num(rep.storageAllocatedInBytes) : null),
       lastActivity: rep && rep.lastActivityDate ? rep.lastActivityDate : null,
       fileCount: rep ? num(rep.fileCount) : null,
-      source: d ? "drive" : rep ? "report" : "site"
+      source: d ? "drive" : rep ? "report" : "site",
+      locked
     };
   });
   if (driveErrors) gaps.push(`${driveErrors} OneDrive-Laufwerk(e) nicht abrufbar — Speicher dort offen.`);
+  const lockedOneDrives = driveLocked;
   // Berichtszeilen ohne passende OneDrive-Site (nur ohne Anonymisierung zuordenbar)
   if (!concealed) {
     for (const rep of odByUrl.values()) {
@@ -592,6 +598,7 @@ async function collectInventory(tenant, cert, opts, onProgress) {
     storageUsed: sum(sites.map(s => s.storageUsed)),
     storageUnknown: sites.filter(s => s.storageUsed === null).length,
     oneDrives: accounts.length,
+    oneDrivesLocked: lockedOneDrives,
     oneDriveStorage: sum(accounts.map(a => a.storageUsed)),
     oneDriveActive: oneDrive.report.readable ? oneDrive.report.activeAccounts : null,
     guests: guestIds.size,
@@ -692,7 +699,7 @@ function csvRows(d, kind) {
   }
   if (kind === "onedrive") {
     const rows = [["Name", "Anmeldename", "Konto", "Adresse", "Belegt (GB)", "Kontingent (GB)", "Letzte Aktivität", "Dateien", "Geändert", "Quelle"]];
-    for (const a of d.oneDrive.accounts) rows.push([a.name, a.upn, a.enabled === false ? "deaktiviert" : a.enabled ? "aktiv" : "", a.url, gb(a.storageUsed), gb(a.storageAllocated),
+    for (const a of d.oneDrive.accounts) rows.push([a.name, a.upn, [a.enabled === false ? "deaktiviert" : a.enabled ? "aktiv" : "", a.locked ? "OneDrive gesperrt" : ""].filter(Boolean).join(", "), a.url, gb(a.storageUsed), gb(a.storageAllocated),
       a.lastActivity || (d.reports.concealed ? "anonymisiert" : ""), a.fileCount === null ? "" : a.fileCount, a.modified ? a.modified.slice(0, 10) : "", a.source]);
     return rows;
   }

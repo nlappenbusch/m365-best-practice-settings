@@ -192,7 +192,8 @@ function renderChapter(b, sp) {
   const quota = sp.settings && sp.settings.raw ? sp.settings.raw.personalSiteDefaultStorageLimitInMB : null;
   b.body(`${pl(S.oneDrives, "OneDrive-Konto", "OneDrive-Konten")}, zusammen ${bytes(S.oneDriveStorage)} belegt` +
     (quota ? `; Standardkontingent ${bytes(quota * 1024 * 1024)}` : "") +
-    (S.oneDriveActive !== null && S.oneDriveActive !== undefined ? `. Im Nutzungsbericht ${S.oneDriveActive} von ${od.report.rows} Konten mit Aktivität in den letzten ${sp.periodDays} Tagen.` : "."));
+    (S.oneDriveActive !== null && S.oneDriveActive !== undefined ? `. Im Nutzungsbericht ${S.oneDriveActive} von ${od.report.rows} Konten mit Aktivität in den letzten ${sp.periodDays} Tagen.` : ".") +
+    (S.oneDrivesLocked ? ` ${S.oneDrivesLocked} davon von SharePoint gesperrt (typisch: Konto ohne Lizenz oder ausgetreten).` : ""));
   if (R.concealed) b.small("Letzte Aktivität je Konto: nicht zuordenbar, weil die Nutzungsberichte anonymisiert sind (siehe oben).");
   if (od.accounts.length) {
     const rows = od.accounts.slice(0, 400);

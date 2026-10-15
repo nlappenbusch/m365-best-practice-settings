@@ -117,7 +117,7 @@ async function notificationRecipients(tenant, certPemPath, opts, say) {
 
   if (!(opts && opts.skipCompliance)) {
     say("Security & Compliance abfragen");
-    const sc = await EXO.runPwsh(ippsScript(tenant, certPemPath), 150000);
+    const sc = await EXO.runPwsh(ippsScript(tenant, certPemPath), 150000, null, null, { asFile: true });
     if (!sc.ok || !sc.data || sc.data.ok === false) {
       gaps.push("Security & Compliance nicht abrufbar (Warnungsrichtlinien, DLP): " + ((sc.data && sc.data.error) || sc.error || "unbekannt") +
         " — Warnungsrichtlinien im Defender-Portal unter «Richtlinien & Regeln › Warnungsrichtlinie» prüfen.");
