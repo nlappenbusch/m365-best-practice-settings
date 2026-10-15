@@ -184,7 +184,7 @@ const SPO_APP_PERMS_MAESTER = ["Sites.FullControl.All"];
 // Audit-Log (Freigabelinks). Tolerant aufgeloest wie die Maester-Liste — fehlt
 // eine im Graph-SP (z. B. ohne Entra P2), meldet nur der betroffene Bereich eine
 // Luecke. Bestehende Tenants: einmal "Reparieren" im Tab Tenants.
-const GRAPH_APP_PERMS_MONITOR = ["IdentityRiskyUser.Read.All", "IdentityRiskEvent.Read.All", "SecurityEvents.Read.All", "ServiceMessage.Read.All", "ConsentRequest.Read.All", "DeviceManagementManagedDevices.Read.All", "AuditLogsQuery.Read.All", "SharePointTenantSettings.Read.All"];
+const GRAPH_APP_PERMS_MONITOR = ["IdentityRiskyUser.Read.All", "IdentityRiskEvent.Read.All", "SecurityEvents.Read.All", "ServiceMessage.Read.All", "ConsentRequest.Read.All", "DeviceManagementManagedDevices.Read.All", "AuditLogsQuery.Read.All", "SharePointTenantSettings.Read.All", "TeamworkDevice.Read.All"];
 
 // ---------- Persistenz ----------
 function loadState() {

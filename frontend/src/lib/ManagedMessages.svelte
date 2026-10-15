@@ -3,7 +3,20 @@
   // Reihenfolge der Information: zuerst das Urteil fuer DIESEN Tenant, dann
   // Zeitstrahl, dann die vier Fragen (was / wann / wer / was tun), ganz unten
   // der Microsoft-Originaltext — sauber gesetzt statt als Textblock.
-  let { data, tenantName = '' } = $props()
+  let { data, tenantName = '', onRefresh = null, refreshing = false } = $props()
+  // schema 2 = ungekuerzter Text + Gliederung (seit 15.10.2026). Aeltere Daten
+  // sind beim Speichern nach 700 Zeichen abgeschnitten worden.
+  let stale = $derived(data && data.schema !== 2)
+  const TD_LABEL = { teamsRoom: 'Teams Rooms', collaborationBar: 'Collab Bars', touchConsole: 'Konsolen', surfaceHub: 'Surface Hubs', teamsDisplay: 'Displays', teamsPanel: 'Panels', ipPhone: 'Telefone', lowCostPhone: 'Telefone', sip: 'SIP', unknown: 'Sonstige' }
+  let tdText = $derived.by(() => {
+    const td = data?.teamsDevices
+    if (!td) return null
+    if (!td.readable) return 'Teams-Geräte: nicht lesbar'
+    if (!td.total) return 'Teams-Geräte: keine'
+    const agg = {}
+    for (const [k, n] of Object.entries(td.byType || {})) agg[TD_LABEL[k] || k] = (agg[TD_LABEL[k] || k] || 0) + n
+    return 'Teams-Geräte: ' + Object.entries(agg).map(([k, n]) => n + ' ' + k).join(', ')
+  })
 
   const VERDICT = {
     ja: { label: 'Betroffen', icon: '!', tone: 'crit' },
@@ -112,8 +125,15 @@
 
 <div class="mcw">
   <aside class="mcl">
+    {#if stale}
+      <div class="stale">
+        <b>Mit älterer Version erhoben</b>
+        <span>Texte sind dort gekürzt gespeichert, die Einordnung ist vereinfacht. Ein neuer Abruf dauert nur Sekunden.</span>
+        {#if onRefresh}<button onclick={onRefresh} disabled={refreshing}>{refreshing ? 'Wird abgerufen…' : 'Message Center neu erheben'}</button>{/if}
+      </div>
+    {/if}
     <input class="mcs" type="search" placeholder="Meldung, MC-Nummer, Dienst…" bind:value={q} />
-    <div class="mcmeta-l">Abgleich mit {data?.servicePlans ?? '—'} Service Plans und verwalteten Geräten{data?.aiError ? ' · KI: ' + data.aiError : ''}</div>
+    <div class="mcmeta-l">Abgleich mit {data?.servicePlans ?? '—'} Service Plans, Intune-Geräten{tdText ? ' · ' + tdText : ''}{data?.aiError ? ' · KI: ' + data.aiError : ''}</div>
     {#each grouped as g}
       <section class="grp g-{g.k}">
         <button class="gh" onclick={() => open[g.k] = !open[g.k]} title={g.d}>
@@ -213,6 +233,10 @@
 <style>
   .mcw{display:grid;grid-template-columns:340px minmax(0,1fr);gap:1rem;align-items:start}
   .mcl{position:sticky;top:calc(var(--topbar-h) + .8rem);max-height:calc(100vh - var(--topbar-h) - 1.6rem);overflow:auto;display:flex;flex-direction:column;gap:.4rem;padding-right:.2rem}
+  .stale{border:1px solid color-mix(in srgb,var(--warn) 45%,var(--rule));background:var(--warn-wash);border-radius:12px;padding:.6rem .7rem;display:flex;flex-direction:column;gap:.3rem;font-size:.74rem}
+  .stale b{font-size:.78rem}.stale span{color:var(--text-dim);line-height:1.35}
+  .stale button{align-self:flex-start;font:inherit;font-size:.74rem;font-weight:800;border:0;border-radius:999px;padding:.35rem .8rem;background:var(--warn);color:#fff;cursor:pointer}
+  .stale button:disabled{opacity:.6;cursor:default}
   .mcs{font:inherit;font-size:.82rem;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:999px;background:var(--bg-raised);color:var(--text)}
   .mcmeta-l{font-size:.66rem;color:var(--text-faint);padding:0 .3rem .2rem}
   .grp{display:flex;flex-direction:column;gap:.2rem}

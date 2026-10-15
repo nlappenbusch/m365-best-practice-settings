@@ -311,7 +311,7 @@
             {@const d = areaCache.messages?.data}
             {#if !d}<div class="empty">{areaCache.messages?.error || 'Noch keine Meldungen erhoben.'}</div>
             {:else}
-              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} />
+              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running'} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }} />
             {/if}
 
           <!-- ---------- POSTFAECHER ---------- -->

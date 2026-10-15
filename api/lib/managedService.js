@@ -434,6 +434,8 @@ async function run(ctx) {
     if (dev) facts.devices = { byOs: dev.byOs };
     const lic = results.licenses && results.licenses.data ? results.licenses.data : readData("licenses");
     if (lic && lic.totals) facts.licenses = { licensedUsers: lic.totals.licensedUsers };
+    // Teams-Geraete (Rooms, SIP, Telefone) — Grundlage fuer Meldungen zu Teams-Hardware.
+    facts.teamsDevices = await C.teamsDevices(tenant, cert);
     const cf = file(stateDir, tid, "mc-ai.json");
     const cache = readJson(cf, {});
     try {

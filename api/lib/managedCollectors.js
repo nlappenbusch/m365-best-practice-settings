@@ -778,7 +778,15 @@ const MC_PLATFORMS = [
   { key: "macos", re: /\bmacOS\b/i, label: "macOS", intune: /mac/i },
   { key: "ios", re: /\b(iOS|iPadOS)\b/i, label: "iOS/iPadOS", intune: /ios|ipad/i },
   { key: "android", re: /\bAndroid\b/i, label: "Android", intune: /android/i },
-  { key: "windows", re: /\bWindows (10|11)\b/i, label: "Windows 10/11", intune: /windows/i }
+  { key: "windows", re: /\bWindows (10|11)\b/i, label: "Windows 10/11", intune: /windows/i },
+  // Teams-Geraete: Abgleich gegen das Teams-Geraeteinventar statt Intune.
+  { key: "teamsrooms", re: /Teams Rooms?\b|Microsoft Teams Room|\bMTR(oW|oA)?\b/i, label: "Teams Rooms", teams: ["teamsRoom", "collaborationBar", "touchConsole"] },
+  { key: "sip", re: /\bSIP\b/, label: "SIP-Geräte", teams: ["sip"] },
+  { key: "teamsphone", re: /Teams phones?|\bIP phones?|desk phones?|common area phones?/i, label: "Teams-Telefone", teams: ["ipPhone", "lowCostPhone"] },
+  { key: "teamsdisplay", re: /Teams displays?/i, label: "Teams Displays", teams: ["teamsDisplay"] },
+  { key: "teamspanel", re: /Teams panels?/i, label: "Teams Panels", teams: ["teamsPanel"] },
+  { key: "surfacehub", re: /Surface Hub/i, label: "Surface Hub", teams: ["surfaceHub"] },
+  { key: "collabbar", re: /collaboration bars?/i, label: "Collaboration Bars", teams: ["collaborationBar"] }
 ];
 function mcPlatforms(msg, parsed) {
   // Plattform aus Titel + "Wer ist betroffen" — nicht aus dem ganzen Text, sonst
@@ -787,20 +795,48 @@ function mcPlatforms(msg, parsed) {
   const found = MC_PLATFORMS.filter(p => p.re.test(hay));
   // "Linux" allein nur, wenn keine konkretere Distribution genannt ist.
   const specific = found.filter(p => p.key !== "linux" || found.length === 1);
+  // Geht es um Teams-Geraete, sind "Android"/"Windows" deren Betriebssystem
+  // ("Teams Rooms on Android") — nicht die Intune-Geraete des Tenants.
+  if (specific.some(p => p.teams)) return specific.filter(p => p.teams);
   return specific;
 }
+// Teams-Geraete (Teams Admin Center) — Rooms, SIP, Telefone usw. sind keine
+// Intune-Geraete; Grundlage ist /teamwork/devices (TeamworkDevice.Read.All).
+const TEAMS_DEVICE_LABEL = { teamsRoom: "Teams Rooms", collaborationBar: "Collaboration Bars", touchConsole: "Touch-Konsolen", surfaceHub: "Surface Hubs",
+  teamsDisplay: "Teams Displays", teamsPanel: "Teams Panels", ipPhone: "Teams-Telefone", lowCostPhone: "Teams-Telefone", sip: "SIP-Geräte", unknown: "Sonstige" };
+const TEAMS_SINGULAR = { "Teams Rooms": "Teams Room", "SIP-Geräte": "SIP-Gerät", "Teams-Telefone": "Teams-Telefon", "Teams Displays": "Teams Display", "Teams Panels": "Teams Panel", "Collaboration Bars": "Collaboration Bar" };
+async function teamsDevices(tenant, cert) {
+  try {
+    const list = await graphAllPages(tenant, cert, "/teamwork/devices?$select=id,deviceType,healthStatus,activityState", BETA);
+    const byType = {};
+    for (const d of list) byType[d.deviceType || "unknown"] = (byType[d.deviceType || "unknown"] || 0) + 1;
+    return { readable: true, total: list.length, byType };
+  } catch (e) {
+    return { readable: false, error: /forbidden|authorization|permission|403/i.test(e.message) ? "TeamworkDevice.Read.All fehlt, im Tab Tenants einmal Reparieren" : e.message };
+  }
+}
+
 function mcVerdict(msg, parsed, facts, svc) {
   if (svc.notInTenant) return { verdict: "nein", reason: `Dienst nicht lizenziert (${msg.services.join(", ")}).` };
   const plats = mcPlatforms(msg, parsed);
   if (plats.length) {
     const dev = facts.devices && facts.devices.byOs;
-    const hits = [], zero = [], servers = [];
+    const td = facts.teamsDevices;
+    const hits = [], zero = [], servers = [], teamsUnknown = [];
     for (const p of plats) {
+      if (p.teams) {
+        if (!td || !td.readable) { teamsUnknown.push(p.label); continue; }
+        const n = p.teams.reduce((a, k) => a + (td.byType[k] || 0), 0);
+        if (n > 0) hits.push(`${n} ${n === 1 ? (TEAMS_SINGULAR[p.label] || p.label) : p.label}`); else zero.push(p.label);
+        continue;
+      }
       if (p.server && !p.intune) { servers.push(p.label); continue; }
       const n = dev ? Object.entries(dev).filter(([k]) => p.intune.test(k)).reduce((a, [, v]) => a + v.total, 0) : null;
       if (n === null) servers.push(p.label); else if (n > 0) hits.push(`${n} ${p.label}`); else zero.push(p.label);
     }
-    if (hits.length) return { verdict: "ja", reason: `Betrifft ${hits.join(", ")}-Geräte in diesem Tenant.`, platforms: plats.map(p => p.label) };
+    if (hits.length) return { verdict: "ja", reason: `Betrifft ${hits.join(", ")}${plats.some(p => p.teams) ? "" : "-Geräte"} in diesem Tenant.`, platforms: plats.map(p => p.label) };
+    if (teamsUnknown.length) return { verdict: "pruefen", reason: `Betrifft ${teamsUnknown.join(", ")}. Teams-Geräteinventar nicht lesbar${td && td.error ? " (" + td.error + ")" : ""} — im Teams Admin Center unter Teams-Geräte nachsehen.`, platforms: plats.map(p => p.label), check: "https://admin.teams.microsoft.com/devices" };
+    if (zero.length && plats.every(p => p.teams)) return { verdict: "nein", reason: `Betrifft nur ${zero.join(", ")} — im Teams Admin Center sind keine solchen Geräte registriert (${td.total} Teams-Geräte insgesamt).`, platforms: plats.map(p => p.label) };
     if (servers.length) return { verdict: "pruefen", reason: `Nur ${servers.join(", ")} betroffen. Server und Linux-Systeme erscheinen nicht in Intune — im Defender-Portal unter Geräteinventar nach Betriebssystem filtern.`, platforms: plats.map(p => p.label), check: "https://security.microsoft.com/machines" };
     return { verdict: "nein", reason: `Nur ${zero.join(", ")} betroffen — in diesem Tenant keine solchen Geräte verwaltet.`, platforms: plats.map(p => p.label) };
   }
@@ -896,7 +932,8 @@ async function collectMessages(tenant, cert, facts, cache) {
       metric("Relevant", relevant.length, relevant.length ? "warn" : "ok"),
       metric("Mit Stichtag", relevant.filter(x => x.due).length, relevant.some(x => x.due && new Date(x.due).getTime() - now < 30 * DAY) ? "crit" : "ok")
     ],
-    data: { messages: scored.slice(0, 120), servicePlans: plans.size },
+    // schema 2: ungekuerzter Text + Gliederung. Aeltere Daten erkennt die Oberflaeche daran.
+    data: { schema: 2, messages: scored.slice(0, 120), servicePlans: plans.size, teamsDevices: facts.teamsDevices || null },
     snapshot: Object.fromEntries(relevant.map(m => [m.id, { title: m.title, due: m.due, modified: m.modified }])),
     findings
   };
@@ -1368,5 +1405,5 @@ const GRAPH_COLLECTORS = {
 };
 
 module.exports = {
-  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr, mcSections, mcVerdict
+  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr, mcSections, mcVerdict, teamsDevices
 };
