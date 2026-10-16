@@ -30,6 +30,12 @@ Freigaben, Mail-Schutz, Secure Score) und einer freien **Kundennotiz** in den
 Managed-Einstellungen («Treuhandbüro, 30 MA, Telefonie über Teams»). Ändert sich die Notiz,
 wird neu bewertet. «Neu bewerten» geht ohne neuen Abruf bei Microsoft.
 
+**Sichtbar, dass die KI arbeitet:** «Jetzt/Neu bewerten» läuft als Hintergrund-Job mit
+Fortschrittsbalken («KI bewertet 12 von 100 · Anthropic …»), Ergebnisse erscheinen nach jedem
+Stapel, Fehler stehen rot da, am Ende «✓ Fertig». Vorher war es eine einzige lange Anfrage,
+die am Proxy nach ~60 s abbrach — man sah nur «KI bewertet…». Läuft eine Bewertung schon,
+verfolgt die Ansicht sie nach dem Neuladen weiter.
+
 An die KI gehen nur Kennzahlen und Produktnamen — keine Benutzernamen, Mailadressen oder
 Inhalte. Meldungen zu nicht lizenzierten Diensten gehen gar nicht erst an die KI.
 

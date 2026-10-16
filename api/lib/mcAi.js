@@ -127,7 +127,7 @@ function normalize(it, provider, profileHash) {
  * Bewertet offene Meldungen und gibt den aktualisierten Cache zurueck (oder
  * null, wenn nichts zu tun war). messages = data.messages aus collectMessages.
  */
-async function evaluate({ tenant, messages, facts, cache, note, force, max }) {
+async function evaluate({ tenant, messages, facts, cache, note, force, max, onProgress, onBatch }) {
   if (!AI.enabledFor("messages")) return null;
   const profile = tenantProfile(tenant, facts, note);
   const ph = hash(profile);
@@ -139,16 +139,22 @@ async function evaluate({ tenant, messages, facts, cache, note, force, max }) {
   if (!todo.length) return null;
   const next = { ...(cache || {}) };
   const errors = [];
-  let done = 0;
+  let done = 0, provider = null;
+  const tell = () => { try { onProgress && onProgress({ done, total: todo.length, provider, errors: errors.slice(-3) }); } catch (e) { /* Anzeige optional */ } };
+  tell();
   for (let i = 0; i < todo.length; i += BATCH) {
     const batch = todo.slice(i, i + BATCH);
     try {
       const r = await AI.complete("messages", { system: SYSTEM, prompt: prompt(profile, batch), maxTokens: 4000, json: true });
+      provider = `${r.provider.label}${r.provider.model ? " · " + r.provider.model : ""}`;
       for (const it of (r.json && r.json.items) || []) {
         const m = batch.find(x => x.id === it.id);
         if (m) { next[m.id] = { modified: m.modified, ai: normalize(it, r.provider, ph) }; done++; }
       }
-    } catch (e) { errors.push(e.message); if (/Kein KI-Dienst/.test(e.message)) break; }
+      // Zwischenstand sofort sichern: die Oberflaeche zeigt Ergebnisse, waehrend die KI weiterarbeitet.
+      if (onBatch) { try { onBatch(next); } catch (e) { /* naechster Stapel sichert erneut */ } }
+    } catch (e) { errors.push(e.message); if (/Kein KI-Dienst/.test(e.message)) { tell(); break; } }
+    tell();
   }
   if (errors.length && !done) throw new Error(errors[0]);
   return next;

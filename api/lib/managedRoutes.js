@@ -350,23 +350,59 @@ function register(app, deps) {
 
   // ---------------------------------------------------------------- Message Center neu bewerten
   // Nur KI, kein Graph-Abruf: nimmt die zuletzt erhobenen Meldungen und Fakten.
+  // Laeuft als Hintergrund-Job (mehrere KI-Aufrufe dauern Minuten — eine
+  // einzelne Anfrage wuerde am Proxy-Timeout scheitern) und sichert nach jedem
+  // Stapel, damit Ergebnisse schon waehrend der Arbeit erscheinen.
+  const mcAiJobs = new Map();   // tenantRecId -> jobId
+  const runningMcAi = tid => { const j = appJobs.get(mcAiJobs.get(tid)); return j && j.status === "running" ? j : null; };
+
+  app.get("/api/tenants/:id/managed/messages/ai", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    const j = runningMcAi(t.id);
+    res.json({ ok: true, jobId: j ? j.id : null, ai: AI.enabledFor("messages") });
+  }));
+
   app.post("/api/tenants/:id/managed/messages/ai", wrap(async (req, res) => {
     const t = tenantOf(req);
+    const already = runningMcAi(t.id);
+    if (already) return res.json({ ok: true, jobId: already.id, already: true });
+    if (!AI.enabledFor("messages")) return res.status(400).json({ error: "Kein KI-Dienst für das Message Center eingerichtet (Service-Cockpit → KI-Dienste)." });
     const df = path.join(S.dirOf(STATE_DIR, t.id, "data"), "messages.json");
     const data = S.readJson(df, null);
     if (!data || !Array.isArray(data.messages)) return res.status(409).json({ error: "Message Center noch nicht erhoben." });
     const status = S.readJson(S.file(STATE_DIR, t.id, "status.json"), {});
     const cf = S.file(STATE_DIR, t.id, "mc-ai.json");
     const cache = S.readJson(cf, {});
-    const updated = await aiEnrich(t, data.messages, status._facts || {}, cache, !!(req.body && req.body.force));
-    if (updated) {
+    const job = createAppJob(t, ["KI-Einordnung"]);
+    job.isManaged = true;
+    job.mcAi = { done: 0, total: 0, provider: null, errors: [] };
+    mcAiJobs.set(t.id, job.id);
+    const persist = updated => {
       S.writeJson(cf, updated);
       for (const m of data.messages) if (updated[m.id] && updated[m.id].modified === m.modified) m.ai = updated[m.id].ai;
       delete data.aiError;
       S.writeJson(df, data);
-    }
-    const rated = data.messages.filter(m => m.ai && m.ai.art);
-    res.json({ ok: true, rated: rated.length, relevant: rated.filter(m => m.ai.relevant).length });
+    };
+    (async () => {
+      try {
+        const updated = await MCAI.evaluate({
+          tenant: t, messages: data.messages, facts: status._facts || {}, cache, note: S.settingsOf(t).profileNote,
+          force: !!(req.body && req.body.force), max: 150,
+          onProgress: p => { job.mcAi = p; job.phase = `KI bewertet ${p.done} von ${p.total}${p.provider ? " · " + p.provider : ""}`; },
+          onBatch: persist
+        });
+        if (updated) persist(updated);
+        const errs = job.mcAi.errors || [];
+        finishAppJob(job, true, null, errs.length ? "Teilweise fehlgeschlagen: " + errs[errs.length - 1] : null);
+        console.log(`Managed Service: KI-Einordnung ${t.name} — ${job.mcAi.done}/${job.mcAi.total} bewertet${errs.length ? ", Fehler: " + errs[errs.length - 1] : ""}.`);
+      } catch (e) {
+        data.aiError = e.message;
+        try { S.writeJson(df, data); } catch (e2) { /* Anzeige des Fehlers optional */ }
+        finishAppJob(job, false, e.message, null);
+        console.log(`Managed Service: KI-Einordnung ${t.name} fehlgeschlagen: ${e.message}`);
+      }
+    })();
+    res.json({ ok: true, jobId: job.id });
   }));
 
   app.get("/api/tenants/:id/managed/reports", (req, res) => {
