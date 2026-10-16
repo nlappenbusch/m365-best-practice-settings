@@ -1,9 +1,7 @@
 "use strict";
 /**
- * SDP-Ticket-Copilot: KI-Loesungsvorschlag ueber die Anthropic Messages API.
- *
- * Bewusst kein SDK-Abhaengigkeit -- wie graph.js/bitdefender.js/nsight.js
- * spricht dieses Modul die HTTP-API direkt per fetch() an.
+ * SDP-Ticket-Copilot: KI-Loesungsvorschlag ueber den eingerichteten KI-Dienst
+ * (lib/aiProviders.js, Zweck «tickets» — Anthropic, OpenAI, Azure, Gemini …).
  *
  * Laeuft komplett serverseitig-intern: die Tenant-Daten werden VOR dem
  * Aufruf hier bereits von den bestehenden Lib-Funktionen (licenses.js,
@@ -11,14 +9,10 @@
  * zusammengestellte Kontext-Objekt, keinen Tenant/Cert-Zugriff selbst.
  */
 
-const DEFAULT_MODEL = "claude-sonnet-4-5";
-const API_URL = "https://api.anthropic.com/v1/messages";
+const AI = require("./aiProviders");
 
-function config() {
-  const key = (process.env.ANTHROPIC_API_KEY || "").trim();
-  const model = (process.env.ANTHROPIC_MODEL || DEFAULT_MODEL).trim();
-  return { enabled: key.length > 0, key, model };
-}
+// Welcher KI-Dienst antwortet, steht in den KI-Diensten (Zweck «tickets»).
+function config() { return { enabled: AI.enabledFor("tickets") }; }
 
 function buildPrompt(ticket, tenantContext) {
   const notesText = (ticket.notes || [])
@@ -71,54 +65,13 @@ function buildPrompt(ticket, tenantContext) {
     `ausrollen kann. Wenn automatable=false: beide auf null setzen.`;
 }
 
-/** Robust gegen Markdown-Codefences, die das Modell trotz Anweisung manchmal noch anfuegt. */
-function parseJsonResponse(text) {
-  const cleaned = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  return JSON.parse(cleaned);
-}
-
 async function suggestResolution({ ticket, tenantContext }) {
-  const cfg = config();
-  if (!cfg.enabled) throw Object.assign(new Error("Kein Anthropic-Key konfiguriert (ANTHROPIC_API_KEY)."), { status: 400 });
-
   const prompt = buildPrompt(ticket, tenantContext);
-  let r;
   try {
-    r = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "x-api-key": cfg.key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 4096,
-        messages: [{ role: "user", content: prompt }]
-      }),
-      signal: AbortSignal.timeout(120000)
-    });
+    const r = await AI.complete("tickets", { prompt, maxTokens: 4096, json: true });
+    return r.json;
   } catch (e) {
-    throw Object.assign(new Error("Anthropic-API nicht erreichbar: " + e.message), { status: 502 });
-  }
-
-  const data = await r.json().catch(() => null);
-  if (!r.ok) {
-    const msg = (data && data.error && data.error.message) || `HTTP ${r.status}`;
-    throw Object.assign(new Error(`Anthropic-Fehler: ${msg}`), { status: 502 });
-  }
-
-  const text = (data && data.content && data.content[0] && data.content[0].text) || "";
-  try {
-    return parseJsonResponse(text);
-  } catch (e) {
-    // stop_reason "max_tokens" heisst die Antwort wurde mitten im JSON abgeschnitten --
-    // eigene, klarere Fehlermeldung statt des generischen Parse-Fehlers, damit sofort
-    // klar ist "zu wenig Tokens" statt raetseln zu muessen.
-    if (data && data.stop_reason === "max_tokens") {
-      throw Object.assign(new Error("KI-Antwort wurde mitten im JSON abgeschnitten (max_tokens erreicht) -- Ticket/Kontext ist fuer das aktuelle Token-Limit zu umfangreich."), { status: 502 });
-    }
-    throw Object.assign(new Error("KI-Antwort war kein gueltiges JSON -- Rohtext: " + text.slice(0, 300)), { status: 502 });
+    throw Object.assign(new Error(e.message), { status: e.status || 502 });
   }
 }
 

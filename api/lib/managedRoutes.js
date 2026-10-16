@@ -14,6 +14,8 @@ const path = require("path");
 const S = require("./managedService");
 const R = require("./managedReport");
 const STANDPDF = require("./managedStandPdf");
+const AI = require("./aiProviders");
+const MCAI = require("./mcAi");
 const { cut } = require("./managedCollectors");
 
 const TICK_MS = 5 * 60 * 1000;
@@ -26,43 +28,10 @@ function register(app, deps) {
   const webhookUrl = () => process.env.MANAGED_TEAMS_WEBHOOK || (loadState().managedGlobal || {}).teamsWebhook || "";
 
   // ---------------------------------------------------------------- KI-Einordnung Message Center
-  // Optional (ANTHROPIC_API_KEY). Ein Aufruf je Lauf, nur fuer neue/geaenderte
-  // relevante Meldungen, Ergebnis je Meldung gecacht (id + lastModified).
-  async function aiEnrich(tenant, messages, facts, cache) {
-    const cfg = AISUGGEST.config();
-    if (!cfg.enabled) return null;
-    // Eintraege ohne deutsche Kurzfassung (aeltere Cache-Generation) neu bewerten.
-    const todo = messages.filter(m => !(cache[m.id] && cache[m.id].modified === m.modified && cache[m.id].ai && cache[m.id].ai.kurz !== undefined)).slice(0, 10);
-    if (!todo.length) return null;
-    const prompt =
-      `Du bist M365-Betriebsingenieur bei einem Schweizer MSP. Bewerte Microsoft-Message-Center-Meldungen für EINEN konkreten Kundentenant.\n` +
-      `Tenant-Fakten (JSON): ${JSON.stringify(facts).slice(0, 3000)}\n\n` +
-      `Meldungen (JSON): ${JSON.stringify(todo.map(m => ({ id: m.id, title: m.title, services: m.services, due: m.due, tags: m.tags, verdict: m.verdict, affected: m.affected, text: m.summary })))}\n\n` +
-      `Antworte AUSSCHLIESSLICH mit JSON: {"items":[{"id":string,"relevant":boolean,"titel":string,"kurz":string,"wer":string,"wann":string,"impact":string,"actions":[string]}]}. ` +
-      `Alle Texte auf Deutsch, Schweizer Schreibweise (ss statt ß), sachlich, ohne Marketing. ` +
-      `"titel": deutscher Titel, max. 90 Zeichen. "kurz": was sich ändert, 1–2 Sätze. "wer": wer laut Microsoft betroffen ist, 1 Satz. "wann": Zeitplan in einem Satz mit Datum. ` +
-      `"impact": ein Satz, was die Änderung für DIESEN Tenant konkret bedeutet — mit Zahlen aus den Fakten, wenn vorhanden. ` +
-      `"actions": 1–4 konkrete Handlungsschritte für das Operations-Team (Portal, Einstellung, Zeitpunkt). Keine Allgemeinplätze; leer, wenn nichts zu tun ist. ` +
-      `relevant=false, wenn der Tenant den Dienst/die Funktion laut Fakten nicht nutzt.`;
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": cfg.key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: cfg.model, max_tokens: 2500, messages: [{ role: "user", content: prompt }] })
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error("KI-Einordnung: " + ((j.error && j.error.message) || r.status));
-    const text = (j.content || []).map(c => c.text || "").join("").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-    const parsed = JSON.parse(text);
-    const next = { ...cache };
-    for (const it of parsed.items || []) {
-      const m = todo.find(x => x.id === it.id);
-      if (!m) continue;
-      next[m.id] = { modified: m.modified, ai: {
-        relevant: !!it.relevant, titel: cut(it.titel, 120), kurz: cut(it.kurz, 500), wer: cut(it.wer, 300), wann: cut(it.wann, 200),
-        impact: cut(it.impact, 400), actions: (it.actions || []).map(a => cut(a, 300)).slice(0, 4)
-      } };
-    }
-    return next;
+  // Relevanz je Kunde ueber den KI-Dienst des Zwecks «messages» (lib/mcAi.js).
+  // Ergebnis je Meldung gecacht (Aenderungsstand + Kundenprofil).
+  async function aiEnrich(tenant, messages, facts, cache, force) {
+    return MCAI.evaluate({ tenant, messages, facts, cache, note: S.settingsOf(tenant).profileNote, force });
   }
 
   // ---------------------------------------------------------------- Tickets
@@ -223,7 +192,7 @@ function register(app, deps) {
   };
 
   app.get("/api/managed/meta", (req, res) => {
-    res.json({ ok: true, areas: S.AREAS, defaults: S.DEFAULT_SETTINGS, sla: S.SLA_HOURS, global: { ...globalCfg(), teamsWebhook: globalCfg().teamsWebhook ? "••• hinterlegt" : "" }, sdp: SDP.config().enabled, ai: AISUGGEST.config().enabled });
+    res.json({ ok: true, areas: S.AREAS, defaults: S.DEFAULT_SETTINGS, sla: S.SLA_HOURS, global: { ...globalCfg(), teamsWebhook: globalCfg().teamsWebhook ? "••• hinterlegt" : "" }, sdp: SDP.config().enabled, ai: AI.enabledFor("messages") });
   });
 
   app.put("/api/managed/global", (req, res) => {
@@ -281,7 +250,9 @@ function register(app, deps) {
       autoTicket: ["off", "critical", "high"].includes(b.autoTicket) ? b.autoTicket : cur.autoTicket,
       notifyMin: ["critical", "high", "medium", "low"].includes(b.notifyMin) ? b.notifyMin : cur.notifyMin,
       maxMailboxes: num(b.maxMailboxes, 10, 5000, cur.maxMailboxes),
-      areas: Array.isArray(b.areas) ? b.areas.filter(a => S.AREA[a]) : cur.areas
+      areas: Array.isArray(b.areas) ? b.areas.filter(a => S.AREA[a]) : cur.areas,
+      // Kundennotiz fuer die KI-Einordnung (Branche, Groesse, was genutzt wird).
+      profileNote: typeof b.profileNote === "string" ? b.profileNote.trim().slice(0, 1500) : (cur.profileNote || "")
     };
     saveState(s);
     res.json({ ok: true, settings: t.managed });
@@ -366,6 +337,27 @@ function register(app, deps) {
     res.set("content-type", "application/pdf");
     res.set("content-disposition", `attachment; filename="${kind}_${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "-")}_v${d.ver.v}${req.query.drift ? "_" + new Date().toISOString().slice(0, 10) : ""}.pdf"`);
     res.send(pdf);
+  }));
+
+  // ---------------------------------------------------------------- Message Center neu bewerten
+  // Nur KI, kein Graph-Abruf: nimmt die zuletzt erhobenen Meldungen und Fakten.
+  app.post("/api/tenants/:id/managed/messages/ai", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    const df = path.join(S.dirOf(STATE_DIR, t.id, "data"), "messages.json");
+    const data = S.readJson(df, null);
+    if (!data || !Array.isArray(data.messages)) return res.status(409).json({ error: "Message Center noch nicht erhoben." });
+    const status = S.readJson(S.file(STATE_DIR, t.id, "status.json"), {});
+    const cf = S.file(STATE_DIR, t.id, "mc-ai.json");
+    const cache = S.readJson(cf, {});
+    const updated = await aiEnrich(t, data.messages, status._facts || {}, cache, !!(req.body && req.body.force));
+    if (updated) {
+      S.writeJson(cf, updated);
+      for (const m of data.messages) if (updated[m.id] && updated[m.id].modified === m.modified) m.ai = updated[m.id].ai;
+      delete data.aiError;
+      S.writeJson(df, data);
+    }
+    const rated = data.messages.filter(m => m.ai && m.ai.art);
+    res.json({ ok: true, rated: rated.length, relevant: rated.filter(m => m.ai.relevant).length });
   }));
 
   app.get("/api/tenants/:id/managed/reports", (req, res) => {

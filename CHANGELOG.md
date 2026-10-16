@@ -1,5 +1,48 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.64 - Message Center je Kunde mit KI, mehrere KI-Dienste nach Wahl (2026-10-16)
+
+### Message Center: nur, was für DIESEN Kunden zählt — auf Deutsch, ohne Fachjargon
+
+Im Managed Service → Message Center gibt es jetzt die Ansicht **«Für ‹Kunde›»** (Standard,
+sobald eine KI eingerichtet ist). Die KI sortiert jede Meldung vor dem **Kundenprofil**:
+
+- **Handeln** — der Kunde ist betroffen, wir müssen etwas tun oder entscheiden
+- **Chance für den Kunden** — neue Funktion, die genau diesem Kunden nützt (Beratungsanlass)
+- **Gut zu wissen** — betrifft genutzte Dienste, nichts zu tun (eingeklappt)
+- **Nicht relevant** — ausgeblendet, mit Link «alle anzeigen»
+
+Je Meldung: verständlicher Titel, was sich ändert, **warum es für diesen Kunden wichtig ist**
+(mit Bezug auf Lizenzen, Geräte, Postfächer …), wer etwas merkt, wann, was wir tun — und
+**ein Satz, den man dem Kunden so weitergeben kann** (Knopf «Kopieren»). Die bisherige
+Regel-Ansicht bleibt unter «Alle Meldungen».
+
+Das **Kundenprofil** setzt sich zusammen aus dem erhobenen Ist-Zustand (Lizenzen mit
+Anzahl, Intune-Geräte je Betriebssystem, Teams-Geräte, Postfächer, SMTP AUTH, Weiterleitung,
+Freigaben, Mail-Schutz, Secure Score) und einer freien **Kundennotiz** in den
+Managed-Einstellungen («Treuhandbüro, 30 MA, Telefonie über Teams»). Ändert sich die Notiz,
+wird neu bewertet. «Neu bewerten» geht ohne neuen Abruf bei Microsoft.
+
+An die KI gehen nur Kennzahlen und Produktnamen — keine Benutzernamen, Mailadressen oder
+Inhalte. Meldungen zu nicht lizenzierten Diensten gehen gar nicht erst an die KI.
+
+### KI-Dienste: mehrere Anbieter, je Aufgabe zuweisbar
+
+Service-Cockpit → **⚙ Einstellungen & KI-Dienste**:
+
+- Anbieter: **Anthropic, OpenAI, Azure OpenAI, Google Gemini, Mistral** und jede
+  **OpenAI-kompatible** Gegenstelle (Ollama, LM Studio, OpenRouter, Azure AI Foundry, vLLM) —
+  damit auch ein lokales Modell im eigenen Rechenzentrum.
+- Je Aufgabe (Message Center, Ticket-Copilot, Security-Audit-Erklärungen) ein Standard-Dienst
+  und bis zu zwei **Ausweichdienste**, falls einer nicht antwortet.
+- «Testen» je Dienst, letzter Test sichtbar.
+- API-Keys liegen **verschlüsselt** im Zustand (AES-256-GCM; Schlüssel aus `AI_SECRET_KEY`
+  oder einer Schlüsseldatei) und verlassen den Server nie — die Oberfläche zeigt nur
+  «hinterlegt …abcd». Schutz gegen Klartext in Backups, nicht gegen Vollzugriff auf den Container.
+- `ANTHROPIC_API_KEY` aus der Umgebung läuft als eingebauter Dienst weiter — bestehende
+  Installationen brauchen nichts zu tun.
+- Ticket-Copilot und Maester-Erklärungen nutzen jetzt ebenfalls die KI-Dienste.
+
 ## Version 2.63 - Managed Service: Ist-Zustand einfrieren, Drift gegen den Stand, Notfallkonten geschuetzt (2026-10-16)
 
 ### Zwei verschiedene Fragen, sauber getrennt

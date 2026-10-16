@@ -18,6 +18,7 @@ export const msApi = {
   run: (tid, areas) => apiPost(`/api/tenants/${enc(tid)}/managed/run`, { areas: areas || [] }),
   action: (tid, fid, b) => apiPost(`/api/tenants/${enc(tid)}/managed/findings/${enc(fid)}/action`, b),
   baseline: (tid, area, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/baseline/${enc(area)}`, { reason }),
+  mcAi: (tid, force) => apiPost(`/api/tenants/${enc(tid)}/managed/messages/ai`, { force: !!force }),
   stand: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/stand`),
   freeze: (tid, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/stand`, { reason }),
   standPdfUrl: (tid, v, drift) => `/api/tenants/${enc(tid)}/managed/stand/${enc(v || 'current')}/pdf${drift ? '?drift=1' : ''}`,

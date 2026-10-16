@@ -147,6 +147,16 @@
     actBusy = false
   }
 
+  // Message Center: KI-Einordnung je Kunde neu anstossen (nur KI, kein Graph-Abruf)
+  let mcAiBusy = $state(false)
+  let aiReady = $state(null)
+  $effect(() => { if (view === 'messages' && aiReady === null && $session.loggedIn) msApi.meta().then(m => aiReady = !!m.ai).catch(() => aiReady = false) })
+  async function reevaluate(force) {
+    mcAiBusy = true
+    try { await msApi.mcAi(tid(), force); await area('messages', true) } catch (e) { error = errText(e) }
+    mcAiBusy = false
+  }
+
   async function loadStand() {
     try { stand = await msApi.stand(tid()) } catch (e) { stand = { error: errText(e) } }
   }
@@ -353,7 +363,9 @@
             {@const d = areaCache.messages?.data}
             {#if !d}<div class="empty">{areaCache.messages?.error || 'Noch keine Meldungen erhoben.'}</div>
             {:else}
-              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running' || mcAutoRunning} autoRefresh={mcAutoRunning} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }} />
+              <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running' || mcAutoRunning} autoRefresh={mcAutoRunning} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }}
+                profileNote={ov?.settings?.profileNote || ''} aiReady={aiReady} reevaluating={mcAiBusy} onReevaluate={reevaluate}
+                onEditProfile={() => view = 'settings'} onSetupAi={() => goToTab('mspfleet')} />
             {/if}
 
           <!-- ---------- POSTFAECHER ---------- -->
@@ -617,6 +629,8 @@
                     <select bind:value={st.notifyMin}>{#each SEV as s}<option value={s}>{SEV_DE[s]}</option>{/each}</select></label>
                   <label>Max. Postfächer je Lauf<input type="number" min="10" max="5000" bind:value={st.maxMailboxes} /></label>
                 </div>
+                <label class="pnote">Kundenprofil für die KI-Einordnung <small>(Branche, Grösse, was genutzt wird, Besonderheiten — keine Personendaten)</small>
+                  <textarea rows="3" bind:value={st.profileNote} placeholder="z. B. Treuhandbüro, 30 Mitarbeitende, Telefonie über Teams, Buchhaltung in Abacus, viel mobile Arbeit mit iPhones"></textarea></label>
                 <div class="areachk">
                   {#each ov.areas as a}<label><input type="checkbox" checked={st.areas.includes(a.id)} onchange={e => st.areas = e.currentTarget.checked ? [...st.areas, a.id] : st.areas.filter(x => x !== a.id)} /> {a.label}</label>{/each}
                 </div>
@@ -851,6 +865,9 @@
   .obt{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--bg-inset)}.obt i{display:block}.obt .c{background:var(--ok)}.obt .n{background:var(--crit)}.obt .o{background:var(--text-faint);opacity:.5}
   .util{display:inline-block;width:90px;height:7px;border-radius:5px;background:var(--bg-inset);overflow:hidden;vertical-align:middle}.util i{display:block;height:100%;background:var(--ok)}.util i.low{background:var(--warn)}.util i.over{background:var(--crit)}
 
+  .pnote{display:flex;flex-direction:column;gap:.25rem;font-size:.74rem;font-weight:700;color:var(--text-dim)}
+  .pnote small{font-weight:500}
+  .pnote textarea{font:inherit;font-size:.82rem;padding:.45rem .55rem;border:1px solid var(--rule);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical}
   .standbox{border:1px solid color-mix(in srgb,var(--accent) 35%,var(--rule));background:var(--bg-raised);border-radius:var(--radius-lg);padding:.95rem 1rem;display:flex;flex-direction:column;gap:.65rem;box-shadow:inset 4px 0 0 var(--accent)}
   .shead{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}
   .shead h3{margin:.15rem 0 .1rem;font-size:1.15rem;display:flex;gap:.5rem;align-items:center}.shead .dim{font-size:.76rem}

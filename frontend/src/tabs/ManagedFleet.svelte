@@ -6,6 +6,7 @@
   import { ageLabel, fmtDateTime } from '../lib/product.js'
   import { msApi, followJob, SEV, SEV_DE, KIND_DE, linePath, pctOf } from '../lib/managed.js'
   import ManagedRing from '../lib/ManagedRing.svelte'
+  import AiProviders from '../lib/AiProviders.svelte'
 
   let rows = $state([])
   let alerts = $state([])
@@ -93,7 +94,7 @@
       <p>Überwachung von Identität, Mail, Daten und Endpoints mit Drift-Erkennung, SLA und automatischen Tickets.</p>
     </div>
     <div class="fl-hero-act">
-      <button class="btn btn-secondary" onclick={() => showGlobal = !showGlobal}>⚙ Benachrichtigung</button>
+      <button class="btn btn-secondary" onclick={() => showGlobal = !showGlobal}>⚙ Einstellungen & KI-Dienste</button>
       <button class="btn btn-primary" onclick={load} disabled={loading}>{loading ? 'Lade…' : '↻ Aktualisieren'}</button>
     </div>
     <div class="fl-kpis">
@@ -130,6 +131,7 @@
         {#if gMsg}<span class:okt={gMsg.ok} class:bad={!gMsg.ok}>{gMsg.text}</span>{/if}
       </div>
     </section>
+    <section class="fl-ai"><AiProviders /></section>
   {/if}
 
   <div class="fl-toolbar">
@@ -230,6 +232,7 @@
   .k.sla{background:rgba(171,71,188,.28);border-color:rgba(225,190,231,.45)}.k.warnk{background:rgba(255,255,255,.08)}
   .k.zero{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)}
   .fl-global{display:grid;grid-template-columns:1.2fr 1.4fr .7fr .8fr;gap:.8rem;align-items:end;border:1px solid var(--rule);background:var(--bg-raised);border-radius:var(--radius-lg);padding:1rem}
+  .fl-ai{border:1px solid var(--rule);background:var(--bg-raised);border-radius:var(--radius-lg);padding:1rem}
   .fl-global h3{margin:0 0 .2rem;font-size:1rem}.fl-global p{margin:0;font-size:.76rem}
   .fl-global label{display:flex;flex-direction:column;gap:.25rem;font-size:.74rem;font-weight:700;color:var(--text-dim)}
   .fl-global input,.fl-global select{font:inherit;font-size:.82rem;padding:.42rem .55rem;border:1px solid var(--rule);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)}

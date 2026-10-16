@@ -26,7 +26,8 @@ const crypto = require("crypto");
 // automatisch über die Weboberfläche abrufbar.
 const ENV_SECRETS = [
   ["ADMIN_PASSWORD", "Anmeldung an diesem Werkzeug (Quelle der Wahrheit, überschreibt den gespeicherten Hash)", "hoch", "Dieses Werkzeug"],
-  ["ANTHROPIC_API_KEY", "KI-Funktionen: Vorschläge und Maester-Erklärungen", "mittel", "Angebundene Dienste"],
+  ["ANTHROPIC_API_KEY", "KI: eingebauter Dienst «Anthropic (Umgebung)» — weitere Dienste unter Service-Cockpit → KI-Dienste", "mittel", "Angebundene Dienste"],
+  ["AI_SECRET_KEY", "Verschlüsselt die API-Keys der KI-Dienste (optional, sonst Schlüsseldatei im Zustand)", "hoch", "Dieses Werkzeug"],
   ["SDP_API_KEY", "ServiceDesk Plus — Ticket-Copilot, Worklogs", "mittel", "Angebundene Dienste"],
   ["BD_API_KEY", "Bitdefender GravityZone — Paketabruf und Installationsstatus", "mittel", "Angebundene Dienste"],
   ["RMM_API_KEY", "N-sight RMM — Geräte- und Agent-Abfragen", "mittel", "Angebundene Dienste"]

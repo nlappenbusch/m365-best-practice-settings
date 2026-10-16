@@ -65,6 +65,7 @@ const DOMAINAUTH = require("./lib/domainAuth");
 const SDP = require("./lib/sdp");
 const SDPDB = require("./lib/sdpDb");
 const AISUGGEST = require("./lib/aiSuggest");
+const AIPROVIDERS = require("./lib/aiProviders");
 const CUSTOMPOLICY = require("./lib/customPolicy");
 const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
@@ -102,6 +103,7 @@ const MANAGED_ROUTES = require("./lib/managedRoutes");
 
 const PORT = Number(process.env.PORT || 3000);
 const STATE_DIR = process.env.STATE_DIR || path.join(__dirname, "state");
+AIPROVIDERS.init(STATE_DIR);
 const CERT_DIR = path.join(STATE_DIR, "cert");
 fs.mkdirSync(CERT_DIR, { recursive: true });
 const STATE_FILE = path.join(STATE_DIR, "state.json");
@@ -4060,6 +4062,27 @@ app.post("/api/tenants/:id/appdeploy/start", wrap(async (req, res) => {
 
 // ---------- Administrative Rollen ----------
 // Wer hat erhoehte Rechte, und wie kam er dazu. Rein lesend.
+// ---------- KI-Dienste (mehrere Anbieter, je Zweck zuweisbar) ----------
+// Keys verlassen den Server nie; die Oberflaeche sieht nur «hinterlegt …abcd».
+app.get("/api/ai/providers", (req, res) => res.json({ ok: true, ...AIPROVIDERS.publicView() }));
+app.post("/api/ai/providers", wrap(async (req, res) => {
+  const id = AIPROVIDERS.saveProvider(req.body || {});
+  console.log(`KI-Dienst ${id} gespeichert (${req.session && req.session.user}).`);
+  res.json({ ok: true, id, ...AIPROVIDERS.publicView() });
+}));
+app.delete("/api/ai/providers/:pid", wrap(async (req, res) => {
+  AIPROVIDERS.deleteProvider(req.params.pid);
+  console.log(`KI-Dienst ${req.params.pid} entfernt (${req.session && req.session.user}).`);
+  res.json({ ok: true, ...AIPROVIDERS.publicView() });
+}));
+app.post("/api/ai/providers/:pid/test", wrap(async (req, res) => {
+  res.json({ ok: true, result: await AIPROVIDERS.test(req.params.pid), ...AIPROVIDERS.publicView() });
+}));
+app.put("/api/ai/assign/:purpose", wrap(async (req, res) => {
+  AIPROVIDERS.setAssign(req.params.purpose, (req.body || {}).providers);
+  res.json({ ok: true, ...AIPROVIDERS.publicView() });
+}));
+
 app.get("/api/tenants/:id/adminroles", wrap(async (req, res) => {
   const t = requireTenant(req);
   res.json({ ok: true, ...(await ADMINROLES.loadAdminRoles(t, certPemPath(t.tenantId))) });

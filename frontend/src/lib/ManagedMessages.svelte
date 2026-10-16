@@ -3,7 +3,8 @@
   // Reihenfolge der Information: zuerst das Urteil fuer DIESEN Tenant, dann
   // Zeitstrahl, dann die vier Fragen (was / wann / wer / was tun), ganz unten
   // der Microsoft-Originaltext — sauber gesetzt statt als Textblock.
-  let { data, tenantName = '', onRefresh = null, refreshing = false, autoRefresh = false } = $props()
+  let { data, tenantName = '', onRefresh = null, refreshing = false, autoRefresh = false,
+    profileNote = '', aiReady = null, reevaluating = false, onReevaluate = null, onEditProfile = null, onSetupAi = null } = $props()
   // schema 2 = ungekuerzter Text + Gliederung (seit 15.10.2026). Aeltere Daten
   // sind beim Speichern nach 700 Zeichen abgeschnitten worden.
   let stale = $derived(data && data.schema !== 2)
@@ -33,15 +34,40 @@
   const groupOf = m => m.v === 'ja' && (m.due || m.relevance === 'hoch') ? 'action'
     : m.v === 'pruefen' ? 'check' : m.v === 'nein' ? 'none' : 'info'
 
+  // Ansicht «Für den Kunden»: was die KI vor dem Kundenprofil als relevant einstuft,
+  // in einfacher Sprache. «Alle Meldungen» ist die bisherige Fachansicht nach Regeln.
+  const KGROUPS = [
+    ['handeln', 'Handeln', 'Betrifft diesen Kunden — wir müssen etwas tun oder entscheiden'],
+    ['chance', 'Chance für den Kunden', 'Neue Funktion, die diesem Kunden spürbar nützt — Anlass zur Beratung'],
+    ['info', 'Gut zu wissen', 'Betrifft genutzte Dienste, nichts zu tun']
+  ]
+  const ART = { handeln: { label: 'Handeln', icon: '!', tone: 'crit' }, chance: { label: 'Chance', icon: '★', tone: 'ok' }, info: { label: 'Gut zu wissen', icon: 'i', tone: 'info' }, nicht: { label: 'Nicht relevant', icon: '–', tone: 'none' } }
+
   let q = $state('')
   let selId = $state(null)
-  let open = $state({ action: true, check: true, info: false, none: false })
+  let open = $state({ action: true, check: true, info: false, none: false, handeln: true, chance: true })
+  let modeSel = $state(null)
+  let copied = $state(false)
 
   let msgs = $derived((data?.messages || []).map(m => ({ ...m, v: m.verdict || (m.notInTenant ? 'nein' : 'ja') }))
     .map(m => ({ ...m, g: groupOf(m) })))
-  let filtered = $derived(msgs.filter(m => !q || (m.title + ' ' + m.id + ' ' + (m.ai?.titel || '') + ' ' + m.services.join(' ')).toLowerCase().includes(q.toLowerCase())))
+  let rated = $derived(msgs.filter(m => m.ai?.art))
+  let mode = $derived(modeSel || (rated.length ? 'kunde' : 'alle'))
+  let notRelevant = $derived(rated.filter(m => m.ai.art === 'nicht').length)
+  let unrated = $derived(msgs.filter(m => !m.notInTenant && !m.ai?.art).length)
+  let aiBy = $derived.by(() => {
+    const c = {}
+    for (const m of rated) { const k = `${m.ai.provider || 'KI'}${m.ai.model ? ' · ' + m.ai.model : ''}`; c[k] = (c[k] || 0) + 1 }
+    return Object.entries(c).sort((a, b) => b[1] - a[1]).map(x => x[0]).join(', ')
+  })
+  let filtered = $derived(msgs.filter(m => !q || (m.title + ' ' + m.id + ' ' + (m.ai?.titel || '') + ' ' + (m.ai?.kurz || '') + ' ' + m.services.join(' ')).toLowerCase().includes(q.toLowerCase())))
   const byDue = (a, b) => (a.due && b.due ? String(a.due).localeCompare(String(b.due)) : (b.due ? 1 : 0) - (a.due ? 1 : 0)) || b.score - a.score
-  let grouped = $derived(GROUPS.map(([k, l, d]) => ({ k, l, d, items: filtered.filter(m => m.g === k).sort(byDue) })))
+  let grouped = $derived(mode === 'kunde'
+    ? KGROUPS.map(([k, l, d]) => ({ k, l, d, items: filtered.filter(m => m.ai?.art === k).sort(byDue) }))
+    : GROUPS.map(([k, l, d]) => ({ k, l, d, items: filtered.filter(m => m.g === k).sort(byDue) })))
+  async function copyKunde(t) {
+    try { await navigator.clipboard.writeText(t); copied = true; setTimeout(() => copied = false, 1800) } catch (e) { /* Zwischenablage gesperrt */ }
+  }
   let sel = $derived(msgs.find(m => m.id === selId) || grouped.find(g => g.items.length)?.items[0] || null)
 
   const days = iso => iso ? Math.round((new Date(iso).getTime() - Date.now()) / 86400000) : null
@@ -132,6 +158,23 @@
         {#if onRefresh}<button onclick={onRefresh} disabled={refreshing}>{refreshing ? 'Wird abgerufen…' : 'Message Center neu erheben'}</button>{/if}
       </div>
     {/if}
+    <div class="mode" role="tablist">
+      <button class:on={mode === 'kunde'} onclick={() => modeSel = 'kunde'} title="Was die KI für diesen Kunden als wichtig einstuft">Für {tenantName || 'den Kunden'}</button>
+      <button class:on={mode === 'alle'} onclick={() => modeSel = 'alle'} title="Alle Microsoft-Meldungen nach Regeln (Lizenzen, Geräte)">Alle Meldungen</button>
+    </div>
+    <div class="kibox">
+      {#if aiReady === false && !rated.length}
+        <b>Keine KI eingerichtet</b>
+        <span>Ohne KI-Dienst gibt es nur die Regel-Einordnung. Einen Dienst nach Wahl hinterlegen (OpenAI, Azure, Anthropic, Gemini, Mistral, lokal).</span>
+        {#if onSetupAi}<button onclick={onSetupAi}>KI-Dienste einrichten</button>{/if}
+      {:else}
+        <span><b>{rated.filter(m => m.ai.relevant).length}</b> relevant für diesen Kunden{notRelevant ? ` · ${notRelevant} nicht relevant` : ''}{unrated ? ` · ${unrated} noch nicht bewertet` : ''}</span>
+        {#if aiBy}<span class="dimk">Eingeordnet von {aiBy}</span>{/if}
+        <span class="dimk">Kundenprofil: {profileNote ? (profileNote.length > 90 ? profileNote.slice(0, 88) + '…' : profileNote) : 'keine Notiz — nur Ist-Zustand aus dem Tenant'}{#if onEditProfile} · <button class="lk" onclick={onEditProfile}>bearbeiten</button>{/if}</span>
+        {#if onReevaluate}<button onclick={() => onReevaluate(!unrated)} disabled={reevaluating}>{reevaluating ? 'KI bewertet…' : unrated ? 'Jetzt bewerten' : 'Neu bewerten'}</button>{/if}
+      {/if}
+      {#if data?.aiError}<span class="bad">KI-Fehler: {data.aiError}</span>{/if}
+    </div>
     <input class="mcs" type="search" placeholder="Meldung, MC-Nummer, Dienst…" bind:value={q} />
     <div class="mcmeta-l">Abgleich mit {data?.servicePlans ?? '—'} Service Plans, Intune-Geräten{tdText ? ' · ' + tdText : ''}{data?.aiError ? ' · KI: ' + data.aiError : ''}</div>
     {#each grouped as g}
@@ -142,8 +185,9 @@
         {#if open[g.k]}
           {#each g.items as m (m.id)}
             {@const dd = days(m.due)}
+            {@const look = mode === 'kunde' && m.ai?.art ? ART[m.ai.art] : VERDICT[m.v]}
             <button class="row" class:sel={sel?.id === m.id} onclick={() => selId = m.id}>
-              <span class="dot t-{VERDICT[m.v].tone}">{VERDICT[m.v].icon}</span>
+              <span class="dot t-{look.tone}">{look.icon}</span>
               <span class="rt"><span class="rtt">{title(m)}</span><span class="rts">{m.id} · {m.services.join(', ')}</span></span>
               {#if m.due}<span class="cd" class:soon={dd <= 30 && m.v !== 'nein'} class:over={dd < 0}>{dd < 0 ? '−' + Math.abs(dd) : dd}<small>T</small></span>{/if}
             </button>
@@ -151,6 +195,9 @@
         {/if}
       </section>
     {/each}
+    {#if mode === 'kunde' && notRelevant}
+      <button class="lk more" onclick={() => modeSel = 'alle'}>{notRelevant} weitere Meldungen betreffen diesen Kunden nicht — alle anzeigen</button>
+    {/if}
   </aside>
 
   {#if sel}
@@ -161,7 +208,7 @@
     <article class="rd">
       <header class="rh t-{vv.tone}">
         <div class="rh-top">
-          <span class="badge t-{vv.tone}">{vv.label}</span>
+          {#if sel.ai?.art}<span class="badge t-{ART[sel.ai.art].tone}">{ART[sel.ai.art].label}</span>{:else}<span class="badge t-{vv.tone}">{vv.label}</span>{/if}
           <span class="rid">{sel.id}</span>
           {#if sel.major}<span class="tagm">Major Change</span>{/if}
           {#if sel.updated}<span class="tagu" title={sel.updated.note}>aktualisiert {fmtUpd(sel.updated.date)}</span>{/if}
@@ -171,8 +218,8 @@
         {#if sel.ai?.titel}<div class="orig-t">{sel.title}</div>{/if}
         <div class="verdict">
           <div class="vtxt">
-            <span class="vlab">Für {tenantName}</span>
-            <p>{sel.ai?.impact || sel.verdictReason || '—'}</p>
+            <span class="vlab">Warum für {tenantName}</span>
+            <p>{sel.ai?.warum || sel.ai?.impact || sel.verdictReason || '—'}</p>
             {#if sel.checkUrl}<a href={sel.checkUrl} target="_blank" rel="noreferrer">→ Geräteinventar im Defender-Portal prüfen</a>{/if}
           </div>
           {#if sel.due}
@@ -206,6 +253,14 @@
           {#if acts.length}<ol>{#each acts as a}<li>{a}</li>{/each}</ol>{:else}<p class="dimp">Nichts — für diesen Tenant kein Handlungsbedarf.</p>{/if}
         </section>
       </div>
+
+      {#if sel.ai?.kunde}
+        <div class="kunde">
+          <div><span class="vlab">So können wir es dem Kunden sagen</span><p>{sel.ai.kunde}</p></div>
+          <button onclick={() => copyKunde(sel.ai.kunde)}>{copied ? 'Kopiert ✓' : 'Kopieren'}</button>
+        </div>
+      {/if}
+      {#if sel.ai?.provider}<div class="kisrc">Eingeordnet von {sel.ai.provider}{sel.ai.model ? ' · ' + sel.ai.model : ''}{sel.ai.at ? ' · ' + new Date(sel.ai.at).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : ''} — KI-Einschätzung, vor dem Weitergeben kurz prüfen.</div>{/if}
 
       <details class="orig">
         <summary>Microsoft-Originaltext <span>{secsOf(sel).length} Abschnitte · Englisch</span></summary>
@@ -241,6 +296,22 @@
   .stale b{font-size:.78rem}.stale span{color:var(--text-dim);line-height:1.35}
   .stale button{align-self:flex-start;font:inherit;font-size:.74rem;font-weight:800;border:0;border-radius:999px;padding:.35rem .8rem;background:var(--warn);color:#fff;cursor:pointer}
   .stale button:disabled{opacity:.6;cursor:default}
+  .mode{display:grid;grid-template-columns:1fr 1fr;background:var(--bg-inset);border-radius:999px;padding:3px;gap:3px}
+  .mode button{all:unset;cursor:pointer;text-align:center;font-size:.76rem;font-weight:800;padding:.4rem .5rem;border-radius:999px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mode button.on{background:var(--bg-raised);color:var(--accent);box-shadow:var(--shadow-sm)}
+  .kibox{display:flex;flex-direction:column;gap:.25rem;font-size:.74rem;background:var(--accent-wash);border-radius:12px;padding:.55rem .7rem}
+  .kibox b{font-size:.82rem}.kibox .dimk{color:var(--text-dim);font-size:.68rem;line-height:1.35}
+  .kibox > button{align-self:flex-start;font:inherit;font-size:.72rem;font-weight:800;border:0;border-radius:999px;padding:.32rem .75rem;background:var(--accent);color:#fff;cursor:pointer;margin-top:.15rem}
+  .kibox > button:disabled{opacity:.6;cursor:default}
+  .lk{all:unset;cursor:pointer;color:var(--accent);font-weight:700}.lk:hover{text-decoration:underline}
+  .lk.more{font-size:.72rem;padding:.4rem .3rem}
+  .bad{color:var(--crit)}
+  .t-ok.dot{background:var(--ok)}.badge.t-ok{background:var(--ok)}.rh.t-ok:before{background:var(--ok)}.t-ok .verdict{background:var(--ok-wash)}
+  .g-handeln .gh b{background:var(--crit);color:#fff}.g-chance .gh b{background:var(--ok);color:#fff}
+  .kunde{margin:0 1.3rem .8rem;display:flex;gap:1rem;align-items:flex-start;justify-content:space-between;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--rule));background:var(--ok-wash);border-radius:12px;padding:.7rem .9rem}
+  .kunde p{margin:.2rem 0 0;font-size:.88rem;line-height:1.5}
+  .kunde button{font:inherit;font-size:.72rem;font-weight:800;border:1px solid var(--rule);border-radius:999px;padding:.3rem .7rem;background:var(--bg-raised);color:var(--text);cursor:pointer;white-space:nowrap}
+  .kisrc{margin:0 1.3rem .8rem;font-size:.68rem;color:var(--text-faint)}
   .mcs{font:inherit;font-size:.82rem;padding:.45rem .7rem;border:1px solid var(--rule);border-radius:999px;background:var(--bg-raised);color:var(--text)}
   .mcmeta-l{font-size:.66rem;color:var(--text-faint);padding:0 .3rem .2rem}
   .grp{display:flex;flex-direction:column;gap:.2rem}

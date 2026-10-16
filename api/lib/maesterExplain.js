@@ -1,7 +1,7 @@
 "use strict";
 /**
- * Deutsche Erklaerungen fuer Maester-Findings ueber die Anthropic Messages API
- * (gleiches Muster wie aiSuggest.js: direktes fetch, kein SDK).
+ * Deutsche Erklaerungen fuer Maester-Findings ueber den eingerichteten KI-Dienst
+ * (lib/aiProviders.js, Zweck «maester»).
  *
  * Eingabe: die gefallenen Tests eines Laufs (Titel/Severity/Block + Maesters
  * englisches ResultDetail). Ausgabe: pro Test eine deutsche Erklaerung —
@@ -10,14 +10,10 @@
  * laeuft also einmal pro Lauf, nicht bei jedem Seitenaufruf.
  */
 
-const DEFAULT_MODEL = "claude-sonnet-4-5";
-const API_URL = "https://api.anthropic.com/v1/messages";
+const AI = require("./aiProviders");
 
-function config() {
-  const key = (process.env.ANTHROPIC_API_KEY || "").trim();
-  const model = (process.env.ANTHROPIC_MODEL || DEFAULT_MODEL).trim();
-  return { enabled: key.length > 0, key, model };
-}
+// Welcher KI-Dienst antwortet, steht in den KI-Diensten (Zweck «maester»).
+function config() { return { enabled: AI.enabledFor("maester") }; }
 
 function clip(s, n) { return String(s == null ? "" : s).slice(0, n); }
 
@@ -41,49 +37,22 @@ function buildPrompt(tenantName, findings) {
     `Findings:\n${list}`;
 }
 
-function parseJsonResponse(text) {
-  const cleaned = String(text || "").replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  return JSON.parse(cleaned);
-}
-
 /**
  * @param {object} opts { tenantName, findings: [{id,title,severity,block,description,result}] }
  * @returns [{id, titel, bedeutung, umsetzung: [string], aufwand}]
  */
 async function explainFindings(opts) {
-  const cfg = config();
-  if (!cfg.enabled) throw Object.assign(new Error("Kein Anthropic-Key konfiguriert (ANTHROPIC_API_KEY)."), { status: 400 });
   const findings = (opts.findings || []).slice(0, 60); // Prompt-Groesse im Zaum halten
   if (!findings.length) return [];
 
-  let r;
-  try {
-    r = await fetch(API_URL, {
-      method: "POST",
-      headers: { "x-api-key": cfg.key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 16000,
-        messages: [{ role: "user", content: buildPrompt(opts.tenantName || "?", findings) }]
-      }),
-      signal: AbortSignal.timeout(180000)
-    });
-  } catch (e) {
-    throw Object.assign(new Error("Anthropic-API nicht erreichbar: " + e.message), { status: 502 });
-  }
-  const data = await r.json().catch(() => null);
-  if (!r.ok) {
-    const msg = (data && data.error && data.error.message) || `HTTP ${r.status}`;
-    throw Object.assign(new Error("Anthropic-Fehler: " + msg), { status: 502 });
-  }
-  const text = (data && data.content && data.content[0] && data.content[0].text) || "";
   let parsed;
-  try { parsed = parseJsonResponse(text); }
-  catch (e) {
-    if (data && data.stop_reason === "max_tokens") {
-      throw Object.assign(new Error("KI-Antwort abgeschnitten (max_tokens) — zu viele Findings auf einmal."), { status: 502 });
-    }
-    throw Object.assign(new Error("KI-Antwort war kein gueltiges JSON — Rohtext: " + text.slice(0, 300)), { status: 502 });
+  try {
+    const r = await AI.complete("maester", { prompt: buildPrompt(opts.tenantName || "?", findings), maxTokens: 16000, json: true });
+    parsed = r.json;
+    // Einige Dienste liefern im JSON-Modus nur Objekte — Array dann aus dem ersten Feld holen.
+    if (parsed && !Array.isArray(parsed)) parsed = Object.values(parsed).find(Array.isArray) || parsed;
+  } catch (e) {
+    throw Object.assign(new Error(e.message), { status: e.status || 502 });
   }
   if (!Array.isArray(parsed)) throw Object.assign(new Error("KI-Antwort hatte nicht das erwartete Array-Format."), { status: 502 });
   // Nur bekannte Felder uebernehmen — die Antwort landet als Datei im State.

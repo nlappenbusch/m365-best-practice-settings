@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS = {
   autoTicket: "critical",       // off | critical | high
   notifyMin: "high",            // ab welchem Schweregrad Teams/Webhook
   maxMailboxes: 400,
+  profileNote: "",
   areas: AREAS.map(a => a.id)
 };
 
@@ -463,7 +464,10 @@ async function run(ctx) {
     const dev = results.devices && results.devices.data ? results.devices.data : readData("devices");
     if (dev) facts.devices = { byOs: dev.byOs };
     const lic = results.licenses && results.licenses.data ? results.licenses.data : readData("licenses");
-    if (lic && lic.totals) facts.licenses = { licensedUsers: lic.totals.licensedUsers };
+    if (lic && lic.totals) facts.licenses = { licensedUsers: lic.totals.licensedUsers,
+      skus: (lic.skus || []).filter(s => s.assigned > 0).sort((a, b) => b.assigned - a.assigned).slice(0, 15).map(s => ({ name: s.name, assigned: s.assigned })) };
+    const sc = results.score && results.score.data ? results.score.data : readData("score");
+    if (sc && sc.current && sc.current.pct != null) facts.score = sc.current.pct;
     // Teams-Geraete (Rooms, SIP, Telefone) — Grundlage fuer Meldungen zu Teams-Hardware.
     facts.teamsDevices = await C.teamsDevices(tenant, cert);
     const cf = file(stateDir, tid, "mc-ai.json");
@@ -472,7 +476,8 @@ async function run(ctx) {
       const r = await C.collectMessages(tenant, cert, facts, cache);
       if (ai) {
         try {
-          const updated = await ai(tenant, r.data.messages.filter(m => !m.notInTenant && m.relevance !== "gering"), facts, cache);
+          // Alles, was lizenziert ist, bewertet die KI vor dem Kundenprofil — nicht nur, was die Regeln hoch einstufen.
+          const updated = await ai(tenant, r.data.messages.filter(m => !m.notInTenant), facts, cache);
           if (updated) {
             writeJson(cf, updated);
             for (const m of r.data.messages) if (updated[m.id] && updated[m.id].modified === m.modified) m.ai = updated[m.id].ai;
