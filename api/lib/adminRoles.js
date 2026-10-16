@@ -12,6 +12,48 @@
  * kein Fehler, sondern bedeutet "niemand hat sie".
  */
 const { graphReq, graphAllPages } = require("./graph");
+const NAMING = require("./naming");
+
+/*
+ * Notfallkonten (Break-Glass) sind hier unantastbar: keine Rolle entziehen,
+ * nicht loeschen. Wer eines wirklich abbauen will, tut das bewusst im
+ * Entra-Portal — nicht mit einem Klick in einer Liste von 13 Admins.
+ * Erkannt wird grosszuegig (lieber ein Konto zu viel geschuetzt):
+ *  - Mitglied der CA-Break-Glass-Gruppe (alle Namensmuster aus lib/naming.js)
+ *  - oder Name/Anmeldename nach Notfallkonto-Art (breakglass, emergency, notfall)
+ */
+const BREAKGLASS_NAME = /break[\s._-]?glass|emergency|notfall/i;
+function breakGlassGroupNames(tenant) {
+  try { return NAMING.candidates("caBreakGlass", {}, tenant && tenant.id).map(n => n.toLowerCase()); }
+  catch (e) { return ["aad-ca-breakglass"]; }
+}
+/** Grund, warum ein Konto als Notfallkonto gilt — oder null. */
+function breakGlassReason(user, groups, tenant) {
+  const names = breakGlassGroupNames(tenant);
+  const g = (groups || []).find(x => names.includes(String(x.displayName || "").toLowerCase()));
+  if (g) return `Mitglied der Break-Glass-Gruppe «${g.displayName}»`;
+  if (BREAKGLASS_NAME.test(String(user.displayName || "")) || BREAKGLASS_NAME.test(String(user.userPrincipalName || user.upn || ""))) {
+    return "Name kennzeichnet ein Notfallkonto";
+  }
+  return null;
+}
+async function assertNotBreakGlass(tenant, cert, userId, what) {
+  const user = await graphReq(tenant, cert, "GET", `/users/${encodeURIComponent(userId)}?$select=id,displayName,userPrincipalName`, null, { retryTransient: true });
+  let groups = [];
+  try {
+    groups = await graphAllPages(tenant, cert, `/users/${encodeURIComponent(userId)}/memberOf?$select=id,displayName`, { retryTransient: true });
+  } catch (e) {
+    // Ohne Gruppenbild keine Entwarnung: lieber nichts tun als ein Notfallkonto entmachten.
+    const err = new Error("Gruppenmitgliedschaften nicht lesbar — ob es ein Notfallkonto ist, lässt sich nicht ausschliessen. Abgebrochen.");
+    err.status = 409; throw err;
+  }
+  const reason = breakGlassReason(user, groups, tenant);
+  if (reason) {
+    const e = new Error(`„${user.displayName || user.userPrincipalName}" ist ein Notfallkonto (${reason}) — ${what} ist hier gesperrt. Notfallkonten nur bewusst im Entra-Portal abbauen.`);
+    e.status = 409; e.breakGlass = true; throw e;
+  }
+  return user;
+}
 
 // Rollen, bei denen genauer hingeschaut wird. Global Administrator zuerst.
 const HIGH_PRIVILEGE = [
@@ -100,6 +142,7 @@ async function loadAdminRoles(tenant, cert) {
             dynamic: Array.isArray(g.groupTypes) && g.groupTypes.includes("DynamicMembership")
           }));
       } catch (e) { rec.groupsError = e.message; }
+      rec.breakGlass = breakGlassReason({ displayName: m.displayName, upn: m.upn }, rec.groups, tenant);
     }
     // In welchen weiteren Rollen sitzt derselbe Account?
     rec.otherRoles = out
@@ -177,14 +220,15 @@ async function assignGlobalAdmin(tenant, cert, userId) {
 }
 
 /**
- * Rolle entziehen. Beim Globalen Administrator wird verhindert, dass der
- * letzte aktive entfernt wird — ein Tenant ohne Globalen Administrator laesst
+ * Rolle entziehen. Notfallkonten sind gesperrt (assertNotBreakGlass). Beim
+ * Globalen Administrator wird ausserdem verhindert, dass der letzte aktive entfernt wird — ein Tenant ohne Globalen Administrator laesst
  * sich nur noch ueber den Microsoft-Support zurueckholen.
  */
 async function removeGlobalAdmin(tenant, cert, userId) {
   const { role, members } = await listGlobalAdmins(tenant, cert);
   const target = members.find(m => m.id === userId);
   if (!target) { const e = new Error("Dieses Konto hat die Rolle nicht."); e.status = 404; throw e; }
+  await assertNotBreakGlass(tenant, cert, userId, "die Rolle zu entziehen");
 
   const activeOthers = members.filter(m => m.id !== userId && m.accountEnabled !== false);
   if (activeOthers.length === 0) {
@@ -215,6 +259,7 @@ async function deleteUser(tenant, cert, userId, confirmUpn) {
     throw e;
   }
 
+  await assertNotBreakGlass(tenant, cert, userId, "das Konto zu löschen");
   const { members } = await listGlobalAdmins(tenant, cert);
   if (members.some(m => m.id === userId)) {
     const e = new Error("Dieses Konto ist Globaler Administrator — erst die Rolle entziehen, dann löschen.");
@@ -228,5 +273,5 @@ async function deleteUser(tenant, cert, userId, confirmUpn) {
 
 module.exports = {
   loadAdminRoles, HIGH_PRIVILEGE,
-  assignGlobalAdmin, removeGlobalAdmin, deleteUser, GLOBAL_ADMIN_TEMPLATE
+  assignGlobalAdmin, removeGlobalAdmin, deleteUser, GLOBAL_ADMIN_TEMPLATE, breakGlassReason
 };

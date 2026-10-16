@@ -166,6 +166,7 @@
                 <td><strong>{g.displayName || '—'}</strong></td>
                 <td><code>{g.upn || '—'}</code></td>
                 <td>
+                  {#if g.breakGlass}<span class="tbadge ok" title={g.breakGlass}>🔒 Notfallkonto</span>{/if}
                   {#if !g.accountEnabled}<span class="tbadge">deaktiviert</span>{/if}
                   {#if g.synced}<span class="tbadge warn" title="Aus dem lokalen AD synchronisiert">aus AD</span>{/if}
                   {#if g.guest}<span class="tbadge warn">Gast</span>{/if}
@@ -174,11 +175,15 @@
                   {#if g.groups?.length}<span class="tbadge" title={g.groups.map(x => x.displayName).join(', ')}>{g.groups.length} Gruppen</span>{/if}
                 </td>
                 <td style="text-align:right; white-space:nowrap">
+                  {#if g.breakGlass}
+                    <span class="tbadge" title="{g.breakGlass}. Notfallkonten lassen sich hier weder entmachten noch löschen — nur bewusst im Entra-Portal.">geschützt</span>
+                  {:else}
                   <button class="ca-btn ca-btn-del" disabled={rowBusy[g.id] || g.type !== 'user'}
                           title={g.type !== 'user' ? 'Nur Benutzerkonten können hier geändert werden' : 'Globale Administratorrolle entziehen'}
                           onclick={() => removeGlobalAdmin(g)}>
                     {rowBusy[g.id] ? '…' : 'Rolle entziehen'}
                   </button>
+                  {/if}
                 </td>
               </tr>
             {/each}
@@ -186,7 +191,8 @@
         </table>
       </div>
       <p class="ld-section-hint">Der letzte aktive Globale Administrator lässt sich nicht entziehen — ein Tenant ohne
-        Globalen Administrator kommt nur über den Microsoft-Support zurück.</p>
+        Globalen Administrator kommt nur über den Microsoft-Support zurück. Notfallkonten (Break-Glass-Gruppe oder
+        Name wie «breakglass», «emergency», «notfall») sind hier gesperrt: keine Rolle entziehen, nicht löschen.</p>
     </div>
 
     <!-- 2. Benutzer suchen: Rolle geben oder Konto löschen -->
