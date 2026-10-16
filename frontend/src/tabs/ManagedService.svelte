@@ -13,7 +13,7 @@
   const VIEWS = [
     ['queue', 'Arbeitsliste'], ['score', 'Secure Score'], ['messages', 'Message Center'],
     ['mailboxes', 'Postfächer'], ['senderlists', 'Block/Allow'], ['sharing', 'Freigaben'],
-    ['devices', 'Geräte'], ['licenses', 'Lizenzen'], ['drift', 'Drift'], ['history', 'Verlauf'], ['settings', 'Einstellungen']
+    ['devices', 'Geräte'], ['licenses', 'Lizenzen'], ['drift', 'Stand & Drift'], ['history', 'Verlauf'], ['settings', 'Einstellungen']
   ]
   // Bereich -> Fachansicht (fuer Kachel-Klick und "Im Detail")
   const AREA_VIEW = { ca: 'drift', threat: 'drift', risk: 'queue', consent: 'queue', quarantine: 'queue', score: 'score', messages: 'messages',
@@ -40,6 +40,12 @@
   let reportQ = $state('')
   // Fachansicht-Filter
   let mbOnly = $state('attention')
+  // Eingefrorener Stand (Drift-Referenz) — getrennt von den igeeks-Best-Practices
+  let stand = $state(null)
+  let standForm = $state(null)      // { area: null | 'ca' | 'threat', reason }
+  let standBusy = $state(false)
+  let standMsg = $state(null)
+  let showVersions = $state(false)
 
   // Secure-Score-Werte von Microsoft: "Unknown" ausblenden, auf Deutsch zeigen.
   const known = v => { const t = String(v ?? '').trim(); return /^(unknown|none|n\/a|-)?$/i.test(t) ? '' : t }
@@ -89,7 +95,7 @@
   $effect(() => {
     if ($activeTab !== 'managed' || !$session.loggedIn || !$activeTenant) return
     if (loadedFor === $activeTenant.id) return
-    ov = null; areaCache = {}; sel = null; reports = null; job = null
+    ov = null; areaCache = {}; sel = null; reports = null; job = null; stand = null; standForm = null; standMsg = null
     load()
   })
 
@@ -100,6 +106,7 @@
       devices: ['devices'], licenses: ['licenses'], drift: ['ca', 'threat'] }[view] || []
     for (const a of need) if (!areaCache[a]) area(a)
     if (view === 'settings' && !reports) loadReports()
+    if (view === 'drift' && !stand) loadStand()
   })
 
   // Message Center mit alter Datengeneration (Text beim Speichern gekuerzt):
@@ -140,10 +147,25 @@
     actBusy = false
   }
 
-  async function acceptBaseline(a) {
-    if (!confirm('Den aktuellen Ist-Stand als neue Baseline übernehmen? Alle offenen Drift-Befunde dieses Bereichs werden geschlossen.')) return
-    try { await msApi.baseline(tid(), a); areaCache = { ...areaCache, [a]: null }; await area(a, true); await load(true) } catch (e) { error = errText(e) }
+  async function loadStand() {
+    try { stand = await msApi.stand(tid()) } catch (e) { stand = { error: errText(e) } }
   }
+  // area = null: ganzen Ist-Zustand einfrieren; sonst nur diesen Bereich übernehmen.
+  async function submitStand() {
+    if (!standForm || standForm.reason.trim().length < (stand?.reasonMin || 10)) return
+    standBusy = true; standMsg = null
+    try {
+      const r = standForm.area ? await msApi.baseline(tid(), standForm.area, standForm.reason) : await msApi.freeze(tid(), standForm.reason)
+      standMsg = { ok: true, text: `Stand v${r.v} angelegt. Die vorige Version bleibt im Verlauf erhalten.` }
+      standForm = null
+      areaCache = { ...areaCache, ca: null, threat: null }
+      await Promise.all([loadStand(), load(true), area('ca', true), area('threat', true)])
+    } catch (e) { standMsg = { ok: false, text: errText(e) } }
+    standBusy = false
+  }
+  function openStandPdf(v, drift) { window.open(msApi.standPdfUrl(tid(), v, drift), '_blank', 'noopener') }
+  const standAreaLabel = a => (stand?.areas || []).find(x => x.id === a)?.label || a
+  const standDriftOf = f => f ? (f.area ? ((stand?.areas || []).find(x => x.id === f.area)?.openDrift || 0) : (stand?.openDrift || 0)) : 0
 
   async function saveSettings() {
     stMsg = null
@@ -459,16 +481,82 @@
 
           <!-- ---------- DRIFT ---------- -->
           {:else if view === 'drift'}
+            <section class="standbox">
+              <div class="shead">
+                <div>
+                  <div class="eyebrow2">Eingefrorener Stand · Referenz für Drift</div>
+                  {#if stand?.current}
+                    <h3>Stand v{stand.current.v}
+                      {#if stand.current.provisional}<span class="prov" title="Automatisch aufgenommen, noch nicht bewusst abgenommen">vorläufig</span>{/if}</h3>
+                    <span class="dim">{fmtDateTime(stand.current.at)} · {stand.current.by} · {stand.kinds?.[stand.current.kind] || stand.current.kind}</span>
+                    <p class="sreason">«{stand.current.reason}»</p>
+                  {:else if stand?.error}<div class="alert alert-warning">{stand.error}</div>
+                  {:else if stand}<h3>Noch kein Stand</h3><span class="dim">Wird beim ersten Lauf vorläufig aus dem Ist-Zustand aufgenommen.</span>
+                  {:else}<span class="dim">Lade…</span>{/if}
+                </div>
+                <div class="sact">
+                  <button class="btn btn-primary" disabled={standBusy || job?.status === 'running' || !stand?.areas?.some(x => x.snapAt)} onclick={() => { standForm = { area: null, reason: '' }; standMsg = null }}>Stand einfrieren…</button>
+                  {#if stand?.current}
+                    <button class="btn btn-secondary" onclick={() => openStandPdf(stand.current.v)}>Stand-PDF</button>
+                    <button class="btn btn-secondary" onclick={() => openStandPdf(stand.current.v, true)}>Drift-Bericht (PDF)</button>
+                  {/if}
+                </div>
+              </div>
+              {#if stand?.current?.provisional}
+                <div class="banner warn"><b>Dieser Stand ist noch nicht abgenommen.</b>
+                  <span>Er wurde automatisch aufgenommen, damit Drift sofort greift. Ist-Zustand prüfen und mit Begründung einfrieren — erst dann ist er dokumentiert.</span></div>
+              {/if}
+              {#if stand?.areas}
+                <div class="sareas">{#each stand.areas as sa}
+                  <div class="sa"><b>{sa.label}</b>
+                    <span>{sa.frozen ? `${sa.frozen.count} Objekte eingefroren` : 'nicht im Stand'}</span>
+                    <span class="dim">Ist erhoben {sa.snapAt ? ageLabel(sa.snapAt) : '—'}</span>
+                    {#if sa.openDrift}<span class="dcount">{sa.openDrift} Drift</span>{:else if sa.frozen}<span class="okt">✓ keine Drift</span>{/if}</div>
+                {/each}</div>
+              {/if}
+
+              {#if standForm}
+                <div class="sform">
+                  <h4>{standForm.area ? `${standAreaLabel(standForm.area)}: Ist-Zustand in den Stand übernehmen` : 'Gesamten Ist-Zustand als neuen Stand einfrieren'}</h4>
+                  <p class="dim small">
+                    Grundlage ist die letzte Erhebung{#each (stand?.areas || []).filter(x => !standForm.area || x.id === standForm.area) as sa}{' · '}{sa.label} {sa.snapAt ? fmtDateTime(sa.snapAt) : 'noch nie'}{/each}.
+                    {#if standDriftOf(standForm)}<b>{standDriftOf(standForm)} offene Drift-Befunde</b> werden damit als gewollt übernommen und geschlossen.{/if}
+                    Es entsteht eine neue Version; die bisherige bleibt mit PDF erhalten. Die igeeks-Best-Practices (auch für andere Tenants) bleiben unberührt.
+                  </p>
+                  <textarea rows="2" bind:value={standForm.reason} placeholder="Begründung, z. B. «Onboarding abgeschlossen, mit Kunde abgenommen — Change #4711» (Pflicht, steht im Stand-PDF)"></textarea>
+                  <div class="row">
+                    <button class="btn btn-primary" disabled={standBusy || standForm.reason.trim().length < (stand?.reasonMin || 10)} onclick={submitStand}>{standBusy ? 'Speichere…' : standForm.area ? 'In Stand übernehmen' : 'Einfrieren'}</button>
+                    <button class="btn btn-secondary" disabled={standBusy} onclick={() => standForm = null}>Abbrechen</button>
+                    {#if standForm.reason.trim().length < (stand?.reasonMin || 10)}<span class="dim small">mind. {stand?.reasonMin || 10} Zeichen</span>{/if}
+                  </div>
+                </div>
+              {/if}
+              {#if standMsg}<div class:okt={standMsg.ok} class:bad={!standMsg.ok} class="small">{standMsg.text}</div>{/if}
+
+              {#if stand?.versions?.length}
+                <button class="linkb" onclick={() => showVersions = !showVersions}>{showVersions ? '▾' : '▸'} Versionen ({stand.versions.length})</button>
+                {#if showVersions}
+                  <div class="tw"><table><thead><tr><th>Version</th><th>Datum</th><th>Von</th><th>Art</th><th>Begründung</th><th class="n">Änderungen</th><th></th></tr></thead>
+                    <tbody>{#each stand.versions as sv}
+                      <tr><td><b>v{sv.v}</b>{#if sv.v === stand.current?.v} <span class="okt small">aktuell</span>{/if}</td><td>{fmtDateTime(sv.at)}</td><td>{sv.by}</td>
+                        <td>{stand.kinds?.[sv.kind] || sv.kind}{sv.scope?.name ? ` · ${sv.scope.name}` : sv.scope?.area ? ` · ${standAreaLabel(sv.scope.area)}` : ''}</td>
+                        <td class="wrap">{sv.provisional ? '[vorläufig] ' : ''}{sv.reason}</td><td class="n">{sv.changes}</td>
+                        <td><button class="linkb" onclick={() => openStandPdf(sv.v)}>PDF</button></td></tr>
+                    {/each}</tbody></table></div>
+                {/if}
+              {/if}
+            </section>
+
             {#each [['ca', 'Conditional Access'], ['threat', 'Threat Policies']] as [a, l]}
               {@const c = areaCache[a]}
               <div class="driftbox">
                 <div class="dhead">
                   <div><h3>{l}</h3>
-                    <span class="dim">{c?.baseline ? `Baseline vom ${fmtDateTime(c.baseline.acceptedAt)} · ${c.baseline.acceptedBy} · ${c.baseline.count} Objekte` : 'Noch keine Baseline — wird beim ersten Lauf aus dem Ist-Stand gesetzt.'}</span></div>
+                    <span class="dim">{c?.baseline ? `Referenz: Stand v${c.baseline.v} vom ${fmtDateTime(c.baseline.acceptedAt)} · ${c.baseline.count} Objekte${c.baseline.provisional ? ' · vorläufig' : ''}` : 'Noch nicht im Stand — wird beim ersten Lauf vorläufig aufgenommen.'}</span></div>
                   <div class="row">
                     <span class="dcount">{(ov.findings || []).filter(f => f.area === a && f.drift).length} Abweichung(en)</span>
                     <button class="btn btn-secondary" onclick={() => { view = 'queue'; fArea = a }}>Befunde</button>
-                    <button class="btn btn-secondary" onclick={() => acceptBaseline(a)} disabled={!c?.baseline}>Ist-Stand als Baseline</button>
+                    <button class="btn btn-secondary" onclick={() => { standForm = { area: a, reason: '' }; standMsg = null; window.scrollTo({ top: 0, behavior: 'smooth' }) }} disabled={!c?.baseline || standBusy}>Bereich in Stand übernehmen…</button>
                   </div>
                 </div>
                 {#if a === 'ca' && c?.data?.policies}
@@ -561,8 +649,8 @@
               <dl class="ctx">{#each sel.context as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
             {/if}
             {#if sel.diff?.length}
-              <h4>Abweichung zur Baseline</h4>
-              <div class="tw"><table class="diff"><thead><tr><th>Feld</th><th>Baseline</th><th>Ist</th></tr></thead>
+              <h4>Abweichung zum eingefrorenen Stand</h4>
+              <div class="tw"><table class="diff"><thead><tr><th>Feld</th><th>Stand</th><th>Ist</th></tr></thead>
                 <tbody>{#each sel.diff as d}<tr><td>{d.path}</td><td class="old">{d.old}</td><td class="new">{d.new}</td></tr>{/each}</tbody></table></div>
             {/if}
             {#if sel.steps?.length}
@@ -577,10 +665,10 @@
             {#if sel.links?.length}<div class="dlinks">{#each sel.links as l}<a href={l.url} target="_blank" rel="noreferrer">{l.label} ↗</a>{/each}{#if AREA_VIEW[sel.area] && AREA_VIEW[sel.area] !== 'queue'}<button class="linkb" onclick={() => view = AREA_VIEW[sel.area]}>Fachansicht</button>{/if}</div>{/if}
 
             {#if sel.status !== 'resolved'}
-              <textarea bind:value={note} rows="2" placeholder="Notiz / Begründung (landet im Verlauf)"></textarea>
+              <textarea bind:value={note} rows="2" placeholder={sel.drift ? 'Begründung (Pflicht für «In Stand übernehmen», steht im Stand-PDF) / Notiz' : 'Notiz / Begründung (landet im Verlauf)'}></textarea>
               <div class="dact">
                 {#if !sel.ticketId}<button class="btn btn-primary" disabled={actBusy} onclick={() => act('ticket')}>🎫 Ticket in SDP</button>{/if}
-                {#if sel.drift}<button class="btn btn-secondary" disabled={actBusy} onclick={() => act('baseline')}>Als Baseline übernehmen</button>{/if}
+                {#if sel.drift}<button class="btn btn-secondary" disabled={actBusy || note.trim().length < 10} title={note.trim().length < 10 ? 'Erst oben eine Begründung eintragen (mind. 10 Zeichen)' : 'Erzeugt eine neue Stand-Version mit dieser Begründung'} onclick={async () => { await act('baseline'); stand = null; if (view === 'drift') loadStand() }}>In Stand übernehmen</button>{/if}
                 {#if sel.status !== 'ack'}<button class="btn btn-secondary" disabled={actBusy} onclick={() => act('ack')}>Quittieren</button>{/if}
                 <button class="btn btn-secondary" disabled={actBusy} onclick={() => act('snooze', { days: 7 })}>7 T zurückstellen</button>
                 {#if sel.status !== 'open'}<button class="btn btn-secondary" disabled={actBusy} onclick={() => act('reopen')}>Wieder öffnen</button>{/if}
@@ -692,6 +780,7 @@
   .lst{max-width:380px;word-break:break-word}
   .banner{border-left:4px solid var(--rule);background:var(--bg-raised);border:1px solid var(--rule);border-radius:var(--radius-md);padding:.65rem .8rem;display:flex;flex-direction:column;gap:.15rem;font-size:.8rem}
   .banner.bad{border-left:4px solid var(--crit);background:var(--crit-wash)}.banner.good{border-left:4px solid var(--ok);background:var(--ok-wash)}
+  .banner.warn{border-left:4px solid var(--warn);background:var(--warn-wash)}
   .banner em{font-style:normal;font-size:.7rem;color:var(--text-dim)}
 
   .scorehead{display:grid;grid-template-columns:auto auto 1fr;gap:1.2rem;align-items:center;border:1px solid var(--rule);background:var(--bg-raised);border-radius:var(--radius-lg);padding:1rem}
@@ -762,6 +851,19 @@
   .obt{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--bg-inset)}.obt i{display:block}.obt .c{background:var(--ok)}.obt .n{background:var(--crit)}.obt .o{background:var(--text-faint);opacity:.5}
   .util{display:inline-block;width:90px;height:7px;border-radius:5px;background:var(--bg-inset);overflow:hidden;vertical-align:middle}.util i{display:block;height:100%;background:var(--ok)}.util i.low{background:var(--warn)}.util i.over{background:var(--crit)}
 
+  .standbox{border:1px solid color-mix(in srgb,var(--accent) 35%,var(--rule));background:var(--bg-raised);border-radius:var(--radius-lg);padding:.95rem 1rem;display:flex;flex-direction:column;gap:.65rem;box-shadow:inset 4px 0 0 var(--accent)}
+  .shead{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}
+  .shead h3{margin:.15rem 0 .1rem;font-size:1.15rem;display:flex;gap:.5rem;align-items:center}.shead .dim{font-size:.76rem}
+  .eyebrow2{font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--accent)}
+  .sreason{margin:.35rem 0 0;font-size:.82rem;max-width:70ch}
+  .prov{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--warn);background:var(--warn-wash);border-radius:999px;padding:.15rem .5rem}
+  .sact{display:flex;gap:.4rem;flex-wrap:wrap}
+  .sareas{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.5rem}
+  .sa{display:flex;flex-direction:column;gap:.15rem;background:var(--bg-inset);border-radius:10px;padding:.5rem .65rem;font-size:.78rem}.sa .dcount{align-self:flex-start}
+  .sform{border:1px dashed var(--accent);border-radius:var(--radius-md);padding:.75rem .85rem;display:flex;flex-direction:column;gap:.45rem;background:var(--accent-wash)}
+  .sform h4{margin:0;font-size:.9rem}.sform p{margin:0}
+  .sform textarea{font:inherit;font-size:.82rem;padding:.45rem .55rem;border:1px solid var(--rule);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical}
+  td.wrap{white-space:normal;max-width:38ch}
   .driftbox{border:1px solid var(--rule);background:var(--bg-raised);border-radius:var(--radius-lg);padding:.85rem;display:flex;flex-direction:column;gap:.6rem}
   .dhead{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;align-items:flex-start}.dhead h3{margin:0;font-size:1rem}.dhead .dim{font-size:.74rem}
   .row{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}

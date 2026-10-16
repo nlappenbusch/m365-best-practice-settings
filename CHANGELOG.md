@@ -1,5 +1,51 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.63 - Managed Service: Ist-Zustand einfrieren, Drift gegen den Stand, Notfallkonten geschuetzt (2026-10-16)
+
+### Zwei verschiedene Fragen, sauber getrennt
+
+- **Best-Practice-Abgleich** (Erstkonfiguration): Weicht der Tenant vom igeeks-Soll ab?
+  Abweichungen werden wie bisher begründet «zugelassen» und stehen so im PDF.
+- **Drift** (Managed Service): Weicht der Tenant von dem Stand ab, den wir **abgenommen
+  haben**? Dafür gibt es jetzt **eingefrorene Stände** je Tenant.
+
+Ein Stand überschreibt **nie** die igeeks-Best-Practices — weder für diesen noch für
+andere Tenants. Das ist hart abgesichert: `lib/managedStand.js` schreibt ausschliesslich
+nach `STATE_DIR/managed/<tenant>/stand/`, jeder Schreibzugriff läuft durch eine Sperre,
+die jedes andere Ziel (insbesondere `baseline/baseline.json`) verweigert. Ein Test
+(`npm test` im Ordner `api`) prüft das, inklusive Prüfsumme der Best-Practice-Datei.
+
+### Stand einfrieren (Managed Service → «Stand & Drift»)
+
+- **Versioniert und unveränderlich**: v1, v2, v3 … Übernehmen erzeugt immer eine neue
+  Version, die alte bleibt mit PDF erhalten.
+- **Pflicht-Begründung** (mind. 10 Zeichen, z. B. Change-Nr.) beim Einfrieren, beim
+  Übernehmen eines Bereichs und bei «In Stand übernehmen» an einem Drift-Befund. Ohne
+  Begründung lehnt der Server ab — der Knopf bleibt bis dahin grau.
+- **Vorläufig**: Damit Drift ab dem ersten Lauf greift, wird der Ist-Zustand automatisch
+  als vorläufiger Stand aufgenommen und deutlich so markiert, bis jemand bewusst einfriert.
+  Bestehende Baselines (vor 2.63) werden einmalig als v1 übernommen.
+- Drift-Befunde nennen jetzt die Referenz («Stand v3 vom 16.10.2026»), offene Drift wird
+  beim Übernehmen mit Begründung im Verlauf geschlossen.
+- Umfang vorerst: Conditional Access und Threat Policies (wie die bisherige Baseline).
+
+### Stand-PDF und Drift-Bericht
+
+- **Stand-PDF** je Version: Deckblatt, Überblick (wer, wann, Begründung, Fingerabdruck je
+  Bereich), alle CA-Policies lesbar zusammengefasst, alle Threat Policies mit ihren
+  Einstellungen, Änderungen gegenüber der Vorversion, Versionsgeschichte.
+- **Drift-Bericht**: dieselbe Version gegen den zuletzt erhobenen Ist-Zustand, feldgenau.
+- Bewusst ohne Best-Practice-Bewertung — dafür gibt es den eigenen Bericht.
+
+### Administrative Rollen: Notfallkonten unantastbar
+
+Bei PKRück standen 13 Globale Administratoren in der Liste — jeder mit «Rolle entziehen»,
+auch die beiden Break-Glass-Konten. Notfallkonten (Mitglied der CA-Break-Glass-Gruppe in
+allen Namensmustern oder Name wie «breakglass», «emergency», «notfall») zeigen jetzt
+«🔒 Notfallkonto · geschützt» statt des Knopfs. Die Sperre sitzt serverseitig: Rolle
+entziehen und Konto löschen werden mit 409 abgelehnt; sind die Gruppen nicht lesbar, wird
+abgebrochen statt entwarnt. Notfallkonten baut man nur bewusst im Entra-Portal ab.
+
 ## Version 2.62 - Notfallzugriff wirklich pruefen, Methodenrichtlinie gegen Realitaet (2026-10-02)
 
 ### Der Notfallzugriff wurde falsch entwarnt

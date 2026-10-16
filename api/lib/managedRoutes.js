@@ -13,6 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const S = require("./managedService");
 const R = require("./managedReport");
+const STANDPDF = require("./managedStandPdf");
 const { cut } = require("./managedCollectors");
 
 const TICK_MS = 5 * 60 * 1000;
@@ -72,7 +73,7 @@ function register(app, deps) {
       `Bereich: ${esc((S.AREA[f.area] || {}).label || f.area)} · Schweregrad: <b>${esc(f.severity)}</b> · erkannt ${esc(String(f.firstSeen).slice(0, 16).replace("T", " "))}<br><br>` +
       `<b>${esc(f.title)}</b><br>${esc(f.summary || "")}<br><br>` +
       ((f.context || []).length ? `<b>Kontext</b><ul>${f.context.map(([k, v]) => `<li>${esc(k)}: ${esc(v)}</li>`).join("")}</ul>` : "") +
-      ((f.diff || []).length ? `<b>Abweichung zur Baseline</b><ul>${f.diff.slice(0, 15).map(d => `<li>${esc(d.path)}: ${esc(d.old)} → ${esc(d.new)}</li>`).join("")}</ul>` : "") +
+      ((f.diff || []).length ? `<b>Abweichung zum eingefrorenen Stand</b><ul>${f.diff.slice(0, 15).map(d => `<li>${esc(d.path)}: ${esc(d.old)} → ${esc(d.new)}</li>`).join("")}</ul>` : "") +
       ((f.steps || []).length ? `<b>Vorgehen</b><ol>${f.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>` : "") +
       ((f.links || []).length ? `<b>Links</b><br>${f.links.map(l => `<a href="${esc(l.url)}">${esc(l.label)}</a>`).join(" · ")}<br>` : "") +
       `<br><small>Befund-ID ${esc(f.id)} — Status im m365-configurator unter «Managed Service».</small>`;
@@ -320,20 +321,51 @@ function register(app, deps) {
         return res.json({ ok: true, finding: out, ticket: tk });
       }
       case "baseline": {
-        if (!f.drift) return res.status(400).json({ error: "Nur Drift-Befunde lassen sich als Baseline übernehmen." });
-        S.acceptBaseline(STATE_DIR, t.id, f.area, who(req), f.objId);
+        if (!f.drift) return res.status(400).json({ error: "Nur Drift-Befunde lassen sich in den Stand übernehmen." });
+        // Die Notiz ist hier die Pflicht-Begruendung — sie steht danach im Stand-Dokument.
+        const ver = S.acceptBaseline(STATE_DIR, t.id, f.area, who(req), f.objId, note);
         out = S.listFindings(STATE_DIR, t.id).find(x => x.id === f.id);
-        break;
+        return res.json({ ok: true, finding: out, stand: { v: ver.v } });
       }
       default: return res.status(400).json({ error: "Unbekannte Aktion" });
     }
     res.json({ ok: true, finding: out });
   }));
 
+  // ---------------------------------------------------------------- Stand (eingefrorener Ist-Zustand)
+  // Schreibt ausschliesslich nach STATE_DIR/managed/<tenant>/stand/ (managedStand.js) —
+  // nie in die globale igeeks-Baseline und nie in tenant.acceptedDeviations.
   app.post("/api/tenants/:id/managed/baseline/:area", wrap(async (req, res) => {
     const t = tenantOf(req);
-    const base = S.acceptBaseline(STATE_DIR, t.id, req.params.area, who(req));
-    res.json({ ok: true, acceptedAt: base.acceptedAt });
+    const ver = S.acceptBaseline(STATE_DIR, t.id, req.params.area, who(req), null, (req.body || {}).reason);
+    console.log(`Managed Service: Stand v${ver.v} fuer ${t.name} — Bereich ${req.params.area} uebernommen (${who(req)}).`);
+    res.json({ ok: true, v: ver.v, acceptedAt: ver.at });
+  }));
+
+  app.get("/api/tenants/:id/managed/stand", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    res.json({ ok: true, ...S.standOverview(STATE_DIR, t.id) });
+  }));
+
+  app.post("/api/tenants/:id/managed/stand", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    if (running.has(t.id)) return res.status(409).json({ error: "Gerade läuft eine Erhebung — danach einfrieren, sonst ist der Stand halb alt, halb neu." });
+    const ver = S.freezeStand(STATE_DIR, t.id, who(req), (req.body || {}).reason);
+    console.log(`Managed Service: Stand v${ver.v} fuer ${t.name} eingefroren (${who(req)}).`);
+    res.json({ ok: true, v: ver.v, at: ver.at });
+  }));
+
+  // ?drift=1 haengt die Abweichungen zum zuletzt erhobenen Ist an (Drift-Bericht).
+  app.get("/api/tenants/:id/managed/stand/:v/pdf", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    const v = req.params.v === "current" ? null : Number(req.params.v);
+    const d = S.standDocument(STATE_DIR, t.id, v, !!req.query.drift);
+    if (!d) return res.status(404).json({ error: "Keine Stand-Version vorhanden." });
+    const pdf = await STANDPDF.build(t, d);
+    const kind = req.query.drift ? "Drift-Bericht" : "Stand";
+    res.set("content-type", "application/pdf");
+    res.set("content-disposition", `attachment; filename="${kind}_${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "-")}_v${d.ver.v}${req.query.drift ? "_" + new Date().toISOString().slice(0, 10) : ""}.pdf"`);
+    res.send(pdf);
   }));
 
   app.get("/api/tenants/:id/managed/reports", (req, res) => {

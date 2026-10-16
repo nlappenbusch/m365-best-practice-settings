@@ -6,7 +6,8 @@
  *   status.json        letzter Lauf je Bereich (ok/Fehler, Kennzahlen, Zeit)
  *   data/<bereich>.json Detaildaten fuer die Fachansichten
  *   snap/<bereich>.json Zustand des letzten Laufs (Neu-Erkennung)
- *   base/<bereich>.json quittierte Baseline (Drift-Erkennung CA/Threat)
+ *   stand/             eingefrorene Staende, versioniert (Drift-Referenz CA/Threat,
+ *                      siehe managedStand.js — NIE die globale igeeks-Baseline)
  *   findings.json      Befunde mit Lebenszyklus
  *   alerts.jsonl       Meldungsstrom (neu, wieder offen, Drift, Eskalation)
  *   history.json       Tageswerte fuer Trend und Quartalsreport
@@ -24,6 +25,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const C = require("./managedCollectors");
+const STAND = require("./managedStand");
 
 const AREAS = [
   { id: "ca", label: "Conditional Access", group: "Identität", engine: "graph", icon: "lock", drift: "baseline" },
@@ -81,38 +83,23 @@ function canonical(v) {
 }
 const hashOf = v => crypto.createHash("sha256").update(JSON.stringify(canonical(v))).digest("hex").slice(0, 16);
 
-// Feldgenauer Vergleich zweier Objekte -> Liste "pfad: alt -> neu" (gekappt).
-function diffPaths(a, b, prefix, out) {
-  out = out || [];
-  if (out.length > 40) return out;
-  const isObj = x => x && typeof x === "object" && !Array.isArray(x);
-  if (isObj(a) && isObj(b)) {
-    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diffPaths(a[k], b[k], prefix ? prefix + "." + k : k, out);
-    return out;
-  }
-  if (JSON.stringify(canonical(a)) !== JSON.stringify(canonical(b))) {
-    const show = v => v === undefined ? "∅" : C.cut(typeof v === "string" ? v : JSON.stringify(v), 120);
-    out.push({ path: prefix || "(Wert)", old: show(a), new: show(b) });
-  }
-  return out;
-}
+const diffPaths = (a, b, prefix) => STAND.diffPaths(a, b, prefix);
 
 function settingsOf(tenant) { return { ...DEFAULT_SETTINGS, ...((tenant && tenant.managed) || {}) }; }
 
 // ------------------------------------------------------------------ Drift
 /**
- * Baseline-Drift (CA, Threat Policies): Abweichung vom quittierten Stand. Der
- * Befund bleibt offen, bis jemand die Abweichung zuruecknimmt oder den neuen
- * Stand als Baseline uebernimmt. Erster Lauf: Ist-Stand wird Baseline.
+ * Drift (CA, Threat Policies): Abweichung vom aktuell eingefrorenen Stand
+ * (managedStand.js). Der Befund bleibt offen, bis jemand die Abweichung
+ * zuruecknimmt oder sie mit Begruendung in einen neuen Stand uebernimmt.
+ * Ohne Stand wird der Ist-Zustand als vorlaeufiger Stand aufgenommen.
  */
 async function baselineDrift(stateDir, tid, area, snapshot, ctx) {
-  const bf = areaFile(stateDir, tid, "base", area);
-  let base = readJson(bf, null);
-  if (!base) {
-    base = { acceptedAt: new Date().toISOString(), acceptedBy: "Erstaufnahme", items: snapshot };
-    writeJson(bf, base);
-    return { findings: [], note: "Baseline beim ersten Lauf aus dem Ist-Zustand übernommen." };
-  }
+  const ref = STAND.referenceFor(stateDir, tid, area, snapshot);
+  if (ref.created) return { findings: [], note: `Vorläufiger Stand v${ref.ver.v} aus dem Ist-Zustand aufgenommen — bitte bewusst einfrieren.` };
+  const ver = ref.ver;
+  const base = { acceptedAt: ver.at, acceptedBy: ver.by, items: ver.areas[area].items };
+  const standLabel = `Stand v${ver.v} vom ${String(ver.at).slice(0, 10)}`;
   const findings = [];
   const items = base.items || {};
   const label = AREA[area].label;
@@ -123,10 +110,10 @@ async function baselineDrift(stateDir, tid, area, snapshot, ctx) {
       findings.push({
         key: "drift-new:" + k, severity: area === "ca" ? (cur.state === "enabled" ? "high" : "medium") : "medium", drift: true,
         title: `Drift ${label}: neu angelegt — ${name}`,
-        summary: `Seit der Baseline vom ${String(base.acceptedAt).slice(0, 10)} hinzugekommen${cur.state ? " (Status " + cur.state + ")" : ""}.`,
-        context: [["Objekt", name], ["Baseline", `${String(base.acceptedAt).slice(0, 10)} (${base.acceptedBy})`]],
+        summary: `Seit ${standLabel} hinzugekommen${cur.state ? " (Status " + cur.state + ")" : ""}.`,
+        context: [["Objekt", name], ["Referenz", `${standLabel} (${base.acceptedBy})`]],
         steps: ["Prüfen, wer das Objekt angelegt hat und ob ein Change/Ticket dazu existiert.",
-          "Gewollt: in dieser Ansicht «Als Baseline übernehmen». Ungewollt: Objekt entfernen bzw. deaktivieren."],
+          "Gewollt: «In Stand übernehmen» mit Begründung (Change-Nr.). Ungewollt: Objekt entfernen bzw. deaktivieren."],
         objId: k, tab: area
       });
       continue;
@@ -140,13 +127,13 @@ async function baselineDrift(stateDir, tid, area, snapshot, ctx) {
       title: `Drift ${label}: ${weakened ? "Schutz abgeschwächt" : "geändert"} — ${name}`,
       summary: stateChange
         ? `Status von «${old.state}» auf «${cur.state}» geändert${d.length > 1 ? `, dazu ${d.length - 1} weitere Feldänderung(en)` : ""}.`
-        : `${d.length} Feld(er) weichen von der Baseline ab: ${d.slice(0, 3).map(x => x.path).join(", ")}${d.length > 3 ? " …" : ""}.`,
-      context: [["Objekt", name], ["Baseline", `${String(base.acceptedAt).slice(0, 10)} (${base.acceptedBy})`]],
+        : `${d.length} Feld(er) weichen vom ${standLabel} ab: ${d.slice(0, 3).map(x => x.path).join(", ")}${d.length > 3 ? " …" : ""}.`,
+      context: [["Objekt", name], ["Referenz", `${standLabel} (${base.acceptedBy})`]],
       diff: d.slice(0, 25),
       steps: [
         "Änderung (Felder unten) mit dem Kunden/Team abgleichen: gibt es einen genehmigten Change?",
-        weakened ? "Ungeplant: Policy sofort wieder auf «Ein» stellen und den Akteur klären — abgeschaltete CA-Policies sind ein typischer Angriffsschritt." : "Ungeplant: auf den Baseline-Wert zurücksetzen.",
-        "Geplant: «Als Baseline übernehmen» — dann gilt der neue Stand als Soll."
+        weakened ? "Ungeplant: Policy sofort wieder auf «Ein» stellen und den Akteur klären — abgeschaltete CA-Policies sind ein typischer Angriffsschritt." : "Ungeplant: auf den Wert aus dem Stand zurücksetzen.",
+        "Geplant: «In Stand übernehmen» mit Begründung — das erzeugt eine neue Stand-Version, die alte bleibt dokumentiert."
       ],
       objId: k, tab: area
     });
@@ -157,9 +144,9 @@ async function baselineDrift(stateDir, tid, area, snapshot, ctx) {
     findings.push({
       key: "drift-del:" + k, severity: wasOn ? "critical" : "high", drift: true,
       title: `Drift ${label}: gelöscht — ${old.name || k}`,
-      summary: `Objekt aus der Baseline vom ${String(base.acceptedAt).slice(0, 10)} existiert nicht mehr${wasOn ? " (war erzwungen)" : ""}.`,
-      context: [["Objekt", old.name || k]],
-      steps: ["Akteur im Audit-Log ermitteln.", "Ungeplant: aus Baseline/Backup wiederherstellen. Geplant: «Als Baseline übernehmen»."],
+      summary: `Objekt aus ${standLabel} existiert nicht mehr${wasOn ? " (war erzwungen)" : ""}.`,
+      context: [["Objekt", old.name || k], ["Referenz", `${standLabel} (${base.acceptedBy})`]],
+      steps: ["Akteur im Audit-Log ermitteln.", "Ungeplant: aus Stand-Dokument/Backup wiederherstellen. Geplant: «In Stand übernehmen» mit Begründung."],
       objId: k, tab: area
     });
   }
@@ -278,29 +265,72 @@ function updateFinding(stateDir, tid, id, patch, what, by) {
   return f;
 }
 
-function acceptBaseline(stateDir, tid, area, by, onlyKey) {
-  if (!AREA[area] || AREA[area].drift !== "baseline") throw Object.assign(new Error("Bereich hat keine Baseline."), { status: 400 });
-  const snap = readJson(areaFile(stateDir, tid, "snap", area), null);
-  if (!snap) throw Object.assign(new Error("Noch kein Lauf für diesen Bereich."), { status: 409 });
-  const bf = areaFile(stateDir, tid, "base", area);
-  const base = readJson(bf, { items: {} });
-  if (onlyKey) {
-    if (snap.items[onlyKey]) base.items[onlyKey] = snap.items[onlyKey]; else delete base.items[onlyKey];
-  } else base.items = snap.items;
-  base.acceptedAt = new Date().toISOString();
-  base.acceptedBy = by || "unbekannt";
-  writeJson(bf, base);
-  // Zugehoerige Drift-Befunde sofort schliessen statt bis zum naechsten Lauf zu warten.
+function lastSnap(stateDir, tid, area) { return readJson(areaFile(stateDir, tid, "snap", area), null); }
+function lastSnaps(stateDir, tid) {
+  const snaps = {};
+  for (const a of STAND.STAND_AREAS) { const sn = lastSnap(stateDir, tid, a.id); if (sn) snaps[a.id] = sn; }
+  return snaps;
+}
+
+// Drift-Befunde nach einer neuen Stand-Version sofort schliessen statt bis zum naechsten Lauf zu warten.
+function closeDrift(stateDir, tid, ver, match) {
   const ff = file(stateDir, tid, "findings.json");
   const store = readJson(ff, {});
   for (const f of Object.values(store)) {
-    if (f.area !== area || !f.drift || f.status === "resolved") continue;
-    if (onlyKey && f.objId !== onlyKey) continue;
-    f.status = "resolved"; f.resolvedAt = base.acceptedAt;
-    f.history = (f.history || []).concat([{ at: base.acceptedAt, what: "als Baseline übernommen", by }]);
+    if (!f.drift || f.status === "resolved" || !match(f)) continue;
+    f.status = "resolved"; f.resolvedAt = ver.at;
+    f.history = (f.history || []).concat([{ at: ver.at, what: `in Stand v${ver.v} übernommen: ${ver.reason}`, by: ver.by }]).slice(-30);
   }
   writeJson(ff, store);
-  return base;
+}
+
+/** Abweichung eines Bereichs bzw. eines Objekts mit Begruendung in eine neue Stand-Version uebernehmen. */
+function acceptBaseline(stateDir, tid, area, by, onlyKey, reason) {
+  if (!AREA[area] || AREA[area].drift !== "baseline" || !STAND.STAND_AREA[area]) throw Object.assign(new Error("Bereich hat keinen Stand."), { status: 400 });
+  const ver = STAND.accept(stateDir, tid, { area, objId: onlyKey || null, by, reason, snap: lastSnap(stateDir, tid, area) });
+  closeDrift(stateDir, tid, ver, f => f.area === area && (!onlyKey || f.objId === onlyKey));
+  return ver;
+}
+
+/** Gesamten zuletzt erhobenen Ist-Zustand als neue Stand-Version einfrieren. */
+function freezeStand(stateDir, tid, by, reason) {
+  const ver = STAND.freeze(stateDir, tid, { by, reason, snaps: lastSnaps(stateDir, tid) });
+  closeDrift(stateDir, tid, ver, f => !!ver.areas[f.area]);
+  return ver;
+}
+
+/** Stand-Uebersicht fuer die Oberflaeche: Versionen, Alter des Ist, offene Drift. */
+function standOverview(stateDir, tid) {
+  const idx = STAND.index(stateDir, tid);
+  const cur = idx.current ? STAND.get(stateDir, tid, idx.current) : null;
+  const open = listFindings(stateDir, tid).filter(f => f.drift && f.status !== "resolved");
+  return {
+    current: cur ? STAND.summary(cur) : null,
+    versions: [...idx.versions].reverse(),
+    areas: STAND.STAND_AREAS.map(a => {
+      const sn = lastSnap(stateDir, tid, a.id);
+      return {
+        id: a.id, label: a.label, snapAt: sn ? sn.at : null, snapCount: sn ? Object.keys(sn.items || {}).length : null,
+        frozen: cur && cur.areas[a.id] ? { count: cur.areas[a.id].count, hash: cur.areas[a.id].hash, at: cur.areas[a.id].at } : null,
+        openDrift: open.filter(f => f.area === a.id).length
+      };
+    }),
+    openDrift: open.length,
+    kinds: STAND.KIND_DE,
+    reasonMin: STAND.REASON_MIN
+  };
+}
+
+/** Daten fuer das Stand-PDF: Version, Versionsgeschichte und optional die Abweichungen zum zuletzt erhobenen Ist. */
+function standDocument(stateDir, tid, v, withDrift) {
+  const idx = STAND.index(stateDir, tid);
+  const ver = STAND.get(stateDir, tid, v || idx.current);
+  if (!ver) return null;
+  const snaps = lastSnaps(stateDir, tid);
+  return {
+    ver, history: idx.versions, isCurrent: ver.v === idx.current,
+    drift: withDrift ? { at: Object.values(snaps).map(x => x.at).sort()[0] || null, changes: STAND.driftAgainst(ver, snaps) } : null
+  };
 }
 
 // ------------------------------------------------------------------ Alerts
@@ -567,8 +597,9 @@ function overview(stateDir, tenant) {
 function areaData(stateDir, tid, area) {
   if (!AREA[area]) return null;
   const data = readJson(areaFile(stateDir, tid, "data", area), null);
-  const base = AREA[area].drift === "baseline" ? readJson(areaFile(stateDir, tid, "base", area), null) : null;
-  return { data, baseline: base ? { acceptedAt: base.acceptedAt, acceptedBy: base.acceptedBy, count: Object.keys(base.items || {}).length } : null };
+  const ver = AREA[area].drift === "baseline" ? STAND.current(stateDir, tid) : null;
+  const fa = ver && ver.areas && ver.areas[area];
+  return { data, baseline: fa ? { v: ver.v, acceptedAt: ver.at, acceptedBy: ver.by, count: fa.count, provisional: !!ver.provisional } : null };
 }
 
 function fleetRow(stateDir, tenant) {
@@ -600,6 +631,6 @@ function fleetRow(stateDir, tenant) {
 
 module.exports = {
   AREAS, AREA, SEV_RANK, SLA_HOURS, DEFAULT_SETTINGS,
-  settingsOf, dueAreas, run, overview, areaData, fleetRow, listFindings, updateFinding, acceptBaseline,
+  settingsOf, dueAreas, run, overview, areaData, fleetRow, listFindings, updateFinding, acceptBaseline, freezeStand, standOverview, standDocument,
   readAlerts, readJson, writeJson, file, dirOf
 };

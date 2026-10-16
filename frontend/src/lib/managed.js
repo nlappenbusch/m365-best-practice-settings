@@ -17,7 +17,10 @@ export const msApi = {
   settings: (tid, b) => apiPut(`/api/tenants/${enc(tid)}/managed/settings`, b),
   run: (tid, areas) => apiPost(`/api/tenants/${enc(tid)}/managed/run`, { areas: areas || [] }),
   action: (tid, fid, b) => apiPost(`/api/tenants/${enc(tid)}/managed/findings/${enc(fid)}/action`, b),
-  baseline: (tid, area) => apiPost(`/api/tenants/${enc(tid)}/managed/baseline/${enc(area)}`),
+  baseline: (tid, area, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/baseline/${enc(area)}`, { reason }),
+  stand: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/stand`),
+  freeze: (tid, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/stand`, { reason }),
+  standPdfUrl: (tid, v, drift) => `/api/tenants/${enc(tid)}/managed/stand/${enc(v || 'current')}/pdf${drift ? '?drift=1' : ''}`,
   reports: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/reports`),
   reportUrl: (tid, q, opts) => `/api/tenants/${enc(tid)}/managed/report?quarter=${enc(q)}${opts?.stored ? '&stored=1' : ''}${opts?.save ? '&save=1' : ''}${opts?.download ? '&download=1' : ''}`,
   job: (id) => apiGet(`/api/appjobs/${enc(id)}`)
