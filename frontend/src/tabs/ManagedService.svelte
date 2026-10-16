@@ -95,7 +95,7 @@
   $effect(() => {
     if ($activeTab !== 'managed' || !$session.loggedIn || !$activeTenant) return
     if (loadedFor === $activeTenant.id) return
-    ov = null; areaCache = {}; sel = null; reports = null; job = null; stand = null; standForm = null; standMsg = null; profile = null
+    ov = null; areaCache = {}; sel = null; reports = null; job = null; stand = null; standForm = null; standMsg = null; profile = null; mcAiProgress = null
     load()
   })
 
@@ -149,12 +149,31 @@
 
   // Message Center: KI-Einordnung je Kunde neu anstossen (nur KI, kein Graph-Abruf)
   let mcAiBusy = $state(false)
+  let mcAiProgress = $state(null)   // { done, total, provider, errors, error, finished }
   let aiReady = $state(null)
-  $effect(() => { if (view === 'messages' && aiReady === null && $session.loggedIn) msApi.meta().then(m => aiReady = !!m.ai).catch(() => aiReady = false) })
-  async function reevaluate(force) {
+  let mcAiCheckedFor = null
+  $effect(() => {
+    if (view !== 'messages' || !$session.loggedIn || !$activeTenant) return
+    if (mcAiCheckedFor === $activeTenant.id) return
+    mcAiCheckedFor = $activeTenant.id
+    // Läuft schon eine Bewertung (z. B. nach Neuladen der Seite)? Dann weiter mitverfolgen.
+    msApi.mcAiStatus(tid()).then(s => { aiReady = !!s.ai; if (s.jobId) followMcAi(s.jobId) }).catch(() => aiReady = false)
+  })
+  async function followMcAi(jobId) {
     mcAiBusy = true
-    try { await msApi.mcAi(tid(), force); await area('messages', true) } catch (e) { error = errText(e) }
+    let lastDone = -1
+    const j = await followJob(jobId, x => {
+      if (x.mcAi) mcAiProgress = { ...x.mcAi }
+      if (x.mcAi && x.mcAi.done !== lastDone) { lastDone = x.mcAi.done; area('messages', true) }
+    })
+    mcAiProgress = j?.status === 'failed' ? { ...(mcAiProgress || {}), error: j.error, finished: true } : { ...(mcAiProgress || {}), finished: true, warn: j?.hint || null }
+    await area('messages', true)
     mcAiBusy = false
+  }
+  async function reevaluate(force) {
+    mcAiProgress = { done: 0, total: 0 }
+    try { const s = await msApi.mcAi(tid(), force); await followMcAi(s.jobId) }
+    catch (e) { mcAiProgress = { error: errText(e), finished: true }; mcAiBusy = false }
   }
 
   function setupAi() { openAiPanel.set(true); goToTab('mspfleet') }
@@ -369,7 +388,7 @@
             {#if !d}<div class="empty">{areaCache.messages?.error || 'Noch keine Meldungen erhoben.'}</div>
             {:else}
               <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running' || mcAutoRunning} autoRefresh={mcAutoRunning} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }}
-                profileNote={ov?.settings?.profileNote || ''} aiReady={aiReady} reevaluating={mcAiBusy} onReevaluate={reevaluate}
+                profileNote={ov?.settings?.profileNote || ''} aiReady={aiReady} reevaluating={mcAiBusy} aiProgress={mcAiProgress} onReevaluate={reevaluate}
                 onEditProfile={() => view = 'settings'} onSetupAi={setupAi} />
             {/if}
 

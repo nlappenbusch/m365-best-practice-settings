@@ -66,6 +66,7 @@ const SDP = require("./lib/sdp");
 const SDPDB = require("./lib/sdpDb");
 const AISUGGEST = require("./lib/aiSuggest");
 const AIPROVIDERS = require("./lib/aiProviders");
+const EVIDENCECLASSIFY = require("./lib/evidenceClassify");
 const CUSTOMPOLICY = require("./lib/customPolicy");
 const SETTINGSCATALOG = require("./lib/settingsCatalog");
 const USERACTIONS = require("./lib/userActions");
@@ -6436,6 +6437,9 @@ app.get("/api/tenants/:id/evidence/v3/events", wrap(async (req, res) => {
     source: req.query.source || null,
     level: req.query.level || null
   });
+  // Klartext-Einordnung (Routine vs. relevant) — berechnet, nicht gespeichert,
+  // damit neue Regeln sofort auch fuer alte Events gelten.
+  for (const ev of events) ev.view = EVIDENCECLASSIFY.view(ev, { selfAppId: t.clientId });
   res.json({ ok: true, events, stats: EVIDENCESTORE.stats(STATE_DIR, t.id) });
 }));
 

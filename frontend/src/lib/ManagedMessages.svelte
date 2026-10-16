@@ -4,7 +4,7 @@
   // Zeitstrahl, dann die vier Fragen (was / wann / wer / was tun), ganz unten
   // der Microsoft-Originaltext — sauber gesetzt statt als Textblock.
   let { data, tenantName = '', onRefresh = null, refreshing = false, autoRefresh = false,
-    profileNote = '', aiReady = null, reevaluating = false, onReevaluate = null, onEditProfile = null, onSetupAi = null } = $props()
+    profileNote = '', aiReady = null, reevaluating = false, aiProgress = null, onReevaluate = null, onEditProfile = null, onSetupAi = null } = $props()
   // schema 2 = ungekuerzter Text + Gliederung (seit 15.10.2026). Aeltere Daten
   // sind beim Speichern nach 700 Zeichen abgeschnitten worden.
   let stale = $derived(data && data.schema !== 2)
@@ -171,7 +171,19 @@
         <span><b>{rated.filter(m => m.ai.relevant).length}</b> relevant für diesen Kunden{notRelevant ? ` · ${notRelevant} nicht relevant` : ''}{unrated ? ` · ${unrated} noch nicht bewertet` : ''}</span>
         {#if aiBy}<span class="dimk">Eingeordnet von {aiBy}</span>{/if}
         <span class="dimk">Kundenprofil: automatisch aus dem Tenant (Firma, Lizenzen, Nutzung, Geräte){profileNote ? ' + Ergänzung' : ''}{#if onEditProfile} · <button class="lk" onclick={onEditProfile}>ansehen</button>{/if}{#if onSetupAi} · <button class="lk" onclick={onSetupAi}>KI-Dienste</button>{/if}</span>
-        {#if onReevaluate}<button onclick={() => onReevaluate(!unrated)} disabled={reevaluating}>{reevaluating ? 'KI bewertet…' : unrated ? 'Jetzt bewerten' : 'Neu bewerten'}</button>{/if}
+        {#if reevaluating && aiProgress}
+          <div class="prog" aria-live="polite">
+            <div class="bar"><i style="width:{aiProgress.total ? Math.round(aiProgress.done / aiProgress.total * 100) : 4}%"></i></div>
+            <span>{aiProgress.total ? `KI bewertet ${aiProgress.done} von ${aiProgress.total} Meldungen` : 'KI startet…'}{aiProgress.provider ? ` · ${aiProgress.provider}` : ''}</span>
+            <span class="dimk">Ergebnisse erscheinen laufend — du kannst die Seite währenddessen verlassen.</span>
+            {#if aiProgress.errors?.length}<span class="bad">Letzter Fehler: {aiProgress.errors[aiProgress.errors.length - 1]}</span>{/if}
+          </div>
+        {:else if onReevaluate}<button onclick={() => onReevaluate(!unrated)} disabled={reevaluating}>{unrated ? 'Jetzt bewerten' : 'Neu bewerten'}</button>{/if}
+        {#if !reevaluating && aiProgress?.finished}
+          {#if aiProgress.error}<span class="bad">KI-Bewertung fehlgeschlagen: {aiProgress.error}</span>
+          {:else}<span class="okk">✓ Fertig: {aiProgress.done} von {aiProgress.total} bewertet{aiProgress.provider ? ` · ${aiProgress.provider}` : ''}</span>
+            {#if aiProgress.warn}<span class="bad">{aiProgress.warn}</span>{/if}{/if}
+        {/if}
       {/if}
       {#if data?.aiError}<span class="bad">KI-Fehler: {data.aiError}</span>{/if}
     </div>
@@ -305,7 +317,10 @@
   .kibox > button:disabled{opacity:.6;cursor:default}
   .lk{all:unset;cursor:pointer;color:var(--accent);font-weight:700}.lk:hover{text-decoration:underline}
   .lk.more{font-size:.72rem;padding:.4rem .3rem}
-  .bad{color:var(--crit)}
+  .bad{color:var(--crit)}.okk{color:var(--ok);font-weight:700}
+  .prog{display:flex;flex-direction:column;gap:.25rem;margin-top:.15rem}
+  .prog .bar{height:6px;border-radius:999px;background:var(--bg-raised);overflow:hidden}
+  .prog .bar i{display:block;height:100%;background:var(--accent);border-radius:999px;transition:width .4s}
   .t-ok.dot{background:var(--ok)}.badge.t-ok{background:var(--ok)}.rh.t-ok:before{background:var(--ok)}.t-ok .verdict{background:var(--ok-wash)}
   .g-handeln .gh b{background:var(--crit);color:#fff}.g-chance .gh b{background:var(--ok);color:#fff}
   .kunde{margin:0 1.3rem .8rem;display:flex;gap:1rem;align-items:flex-start;justify-content:space-between;border:1px solid color-mix(in srgb,var(--ok) 40%,var(--rule));background:var(--ok-wash);border-radius:12px;padding:.7rem .9rem}

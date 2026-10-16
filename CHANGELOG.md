@@ -1,5 +1,30 @@
 # M365 Best Practice Settings Tool - Changelog
 
+## Version 2.65 - Changes in Klartext: Routine ausgeblendet, Gleichartiges gebündelt (2026-10-16)
+
+### Warum
+
+Bei PKRück standen am 16.10.2026 rund 400 Events im Changes-Tab, 46 davon «kritisch», 75 «hoch» —
+fast alles Routine: Provisioning-Synchronisation alle 40 Minuten als «Objekt entfernt» (wegen des
+Feldes *IsSoftDeleted*), jedes Authenticator-Update als «Authentifizierung geändert» (wegen des
+Akteurs *Azure MFA …*), 45 Berechtigungen des eigenen Werkzeugs einzeln als «kritisch», der
+Microsoft-Aufräumjob 5× als «Objekt entfernt». Die zwei Dinge, die man wirklich ansehen sollte
+(CSP-Partner, neuer Copilot-Agent), gingen darin unter.
+
+### Was jetzt passiert (`lib/evidenceClassify.js`)
+
+- **Routine wird erkannt und ausgeblendet** (eigener Filter «Routine»): Provisioning-Sync,
+  Microsoft-Aufräumjob, Authenticator-App-Update, Benutzer richtet MFA/Passkey selbst ein.
+- **Relevantes bekommt Klartext und «Was tun»**: neues Anmeldegerät (Admin-Konto höher),
+  Admin-Konto registriert Methode, Anmeldemethode entfernt, Partner (CSP) ändert Berechtigungen,
+  **neuer KI-Agent (Copilot Studio)** / neue Unternehmensanwendung, Anwendungsberechtigung für
+  fremde Apps (Schreibrechte kritisch, Leserechte hoch), Admin-Rolle vergeben.
+- **Eigenes Werkzeug** (App des Tenants) wird erkannt: «hat 45 Berechtigungen erhalten» als
+  *ein* Eintrag mit Hinweis auf Reparieren/Einwilligung.
+- **Bündeln**: Gleichartiges (gleiche App, gleicher Partner, gleicher Tag, Duplikate) wird eine
+  Karte mit Anzahl; Einzel-Events und Rohdaten erst auf Klick.
+- Die Einordnung wird beim Abruf berechnet — gilt sofort auch für bereits erhobene Events.
+
 ## Version 2.64 - Message Center je Kunde mit KI, mehrere KI-Dienste nach Wahl (2026-10-16)
 
 ### Message Center: nur, was für DIESEN Kunden zählt — auf Deutsch, ohne Fachjargon
@@ -29,6 +54,12 @@ Anzahl, Intune-Geräte je Betriebssystem, Teams-Geräte, Postfächer, SMTP AUTH,
 Freigaben, Mail-Schutz, Secure Score) und einer freien **Kundennotiz** in den
 Managed-Einstellungen («Treuhandbüro, 30 MA, Telefonie über Teams»). Ändert sich die Notiz,
 wird neu bewertet. «Neu bewerten» geht ohne neuen Abruf bei Microsoft.
+
+**Sichtbar, dass die KI arbeitet:** «Jetzt/Neu bewerten» läuft als Hintergrund-Job mit
+Fortschrittsbalken («KI bewertet 12 von 100 · Anthropic …»), Ergebnisse erscheinen nach jedem
+Stapel, Fehler stehen rot da, am Ende «✓ Fertig». Vorher war es eine einzige lange Anfrage,
+die am Proxy nach ~60 s abbrach — man sah nur «KI bewertet…». Läuft eine Bewertung schon,
+verfolgt die Ansicht sie nach dem Neuladen weiter.
 
 An die KI gehen nur Kennzahlen und Produktnamen — keine Benutzernamen, Mailadressen oder
 Inhalte. Meldungen zu nicht lizenzierten Diensten gehen gar nicht erst an die KI.

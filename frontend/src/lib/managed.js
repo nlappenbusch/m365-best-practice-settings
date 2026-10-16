@@ -24,6 +24,7 @@ export const msApi = {
   baseline: (tid, area, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/baseline/${enc(area)}`, { reason }),
   profile: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/profile`),
   mcAi: (tid, force) => apiPost(`/api/tenants/${enc(tid)}/managed/messages/ai`, { force: !!force }),
+  mcAiStatus: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/messages/ai`),
   stand: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/stand`),
   freeze: (tid, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/stand`, { reason }),
   standPdfUrl: (tid, v, drift) => `/api/tenants/${enc(tid)}/managed/stand/${enc(v || 'current')}/pdf${drift ? '?drift=1' : ''}`,
