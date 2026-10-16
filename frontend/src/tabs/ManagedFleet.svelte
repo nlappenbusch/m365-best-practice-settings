@@ -4,7 +4,7 @@
   import { session } from '../lib/session.js'
   import { selectTenant } from '../lib/tenantStore.js'
   import { ageLabel, fmtDateTime } from '../lib/product.js'
-  import { msApi, followJob, SEV, SEV_DE, KIND_DE, linePath, pctOf } from '../lib/managed.js'
+  import { msApi, followJob, SEV, SEV_DE, KIND_DE, linePath, pctOf, openAiPanel } from '../lib/managed.js'
   import ManagedRing from '../lib/ManagedRing.svelte'
   import AiProviders from '../lib/AiProviders.svelte'
 
@@ -55,6 +55,14 @@
     if (!loaded) load()
     const t = setInterval(() => { if ($activeTab === 'mspfleet') load() }, 60000)
     return () => clearInterval(t)
+  })
+
+  // Link «KI-Dienste» aus anderen Ansichten: Panel öffnen und hinscrollen.
+  $effect(() => {
+    if (!$openAiPanel || $activeTab !== 'mspfleet') return
+    showGlobal = true
+    openAiPanel.set(false)
+    setTimeout(() => document.querySelector('.fl-ai')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   })
 
   function open(r) { selectTenant(r.id); goToTab('managed') }

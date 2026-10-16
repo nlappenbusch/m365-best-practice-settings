@@ -818,6 +818,46 @@ async function teamsDevices(tenant, cert) {
   }
 }
 
+// Firmenname, Domains und Standort — Grundlage, damit die KI Branche und Region
+// ableiten kann. Organisationsdaten, keine Personendaten.
+async function orgInfo(tenant, cert) {
+  try {
+    const o = (await graphReq(tenant, cert, "GET", "/organization?$select=displayName,verifiedDomains,city,countryLetterCode,preferredLanguage", null, V1)).value[0] || {};
+    const domains = arr(o.verifiedDomains).map(d => d.name).filter(n => n && !/\.onmicrosoft\.com$/i.test(n)).slice(0, 8);
+    return { readable: true, name: o.displayName || null, domains, city: o.city || null, country: o.countryLetterCode || null, language: o.preferredLanguage || null };
+  } catch (e) { return { readable: false }; }
+}
+
+// Tatsaechliche Nutzung (30 Tage) — nur Summen je Dienst, keine Personen.
+// Braucht Reports.Read.All; fehlt das Recht, bleibt es bei der Lizenz-Sicht.
+async function usageInfo(tenant, cert) {
+  const { parseCsv } = require("./sharepointInventory");
+  const load = async fn => {
+    const r = await graphReq(tenant, cert, "GET", `/reports/${fn}(period='D30')`, null, V1);
+    if (r && Array.isArray(r.value)) return r.value;
+    if (r && typeof r.raw === "string") return parseCsv(r.raw);
+    return [];
+  };
+  const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  // CSV liefert "onedrive", JSON "oneDrive" — Schreibweise egal.
+  const val = (r, k) => { const hit = Object.keys(r).find(x => x.toLowerCase() === k.toLowerCase()); return num(hit ? r[hit] : 0); };
+  const out = { readable: false };
+  try {
+    const rows = (await load("getOffice365ActiveUserCounts")).sort((a, b) => String(b.reportDate).localeCompare(String(a.reportDate)));
+    // Hoechstwert der letzten 30 Tage je Dienst = so viele nutzen ihn mindestens an einem Tag.
+    const peak = k => rows.reduce((m, r) => Math.max(m, val(r, k)), 0);
+    out.activeUsers = { exchange: peak("exchange"), oneDrive: peak("oneDrive"), sharePoint: peak("sharePoint"), teams: peak("teams"), yammer: peak("yammer") };
+    out.readable = rows.length > 0;
+  } catch (e) { out.error = /403|forbidden|authoriz/i.test(e.message) ? "Reports.Read.All fehlt" : e.message; }
+  try {
+    const rows = await load("getTeamsUserActivityCounts");
+    const sum = k => rows.reduce((s, r) => s + val(r, k), 0);
+    out.teams30d = { calls: sum("calls"), meetings: sum("meetings"), chats: sum("privateChatMessages") + sum("teamChatMessages") };
+    out.readable = out.readable || rows.length > 0;
+  } catch (e) { /* optional */ }
+  return out;
+}
+
 function mcVerdict(msg, parsed, facts, svc) {
   if (svc.notInTenant) return { verdict: "nein", reason: `Dienst nicht lizenziert (${msg.services.join(", ")}).` };
   const plats = mcPlatforms(msg, parsed);
@@ -1407,5 +1447,5 @@ const GRAPH_COLLECTORS = {
 };
 
 module.exports = {
-  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr, mcSections, mcVerdict, teamsDevices
+  GRAPH_COLLECTORS, collectMessages, collectSharing, collectExo, evaluateExo, lastPolicyActor, PORTAL, strip, cut, arr, mcSections, mcVerdict, teamsDevices, orgInfo, usageInfo
 };

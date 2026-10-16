@@ -17,6 +17,13 @@ Je Meldung: verständlicher Titel, was sich ändert, **warum es für diesen Kund
 **ein Satz, den man dem Kunden so weitergeben kann** (Knopf «Kopieren»). Die bisherige
 Regel-Ansicht bleibt unter «Alle Meldungen».
 
+**Kundenprofil automatisch aus dem Tenant** (Managed-Einstellungen zeigen, was die KI weiss):
+Firmenname, Domains und Standort (daraus leitet die KI die vermutliche Branche ab),
+**tatsächliche Nutzung der letzten 30 Tage** (aktive Personen je Dienst, Anrufe, Besprechungen,
+Chats in Teams — nur Summen, Reports.Read.All), dazu der übrige Ist-Zustand. Das freie Feld ist
+nur noch eine optionale **Ergänzung** für das, was der Tenant nicht verrät. Direkter Link
+«KI-Dienste» im Message Center und in den Einstellungen öffnet das Panel im Service-Cockpit.
+
 Das **Kundenprofil** setzt sich zusammen aus dem erhobenen Ist-Zustand (Lizenzen mit
 Anzahl, Intune-Geräte je Betriebssystem, Teams-Geräte, Postfächer, SMTP AUTH, Weiterleitung,
 Freigaben, Mail-Schutz, Secure Score) und einer freien **Kundennotiz** in den

@@ -170,7 +170,7 @@
       {:else}
         <span><b>{rated.filter(m => m.ai.relevant).length}</b> relevant für diesen Kunden{notRelevant ? ` · ${notRelevant} nicht relevant` : ''}{unrated ? ` · ${unrated} noch nicht bewertet` : ''}</span>
         {#if aiBy}<span class="dimk">Eingeordnet von {aiBy}</span>{/if}
-        <span class="dimk">Kundenprofil: {profileNote ? (profileNote.length > 90 ? profileNote.slice(0, 88) + '…' : profileNote) : 'keine Notiz — nur Ist-Zustand aus dem Tenant'}{#if onEditProfile} · <button class="lk" onclick={onEditProfile}>bearbeiten</button>{/if}</span>
+        <span class="dimk">Kundenprofil: automatisch aus dem Tenant (Firma, Lizenzen, Nutzung, Geräte){profileNote ? ' + Ergänzung' : ''}{#if onEditProfile} · <button class="lk" onclick={onEditProfile}>ansehen</button>{/if}{#if onSetupAi} · <button class="lk" onclick={onSetupAi}>KI-Dienste</button>{/if}</span>
         {#if onReevaluate}<button onclick={() => onReevaluate(!unrated)} disabled={reevaluating}>{reevaluating ? 'KI bewertet…' : unrated ? 'Jetzt bewerten' : 'Neu bewerten'}</button>{/if}
       {/if}
       {#if data?.aiError}<span class="bad">KI-Fehler: {data.aiError}</span>{/if}

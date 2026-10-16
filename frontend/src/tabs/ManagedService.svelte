@@ -5,7 +5,7 @@
   import { session } from '../lib/session.js'
   import TenantContext from '../lib/TenantContext.svelte'
   import { ageLabel, fmtDateTime } from '../lib/product.js'
-  import { msApi, followJob, SEV, SEV_DE, STATUS_DE, KIND_DE, hoursLabel, linePath, pctOf } from '../lib/managed.js'
+  import { msApi, followJob, SEV, SEV_DE, STATUS_DE, KIND_DE, hoursLabel, linePath, pctOf, openAiPanel } from '../lib/managed.js'
   import ManagedRing from '../lib/ManagedRing.svelte'
   import ManagedMessages from '../lib/ManagedMessages.svelte'
   import ManagedThreat from '../lib/ManagedThreat.svelte'
@@ -95,7 +95,7 @@
   $effect(() => {
     if ($activeTab !== 'managed' || !$session.loggedIn || !$activeTenant) return
     if (loadedFor === $activeTenant.id) return
-    ov = null; areaCache = {}; sel = null; reports = null; job = null; stand = null; standForm = null; standMsg = null
+    ov = null; areaCache = {}; sel = null; reports = null; job = null; stand = null; standForm = null; standMsg = null; profile = null
     load()
   })
 
@@ -156,6 +156,11 @@
     try { await msApi.mcAi(tid(), force); await area('messages', true) } catch (e) { error = errText(e) }
     mcAiBusy = false
   }
+
+  function setupAi() { openAiPanel.set(true); goToTab('mspfleet') }
+  // Kundenprofil, wie die KI es sieht (automatisch erkannt)
+  let profile = $state(null)
+  $effect(() => { if (view === 'settings' && !profile && $activeTenant) msApi.profile(tid()).then(p => profile = p).catch(e => profile = { error: errText(e) }) })
 
   async function loadStand() {
     try { stand = await msApi.stand(tid()) } catch (e) { stand = { error: errText(e) } }
@@ -365,7 +370,7 @@
             {:else}
               <ManagedMessages data={d} tenantName={$activeTenant?.name || ''} refreshing={job?.status === 'running' || mcAutoRunning} autoRefresh={mcAutoRunning} onRefresh={async () => { await runNow(['messages']); await area('messages', true) }}
                 profileNote={ov?.settings?.profileNote || ''} aiReady={aiReady} reevaluating={mcAiBusy} onReevaluate={reevaluate}
-                onEditProfile={() => view = 'settings'} onSetupAi={() => goToTab('mspfleet')} />
+                onEditProfile={() => view = 'settings'} onSetupAi={setupAi} />
             {/if}
 
           <!-- ---------- POSTFAECHER ---------- -->
@@ -629,8 +634,19 @@
                     <select bind:value={st.notifyMin}>{#each SEV as s}<option value={s}>{SEV_DE[s]}</option>{/each}</select></label>
                   <label>Max. Postfächer je Lauf<input type="number" min="10" max="5000" bind:value={st.maxMailboxes} /></label>
                 </div>
-                <label class="pnote">Kundenprofil für die KI-Einordnung <small>(Branche, Grösse, was genutzt wird, Besonderheiten — keine Personendaten)</small>
-                  <textarea rows="3" bind:value={st.profileNote} placeholder="z. B. Treuhandbüro, 30 Mitarbeitende, Telefonie über Teams, Buchhaltung in Abacus, viel mobile Arbeit mit iPhones"></textarea></label>
+                <div class="autoprof">
+                  <div class="aph"><b>Kundenprofil für die KI — automatisch aus dem Tenant</b>
+                    <button class="linkb" onclick={setupAi}>KI-Dienste einstellen →</button></div>
+                  {#if profile?.lines?.length}
+                    <dl>{#each profile.lines as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
+                    <span class="dim small">Stand der Erhebung: {profile.collectedAt ? fmtDateTime(profile.collectedAt) : '—'} · wird mit jedem Message-Center-Lauf aktualisiert. Die Branche leitet die KI aus Firmenname und Domains ab.</span>
+                    {#if profile.gaps?.length}<span class="small bad">Nicht lesbar: {profile.gaps.join(' · ')} — im Tab Tenants einmal «Reparieren».</span>{/if}
+                  {:else if profile?.error}<span class="small bad">{profile.error}</span>
+                  {:else if profile}<span class="dim small">Noch nichts erhoben — im Reiter «Message Center» einmal erheben, dann steht hier, was die KI über den Kunden weiss.</span>
+                  {:else}<span class="dim small">Lade…</span>{/if}
+                </div>
+                <label class="pnote">Ergänzung (optional) <small>— nur was der Tenant nicht verrät: Branchensoftware, Besonderheiten, Pläne. Keine Personendaten.</small>
+                  <textarea rows="2" bind:value={st.profileNote} placeholder="z. B. Buchhaltung in Abacus, Umzug ins neue Büro im Frühjahr, Geschäftsleitung will keine Pilotfunktionen"></textarea></label>
                 <div class="areachk">
                   {#each ov.areas as a}<label><input type="checkbox" checked={st.areas.includes(a.id)} onchange={e => st.areas = e.currentTarget.checked ? [...st.areas, a.id] : st.areas.filter(x => x !== a.id)} /> {a.label}</label>{/each}
                 </div>
@@ -865,6 +881,10 @@
   .obt{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--bg-inset)}.obt i{display:block}.obt .c{background:var(--ok)}.obt .n{background:var(--crit)}.obt .o{background:var(--text-faint);opacity:.5}
   .util{display:inline-block;width:90px;height:7px;border-radius:5px;background:var(--bg-inset);overflow:hidden;vertical-align:middle}.util i{display:block;height:100%;background:var(--ok)}.util i.low{background:var(--warn)}.util i.over{background:var(--crit)}
 
+  .autoprof{display:flex;flex-direction:column;gap:.4rem;background:var(--bg-inset);border-radius:10px;padding:.65rem .75rem}
+  .aph{display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap;align-items:baseline;font-size:.8rem}
+  .autoprof dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem .8rem;margin:0;font-size:.78rem}
+  .autoprof dt{color:var(--text-faint);font-weight:700}.autoprof dd{margin:0}
   .pnote{display:flex;flex-direction:column;gap:.25rem;font-size:.74rem;font-weight:700;color:var(--text-dim)}
   .pnote small{font-weight:500}
   .pnote textarea{font:inherit;font-size:.82rem;padding:.45rem .55rem;border:1px solid var(--rule);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical}

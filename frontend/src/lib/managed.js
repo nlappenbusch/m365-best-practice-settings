@@ -1,5 +1,9 @@
 // Managed Service: gemeinsame Helfer fuer Flotten- und Tenant-Ansicht.
+import { writable } from 'svelte/store'
 import { apiGet, apiPost, apiPut } from './api.js'
+
+// Service-Cockpit mit offenem KI-Dienste-Panel öffnen (Link aus dem Message Center).
+export const openAiPanel = writable(false)
 
 export const SEV = ['critical', 'high', 'medium', 'low']
 export const SEV_DE = { critical: 'Kritisch', high: 'Hoch', medium: 'Mittel', low: 'Niedrig', info: 'Info' }
@@ -18,6 +22,7 @@ export const msApi = {
   run: (tid, areas) => apiPost(`/api/tenants/${enc(tid)}/managed/run`, { areas: areas || [] }),
   action: (tid, fid, b) => apiPost(`/api/tenants/${enc(tid)}/managed/findings/${enc(fid)}/action`, b),
   baseline: (tid, area, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/baseline/${enc(area)}`, { reason }),
+  profile: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/profile`),
   mcAi: (tid, force) => apiPost(`/api/tenants/${enc(tid)}/managed/messages/ai`, { force: !!force }),
   stand: (tid) => apiGet(`/api/tenants/${enc(tid)}/managed/stand`),
   freeze: (tid, reason) => apiPost(`/api/tenants/${enc(tid)}/managed/stand`, { reason }),

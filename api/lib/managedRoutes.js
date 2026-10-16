@@ -339,6 +339,15 @@ function register(app, deps) {
     res.send(pdf);
   }));
 
+  // Kundenprofil, wie die KI es sieht: automatisch erkannt + Notiz des Betreuers.
+  app.get("/api/tenants/:id/managed/profile", wrap(async (req, res) => {
+    const t = tenantOf(req);
+    const status = S.readJson(S.file(STATE_DIR, t.id, "status.json"), {});
+    const facts = status._facts || {};
+    res.json({ ok: true, lines: MCAI.profileLines(t, facts), note: S.settingsOf(t).profileNote || "", collectedAt: (status.messages && status.messages.at) || status._lastRun || null,
+      gaps: [!(facts.org && facts.org.readable) && "Firmenname/Domains nicht lesbar", facts.usage && !facts.usage.readable && `Nutzung nicht lesbar${facts.usage.error ? " (" + facts.usage.error + ")" : ""}`].filter(Boolean) });
+  }));
+
   // ---------------------------------------------------------------- Message Center neu bewerten
   // Nur KI, kein Graph-Abruf: nimmt die zuletzt erhobenen Meldungen und Fakten.
   app.post("/api/tenants/:id/managed/messages/ai", wrap(async (req, res) => {

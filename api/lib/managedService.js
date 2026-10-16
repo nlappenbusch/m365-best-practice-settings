@@ -470,6 +470,8 @@ async function run(ctx) {
     if (sc && sc.current && sc.current.pct != null) facts.score = sc.current.pct;
     // Teams-Geraete (Rooms, SIP, Telefone) — Grundlage fuer Meldungen zu Teams-Hardware.
     facts.teamsDevices = await C.teamsDevices(tenant, cert);
+    facts.org = await C.orgInfo(tenant, cert);
+    facts.usage = await C.usageInfo(tenant, cert);
     const cf = file(stateDir, tid, "mc-ai.json");
     const cache = readJson(cf, {});
     try {

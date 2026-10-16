@@ -98,10 +98,10 @@ test("Message Center: KI bewertet je Kunde, Profil im Prompt, Cache haelt bis Pr
     assert.doesNotMatch(prompts[0], /@/, "keine Mailadressen im Prompt");
     // gleicher Stand + gleiches Profil -> kein neuer Aufruf
     const n = prompts.length;
-    assert.equal(await MCAI.evaluate({ tenant: {}, messages, facts, cache: c1, note: "Treuhandbüro" }), null);
+    assert.equal(await MCAI.evaluate({ tenant: { name: "Kunde" }, messages, facts, cache: c1, note: "Treuhandbüro" }), null);
     assert.equal(prompts.length, n);
     // Kundennotiz geaendert -> neu bewerten
-    const c2 = await MCAI.evaluate({ tenant: {}, messages, facts, cache: c1, note: "Treuhandbüro, neu mit Teams-Telefonie" });
+    const c2 = await MCAI.evaluate({ tenant: { name: "Kunde" }, messages, facts, cache: c1, note: "Treuhandbüro, neu mit Teams-Telefonie" });
     assert.ok(c2 && prompts.length > n);
   } finally { srv.srv.closeAllConnections(); srv.srv.close(); }
 });
