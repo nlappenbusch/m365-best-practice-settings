@@ -40,6 +40,9 @@ Service-Cockpit → **⚙ Einstellungen & KI-Dienste**:
 - Anbieter: **Anthropic, OpenAI, Azure OpenAI, Google Gemini, Mistral** und jede
   **OpenAI-kompatible** Gegenstelle (Ollama, LM Studio, OpenRouter, Azure AI Foundry, vLLM) —
   damit auch ein lokales Modell im eigenen Rechenzentrum.
+- **Microsoft statt Copilot:** Microsoft 365 Copilot hat keine Schnittstelle für Auswertungen im
+  Hintergrund. Der Microsoft-Weg sind **Azure OpenAI** (dieselben GPT-Modelle wie Copilot) und
+  **Azure AI Foundry** (GPT, Mistral, Llama, DeepSeek …) — Daten bleiben im eigenen Azure.
 - Je Aufgabe (Message Center, Ticket-Copilot, Security-Audit-Erklärungen) ein Standard-Dienst
   und bis zu zwei **Ausweichdienste**, falls einer nicht antwortet.
 - «Testen» je Dienst, letzter Test sichtbar.

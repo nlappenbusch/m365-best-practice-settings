@@ -13,7 +13,10 @@
  * Anbieter-Typen (eine HTTP-Form je Typ, bewusst ohne SDKs — wie graph.js):
  *   anthropic          Messages API
  *   openai             Chat Completions (api.openai.com)
- *   azure-openai       Azure OpenAI (Endpoint + Deployment + api-version)
+ *   azure-openai       Azure OpenAI (Endpoint + Deployment + api-version) —
+ *                      dieselben GPT-Modelle wie Microsoft Copilot, im eigenen Azure
+ *   azure-foundry      Azure AI Foundry (Modell-Inferenz: GPT, Mistral, Llama,
+ *                      DeepSeek … ueber einen Foundry-Endpoint)
  *   gemini             Google Generative Language API
  *   mistral            Mistral (OpenAI-kompatibel)
  *   openai-compatible  beliebige OpenAI-kompatible Gegenstelle: Ollama,
@@ -40,7 +43,8 @@ const PURPOSES = {
 const TYPES = {
   anthropic: { label: "Anthropic (Claude)", defaultModel: "claude-sonnet-4-5", needsKey: true, fields: [] },
   openai: { label: "OpenAI", defaultModel: "gpt-4.1-mini", needsKey: true, fields: [] },
-  "azure-openai": { label: "Azure OpenAI", defaultModel: "", needsKey: true, fields: ["baseUrl", "deployment", "apiVersion"] },
+  "azure-openai": { label: "Microsoft Azure OpenAI (GPT-Modelle wie in Copilot)", defaultModel: "", needsKey: true, fields: ["baseUrl", "deployment", "apiVersion"] },
+  "azure-foundry": { label: "Microsoft Azure AI Foundry (GPT, Mistral, Llama, DeepSeek …)", defaultModel: "", needsKey: true, fields: ["baseUrl", "apiVersion"] },
   gemini: { label: "Google Gemini", defaultModel: "gemini-2.5-flash", needsKey: true, fields: [] },
   mistral: { label: "Mistral AI", defaultModel: "mistral-large-latest", needsKey: true, fields: [] },
   "openai-compatible": { label: "OpenAI-kompatibel (Ollama, LM Studio, OpenRouter …)", defaultModel: "", needsKey: false, fields: ["baseUrl"] }
@@ -140,13 +144,15 @@ function saveProvider(b) {
   p.model = String(b.model || TYPES[type].defaultModel || "").trim().slice(0, 120);
   p.baseUrl = TYPES[type].fields.includes("baseUrl") ? cleanUrl(b.baseUrl) : "";
   p.deployment = type === "azure-openai" ? String(b.deployment || "").trim().slice(0, 120) : "";
-  p.apiVersion = type === "azure-openai" ? (String(b.apiVersion || "").trim() || "2024-10-21") : "";
+  p.apiVersion = type === "azure-openai" ? (String(b.apiVersion || "").trim() || "2024-10-21")
+    : type === "azure-foundry" ? String(b.apiVersion == null ? "2024-05-01-preview" : b.apiVersion).trim() : "";
   p.note = String(b.note || "").trim().slice(0, 200);
   p.enabled = b.enabled !== false;
   // Key nur ersetzen, wenn ein neuer kommt — leer heisst "unveraendert".
   if (typeof b.key === "string" && b.key.trim()) p.keyEnc = enc(b.key.trim());
   if (b.clearKey) delete p.keyEnc;
   if (type === "azure-openai" && (!p.baseUrl || !p.deployment)) throw Object.assign(new Error("Azure OpenAI braucht Endpoint-Adresse und Deployment-Namen."), { status: 400 });
+  if (type === "azure-foundry" && !p.baseUrl) throw Object.assign(new Error("Foundry-Endpoint fehlt (z. B. https://<name>.services.ai.azure.com/models)."), { status: 400 });
   if (type === "openai-compatible" && !p.baseUrl) throw Object.assign(new Error("Adresse der Gegenstelle fehlt (z. B. http://ollama:11434/v1)."), { status: 400 });
   if (!p.model && type !== "azure-openai") throw Object.assign(new Error("Modell fehlt."), { status: 400 });
   if (TYPES[type].needsKey && !p.keyEnc) throw Object.assign(new Error("API-Key fehlt."), { status: 400 });
@@ -227,13 +233,16 @@ async function callOne(p, { system, prompt, maxTokens, json }) {
   else if (p.type === "azure-openai") {
     url = `${p.baseUrl}/openai/deployments/${encodeURIComponent(p.deployment)}/chat/completions?api-version=${encodeURIComponent(p.apiVersion || "2024-10-21")}`;
     headers["api-key"] = key;
+  } else if (p.type === "azure-foundry") {
+    url = (/\/chat\/completions$/.test(p.baseUrl) ? p.baseUrl : p.baseUrl + "/chat/completions") + (p.apiVersion ? `?api-version=${encodeURIComponent(p.apiVersion)}` : "");
+    headers["api-key"] = key;
   } else {
     url = /\/chat\/completions$/.test(p.baseUrl) ? p.baseUrl : p.baseUrl + "/chat/completions";
     if (key) headers.authorization = "Bearer " + key;
   }
   const messages = [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: prompt }];
   const body = { messages, max_tokens: max, ...(p.type !== "azure-openai" ? { model: p.model } : {}) };
-  if (json && p.type !== "openai-compatible") body.response_format = { type: "json_object" };
+  if (json && p.type !== "openai-compatible" && p.type !== "azure-foundry") body.response_format = { type: "json_object" };
   const j = await http(url, headers, body);
   const ch = (j.choices || [])[0] || {};
   return { text: (ch.message && ch.message.content) || "", truncated: ch.finish_reason === "length" };

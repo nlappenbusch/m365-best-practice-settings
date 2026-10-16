@@ -43,6 +43,22 @@ test("Keys werden verschluesselt abgelegt und nie ausgeliefert", () => {
   assert.equal(AI.publicView().providers.find(x => x.id === id).keyHint, "…1234");
   assert.throws(() => AI.saveProvider({ type: "openai", model: "gpt-x" }), /API-Key fehlt/);
   assert.throws(() => AI.saveProvider({ type: "openai-compatible", model: "llama" }), /Adresse/);
+  assert.throws(() => AI.saveProvider({ type: "azure-foundry", model: "Mistral-Large", key: "k" }), /Foundry-Endpoint/);
+});
+
+test("Azure AI Foundry: api-key-Header, api-version und Modell im Body", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-"));
+  AI.init(dir);
+  let seen = null;
+  const srv = await fakeServer((body, req) => { seen = { url: req.url, key: req.headers["api-key"], model: body.model }; return chat('{"ok":true}'); });
+  try {
+    const id = AI.saveProvider({ type: "azure-foundry", label: "Foundry", model: "Mistral-Large-2411", baseUrl: srv.url.replace(/\/v1$/, "/models"), key: "foundry-key" });
+    const r = await AI.complete(null, { providerId: id, prompt: "x", json: true });
+    assert.deepEqual(r.json, { ok: true });
+    assert.equal(seen.url, "/models/chat/completions?api-version=2024-05-01-preview");
+    assert.equal(seen.key, "foundry-key");
+    assert.equal(seen.model, "Mistral-Large-2411");
+  } finally { srv.srv.closeAllConnections(); srv.srv.close(); }
 });
 
 test("Ausweichdienst springt ein, wenn der erste nicht antwortet", async () => {

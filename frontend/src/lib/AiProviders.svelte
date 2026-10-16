@@ -77,11 +77,12 @@
       <div class="g">
         <label>Name<input bind:value={form.label} placeholder="z. B. OpenAI (Firma)" /></label>
         {#if form.type !== 'azure-openai'}<label>Modell<input bind:value={form.model} placeholder={t.defaultModel || 'z. B. llama3.1:8b'} /></label>{/if}
-        {#if t.fields.includes('baseUrl')}<label class="w2">{form.type === 'azure-openai' ? 'Endpoint' : 'Adresse der Gegenstelle'}<input bind:value={form.baseUrl} placeholder={form.type === 'azure-openai' ? 'https://<name>.openai.azure.com' : 'http://ollama:11434/v1 · https://openrouter.ai/api/v1'} /></label>{/if}
+        {#if t.fields.includes('baseUrl')}<label class="w2">{form.type.startsWith('azure') ? 'Endpoint' : 'Adresse der Gegenstelle'}<input bind:value={form.baseUrl} placeholder={form.type === 'azure-openai' ? 'https://<name>.openai.azure.com' : form.type === 'azure-foundry' ? 'https://<name>.services.ai.azure.com/models' : 'http://ollama:11434/v1 · https://openrouter.ai/api/v1'} /></label>{/if}
         {#if form.type === 'azure-openai'}
           <label>Deployment<input bind:value={form.deployment} placeholder="gpt-4o-mini" /></label>
-          <label>API-Version<input bind:value={form.apiVersion} /></label>
         {/if}
+        {#if form.type.startsWith('azure')}<label>API-Version<input bind:value={form.apiVersion} /></label>{/if}
+        {#if form.type.startsWith('azure')}<p class="w2 hint">Microsoft-Weg statt Copilot: Microsoft 365 Copilot hat keine Schnittstelle für Hintergrund-Auswertungen. Azure OpenAI bzw. AI Foundry bieten dieselben Modelle — Daten bleiben in eurem Azure (Region z. B. Switzerland North). Endpoint und Key im Azure-Portal unter «Schlüssel und Endpunkt».</p>{/if}
         <label class="w2">API-Key {form.id && form.hasKey ? `(hinterlegt ${form.keyHint} — leer lassen = unverändert)` : t.needsKey ? '' : '(optional)'}
           <input type="password" autocomplete="off" bind:value={form.key} placeholder={t.needsKey ? 'Key einfügen' : 'nur falls die Gegenstelle einen verlangt'} /></label>
         <label class="w2">Notiz<input bind:value={form.note} placeholder="z. B. Datenstandort EU, Vertrag bis 2027, lokal im Rechenzentrum" /></label>
@@ -150,7 +151,7 @@
   .aiform h4{margin:0;font-size:.9rem}
   .g{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem .8rem}
   .g label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;font-weight:700;color:var(--text-dim)}
-  .g .w2{grid-column:1/-1}.g .chk{flex-direction:row;align-items:center;gap:.4rem}
+  .g .w2{grid-column:1/-1}.hint{margin:0;font-size:.72rem;color:var(--text-dim);line-height:1.4}.g .chk{flex-direction:row;align-items:center;gap:.4rem}
   .row{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}
   .tw{overflow:auto}
   table{width:100%;border-collapse:collapse;font-size:.8rem}
