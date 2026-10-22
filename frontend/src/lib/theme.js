@@ -4,7 +4,7 @@
 import { writable } from 'svelte/store'
 
 function initial() {
-  try { return localStorage.getItem('m365-theme') || 'auto' } catch { return 'auto' }
+  try { return localStorage.getItem('m365-theme') || 'dark' } catch { return 'dark' }
 }
 
 export const theme = writable(initial())

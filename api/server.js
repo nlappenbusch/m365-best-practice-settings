@@ -415,8 +415,7 @@ async function provisionAppReg(token, opts) {
   // Zertifikat erzeugen + hochladen (kein Client Secret — app-only EXO braucht ein Cert).
   let certThumbprint = null, certPem = null, certError = null;
   try {
-    const selfsigned = require("selfsigned");
-    const pems = selfsigned.generate([{ name: "commonName", value: appName }], { keySize: 2048, days: 730, algorithm: "sha256" });
+    const pems = await require('./lib/certificates').createTenantCertificate(appName);
     const certB64 = pems.cert.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
     certThumbprint = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex");
     await gReq(token, "PATCH", `/applications/${app.id}`, {
@@ -740,7 +739,8 @@ const READONLY_ALLOW = [
   /^\/fix\/start$/, /^\/offboard\/(start|poll|local-only)$/, /^\/sharepointsites\/resolve$/, /^\/deploy\/auto-setting\/preview$/,
   /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/,
   // Managed Service: liest den Tenant nur, speichert lokal bzw. legt SDP-Tickets an.
-  /^\/managed\/(run|settings|baseline\/[^/]+|findings\/[^/]+\/action)$/
+  /^\/managed\/(run|settings|baseline\/[^/]+|findings\/[^/]+\/action)$/,
+  /^\/cockpit\/(compliance\/[^/]+|apps\/[^/]+\/review|alarms(?:\/[^/]+)?|dmarc\/import)$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];
@@ -2772,8 +2772,7 @@ async function createAutopilotApp(token) {
   const clientSecret = pw.secretText;
 
   // Self-signed Zertifikat (Public Key an die App, PFX ins Paket)
-  const selfsigned = require("selfsigned");
-  const pems = selfsigned.generate([{ name: "commonName", value: AUTOPILOT_APP_PREFIX }], { keySize: 2048, days: 730, algorithm: "sha256" });
+  const pems = await require('./lib/certificates').createTenantCertificate(AUTOPILOT_APP_PREFIX);
   const certB64 = pems.cert.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
   const certThumbprint = crypto.createHash("sha1").update(Buffer.from(certB64, "base64")).digest("hex");
   await gReq(token, "PATCH", `/applications/${app.id}`, {
@@ -7474,6 +7473,7 @@ app.post("/api/tenants/:id/deviations", wrap(async (req, res) => {
 }));
 
 // ---------- Managed Service (MSP-Monitoring) ----------
+require('./lib/cockpitRoutes').register(app, { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap });
 MANAGED_ROUTES.register(app, {
   STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap,
   createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST

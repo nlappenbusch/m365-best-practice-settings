@@ -32,6 +32,8 @@ jobs:
           node --check lib/evidence.js
           node --check lib/evidenceStore.js
           node --check lib/evidenceAnalyze.js
+          node --check lib/cockpitRoutes.js
+          npm test
 
       - name: Frontend build
         working-directory: frontend

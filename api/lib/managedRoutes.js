@@ -126,6 +126,16 @@ function register(app, deps) {
       say("Tickets & Meldungen");
       // Tenant frisch laden: Einstellungen koennen sich waehrend des Laufs geaendert haben.
       const fresh = (loadState().tenants || []).find(x => x.id === t.id) || t;
+      if (fresh.cockpit?.rules?.length) {
+        const checks = require('./cockpit').evaluateRules(fresh.cockpit.rules, S.listFindings(STATE_DIR, t.id));
+        const state = loadState();
+        const target = state.tenants.find(x => x.id === t.id);
+        if (target) {
+          target.cockpit ||= {};
+          target.cockpit.alarmHistory = [...checks, ...(target.cockpit.alarmHistory || [])].slice(0, 1000);
+          saveState(state);
+        }
+      }
       const findings = Object.fromEntries(S.listFindings(STATE_DIR, t.id).map(f => [f.id, f]));
       const events = r.events.map(e => ({ ...e, f: findings[e.f.id] || e.f }));
       const tickets = await autoTickets(fresh, events);

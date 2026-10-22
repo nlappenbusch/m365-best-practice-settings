@@ -13,6 +13,7 @@
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Overview from './tabs/Overview.svelte'
+  import Cockpit from './tabs/Cockpit.svelte'
   import ManagedFleet from './tabs/ManagedFleet.svelte'
   import ManagedService from './tabs/ManagedService.svelte'
   import Changes from './tabs/Changes.svelte'
@@ -132,6 +133,7 @@
          Device-Code-/Job-Polls beim Wechsel nicht abbrechen. -->
     <main class="content">
       <div class="content-card">
+        {#if $activeTab.startsWith('cockpit')}<Cockpit />{/if}
         <div class:tab-hidden={$activeTab !== 'mspfleet'}><ManagedFleet /></div>
         <div class:tab-hidden={$activeTab !== 'managed'}><ManagedService /></div>
         <div class:tab-hidden={$activeTab !== 'overview'}><Overview /></div>

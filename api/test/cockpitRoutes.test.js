@@ -1,0 +1,47 @@
+"use strict";
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const express = require('express');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const G = require('../lib/graph');
+const C = require('../lib/cockpitRoutes');
+
+test('cockpit routes isolate tenant state, validate writes, preserve gaps and evaluate saved rules', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'cockpit-test-'));
+  let state = { tenants:[{id:'a',tenantId:'a'},{id:'b',tenantId:'b'}] };
+  const wrap = f => (req,res,next) => Promise.resolve(f(req,res)).catch(next);
+  const app = express(); app.use(express.json()); app.use((req,res,next) => { req.session = {user:'tester'}; next() });
+  const original = G.graphAllPages;
+  G.graphAllPages = async (tenant,cert,url) => {
+    if (url.startsWith('/reports/')) throw new Error('Reports.Read.All missing');
+    if (url.startsWith('/users?')) return [{id:'u1',displayName:'Alice',assignedLicenses:[]}];
+    return [];
+  };
+  C.register(app,{ STATE_DIR:dir,loadState:() => structuredClone(state),saveState:s => {state=s},requireTenant:req => {const tenant=state.tenants.find(x=>x.id===req.params.id); if(!tenant) throw Object.assign(new Error('missing'),{status:404}); return tenant},certPemPath:() => '',wrap });
+  app.use((err,req,res,next) => res.status(err.status || 500).json({error:err.message}));
+  const server = app.listen(0,'127.0.0.1'); await new Promise(resolve => server.once('listening',resolve));
+  t.after(async () => { G.graphAllPages=original; await new Promise(resolve=>server.close(resolve)); assert.equal(path.dirname(path.resolve(dir)),path.resolve(os.tmpdir())); assert.ok(path.basename(dir).startsWith('cockpit-test-')); fs.rmSync(dir,{recursive:true,force:true}) });
+  const req = async (part,method='GET',body) => { const response = await fetch(`http://127.0.0.1:${server.address().port}/api/tenants/${part}`,{method,headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined}); return {status:response.status,data:await response.json()} };
+  assert.equal((await req('missing/cockpit/alarms')).status,404);
+  assert.equal((await req('a/cockpit/compliance/avv','PUT',{status:'fulfilled',note:'Signed contract'})).status,200);
+  assert.equal((await req('b/cockpit/compliance')).data.checks.find(c=>c.id==='avv').status,'unknown');
+  assert.equal((await req('a/cockpit/compliance')).data.checks.find(c=>c.id==='avv').status,'fulfilled');
+  assert.equal((await req('a/cockpit/compliance/ca','PUT',{status:'fulfilled',note:'Override'})).status,400);
+  assert.equal((await req('a/cockpit/compliance/avv','PUT',{status:'na',note:''})).status,400);
+  const identity = await req('a/cockpit/identity');
+  assert.equal(identity.data.users[0].mfaRegistered,null); assert.equal(identity.data.gaps[0].source,'mfa');
+  const r = await req('a/cockpit/alarms/new','PUT',{name:'Risk',severity:'high',threshold:1,enabled:true});
+  assert.equal(r.status,200);
+  assert.equal((await req('b/cockpit/alarms')).data.rules.length,0);
+  const check = await req('a/cockpit/alarms/check','POST'); assert.equal(check.data.results[0].triggered,false);
+  assert.equal((await req('a/cockpit/alarms')).data.history.length,1);
+  assert.equal((await req(`a/cockpit/alarms/${r.data.rule.id}`,'DELETE')).status,200);
+  assert.equal((await req('a/cockpit/alarms')).data.rules.length,0);
+  const xml = '<feedback><report_metadata><org_name>X</org_name><report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published></feedback>';
+  assert.equal((await req('a/cockpit/dmarc/import','POST',{xml})).status,200);
+  assert.equal((await req('a/cockpit/dmarc/import','POST',{xml})).data.duplicate,true);
+  assert.equal((await req('a/cockpit/dmarc')).data.reports.length,1);
+  assert.equal((await req('b/cockpit/dmarc')).data.reports.length,0);
+});
