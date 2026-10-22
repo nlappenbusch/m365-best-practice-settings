@@ -89,7 +89,7 @@
   }
   async function testHook() {
     gMsg = null
-    try { await msApi.testWebhook(); gMsg = { ok: true, text: 'Testmeldung an Teams gesendet.' } } catch (e) { gMsg = { ok: false, text: errText(e) } }
+    try { await msApi.testWebhook(); gMsg = { ok: true, text: 'Testmeldung zur Zustellung vorgemerkt.' } } catch (e) { gMsg = { ok: false, text: errText(e) } }
   }
   const spark = r => linePath(r.trend.map(x => x.open), 120, 30, 3, 0)
 </script>

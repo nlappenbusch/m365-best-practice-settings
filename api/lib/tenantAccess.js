@@ -43,7 +43,7 @@ function tenantRole(method, sub) {
   )
     return "operator";
   if (
-    /^(cockpit\/(alarms\/[^/]+|geo\/apply)|managed\/(settings|baseline\/[^/]+)|conditionalaccess\/(deploy|apply-template|capture-template|compare-template|policies\/[^/]+\/(state|scope|delete))|user-actions\/[^/]+)$/.test(
+    /^(cockpit\/(alarms\/(?:[^/]+|deliveries\/[^/]+\/retry)|geo\/apply)|managed\/(settings|baseline\/[^/]+)|conditionalaccess\/(deploy|apply-template|capture-template|compare-template|policies\/[^/]+\/(state|scope|delete))|user-actions\/[^/]+)$/.test(
       sub,
     )
   )

@@ -126,7 +126,7 @@ const GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"; // Microsoft Graph
 // bereits ab).
 // Bestehende Tenants brauchen dafuer einmal "Reparieren" (idempotent additiv,
 // siehe repairAppReg — kein Neu-Onboarding noetig).
-const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
+const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceManagementServiceConfig.ReadWrite.All", "Group.ReadWrite.All", "DeviceManagementApps.ReadWrite.All", "Policy.ReadWrite.ConditionalAccess", "Policy.Read.All", "Application.Read.All", "User.ReadWrite.All", "Organization.Read.All", "AuditLog.Read.All", "SecurityAlert.Read.All", "SecurityIncident.Read.All", "DeviceManagementScripts.ReadWrite.All", "UserAuthenticationMethod.ReadWrite.All", "Sites.Read.All", "RoleManagement.ReadWrite.Directory"];
 // Optionale Graph-Permission: Policy.ReadWrite.DeviceConfiguration steuert die
 // Entra-Geraeteeinstellungen (LAPS-Schalter). Sie steht bewusst NICHT in
 // GRAPH_APP_PERMS: Die Liste dort wird strikt aufgeloest und wirft, wenn eine
@@ -159,7 +159,7 @@ const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Polic
 // (siehe READONLY_ALLOW) — doppelt hält besser.
 const APP_DISPLAY_NAME_READONLY = "M365-Security-Policy-Manager (nur lesen)";
 const GLOBAL_READER_ROLE_TEMPLATE = "f2ef992c-3afb-46b9-b7cf-a126ee74c451"; // Globaler Leser
-const READONLY_GRAPH_PERMS = ["DeviceManagementConfiguration.Read.All", "DeviceManagementServiceConfig.Read.All", "DeviceManagementApps.Read.All", "DeviceManagementManagedDevices.Read.All", "Group.Read.All", "Policy.Read.All", "Application.Read.All", "User.Read.All", "Organization.Read.All", "AuditLog.Read.All", "Directory.Read.All", "RoleManagement.Read.Directory"];
+const READONLY_GRAPH_PERMS = ["DeviceManagementConfiguration.Read.All", "DeviceManagementServiceConfig.Read.All", "DeviceManagementApps.Read.All", "DeviceManagementManagedDevices.Read.All", "Group.Read.All", "Policy.Read.All", "Application.Read.All", "User.Read.All", "Organization.Read.All", "AuditLog.Read.All", "SecurityAlert.Read.All", "SecurityIncident.Read.All", "Directory.Read.All", "RoleManagement.Read.Directory"];
 const READONLY_GRAPH_PERMS_OPTIONAL = ["DeviceManagementRBAC.Read.All", "DeviceManagementScripts.Read.All", "UserAuthenticationMethod.Read.All", "Reports.Read.All", "Device.Read.All", "Sites.Read.All", "AuditLogsQuery.Read.All", "ServiceHealth.Read.All", "RoleEligibilitySchedule.Read.Directory", "RoleAssignmentSchedule.Read.Directory"];
 
 // Read-Only-Permissions fuer das Maester-Security-Audit (maester.dev, Liste aus
@@ -749,7 +749,7 @@ const READONLY_ALLOW = [
   /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/,
   // Managed Service: liest den Tenant nur, speichert lokal bzw. legt SDP-Tickets an.
   /^\/managed\/(run|settings|baseline\/[^/]+|findings\/[^/]+\/action)$/,
-  /^\/cockpit\/(compliance\/[^/]+|apps\/[^/]+\/review|alarms(?:\/[^/]+)?|dmarc\/import|geo\/preview)$/
+  /^\/cockpit\/(compliance\/[^/]+|apps\/[^/]+\/review|alarms(?:\/[^/]+|\/deliveries\/[^/]+\/retry)?|dmarc\/import|geo\/preview)$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];

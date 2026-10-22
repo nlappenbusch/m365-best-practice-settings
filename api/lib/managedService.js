@@ -28,6 +28,8 @@ const C = require("./managedCollectors");
 const STAND = require("./managedStand");
 
 const AREAS = [
+  { id: "defender", label: "Defender-Vorfälle", group: "Sicherheit", engine: "graph", icon: "shieldCheck", intervalMin: 10 },
+  { id: "directoryAudit", label: "Sicherheitsänderungen (Entra)", group: "Sicherheit", engine: "graph", icon: "search", intervalMin: 10 },
   { id: "signins", label: "Anmelde-Synchronisierung", group: "Identität", engine: "graph", icon: "map", intervalMin: 10 },
   { id: "credentials", label: "App-Credentials", group: "Identität", engine: "graph", icon: "key" },
   { id: "ca", label: "Conditional Access", group: "Identität", engine: "graph", icon: "lock", drift: "baseline" },
@@ -230,7 +232,7 @@ function reconcile(stateDir, tid, fresh, ranAreas) {
       store[id] = { ...base, firstSeen: now, status: "open", history: [{ at: now, what: "erkannt" }] };
       events.push({ kind: f.drift ? "drift" : "new", f: store[id] });
     } else {
-      const reopened = old.status === "resolved";
+      const reopened = old.status === "resolved" && !f.eventFinding;
       const snoozeOver = old.status === "snoozed" && old.snoozeUntil && old.snoozeUntil < now;
       const escalated = SEV_RANK[f.severity] > SEV_RANK[old.severity];
       store[id] = {
@@ -243,7 +245,7 @@ function reconcile(stateDir, tid, fresh, ranAreas) {
     }
   }
   for (const [id, f] of Object.entries(store)) {
-    if (seen.has(id) || f.status === "resolved" || !ranAreas.has(f.area)) continue;
+    if (seen.has(id) || f.status === "resolved" || f.eventFinding || !ranAreas.has(f.area)) continue;
     f.status = "resolved"; f.resolvedAt = now;
     f.history = (f.history || []).concat([{ at: now, what: "nicht mehr festgestellt — behoben" }]).slice(-30);
     events.push({ kind: "resolved", f });

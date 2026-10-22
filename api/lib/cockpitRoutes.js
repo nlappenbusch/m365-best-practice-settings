@@ -1,5 +1,6 @@
 "use strict";
 const C = require('./cockpit');
+const ALARM = require('./alarmEngine');
 const S = require('./managedService');
 const G = require('./graph');
 const GEO = require('./geoPolicies');
@@ -135,7 +136,7 @@ function register(app, deps) {
   }));
   app.get(prefix + '/alarms', wrap(async (req, res) => {
     const c = tenant(req).cockpit || {};
-    res.json({ ok: true, rules: c.rules || [], history: c.alarmHistory || [], areas: S.AREAS.map(a => ({ id: a.id, label: a.label })) });
+    res.json({ ok: true, rules: c.rules || [], ...ALARM.view(platform,req.params.id), sources:['defender','directoryAudit'].map(id=>({id,label:S.AREA[id].label,...S.readJson(S.file(STATE_DIR,req.params.id,'status.json'),{})[id]})), templates:ALARM.TEMPLATES, activities:require('./securitySources').CATEGORIES, configured:!!ALARM.webhook(loadState()), areas: S.AREAS.map(a => ({ id: a.id, label: a.label })) });
   }));
   app.put(prefix + '/alarms/:ruleId', wrap(async (req, res) => {
     let rule;
@@ -151,9 +152,11 @@ function register(app, deps) {
   }));
   app.post(prefix + '/alarms/check', wrap(async (req, res) => {
     const t = tenant(req);
-    const results = C.evaluateRules(t.cockpit?.rules || [], S.listFindings(STATE_DIR, t.id));
-    update(req, c => { c.alarmHistory = [...results, ...(c.alarmHistory || [])].slice(0, 1000); });
+    const results = ALARM.evaluate(platform,t,S.listFindings(STATE_DIR,t.id),S.readJson(S.file(STATE_DIR,t.id,'status.json'),{}),S.AREAS,ALARM.webhook(loadState()));
     res.json({ ok: true, results });
+  }));
+  app.post(prefix + '/alarms/deliveries/:deliveryId/retry',wrap(async(req,res)=>{
+    const t=tenant(req);ALARM.retry(platform,t.id,req.params.deliveryId,ALARM.webhook(loadState()),req.session.user);res.json({ok:true});
   }));
   app.get(prefix + '/dmarc', wrap(async (req, res) => res.json({ ok: true, reports: tenant(req).cockpit?.dmarc || [] })));
   app.post(prefix + '/dmarc/import', wrap(async (req, res) => {

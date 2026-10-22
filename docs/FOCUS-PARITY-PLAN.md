@@ -14,7 +14,7 @@ Die [Produktseite von Fokus MSP](https://fokus-msp.de/en/produkt/fokus-msp-m365-
 | Bedrohungen aus mehreren Microsoft-Datenquellen | Risk-Daten und Korrelation vorhanden. Persistierte inkrementelle Sign-in-Pipeline ergänzt; Security-Alerts/Incidents fehlen. |
 | Freigaben in SharePoint und OneDrive bearbeiten | Inventar und Sharing-Ereignisse vorhanden. Vollständige Datei-/Berechtigungssicht und gezielter Widerruf fehlen. |
 | App-Risiken und Credential-Ablauf | Rechteanalyse vorhanden. Neu: Credential-Ablauf als reguläre Monitoring-Befunde. App-Deinstallation fehlt. |
-| Mandantenübergreifende E-Mail-/Webhook-Alarme | Regeln derzeit tenantbezogen und intern; bestehende Teams-/Ticket-Meldungen ergänzen sie. Gemeinsame Zustellpipeline fehlt. |
+| Mandantenübergreifende E-Mail-/Webhook-Alarme | Tenantbezogene Regeln mit Defender-/Entra-Audit-Vorlagen, Alarmzustand und gemeinsamer dauerhafter Teams-Outbox umgesetzt; Live-Abnahme offen. Mehrere Zieltenants je Regel, E-Mail und Eskalationen fehlen. Siehe [ALARMS.md](ALARMS.md). |
 | Compliance-Dokumentation und planbare Markenreports | Maßnahmen und Reports vorhanden. Logo-/Modulvorlagen und kontrollierte Report-Zustellung fehlen. |
 | Lizenzbestellung über einen Distributionspartner | Nicht implementiert; getrennte kommerzielle Integration erforderlich. |
 

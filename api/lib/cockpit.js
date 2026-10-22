@@ -26,19 +26,15 @@ function appRisk(permissions) {
   return { score, level: factors.some(f => f.level === 'critical') ? 'critical' : factors.some(f => f.level === 'high') ? 'high' : factors.length ? 'medium' : 'low', factors };
 }
 
-function evaluateRules(rules, findings, at = new Date().toISOString()) {
-  const rank = { low: 0, medium: 1, high: 2, critical: 3 };
-  return rules.filter(r => r.enabled).map(r => {
-    const matching = findings.filter(f => !['resolved', 'snoozed'].includes(f.status) && (!r.area || f.area === r.area) && rank[f.severity] >= rank[r.severity]);
-    return { ruleId: r.id, name: r.name, at, count: matching.length, triggered: matching.length >= r.threshold, findingIds: matching.map(f => f.id) };
-  });
-}
-
 function validateRule(b) {
   if (typeof b.name !== 'string' || !b.name.trim() || b.name.length > 120) throw new Error('Regelname fehlt oder ist zu lang.');
   if (!['critical', 'high', 'medium', 'low'].includes(b.severity)) throw new Error('Ungültiger Schweregrad.');
   if (!Number.isInteger(Number(b.threshold)) || Number(b.threshold) < 1 || Number(b.threshold) > 10000) throw new Error('Schwellwert muss zwischen 1 und 10000 liegen.');
-  return { id: b.id || crypto.randomUUID(), name: b.name.trim(), description: String(b.description || '').slice(0, 1000), area: String(b.area || ''), severity: b.severity, threshold: Number(b.threshold), enabled: b.enabled !== false };
+  if (b.kind && !['findings','audit'].includes(b.kind)) throw new Error('Unbekannter Regeltyp.');
+  if (b.kind === 'audit' && !Object.hasOwn(require('./securitySources').CATEGORIES,b.activity)) throw new Error('Unbekannte Sicherheitsänderung.');
+  const windowMinutes = Number(b.windowMinutes ?? 60);
+  if (!Number.isInteger(windowMinutes) || windowMinutes < 10 || windowMinutes > 1440) throw new Error('Zeitfenster muss zwischen 10 und 1440 Minuten liegen.');
+  return { kind:b.kind || 'findings',activity:b.kind==='audit'?b.activity:null,windowMinutes,notify:b.notify===true,id: b.id || crypto.randomUUID(), name: b.name.trim(), description: String(b.description || '').slice(0, 1000), area: b.kind==='audit'?'directoryAudit':String(b.area || ''), severity: b.severity, threshold: Number(b.threshold), enabled: b.enabled !== false };
 }
 
 function parseDmarc(xml) {
@@ -60,4 +56,4 @@ function parseDmarc(xml) {
   return { key: crypto.createHash('sha256').update(domain + ':' + String(f.report_metadata.org_name || '') + ':' + id).digest('hex'), domain, reportId: id, organization: String(f.report_metadata.org_name || ''), begin: new Date(begin * 1000).toISOString(), end: new Date(end * 1000).toISOString(), policy: String(f.policy_published.p || ''), rows, total: rows.reduce((n, r) => n + r.count, 0), failed: rows.filter(r => !r.pass).reduce((n, r) => n + r.count, 0) };
 }
 
-module.exports = { MANUAL, appRisk, evaluateRules, validateRule, parseDmarc };
+module.exports = { MANUAL, appRisk, validateRule, parseDmarc };

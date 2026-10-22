@@ -81,6 +81,9 @@ test("HTTP access isolation covers tenant URLs, aggregate lists, job IDs and alt
     (await req("/tenants/a/managed/settings", "manager", "PUT", {})).status,
     200,
   );
+  for(const role of ['reader','operator']) assert.equal((await req('/tenants/a/cockpit/alarms/deliveries/x/retry',role,'POST')).status,403);
+  assert.equal((await req('/tenants/a/cockpit/alarms/deliveries/x/retry','manager','POST')).status,200);
+  assert.equal((await req('/tenants/b/cockpit/alarms/deliveries/x/retry','manager','POST')).status,403);
   for (const p of [
     "/platform/access",
     "/reports/overview",

@@ -22,6 +22,7 @@ test("managed HTTP runs execute through the durable worker and recheck revoked t
         name: "Test",
         organization: "example.onmicrosoft.com",
         managed: { enabled: false, autoTicket: "off" },
+        cockpit:{rules:[{id:"credentials-rule",name:"Credentials",kind:"findings",enabled:true,notify:true,area:"credentials",threshold:1,severity:"high"}]},
       },
     ],
   };
@@ -41,7 +42,7 @@ test("managed HTTP runs execute through the durable worker and recheck revoked t
   const previous = C.GRAPH_COLLECTORS.credentials;
   C.GRAPH_COLLECTORS.credentials = async () => {
     collected++;
-    return { metrics: [], data: { credentials: [] }, findings: [] };
+    return { metrics: [], data: { credentials: [] }, findings: [{key:"expired",title:"Credential expired",severity:"high"}] };
   };
   const app = express();
   app.use(express.json());
@@ -114,6 +115,11 @@ test("managed HTTP runs execute through the durable worker and recheck revoked t
   assert.equal(platform.job(first).status, "done");
   assert.equal(platform.sync("a")[0].status, "ok");
   assert.equal(collected, 1);
+  const alarmView=require('../lib/alarmEngine').view(platform,'a');
+  assert.equal(alarmView.alarms[0].active,true);
+  assert.equal(alarmView.history.length,1);
+  assert.equal(alarmView.deliveries.length,1);
+  assert.equal(alarmView.deliveries[0].status,'blocked');
   const second = await enqueue();
   grant(false);
   runtime.worker.tick();

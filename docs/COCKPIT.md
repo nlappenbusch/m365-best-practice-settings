@@ -14,7 +14,7 @@ Die neue Oberfläche orientiert sich an den bereitgestellten Marketplace-Screens
 | Jobs & Synchronisierung | Dauerhafte SQLite-Queue, Lease/Heartbeat, Wiederaufnahme, Retry/Abbruch, Quellzustände und Datenalter |
 | Zugriff & Tenant-Rollen | Explizite SSO-Zuweisungen: Lesen, Operator, Tenant-Admin; Plattformadministration und Journal |
 | DSGVO-Check | Fünf technische Befundkategorien und zehn manuelle Maßnahmen; begründete Statusänderungen mit Benutzer/Zeitpunkt und gespeichertem Verlauf; Maßnahmenexport |
-| Alarm-Regeln | Bereich, Mindestschweregrad, Anzahl, Aktivierung, Bearbeiten/Löschen, manuelle und automatische Auswertung nach Managed-Service-Lauf; interner Verlauf |
+| Alarm-Regeln | Defender- und Entra-Audit-Vorlagen, Bereich, Mindestschweregrad, Schwellwert und Zeitfenster; dauerhafte Alarmzustände, Entwarnung nach zwei aktuellen Prüfungen, Teams-Zustellverlauf und Wiederholungen. Siehe [Alarme](ALARMS.md). |
 | Policy-Rollout | Vorhandene CA-Zustandsvorlagen erfassen, Zielmandanten wählen, pro Tenant vergleichen, Policy-Ausnahmen, explizite Aktivierungsfreigabe, Einzelresultate. Verwendet bestehende CA-APIs. |
 | Geo-Blocking | Neue Länder-Policies je Zieltenant, serverseitige Vorschau, explizite aktive Notfallkonto-Ausnahmen, Report-only-Start, Planbindung und Wiederaufnahme nach Teilfehlern |
 | DMARC | Import unkomprimierter XML-Aggregatberichte, Format-/Größenprüfung, DTD-/Entity-Abweisung, Duplikaterkennung, nach Nachrichtenanzahl gewichtete Pass-Rate, Domain-/Fehlerfilter, CSV |
@@ -28,7 +28,7 @@ SharePoint/OneDrive, Geräte, Intune, Lizenzen, Rollen, Mail-Security, Maester, 
 - MFA-Registrierung ist keine Aussage über MFA-Erzwingung. Nicht im Registrierungsreport vorhandene Benutzer erhalten den Zustand unbekannt. Siehe [Microsoft-Dokumentation](https://learn.microsoft.com/en-us/graph/api/authenticationmethodsroot-list-userregistrationdetails?view=graph-rest-1.0).
 - Der Maßnahmen-Erfüllungsgrad ist eine Arbeitshilfe. Automatische Kategorien bewerten offene Befunde; er ist kein Rechtskonformitätszertifikat. Fehlende, fehlgeschlagene oder mehr als sieben Tage alte Erhebungen gelten als zu prüfen.
 - App-Bewertungen priorisieren nach Berechtigungsnamen. Nicht auflösbare Rechte und Abruffehler werden als Datenlücke ausgewiesen. Prüfvermerke widerrufen keine Rechte.
-- Alarmregeln erzeugen interne Ereignisse. Die bestehende Teams-/Ticket-Benachrichtigung des Managed Service bleibt separat konfiguriert; frei wählbare E-Mail-Empfänger sind nicht angebunden.
+- Alarmregeln können ausdrücklich Teams benachrichtigen; alte Regeln versenden ohne Aktivierung nichts. Die gemeinsame dauerhafte Outbox zeigt Fehler und Wiederholungen. Frei wählbare E-Mail-Empfänger sind nicht angebunden; SDP-Tickets behalten ihren bestehenden Ablauf. Grenzen und Aktivierung: [Alarme](ALARMS.md).
 - DMARC enthält keinen automatischen Postfachempfang und keine DNS-Verifizierung. Derzeit werden höchstens 200 Berichte je Tenant aufbewahrt. Die Übersichten aggregieren die importierten Berichte; überlappende Zeiträume unterschiedlicher Reporter werden nicht zusätzlich dedupliziert.
 - Die Kostenplanung bucht keine Subscription und verwendet keine fremden Marketplace-Preise als verbindliche Konditionen.
 - Der CA-Zustandsrollout ändert bestehende eigene Policies. Der separate Geo-Ablauf erstellt neue Länder-Policies ausschließlich in Report-only; produktive Aktivierung erfolgt später in Conditional Access. Andere fehlende Baseline-Policies werden weiterhin im bestehenden Fachmodul angelegt.
