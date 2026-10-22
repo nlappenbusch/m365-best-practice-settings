@@ -91,7 +91,7 @@ Berechtigungswerte kodieren die im Portal wählbaren Aktionen.</p>
   <tr>
     <td class="p">BP_Quarantine-<br>SelfReleaseNotification</td>
     <td class="v">Ein</td>
-    <td class="v">59 = AllowSender + BlockSender + RequestRelease + Preview + Delete</td>
+    <td class="v">55 = AllowSender + BlockSender + Release + Preview + Delete</td>
     <td>Standard-Tag für Spam/Spoof/Phishing. Endnutzer darf selbst freigeben. Benachrichtigung schliesst Nachrichten blockierter Absender ein (<code>IncludeMessagesFromBlockedSenderAddress = true</code>).</td>
   </tr>
   <tr>

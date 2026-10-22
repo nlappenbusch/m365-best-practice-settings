@@ -498,7 +498,7 @@
     "objekte": [
       {
         "objekt": "Quarantine-SelfReleaseNotification",
-        "soll": "Endnutzer-Quarantäne-Policy, Permissions 59 (Absender erlauben und blockieren, Freigabe anfordern, Vorschau, Löschen), Benachrichtigung aktiv inklusive blockierter Absender"
+        "soll": "Endnutzer-Quarantäne-Policy, Permissions 55 (Absender erlauben und blockieren, selbst freigeben, Vorschau, Löschen), Benachrichtigung aktiv inklusive blockierter Absender"
       },
       {
         "objekt": "Quarantine-RequestReleaseNotification",

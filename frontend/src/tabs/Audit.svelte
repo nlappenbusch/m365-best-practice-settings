@@ -51,9 +51,9 @@
       ok(gq, 'BP_Quarantine-SelfReleaseNotification', 'vorhanden')
       cmpBool(gq, 'SelfRelease: Benachrichtigung aktiv', true, q.ESNEnabled)
       cmpBool(gq, 'SelfRelease: inkl. blockierte Absender', true, q.IncludeMessagesFromBlockedSenderAddress)
-      const badFlags = ldPermFlags(q.Permissions, { PermissionToAllowSender: true, PermissionToBlockSender: true, PermissionToRequestRelease: true, PermissionToRelease: false, PermissionToPreview: true, PermissionToDelete: true })
-      if (badFlags.length === 0) ok(gq, 'SelfRelease: Berechtigungen (59)', 'korrekt')
-      else bad(gq, 'SelfRelease: Berechtigungen (59)', 'AllowSender+BlockSender+RequestRelease+Preview+Delete', badFlags.join(', '))
+      const badFlags = ldPermFlags(q.Permissions, { PermissionToAllowSender: true, PermissionToBlockSender: true, PermissionToRequestRelease: false, PermissionToRelease: true, PermissionToPreview: true, PermissionToDelete: true })
+      if (badFlags.length === 0) ok(gq, 'SelfRelease: Berechtigungen (55)', 'korrekt')
+      else bad(gq, 'SelfRelease: Berechtigungen (55)', 'AllowSender+BlockSender+Release+Preview+Delete', badFlags.join(', '))
     }
     if (!audit.quarantineRequest) missing(gq, 'BP_Quarantine-RequestReleaseNotification')
     else {
@@ -668,7 +668,7 @@
 
   // ---------- Konfig-Doku (nuechtern) als PDF ----------
   const LD_DOC_INTRO = {
-    'Quarantine Policies': 'Zwei Endnutzer-Quarantäne-Richtlinien mit aktivierter Quarantäne-Benachrichtigung (ESN). Berechtigungswert 59 = Selbst-Freigabe (AllowSender + BlockSender + RequestRelease + Preview + Delete), 26 = nur Freigabe-Anfrage (BlockSender + RequestRelease + Preview) für höher eingestufte Nachrichten.',
+    'Quarantine Policies': 'Zwei Endnutzer-Quarantäne-Richtlinien mit aktivierter Quarantäne-Benachrichtigung (ESN). Berechtigungswert 55 = Selbst-Freigabe (AllowSender + BlockSender + Release + Preview + Delete), 26 = nur Freigabe-Anfrage (BlockSender + RequestRelease + Preview) für höher eingestufte Nachrichten.',
     'Anti-Phishing': 'Richtlinie BP_AntiPhishing: Spoof Intelligence, Safety Tips, Kennzeichnung nicht authentifizierter Absender und DMARC-Durchsetzung. Der Empfänger-Scope läuft über BP_AntiPhishing_Rule; der Spoof-Quarantine-Tag ist nur per PowerShell setzbar (Portal-Limitierung).',
     'Anti-Spam': 'Richtlinie BP_AntiSpam_Inbound: Spam- und Phishing-Verdicts gehen in die Quarantäne, Bulk-Mail (Graymail/Newsletter ab BCL-Schwelle) in den Junk-Ordner; Aufbewahrung 30 Tage, tägliche Endnutzer-Benachrichtigung. Die neun Legacy-ASF-Filter stehen gemäss Microsoft-Empfehlung auf Off — sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Inline-Gateways, Sensible Wörter bei Medizin-/Finanzkorrespondenz) und ASF-Treffer sind bei Microsoft nicht als False Positive meldbar.',
     'Anti-Malware': 'Richtlinie BP_AntiMalware: Common-Attachment-Filter und Zero-Hour Auto Purge (ZAP); Malware-Treffer gehen in die Quarantäne mit Freigabe-Anfrage, Admins werden bei internen wie externen Absendern benachrichtigt. Dateitypen werden ohne führenden Punkt gespeichert (Exchange ergänzt ihn selbst).',

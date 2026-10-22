@@ -135,15 +135,15 @@ Set-AntiPhishPolicy -Identity "BP_AntiPhishing" `
 
 ### 4. Quarantine Policies
 
-#### `BP_Quarantine-SelfReleaseNotification` (Permissions-Wert 59)
+#### `BP_Quarantine-SelfReleaseNotification` (Permissions-Wert 55)
 Für Spam, Bulk, Spoof und normale Phishing-Fälle:
-- ✅ Request Release
+- ❌ Request Release
 - ✅ Allow Sender
 - ✅ Block Sender
 - ✅ Preview
 - ✅ Delete
 - ✅ Notifications (inkl. Nachrichten von blockierten Absendern)
-- ❌ Direct Release
+- ✅ Direct Release
 
 #### `BP_Quarantine-RequestReleaseNotification` (Permissions-Wert 26)
 Für High Confidence Phishing und Malware mit Admin-Kontrolle:

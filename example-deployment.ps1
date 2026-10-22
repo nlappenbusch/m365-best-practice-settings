@@ -32,9 +32,9 @@ Connect-ExchangeOnline
 Write-Host "Creating Quarantine Policies..." -ForegroundColor Yellow
 
 # Self-Release Notification Policy
-# 59 = AllowSender(32) + BlockSender(16) + RequestRelease(8) + Preview(2) + Delete(1)
+# 55 = AllowSender(32) + BlockSender(16) + Release(4) + Preview(2) + Delete(1)
 New-QuarantinePolicy -Name "BP_Quarantine-SelfReleaseNotification" `
-    -EndUserQuarantinePermissionsValue 59 `
+    -EndUserQuarantinePermissionsValue 55 `
     -ESNEnabled $true `
     -IncludeMessagesFromBlockedSenderAddress $true
 

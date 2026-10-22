@@ -292,19 +292,19 @@ Connect-IPPSSession
 Write-Host "Creating Quarantine Policies..." -ForegroundColor Yellow
 
 # Self-Release Notification Policy
-# Permissions 59 = AllowSender(32) + BlockSender(16) + RequestRelease(8) + Preview(2) + Delete(1)
+# Permissions 55 = AllowSender(32) + BlockSender(16) + Release(4) + Preview(2) + Delete(1)
 # Notification inkl. Nachrichten von blockierten Absendern
 try {
     $qp1 = Get-QuarantinePolicy -Identity "BP_Quarantine-SelfReleaseNotification" -ErrorAction SilentlyContinue
     if ($null -eq $qp1) {
         New-QuarantinePolicy -Name "BP_Quarantine-SelfReleaseNotification" \`
-            -EndUserQuarantinePermissionsValue 59 \`
+            -EndUserQuarantinePermissionsValue 55 \`
             -ESNEnabled $true \`
             -IncludeMessagesFromBlockedSenderAddress $true
         Write-Host "✓ Created BP_Quarantine-SelfReleaseNotification" -ForegroundColor Green
     } else {
         Set-QuarantinePolicy -Identity "BP_Quarantine-SelfReleaseNotification" \`
-            -EndUserQuarantinePermissionsValue 59 \`
+            -EndUserQuarantinePermissionsValue 55 \`
             -ESNEnabled $true \`
             -IncludeMessagesFromBlockedSenderAddress $true
         Write-Host "✓ Updated BP_Quarantine-SelfReleaseNotification" -ForegroundColor Green
@@ -707,7 +707,7 @@ ${(config.safeLinks && config.safeLinks.enabled === false) ? '❌ **In dieser Vo
 ✅ Self-Service Release | ✅ Preview | ✅ Delete
 
 ### BP_Quarantine-RequestReleaseNotification
-✅ Request Release (Admin) | ✅ Preview | ✅ Delete | ❌ Direct Release
+✅ Request Release (Admin) | ✅ Block Sender | ✅ Preview | ❌ Delete | ❌ Direct Release
 
 ---
 

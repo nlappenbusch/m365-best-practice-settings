@@ -1,3 +1,10 @@
+## 2026-10-22 — Quarantäne-Selbstfreigabe korrigiert
+
+- SelfRelease verwendet 55 (Release an, RequestRelease aus) statt 59 in Live-Deploy, PowerShell-Export und Beispielskript. RequestRelease bleibt 26.
+- Audit erkennt den alten Zustand 59 als Abweichung; Demo-Daten, UI, Baseline und Dokumentation sind angepasst.
+- Bestehende Tenants benötigen einen erneuten Policy-Deploy; das App-Deployment ändert keine Tenant-Policies.
+- Der frühere Changelog-Eintrag zur Umstellung auf 59 beschreibt den damaligen Fehler, nicht den aktuellen Sollzustand.
+
 # M365 Best Practice Settings Tool - Changelog
 
 ## Version 2.65 - Changes in Klartext: Routine ausgeblendet, Gleichartiges gebündelt (2026-10-16)

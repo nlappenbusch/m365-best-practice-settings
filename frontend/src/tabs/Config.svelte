@@ -485,15 +485,15 @@
       <div class="alert alert-info"><strong>ℹ️ Wichtig:</strong> Eigene Quarantine Policies sind zwingend erforderlich für transparente User Experience und definierte Release-Governance.</div>
       <div class="quarantine-policy">
         <h4>BP_Quarantine-SelfReleaseNotification</h4>
-        <p class="policy-description">Für Spam, Bulk, Spoof und normale Phishing-Fälle (Permissions-Wert 59)</p>
+        <p class="policy-description">Für Spam, Bulk, Spoof und normale Phishing-Fälle (Permissions-Wert 55)</p>
         <div class="permissions-list">
-          <span class="permission enabled">✓ Request Release</span>
+          <span class="permission disabled">✗ Request Release</span>
           <span class="permission enabled">✓ Allow Sender</span>
           <span class="permission enabled">✓ Block Sender</span>
           <span class="permission enabled">✓ Preview</span>
           <span class="permission enabled">✓ Delete</span>
           <span class="permission enabled">✓ Notifications (inkl. blockierte Absender)</span>
-          <span class="permission disabled">✗ Direct Release</span>
+          <span class="permission enabled">✓ Direct Release</span>
         </div>
       </div>
       <div class="quarantine-policy">

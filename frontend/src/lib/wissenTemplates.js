@@ -84,8 +84,8 @@ export function docsHtml() {
 
         <p><strong>Lösung:</strong> Zwei differenzierte Quarantine Policies:</p>
         <ul>
-            <li><code>BP_Quarantine-SelfReleaseNotification</code> (Permissions 59) - Für Spam, Bulk, Spoof und normale Phishing-Fälle:
-                User können Freigabe anfordern, Absender erlauben/blockieren, Vorschau und Löschen;
+            <li><code>BP_Quarantine-SelfReleaseNotification</code> (Permissions 55) - Für Spam, Bulk, Spoof und normale Phishing-Fälle:
+                User können selbst freigeben, Absender erlauben/blockieren, Vorschau und Löschen;
                 Benachrichtigung inklusive Nachrichten von blockierten Absendern</li>
             <li><code>BP_Quarantine-RequestReleaseNotification</code> (Permissions 26) - Für High Confidence Phishing und Malware:
                 nur Freigabe anfordern, Absender blockieren und Vorschau;

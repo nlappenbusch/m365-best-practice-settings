@@ -16,29 +16,34 @@ Microsoft's `New-QuarantinePolicy` cmdlet expects an **integer value** for `-End
 Use numeric values instead of hashtables:
 
 ```powershell
-# Self-Release (Full permissions except RequestRelease)
--EndUserQuarantinePermissionsValue 236
+# Self-Release (AllowSender + BlockSender + Release + Preview + Delete)
+-EndUserQuarantinePermissionsValue 55
 
-# Request-Release (Limited permissions, requires admin approval)
--EndUserQuarantinePermissionsValue 171
+# Request-Release (BlockSender + RequestRelease + Preview)
+-EndUserQuarantinePermissionsValue 26
 ```
 
 **Permission Bitmask Breakdown:**
 
-| Permission | Bit Value | SelfRelease (236) | RequestRelease (171) |
-|------------|-----------|-------------------|----------------------|
-| PermissionToViewHeader | 1 | ✅ | ✅ |
-| PermissionToDownload | 2 | ✅ | ✅ |
-| PermissionToAllowSender | 4 | ✅ | ❌ |
-| PermissionToBlockSender | 8 | ✅ | ✅ |
-| PermissionToRequestRelease | 16 | ❌ | ✅ |
-| PermissionToRelease | 32 | ✅ | ❌ |
-| PermissionToPreview | 128 | ✅ | ✅ |
-| PermissionToDelete | 64 | ✅ | ✅ |
+| Permission | Bit Value | SelfRelease (55) | RequestRelease (26) |
+|------------|-----------|------------------|---------------------|
+| PermissionToViewHeader | 128 | ❌ | ❌ |
+| PermissionToDownload | 64 | ❌ | ❌ |
+| PermissionToAllowSender | 32 | ✅ | ❌ |
+| PermissionToBlockSender | 16 | ✅ | ✅ |
+| PermissionToRequestRelease | 8 | ❌ | ✅ |
+| PermissionToRelease | 4 | ✅ | ❌ |
+| PermissionToPreview | 2 | ✅ | ✅ |
+| PermissionToDelete | 1 | ✅ | ❌ |
 
 **Calculation:**
-- **SelfRelease (236)**: 128 + 64 + 32 + 8 + 4 + 2 + 1 = 236 (missing only RequestRelease=16)
-- **RequestRelease (171)**: 128 + 64 + 16 + 8 + 2 + 1 = 171 (missing AllowSender=4 and Release=32)
+- **SelfRelease (55)**: 32 + 16 + 4 + 2 + 1 = 55.
+- **RequestRelease (26)**: 16 + 8 + 2 = 26.
+
+Never enable Release and RequestRelease together. ViewHeader is always available for visible messages; Download and AllowSender have no effect according to current Microsoft documentation.
+Source: https://learn.microsoft.com/en-us/defender-office-365/quarantine-policies#create-quarantine-policies-in-powershell
+
+Existing tenants need a new policy deployment (or Set-QuarantinePolicy with value 55); deploying the web application alone does not change tenant permissions. High confidence phishing and malware remain subject to Microsoft's restrictions on self-release.
 
 ### 2. Anti-Malware Policy Error
 **Problem:**
@@ -156,8 +161,8 @@ Get-MalwareFilterPolicy -Identity "BP_AntiMalware" | Format-List QuarantineTag
 ```
 Name                                     ESNEnabled EndUserQuarantinePermissionsValue
 ----                                     ---------- ---------------------------------
-BP_Quarantine-SelfReleaseNotification          True                               236
-BP_Quarantine-RequestReleaseNotification       True                               171
+BP_Quarantine-SelfReleaseNotification          True                                55
+BP_Quarantine-RequestReleaseNotification       True                                26
 
 SpoofQuarantineTag           : BP_Quarantine-SelfReleaseNotification
 

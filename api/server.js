@@ -3496,7 +3496,7 @@ async function fakeDeployJob(job, onProgress, cfg) {
 function fakeAudit() {
   return {
     acceptedDomains: ["demo.ch", "demo.onmicrosoft.com"],
-    quarantineSelf: { Name: "BP_Quarantine-SelfReleaseNotification", ESNEnabled: true, IncludeMessagesFromBlockedSenderAddress: true, Permissions: "PermissionToAllowSender: True, PermissionToBlockSender: True, PermissionToRequestRelease: True, PermissionToRelease: False, PermissionToPreview: True, PermissionToDelete: True" },
+    quarantineSelf: { Name: "BP_Quarantine-SelfReleaseNotification", ESNEnabled: true, IncludeMessagesFromBlockedSenderAddress: true, Permissions: "PermissionToAllowSender: True, PermissionToBlockSender: True, PermissionToRequestRelease: False, PermissionToRelease: True, PermissionToPreview: True, PermissionToDelete: True" },
     quarantineRequest: null, // simuliert: fehlt
     antiPhish: { Name: "BP_AntiPhishing", EnableSpoofIntelligence: true, EnableFirstContactSafetyTips: true, EnableUnauthenticatedSender: true, EnableViaTag: true, HonorDmarcPolicy: true, DmarcQuarantineAction: "Quarantine", DmarcRejectAction: "Reject", AuthenticationFailAction: "MoveToJmf", SpoofQuarantineTag: "BP_Quarantine-SelfReleaseNotification" },
     antiPhishRule: { Name: "BP_AntiPhishing_Rule", State: "Enabled", Priority: 0, RecipientDomainIs: ["example.com", "example.onmicrosoft.com"] },
