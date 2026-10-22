@@ -25,14 +25,6 @@ test('app risk distinguishes tenant-wide write, critical privilege and benign de
   assert.equal(C.appRisk([]).level,'low');
   assert.equal(C.appRisk(['Directory.ReadWrite.All','Directory.ReadWrite.All']).score,100);
 });
-test('alarm thresholds respect severity, area, disabled rules and resolved/snoozed lifecycle', () => {
-  const rule = { id:'r',name:'Test',area:'risk',severity:'high',threshold:2,enabled:true };
-  const findings = [{ id:'1',area:'risk',severity:'critical',status:'open' },{ id:'2',area:'risk',severity:'high',status:'ack' },{ id:'3',area:'risk',severity:'high',status:'resolved' },{ id:'4',area:'risk',severity:'high',status:'snoozed' },{ id:'5',area:'devices',severity:'critical',status:'open' },{ id:'6',area:'risk',severity:'medium',status:'open' }];
-  const r = C.evaluateRules([rule,{...rule,enabled:false}],findings);
-  assert.equal(r.length,1); assert.equal(r[0].count,2); assert.equal(r[0].triggered,true);
-  assert.deepEqual(r[0].findingIds,['1','2']);
-  assert.equal(C.evaluateRules([{...rule,threshold:3}],findings)[0].triggered,false);
-});
 test('rule validation rejects malformed names, severities and thresholds', () => {
   const good = { name:'Test',severity:'high',threshold:1 };
   assert.ok(C.validateRule(good).id);

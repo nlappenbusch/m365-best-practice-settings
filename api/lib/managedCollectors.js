@@ -1442,6 +1442,8 @@ async function collectExo(tenant, cert, parts, opts, onProgress) {
 }
 
 const GRAPH_COLLECTORS = {
+  defender: require('./securitySources').collectDefender,
+  directoryAudit: require('./securitySources').collectAudit,
   signins: require('./signinSync').collectSignins,
   credentials: require('./appCredentials').collectCredentials,
   ca: collectCa, risk: collectRisk, score: collectScore, consent: collectConsent,

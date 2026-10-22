@@ -18,6 +18,8 @@ const AI = require("./aiProviders");
 const MCAI = require("./mcAi");
 const { cut } = require("./managedCollectors");
 const ACCESS = require('./tenantAccess');
+const ALARM = require('./alarmEngine');
+const { NotificationWorker } = require('./notificationWorker');
 const { DurableWorker } = require('./durableWorker');
 
 const TICK_MS = 30 * 1000;
@@ -28,6 +30,7 @@ function register(app, deps) {
   const who = req => (req.session && req.session.user) || "unbekannt";
   const globalCfg = () => ({ teamsWebhook: "", notifyMin: "high", brand: "igeeks AG", ...((loadState().managedGlobal) || {}), envWebhook: !!process.env.MANAGED_TEAMS_WEBHOOK });
   const webhookUrl = () => process.env.MANAGED_TEAMS_WEBHOOK || (loadState().managedGlobal || {}).teamsWebhook || "";
+  const notifications = new NotificationWorker(platform,loadState).start();
   // Import timestamps for all existing tenants, including disabled schedules. Never invent a fresh success.
   for(const t of loadState().tenants||[]){const cfg=S.settingsOf(t),old=S.readJson(S.file(STATE_DIR,t.id,'status.json'),{});for(const a of S.AREAS){const s=old[a.id];if(!s)continue;const interval=a.engine==='exo'?cfg.exoIntervalHours*3600000:(a.intervalMin||cfg.graphIntervalMin)*60000;platform.db.prepare('INSERT OR IGNORE INTO sync_state(tenant_id,source,attempt_at,success_at,next_at,status,error) VALUES(?,?,?,?,?,?,?)').run(t.id,a.id,Date.parse(s.at)||null,Date.parse(s.lastOkAt||(s.ok?s.at:''))||null,(Date.parse(s.at)||0)+interval,s.ok?'ok':'error',s.error||null)}}
 
@@ -65,7 +68,7 @@ function register(app, deps) {
     const s = S.settingsOf(t);
     if (s.autoTicket === "off" || !SDP.config().enabled) return [];
     const min = S.SEV_RANK[s.autoTicket] || S.SEV_RANK.critical;
-    const cands = events.filter(e => ["new", "drift", "reopened", "escalated"].includes(e.kind) && S.SEV_RANK[e.f.severity] >= min && !e.f.ticketId && e.f.status !== "ack");
+    const cands = events.filter(e => !e.f.eventFinding && ["new", "drift", "reopened", "escalated"].includes(e.kind) && S.SEV_RANK[e.f.severity] >= min && !e.f.ticketId && e.f.status !== "ack");
     const out = [];
     for (const e of cands.slice(0, MAX_TICKETS_PER_RUN)) {
       try { out.push(await createTicket(t, e.f, "automatisch")); }
@@ -86,9 +89,9 @@ function register(app, deps) {
   }
 
   // ---------------------------------------------------------------- Teams
-  async function notify(t, events) {
+  async function notify(t, events, deliveryKey) {
     const url = webhookUrl();
-    if (!url) return;
+    deliveryKey ||= require('crypto').randomUUID();
     const g = globalCfg();
     const s = S.settingsOf(t);
     const min = S.SEV_RANK[s.notifyMin || g.notifyMin] ?? S.SEV_RANK.high;
@@ -109,15 +112,13 @@ function register(app, deps) {
               type: "TextBlock", wrap: true, color: col[e.f.severity] || "Default",
               text: `**${String(e.f.severity).toUpperCase()}** (${kindDe[e.kind] || e.kind}) — ${e.f.title}${e.f.ticketId ? ` · Ticket #${e.f.ticketId}` : ""}`
             })),
+            { type: 'TextBlock',text: 'Meldungs-ID: '+deliveryKey,isSubtle:true,wrap:true },
             ...(hits.length > 10 ? [{ type: "TextBlock", text: `… und ${hits.length - 10} weitere`, isSubtle: true }] : [])
           ]
         }
       }]
     };
-    try {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(card) });
-      if (!r.ok) console.log("Managed Service: Teams-Webhook HTTP " + r.status);
-    } catch (e) { console.log("Managed Service: Teams-Webhook fehlgeschlagen: " + e.message); }
+    ALARM.enqueue(platform,t.id,deliveryKey,url,card);
   }
 
   // ---------------------------------------------------------------- Lauf
@@ -137,33 +138,25 @@ function register(app, deps) {
       say("Tickets & Meldungen");
       // Tenant frisch laden: Einstellungen koennen sich waehrend des Laufs geaendert haben.
       const fresh = (loadState().tenants || []).find(x => x.id === t.id) || t;
-      if (fresh.cockpit?.rules?.length) {
-        const checks = require('./cockpit').evaluateRules(fresh.cockpit.rules, S.listFindings(STATE_DIR, t.id));
-        const state = loadState();
-        const target = state.tenants.find(x => x.id === t.id);
-        if (target) {
-          target.cockpit ||= {};
-          target.cockpit.alarmHistory = [...checks, ...(target.cockpit.alarmHistory || [])].slice(0, 1000);
-          saveState(state);
-        }
-      }
+      ALARM.evaluate(platform,fresh,S.listFindings(STATE_DIR,t.id),S.readJson(S.file(STATE_DIR,t.id,'status.json'),{}),S.AREAS,webhookUrl());
       const findings = Object.fromEntries(S.listFindings(STATE_DIR, t.id).map(f => [f.id, f]));
       const events = r.events.map(e => ({ ...e, f: findings[e.f.id] || e.f }));
+      const rules=(fresh.cockpit?.rules||[]).filter(r=>r.enabled&&r.notify===true);
+      const directEvents=events.filter(e=>!['defender','directoryAudit'].includes(e.f.area)&&!rules.some(r=>r.kind!=='audit'&&(!r.area||r.area===e.f.area)));
+      await notify(fresh,directEvents,'managed:'+job.id);
       const uncertain=checkpoint.effectsStarted&&!checkpoint.effectsCompleted;
       let tickets=[];
       if(!checkpoint.effectsStarted){
       checkpoint.effectsStarted=true;control.progress(jobSummary(job),checkpoint);
       tickets = await autoTickets(fresh, events);
-      // Ticketnummern in die Meldung uebernehmen.
-      const after = Object.fromEntries(S.listFindings(STATE_DIR, t.id).map(f => [f.id, f]));
-      await notify(fresh, events.map(e => ({ ...e, f: after[e.f.id] || e.f })));
+
       checkpoint.effectsCompleted=true;control.progress(jobSummary(job),checkpoint);
       }
       if (job) {
         job.result = { ran: r.ran, failed: r.failed, events: r.events.length, tickets: tickets.map(x => x.id) };
         finishAppJob(job, true, null, r.failed.length ? "Nicht abrufbar: " + r.failed.map(a => S.AREA[a].label).join(", ") : null);
       }
-      return {partial:r.failed.length>0||uncertain,warning:uncertain?'Zustellung nach Worker-Unterbrechung unbestätigt; keine automatische Wiederholung.':r.failed.length?'Nicht abrufbar: '+r.failed.join(', '):null};
+      return {partial:r.failed.length>0||uncertain,warning:uncertain?'Ticketanlage nach Worker-Unterbrechung unbestätigt; keine automatische Wiederholung. Teams-Zustellung separat prüfen.':r.failed.length?'Nicht abrufbar: '+r.failed.join(', '):null};
     } catch (e) {
       console.log(`Managed Service: Lauf fuer ${t.name} fehlgeschlagen: ${e.message}`);
       if (job) finishAppJob(job, false, e.message, null);
@@ -253,8 +246,8 @@ function register(app, deps) {
 
   app.post("/api/managed/global/test", wrap(async (req, res) => {
     if (!webhookUrl()) return res.status(400).json({ error: "Kein Teams-Webhook hinterlegt." });
-    await notify({ id: "_test", name: "Testmeldung", managed: { notifyMin: "low" } }, [{ kind: "new", f: { severity: "high", title: "Testmeldung aus dem Managed Service — Verbindung funktioniert." } }]);
-    res.json({ ok: true });
+    await notify({ id: "_test", name: "Testmeldung", managed: { notifyMin: "low" } }, [{ kind: "new", f: { severity: "high", title: "Testmeldung aus dem Managed Service" } }]);
+    res.json({ ok: true, queued:true });
   }));
 
   app.get("/api/managed/fleet", (req, res) => {
@@ -470,7 +463,7 @@ function register(app, deps) {
     if (req.query.download) res.set("content-disposition", `attachment; filename="Managed-M365_${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "-")}_${q}.html"`);
     res.send(html);
   }));
-  return {worker,stop:async()=>{clearInterval(scheduler);clearTimeout(initial);await worker.stop()}};
+  return {worker,stop:async()=>{clearInterval(scheduler);clearTimeout(initial);await worker.stop();await notifications.stop()}};
 }
 
 module.exports = { register };

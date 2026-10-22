@@ -39,6 +39,9 @@ jobs:
           node --check lib/platformStore.js
           node --check lib/tenantAccess.js
           node --check lib/durableWorker.js
+          node --check lib/securitySources.js
+          node --check lib/alarmEngine.js
+          node --check lib/notificationWorker.js
           node --check lib/signinSync.js
           node --check lib/platformRoutes.js
           npm test
