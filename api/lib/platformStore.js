@@ -5,7 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const uuid = () => crypto.randomUUID();
 const parse = (s, fb) => (s ? JSON.parse(s) : fb);
-const redact = require("./serverLog").redact;
+const redact = require("./serverlog").redact;
 function scrub(value) {
   if (typeof value === "string") return redact(value);
   if (Array.isArray(value)) return value.map(scrub);
