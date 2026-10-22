@@ -99,10 +99,10 @@
       <div class="topbar-title">
         {#if current}
           <div class="topbar-heading">
-            <span class="topbar-icon"><Icon name={current.icon} size={19} /></span>
+            <span class="topbar-icon"><Icon name={$activeTab.startsWith('cockpit')?'cloud':current.icon} size={24} /></span>
             <div>
-              <h1>{current.label}</h1>
-              <p>{current.desc}</p>
+              <h1>{$activeTab.startsWith('cockpit')?'Microsoft 365 Cockpit':current.label}</h1>
+              {#if !$activeTab.startsWith('cockpit')}<p>{current.desc}</p>{/if}
             </div>
           </div>
         {:else}

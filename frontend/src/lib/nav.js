@@ -9,7 +9,7 @@
 export const NAV_GROUPS = [
   {
     id: 'cockpit', label: 'Microsoft 365 Cockpit', items: [
-      { id: 'cockpit', icon: 'building', label: 'Dashboard', desc: 'Mandanten, Verbindungen, Befunde und Secure Score' },
+      { id: 'cockpit', icon: 'grid', label: 'Dashboard', desc: 'Mandanten, Verbindungen, Befunde und Secure Score' },
       { id: 'cockpit-jobs', icon: 'refresh', label: 'Jobs & Synchronisierung', desc: 'Dauerhafte Läufe, Wiederholungen und Datenalter je Quelle' },
       { id: 'cockpit-access', icon: 'userCog', label: 'Zugriff & Rollen', desc: 'SSO-Benutzer und Tenant-Zuweisungen administrieren', gated:'platformAdmin' },
       { id: 'cockpit-rollout', icon: 'rocket', label: 'Policy-Rollout', desc: 'CA-Zustandsvorlagen auf mehrere Mandanten anwenden' },

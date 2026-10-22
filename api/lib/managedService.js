@@ -629,6 +629,9 @@ function fleetRow(stateDir, tenant) {
   const sla = open.filter(f => f.status === "open" && (now - new Date(f.firstSeen).getTime()) / 3600000 > (SLA_HOURS[f.severity] || 72)).length;
   const scoreMetric = status.score && status.score.metrics ? status.score.metrics.find(m => m.label === "Secure Score") : null;
   const compMetric = status.devices && status.devices.metrics ? status.devices.metrics.find(m => m.label === "Konform") : null;
+  const licenseMetric = status.licenses?.metrics?.find(m => m.label === "Lizenziert");
+  const deviceMetric = status.devices?.metrics?.find(m => m.label === "Geräte");
+  const licenseData = readJson(file(stateDir, tid, "data/licenses.json"), {});
   const h = readJson(file(stateDir, tid, "history.json"), []).slice(-30);
   return {
     id: tid, name: tenant.name, organization: tenant.organization, readOnly: !!tenant.readOnly,
@@ -641,6 +644,10 @@ function fleetRow(stateDir, tenant) {
     tickets: open.filter(f => f.ticketId).length,
     score: scoreMetric ? scoreMetric.value : null,
     compliance: compMetric ? compMetric.value : null,
+    licensedUsers: typeof licenseMetric?.value === 'number' ? licenseMetric.value : null,
+    totalUsers: typeof licenseData.totals?.users === 'number' ? licenseData.totals.users : null,
+    managedDevices: typeof deviceMetric?.value === 'number' ? deviceMetric.value : null,
+    metricAt: { licenses: status.licenses?.lastOkAt || (status.licenses?.ok ? status.licenses.at : null), devices: status.devices?.lastOkAt || (status.devices?.ok ? status.devices.at : null), score: status.score?.lastOkAt || (status.score?.ok ? status.score.at : null) },
     areasFailed: AREAS.filter(a => status[a.id] && status[a.id].ok === false).map(a => a.label),
     areasNever: AREAS.filter(a => !status[a.id]).length,
     trend: h.map(x => ({ d: x.d, open: x.open, critical: x.critical, score: x.score })),
