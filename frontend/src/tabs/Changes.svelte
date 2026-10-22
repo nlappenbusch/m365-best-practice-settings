@@ -87,7 +87,7 @@
         if (j.status === 'running') { poll(id, after); return }
         running = false
         if (j.status === 'failed') { error = j.error || 'Erhebung fehlgeschlagen'; return }
-        notice = after || 'Evidence 3.0 aktualisiert.'
+        notice = after || 'Änderungsprotokoll aktualisiert.'
         await load()
       } catch (e) {
         running = false
@@ -104,7 +104,7 @@
         from: daysAgo(1), to: today(), sources: ['intune','entra']
       })
       job = { id:r.jobId, status:'running', phase:'Start' }
-      poll(r.jobId, 'Change-Evidence, Snapshot und Korrelation aktualisiert.')
+      poll(r.jobId, 'Änderungen geladen und Richtlinienvergleich aktualisiert.')
     } catch (e) { running = false; error = errText(e) }
   }
 
@@ -114,7 +114,7 @@
     try {
       const r = await apiPost(`/api/tenants/${tid()}/evidence/v3/snapshot/ca`, {})
       job = { id:r.jobId, status:'running', phase:'Conditional Access Snapshot' }
-      poll(r.jobId, 'CA-Snapshot und bestehende Event-Korrelationen aktualisiert.')
+      poll(r.jobId, 'Aktuelle Zugriffsrichtlinien geladen und mit den Vorgaben verglichen.')
     } catch (e) { running = false; error = errText(e) }
   }
 
@@ -132,7 +132,7 @@
   }
 
   function baselineText(a) {
-    if (!a?.baseline) return 'nicht korreliert'
+    if (!a?.baseline) return 'noch nicht verglichen'
     if (a.baseline.compliant) return `Baseline ${a.baseline.version || '—'} · kein technischer Verstoss erkannt`
     return `Baseline ${a.baseline.version || '—'} · Abweichung`
   }
@@ -149,12 +149,12 @@
   <div class="chg">
     <div class="chg-head">
       <div>
-        <div class="chg-eyebrow">EVIDENCE 3.0 · CHANGE INTELLIGENCE</div>
+        <div class="chg-eyebrow">ÄNDERUNGSPROTOKOLL</div>
         <h2>Was hat sich verändert – und ist es relevant?</h2>
-        <p>Deduplizierte Events, Ressourcen-Historie, Baseline-Korrelation, Impact und dokumentierte Entscheide in einer Sicht.</p>
+        <p>Wer hat was geändert? Prüfe auffällige Vorgänge und öffne bei Bedarf die Details mit Vorher/Nachher-Werten.</p>
       </div>
       <div class="chg-actions">
-        <button class="btn btn-secondary" onclick={refreshCaSnapshot} disabled={loading || running}>CA neu korrelieren</button>
+        <button class="btn btn-secondary" onclick={refreshCaSnapshot} disabled={loading || running}>Zugriffsrichtlinien vergleichen</button>
         <button class="btn btn-secondary" onclick={load} disabled={loading || running}>↻ Aktualisieren</button>
         <button class="btn btn-primary" onclick={collectSinceYesterday} disabled={running}>{running ? 'Erhebung läuft…' : 'Seit gestern erheben'}</button>
       </div>
@@ -163,15 +163,15 @@
     {#if error}<div class="alert alert-warning">{error}</div>{/if}
     {#if notice}<div class="ld-banner ok">{notice}</div>{/if}
     {#if job?.status === 'running'}
-      <div class="ld-job"><span class="ld-spinner"></span><div><strong>Evidence 3.0 aktualisiert</strong><div class="ld-job-meta">{job.phase || '…'}</div></div></div>
+      <div class="ld-job"><span class="ld-spinner"></span><div><strong>Änderungen werden geladen</strong><div class="ld-job-meta">{job.phase || '…'}</div></div></div>
     {/if}
 
     {#if events.length}
       <div class="chg-summary2">
         <button class:on={filter === 'attention'} class="att" onclick={() => filter = 'attention'}><strong>{counts.attention}</strong><span>brauchen Aufmerksamkeit</span></button>
         <button class:on={filter === 'relevant'} onclick={() => filter = 'relevant'}><strong>{counts.relevant}</strong><span>Änderungen insgesamt (gebündelt)</span></button>
-        <button class:on={filter === 'routine'} class="rt" onclick={() => filter = 'routine'}><strong>{counts.routineEvents}</strong><span>Routine-Events ausgeblendet</span></button>
-        <div class="when"><strong>{ageLabel(stats?.lastSnapshotAt || stats?.lastEventIngestAt)}</strong><span>zuletzt erhoben · {events.length} Events, 30 Tage</span></div>
+        <button class:on={filter === 'routine'} class="rt" onclick={() => filter = 'routine'}><strong>{counts.routineEvents}</strong><span>Routinevorgänge</span></button>
+        <div class="when"><strong>{ageLabel(stats?.lastSnapshotAt || stats?.lastEventIngestAt)}</strong><span>zuletzt erhoben · {events.length} Vorgänge, 30 Tage</span></div>
       </div>
     {/if}
 
@@ -196,7 +196,7 @@
                 <strong>{g.title}</strong>
                 <span>{g.actors.slice(0, 2).join(', ')}{g.actors.length > 2 ? ` +${g.actors.length - 2}` : ''} · {span(g)}</span>
               </div>
-              <button class="cc-more" onclick={() => openKey = openKey === g.key ? null : g.key}>{openKey === g.key ? 'weniger' : g.events.length > 1 ? `${g.events.length} Events` : 'Details'}</button>
+              <button class="cc-more" onclick={() => openKey = openKey === g.key ? null : g.key}>{openKey === g.key ? 'weniger' : g.events.length > 1 ? `${g.events.length} Vorgänge` : 'Details'}</button>
             </div>
             {#if g.view.hint}<p class="cc-hint"><b>Was tun:</b> {g.view.hint}</p>{/if}
             {#if a?.baseline || a?.impact?.users != null || a?.ticket?.found || a?.register?.length}
@@ -238,19 +238,19 @@
                 {#if g.events.length > 60}<small class="dim">… und {g.events.length - 60} weitere</small>{/if}
                 <div class="chg-rem-actions">
                   {#if a?.remediation?.route && a.remediation.route !== 'changes'}<button class="btn btn-secondary" onclick={() => goToTab(a.remediation.route)}>Zum Bereich</button>{/if}
-                  {#if a?.resource}<button class="linklike" onclick={() => loadHistory(ev)}>Snapshot-Historie</button>{/if}
+                  {#if a?.resource}<button class="linklike" onclick={() => loadHistory(ev)}>Frühere Konfigurationen</button>{/if}
                   <button class="linklike" onclick={() => goToTab('nachweise')}>Nachweise</button>
                 </div>
                 {#if historyFor === ev.eventId}
                   <div class="chg-history">
-                    <div class="chg-history-head"><strong>Resource-Historie</strong><button class="linklike" onclick={() => historyFor=null}>schliessen</button></div>
+                    <div class="chg-history-head"><strong>Konfigurationsverlauf</strong><button class="linklike" onclick={() => historyFor=null}>schliessen</button></div>
                     {#if historyLoading}<small>Lade…</small>
                     {:else if history.length}
                       {#each history.slice(0,8) as h}
                         <div class="chg-history-row">
                           <span>{fmtDateTime(h.observedAt)}</span>
                           <code>{h.hash?.slice(0,12)}</code>
-                          <b>{h.deleted ? 'gelöscht' : h.baseline?.compliant === false ? 'Baseline-Abweichung' : 'Snapshot'}</b>
+                          <b>{h.deleted ? 'gelöscht' : h.baseline?.compliant === false ? 'Baseline-Abweichung' : 'Gespeicherter Stand'}</b>
                         </div>
                       {/each}
                     {:else}<small>Keine frühere Version vorhanden.</small>{/if}
@@ -263,9 +263,9 @@
       </div>
     {:else if !loading}
       <div class="chg-empty chg-empty-big">
-        <strong>{filter === 'attention' && events.length ? 'Nichts, was Aufmerksamkeit braucht.' : 'Keine Events für diesen Filter.'}</strong>
-        <span>Bestehende Änderungsarchive werden automatisch in Evidence 3.0 backfilled. Für Baseline und Impact einmal CA korrelieren oder einen neuen Change-Lauf starten.</span>
-        <div><button class="btn btn-primary" onclick={collectSinceYesterday} disabled={running}>Changes erheben</button> <button class="btn btn-secondary" onclick={refreshCaSnapshot} disabled={running}>CA korrelieren</button></div>
+        <strong>{filter === 'attention' && events.length ? 'Nichts, was Aufmerksamkeit braucht.' : 'Keine Vorgänge für diesen Filter.'}</strong>
+        <span>Die Ansicht zeigt gespeicherte Änderungen. Lade aktuelle Vorgänge oder passe den Filter an. Ein leerer Filter ist keine vollständige Sicherheitsprüfung.</span>
+        <div><button class="btn btn-primary" onclick={collectSinceYesterday} disabled={running}>Änderungen laden</button> <button class="btn btn-secondary" onclick={refreshCaSnapshot} disabled={running}>Zugriffsrichtlinien vergleichen</button></div>
       </div>
     {/if}
   </div>
