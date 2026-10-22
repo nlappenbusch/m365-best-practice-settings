@@ -3,7 +3,7 @@
   import { session, refreshSession } from './lib/session.js'
   import { theme, cycleTheme } from './lib/theme.js'
   import { activeTab } from './lib/tabStore.js'
-  import { navItem } from './lib/nav.js'
+  import { navItem, isVisible } from './lib/nav.js'
   import { mobileNavOpen, toggleMobileNav, closeMobileNav } from './lib/sidebarStore.js'
   import Sidebar from './lib/Sidebar.svelte'
   import Icon from './lib/Icon.svelte'
@@ -13,6 +13,7 @@
   import ExportModal from './lib/ExportModal.svelte'
   import { exportJson, exportDocs, importConfig } from './lib/actions.js'
   import Overview from './tabs/Overview.svelte'
+  import Cockpit from './tabs/Cockpit.svelte'
   import ManagedFleet from './tabs/ManagedFleet.svelte'
   import ManagedService from './tabs/ManagedService.svelte'
   import Changes from './tabs/Changes.svelte'
@@ -77,7 +78,8 @@
     })
   }
 
-  onMount(refreshSession)
+  $effect(()=>{if($session.ready && $session.loggedIn && !isVisible(navItem($activeTab),$session))activeTab.set('cockpit')})
+  onMount(()=>{refreshSession();const timer=setInterval(refreshSession,60000);return()=>clearInterval(timer)})
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && closeMobileNav()} />
@@ -132,6 +134,7 @@
          Device-Code-/Job-Polls beim Wechsel nicht abbrechen. -->
     <main class="content">
       <div class="content-card">
+        {#if $activeTab.startsWith('cockpit')}<Cockpit />{/if}
         <div class:tab-hidden={$activeTab !== 'mspfleet'}><ManagedFleet /></div>
         <div class:tab-hidden={$activeTab !== 'managed'}><ManagedService /></div>
         <div class:tab-hidden={$activeTab !== 'overview'}><Overview /></div>

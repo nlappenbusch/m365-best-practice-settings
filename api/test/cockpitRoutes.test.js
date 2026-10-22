@@ -1,0 +1,78 @@
+"use strict";
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const express = require('express');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const G = require('../lib/graph');
+const C = require('../lib/cockpitRoutes');
+
+test('cockpit routes isolate tenant state, validate writes, preserve gaps and evaluate saved rules', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'cockpit-test-'));
+  let state = { tenants:[{id:'a',tenantId:'a'},{id:'b',tenantId:'b'}] };
+  const wrap = f => (req,res,next) => Promise.resolve(f(req,res)).catch(next);
+  const app = express(); app.use(express.json()); app.use((req,res,next) => { req.session = {user:'tester'}; next() });
+  const original = G.graphAllPages;
+  G.graphAllPages = async (tenant,cert,url) => {
+    if (url.startsWith('/reports/')) throw new Error('Reports.Read.All missing');
+    if (url.startsWith('/users?')) return [{id:'u1',displayName:'Alice',assignedLicenses:[]}];
+    return [];
+  };
+  C.register(app,{ STATE_DIR:dir,loadState:() => structuredClone(state),saveState:s => {state=s},requireTenant:req => {const tenant=state.tenants.find(x=>x.id===req.params.id); if(!tenant) throw Object.assign(new Error('missing'),{status:404}); return tenant},certPemPath:() => '',wrap });
+  app.use((err,req,res,next) => res.status(err.status || 500).json({error:err.message}));
+  const server = app.listen(0,'127.0.0.1'); await new Promise(resolve => server.once('listening',resolve));
+  t.after(async () => { G.graphAllPages=original; await new Promise(resolve=>server.close(resolve)); assert.equal(path.dirname(path.resolve(dir)),path.resolve(os.tmpdir())); assert.ok(path.basename(dir).startsWith('cockpit-test-')); fs.rmSync(dir,{recursive:true,force:true}) });
+  const req = async (part,method='GET',body) => { const response = await fetch(`http://127.0.0.1:${server.address().port}/api/tenants/${part}`,{method,headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined}); return {status:response.status,data:await response.json()} };
+  assert.equal((await req('missing/cockpit/alarms')).status,404);
+  assert.equal((await req('a/cockpit/compliance/avv','PUT',{status:'fulfilled',note:'Signed contract'})).status,200);
+  assert.equal((await req('b/cockpit/compliance')).data.checks.find(c=>c.id==='avv').status,'unknown');
+  assert.equal((await req('a/cockpit/compliance')).data.checks.find(c=>c.id==='avv').status,'fulfilled');
+  assert.equal((await req('a/cockpit/compliance/ca','PUT',{status:'fulfilled',note:'Override'})).status,400);
+  assert.equal((await req('a/cockpit/compliance/avv','PUT',{status:'na',note:''})).status,400);
+  const identity = await req('a/cockpit/identity');
+  assert.equal(identity.data.users[0].mfaRegistered,null); assert.equal(identity.data.gaps[0].source,'mfa');
+  const r = await req('a/cockpit/alarms/new','PUT',{name:'Risk',severity:'high',threshold:1,enabled:true});
+  assert.equal(r.status,200);
+  assert.equal((await req('b/cockpit/alarms')).data.rules.length,0);
+  const check = await req('a/cockpit/alarms/check','POST'); assert.equal(check.data.results[0].triggered,false);
+  assert.equal((await req('a/cockpit/alarms')).data.history.length,1);
+  assert.equal((await req(`a/cockpit/alarms/${r.data.rule.id}`,'DELETE')).status,200);
+  assert.equal((await req('a/cockpit/alarms')).data.rules.length,0);
+  const xml = '<feedback><report_metadata><org_name>X</org_name><report_id>1</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published></feedback>';
+  assert.equal((await req('a/cockpit/dmarc/import','POST',{xml})).status,200);
+  assert.equal((await req('a/cockpit/dmarc/import','POST',{xml})).data.duplicate,true);
+  assert.equal((await req('a/cockpit/dmarc')).data.reports.length,1);
+  assert.equal((await req('b/cockpit/dmarc')).data.reports.length,0);
+});
+
+test('geo routes bind immutable previews to the actor and reject read-only applies',async t=>{
+  const S=require('../lib/managedService');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cockpit-test-'));
+  const state={tenants:[{id:'a'},{id:'ro',readOnly:true}]};
+  const originalReq=G.graphReq,originalAll=G.graphAllPages;
+  const locations=[],policies=[];
+  G.graphAllPages=async(t,c,p)=>p.endsWith('namedLocations')?locations:policies;
+  G.graphReq=async(t,c,m,p,b)=>{
+    if(m==='GET')return {id:'bg',displayName:'BG',userPrincipalName:'bg@example.com',accountEnabled:true,userType:'Member'};
+    const obj={...b,id:p.endsWith('namedLocations')?'loc':'policy'};
+    (p.endsWith('namedLocations')?locations:policies).push(obj);return obj;
+  };
+  const app=express();app.use(express.json());app.use((req,res,next)=>{req.session={user:req.headers['x-user']||'tester'};next()});
+  C.register(app,{STATE_DIR:dir,loadState:()=>structuredClone(state),saveState:()=>{},requireTenant:req=>state.tenants.find(t=>t.id===req.params.id),certPemPath:()=>'',wrap:f=>(req,res,next)=>Promise.resolve(f(req,res)).catch(next)});
+  app.use((err,req,res,next)=>res.status(err.status||500).json({error:err.message}));
+  const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
+  t.after(async()=>{G.graphReq=originalReq;G.graphAllPages=originalAll;await new Promise(resolve=>server.close(resolve));assert.equal(path.dirname(path.resolve(dir)),path.resolve(os.tmpdir()));assert.ok(path.basename(dir).startsWith('cockpit-test-'));fs.rmSync(dir,{recursive:true,force:true})});
+  const request=async(id,part,body,user='tester')=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/api/tenants/${id}/cockpit/geo/${part}`,{method:'POST',headers:{'content-type':'application/json','x-user':user},body:JSON.stringify(body)});return {status:r.status,data:await r.json()}};
+  const input={name:'DACH',mode:'allowOnly',countries:['CH','DE','AT'],excludedUpns:'bg@example.com'};
+  const preview=await request('a','preview',input);assert.equal(preview.status,200);
+  const planId=preview.data.plan.id;
+  assert.equal((await request('a','apply',{planId},'different-user')).status,404);
+  const applied=await request('a','apply',{planId,state:'enabled',countries:['US']});assert.equal(applied.status,200);
+  assert.equal(policies[0].state,'enabledForReportingButNotEnforced');assert.deepEqual(locations[0].countriesAndRegions,['AT','CH','DE']);
+  assert.equal((await request('a','apply',{planId})).data.replayed,true);assert.equal(policies.length,1);
+  const ro=await request('ro','preview',input);assert.equal((await request('ro','apply',{planId:ro.data.plan.id})).status,403);
+  const expired=await request('a','preview',input);
+  const f=S.file(dir,'a','geo-plans.json'),p=JSON.parse(fs.readFileSync(f,'utf8'));p.find(p=>p.id===expired.data.plan.id).expiresAt='2000-01-01T00:00:00Z';fs.writeFileSync(f,JSON.stringify(p));
+  assert.equal((await request('a','apply',{planId:expired.data.plan.id})).status,409);
+});

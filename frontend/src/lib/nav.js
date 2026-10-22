@@ -8,6 +8,23 @@
 
 export const NAV_GROUPS = [
   {
+    id: 'cockpit', label: 'Microsoft 365 Cockpit', items: [
+      { id: 'cockpit', icon: 'building', label: 'Dashboard', desc: 'Mandanten, Verbindungen, Befunde und Secure Score' },
+      { id: 'cockpit-jobs', icon: 'refresh', label: 'Jobs & Synchronisierung', desc: 'Dauerhafte Läufe, Wiederholungen und Datenalter je Quelle' },
+      { id: 'cockpit-access', icon: 'userCog', label: 'Zugriff & Rollen', desc: 'SSO-Benutzer und Tenant-Zuweisungen administrieren', gated:'platformAdmin' },
+      { id: 'cockpit-rollout', icon: 'rocket', label: 'Policy-Rollout', desc: 'CA-Zustandsvorlagen auf mehrere Mandanten anwenden' },
+      { id: 'cockpit-geo', icon: 'map', label: 'Geo-Blocking', desc: 'Länder-Blueprints mit Vorschau und Notfallkonto-Ausnahmen' },
+      { id: 'cockpit-users', icon: 'users', label: 'Benutzer & MFA', desc: 'Benutzer, Gäste, Gruppen und registrierte MFA-Methoden' },
+      { id: 'cockpit-apps', icon: 'package', label: 'App-Registrierungen', desc: 'Unternehmensanwendungen und Bewertung ihrer erteilten Berechtigungen' },
+      { id: 'cockpit-credentials', icon: 'key', label: 'App-Credentials', desc: 'Ablaufende Secrets und Zertifikate überwachen' },
+      { id: 'cockpit-signins', icon: 'map', label: 'Anmelde-Aktivität', desc: 'Globale Anmeldungen der letzten sieben Tage' },
+      { id: 'cockpit-compliance', icon: 'shieldCheck', label: 'DSGVO-Check', desc: 'Technische Befunde und dokumentierte organisatorische Maßnahmen' },
+      { id: 'cockpit-alarms', icon: 'alert', label: 'Alarm-Regeln', desc: 'Eigene Schwellwerte und Alarmverlauf je Tenant' },
+      { id: 'cockpit-dmarc', icon: 'mail', label: 'DMARC Reporting', desc: 'XML-Aggregatberichte importieren und auswerten' },
+      { id: 'cockpit-costs', icon: 'coins', label: 'Kostenplanung', desc: 'Eigene Servicepreise und monatliche Schätzung' }
+    ]
+  },
+  {
     id: 'managed',
     label: 'Managed Service',
     items: [
@@ -144,5 +161,9 @@ export function navItem(id) {
 }
 
 export function isVisible(item, session) {
+  if(!item)return false
+  if(item.gated==='platformAdmin')return !!session?.access?.admin
+  if(session?.loggedIn && !session?.access?.admin && !item.id.startsWith('cockpit'))return false
+  if(session?.loggedIn && !session?.access?.admin && ['cockpit-geo','cockpit-rollout'].includes(item.id))return Object.values(session?.access?.grants||{}).some(r=>r==='manager')
   return !item.gated || !!session?.[item.gated]
 }
