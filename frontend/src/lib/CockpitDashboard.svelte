@@ -54,7 +54,7 @@
     if(key==='findings'||key==='sla') return v>0 ? 'red' : 'muted'
     return definitions[key].tone
   }
-  function detail(t) { selectTenant(t.id); goToTab($session.access?.admin?'overview':'cockpit-users') }
+  function detail(t) { selectTenant(t.id); goToTab($session.access?.admin?'managed':'cockpit-users') }
   async function sync(t) {
     busy = {...busy,[t.id]:'Wartet…'}; error = ''
     try {

@@ -271,7 +271,7 @@
         <div class="iz-head">
           <div>
             <h4 style="margin:0">Entscheide und Kommentare ({register.length})</h4>
-            <p class="ld-section-hint" style="margin:0.2rem 0 0">Der Text erscheint im PDF unter dem Objekt; «bewusster Entscheid» zusätzlich in Kapitel 9. Texte zu Kapiteln stehen am Anfang des Kapitels. Konten pflegt das Ausnahme-Register im Bereich <button class="iz-link" onclick={() => activeTab.set('nachweise')}>Nachweise › Konten</button>.</p>
+            <p class="ld-section-hint" style="margin:0.2rem 0 0">Der Text erscheint im PDF unter dem Objekt; «bewusster Entscheid» zusätzlich in Kapitel 9. Texte zu Kapiteln stehen am Anfang des Kapitels. Konten pflegt das Ausnahme-Register im Bereich <button class="iz-link" onclick={() => activeTab.set('nachweise')}>Protokolle & Nachweise › Kontoausnahmen</button>.</p>
           </div>
           <button class="btn btn-secondary" onclick={() => newReg()}>+ Eintrag</button>
         </div>

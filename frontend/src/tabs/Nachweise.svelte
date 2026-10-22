@@ -1,10 +1,6 @@
 <script>
   // Nachweise — Belege für Prüfungen und Dokumentationen, rein lesend erhoben.
   //
-  // Jede Erhebung läuft als Job und landet mit Zeitstempel und Ersteller im
-  // Archiv des Tenants. Das ist zugleich die Sicherung: Microsoft löscht
-  // Entra-Protokolle nach 30 Tagen, das Unified Audit Log nach 180 — was hier
-  // erhoben ist, bleibt.
   import { apiGet, apiPost, apiDelete, fileDownload, errText } from '../lib/api.js'
   import { activeTenant } from '../lib/tenantStore.js'
   import { session } from '../lib/session.js'
@@ -12,12 +8,13 @@
   import TenantContext from '../lib/TenantContext.svelte'
 
   const SUBS = [
-    ['protokolle', 'Protokolle'], ['konten', 'Konten'], ['empfaenger', 'Benachrichtigungen'],
-    ['apps', 'Enterprise-Apps'], ['status', 'Service-Status'], ['archiv', 'Archiv']
+    ['archiv', 'Gespeicherte Nachweise'], ['protokolle', 'Protokolle suchen'], ['konten', 'Kontoausnahmen']
   ]
   const KIND_LABEL = { changelog: 'Änderungsprotokoll', ual: 'Audit-Log-Auszug', accounts: 'Konten & Register', dossier: 'Konto-Steckbrief', recipients: 'Empfänger', app: 'Enterprise-App', health: 'Service-Status' }
 
-  let sub = $state('protokolle')
+  let sub = $state('archiv')
+  let archiveSearch = $state('')
+  const shownArchive = $derived(archive.filter(e => `${e.title} ${KIND_LABEL[e.kind] || e.kind} ${e.createdBy}`.toLowerCase().includes(archiveSearch.trim().toLowerCase())))
   let archive = $state([])
   let results = $state({})          // kind -> vollständiger Archiveintrag (zuletzt angezeigt)
   let job = $state(null)
@@ -33,8 +30,9 @@
     if (!$session.loggedIn || !t) return
     if (loadedFor === t.id) return
     loadedFor = t.id
-    results = {}; archive = []; job = null; error = null; notice = null; appList = null; register = []; queries = []
-    loadArchive(true); loadRegister(); loadQueries()
+    results = {}; archive = []; job = null; error = null; notice = null; register = []; queries = []
+    sub = 'archiv'; archiveSearch = ''
+    loadArchive(false); loadRegister(); loadQueries()
   })
 
   async function loadArchive(openLatest) {
@@ -50,7 +48,7 @@
     try {
       const r = await apiGet(`/api/tenants/${tid()}/evidence/archive/${encodeURIComponent(id)}`)
       results = { ...results, [r.entry.kind]: r.entry }
-      if (switchTab) sub = { changelog: 'protokolle', ual: 'protokolle', accounts: 'konten', dossier: 'konten', recipients: 'empfaenger', app: 'apps', health: 'status' }[r.entry.kind] || sub
+      if (switchTab) sub = { changelog: 'protokolle', ual: 'protokolle', accounts: 'konten', dossier: 'konten', recipients: 'empfaenger', app: 'archiv', health: 'status' }[r.entry.kind] || sub
     } catch (e) { error = errText(e) }
   }
   function pdf(id) { fileDownload(`/api/tenants/${tid()}/evidence/archive/${encodeURIComponent(id)}/report.pdf`) }
@@ -102,11 +100,6 @@
   let clText = $state('')
   let clUser = $state('')
   let clLimit = $state(200)
-  const clRetention = $derived.by(() => {
-    if (!clFrom) return null
-    const gone = new Date(new Date(clFrom + 'T00:00:00').getTime() + 30 * 864e5)
-    return { gone, already: gone < new Date() }
-  })
   function runChangelog() {
     const sources = [clIntune && 'intune', clEntra && 'entra', clSignIns && 'signins'].filter(Boolean)
     if (!sources.length) { error = 'Mindestens eine Quelle wählen.'; return }
@@ -173,23 +166,6 @@
   // ================================================================ Empfänger
   let watch = $state('administrator@, support@, compliance@')
 
-  // ================================================================ Enterprise-Apps
-  let appList = $state(null)
-  let appFilter = $state('')
-  let appBusy = $state(false)
-  async function loadApps() {
-    appBusy = true; error = null
-    try { appList = await apiGet(`/api/tenants/${tid()}/evidence/apps`) } catch (e) { error = errText(e) }
-    appBusy = false
-  }
-  const appsShown = $derived((appList?.apps || []).filter(a => !appFilter.trim() || (a.name + ' ' + a.publisher).toLowerCase().includes(appFilter.trim().toLowerCase())))
-  function appUal(a) {
-    startUal({
-      from: daysAgo(179), to: today(), keyword: a.appId, appId: a.appId,
-      name: `App-Nachweis ${a.name} (Unified Audit Log)`
-    })
-  }
-
   // ================================================================ Service-Status
   let hDays = $state(7)
   let hService = $state('')
@@ -200,8 +176,7 @@
 <TenantContext>
   <div class="nw">
     <p class="ld-section-hint">
-      Belege für Prüfungen und Dokumentationen — rein lesend erhoben, mit Zeitstempel und Ersteller archiviert.
-      Das Archiv ist zugleich die Sicherung: Microsoft löscht Entra-Protokolle nach 30 Tagen, das Unified Audit Log nach 180.
+      Hier findest du gespeicherte Prüfungen mit Datum und Bearbeiter. Suche bei Bedarf weitere Protokolle oder dokumentiere, warum ein besonderes Konto benötigt wird.
     </p>
 
     <div class="dl-subtabs">
@@ -210,6 +185,14 @@
       {/each}
     </div>
 
+    <details class="settings-group">
+      <summary>Weitere Prüfungen</summary>
+      <p class="ld-section-hint">Für konkrete Rückfragen: Wer erhält Microsoft-Meldungen, oder gab es eine Störung?</p>
+      <div class="nw-actions">
+        <button class="btn btn-secondary" onclick={() => sub = 'empfaenger'}>Meldungsempfänger prüfen</button>
+        <button class="btn btn-secondary" onclick={() => sub = 'status'}>Microsoft-Störungen prüfen</button>
+      </div>
+    </details>
     {#if error}<div class="alert alert-warning">❌ {error}</div>{/if}
     {#if notice}<div class="ld-banner ok">{notice}</div>{/if}
     {#if job && job.status === 'running'}
@@ -235,15 +218,7 @@
           {#if clSignIns}<label>Konto beginnt mit <input type="text" bind:value={clUser} placeholder="z. B. nils.testuser" /></label>{/if}
           <button class="btn btn-primary" disabled={busy} onclick={runChangelog}>Erheben und sichern</button>
         </div>
-        {#if clRetention && clEntra}
-          <div class="nw-hint" class:warn={clRetention.already}>
-            {#if clRetention.already}
-              Entra hat Einträge vom {fmtD(clFrom)} bereits gelöscht (30 Tage) — für diesen Tag bleibt nur das Unified Audit Log (unten, bis 180 Tage).
-            {:else}
-              Entra-Einträge vom {fmtD(clFrom)} löscht Microsoft um den {fmtD(clRetention.gone)} — jetzt erheben heisst: gesichert.
-            {/if}
-          </div>
-        {/if}
+        <p class="ld-section-hint">Verfügbare Zeiträume hängen von Lizenz und Aufbewahrung im Tenant ab. Ein leerer Auszug belegt nicht, dass keine Änderungen stattgefunden haben.</p>
 
         {#if cur('changelog')}
           {@const e = cur('changelog')}
@@ -304,9 +279,9 @@
       </div>
 
       <div class="settings-group">
-        <h4>Unified Audit Log (bis 180 Tage)</h4>
+        <h4>Microsoft Audit-Protokoll</h4>
         <p class="ld-section-hint" style="margin-top:0">
-          Alles, was Exchange, SharePoint, Teams und Entra protokollieren — auch über 30 Tage hinaus. Microsoft sucht asynchron;
+          Verfügbare Audit-Einträge aus Exchange, SharePoint, Teams und Entra. Microsoft sucht im Hintergrund;
           die Suche läuft bei Microsoft weiter, «Stand prüfen» holt das Ergebnis und archiviert es. Braucht AuditLogsQuery.Read.All (einmal Reparieren).
         </p>
         <div class="nw-form">
@@ -565,61 +540,6 @@
       </div>
     {/if}
 
-    <!-- ================================================================ ENTERPRISE-APPS -->
-    {#if sub === 'apps'}
-      <div class="settings-group">
-        <div class="nw-result-head">
-          <div>
-            <h4 style="margin:0">Enterprise-Apps (Drittanbieter)</h4>
-            <p class="ld-section-hint" style="margin:0.2rem 0 0">KI-Anwendungen zuerst. Rechte, Zustimmungen, Zuweisung und Nutzung — und über das Unified Audit Log, was die App getan hat.</p>
-          </div>
-          <button class="btn btn-secondary" disabled={appBusy} onclick={loadApps}>{appBusy ? 'Lade…' : appList ? '↻ Neu laden' : 'Apps laden'}</button>
-        </div>
-        {#if appList}
-          <input class="nw-search" type="search" placeholder="App oder Herausgeber suchen…" bind:value={appFilter} />
-          <div class="gt-table-wrap">
-            <table class="gt-table">
-              <thead><tr><th>App</th><th>Delegierte Rechte</th><th>Zustimmung</th><th></th></tr></thead>
-              <tbody>
-                {#each appsShown as a (a.id)}
-                  <tr class:ac-issue={a.ai && a.risky.length}>
-                    <td>
-                      <strong>{a.name}</strong> {#if a.ai}<span class="tbadge warn">KI</span>{/if}
-                      <div class="nw-dim nw-small">{a.publisher}{a.verifiedName ? ' · verifiziert' : ''} · seit {fmtD(a.created)}{a.assignmentRequired ? '' : ' · alle Konten dürfen'}</div>
-                    </td>
-                    <td class="nw-small">{#each a.scopes as s}<span class:nw-risky={a.risky.includes(s)}>{s}</span>{' '}{/each}</td>
-                    <td class="nw-small">{a.adminConsent ? 'Administrator (alle)' : ''}{a.userConsents ? `${a.adminConsent ? ' · ' : ''}${a.userConsents} Benutzer` : ''}{!a.adminConsent && !a.userConsents ? '—' : ''}</td>
-                    <td class="nw-row-actions">
-                      <button class="btn btn-secondary nw-sm" disabled={busy} onclick={() => start('app', { spId: a.id, name: a.name, days: 30 })}>Nachweis</button>
-                      <button class="nw-link" onclick={() => appUal(a)}>Audit Log 180 Tage</button>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-        {#if cur('app')}
-          {@const e = cur('app')}
-          {@const d = e.data}
-          <div class="nw-result">
-            <div class="nw-result-head">
-              <div><strong>{d.app.name}</strong> <span class="nw-dim">{d.app.publisher}{d.app.verified ? ' · verifiziert: ' + d.app.verified : ''}</span><div class="nw-dim nw-small">erhoben {fmt(e.createdAt)}</div></div>
-              <div class="nw-actions"><button class="btn btn-secondary" onclick={() => pdf(e.id)}>PDF</button><button class="btn btn-secondary" onclick={() => csv(e.id)}>CSV</button></div>
-            </div>
-            <div class="nw-kv"><span>Im Tenant seit</span><span>{fmt(d.app.created)} · {d.app.assignmentRequired ? 'nur zugewiesene Konten' : 'alle Konten dürfen'}</span></div>
-            <div class="nw-kv"><span>Delegierte Rechte</span><span>{#each d.delegated as g}<div>{g.resource}: {#each g.scopes as s}<span class:nw-risky={g.risky.includes(s)}>{s}</span>{' '}{/each}<span class="nw-dim">— {g.consent}: {g.who}</span></div>{:else}keine{/each}</span></div>
-            <div class="nw-kv"><span>Anwendungsrechte</span><span>{d.application.map(x => `${x.resource}: ${x.permission}`).join(' · ') || 'keine'}</span></div>
-            <div class="nw-kv"><span>Zugewiesen</span><span>{d.assigned.map(x => x.name).join(', ') || '—'}</span></div>
-            <div class="nw-kv"><span>Nutzung {d.signIns.days} Tage</span><span>{d.signIns.users.map(u => `${u.user} (${u.interactive + u.nonInteractive})`).join(', ') || 'keine Anmeldung'}</span></div>
-            <div class="nw-kv"><span>Entra-Protokoll</span><span>{#each d.audit.slice(0, 8) as x}<div>{fmt(x.at)} · {x.activity} · {x.by}</div>{:else}—{/each}</span></div>
-            <div class="nw-line">{d.vendorNote}</div>
-            {#each d.gaps as g}<div class="nw-line warn">{g}</div>{/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-
     <!-- ================================================================ SERVICE-STATUS -->
     {#if sub === 'status'}
       <div class="settings-group">
@@ -660,32 +580,33 @@
     <!-- ================================================================ ARCHIV -->
     {#if sub === 'archiv'}
       <div class="settings-group">
-        <h4>Archiv ({archive.length})</h4>
+        <h4>Gespeicherte Nachweise ({archive.length})</h4>
+        <input type="search" class="nw-search" aria-label="Nachweise durchsuchen" placeholder="Titel, Prüfart oder Bearbeiter suchen…" bind:value={archiveSearch} />
         <p class="ld-section-hint" style="margin-top:0">Jede Erhebung mit Zeitstempel und Ersteller. Löschen wirkt nur im Werkzeug.</p>
         {#if archive.length}
           <div class="gt-table-wrap">
             <table class="gt-table">
               <thead><tr><th>Erhoben</th><th>Art</th><th>Titel</th><th>Durch</th><th></th></tr></thead>
               <tbody>
-                {#each archive as e (e.id)}
+                {#each shownArchive as e (e.id)}
                   <tr>
                     <td class="nw-small">{fmt(e.createdAt)}</td>
                     <td class="nw-small">{KIND_LABEL[e.kind] || e.kind}</td>
                     <td><strong>{e.title}</strong></td>
                     <td class="nw-small">{e.createdBy}</td>
                     <td class="nw-row-actions">
-                      <button class="nw-link" onclick={() => openEntry(e.id)}>anzeigen</button>
+                      {#if e.kind !== 'app'}<button class="nw-link" onclick={() => openEntry(e.id)}>anzeigen</button>{/if}
                       <button class="nw-link" onclick={() => pdf(e.id)}>PDF</button>
                       <button class="nw-link" onclick={() => csv(e.id)}>CSV</button>
                       <button class="nw-link nw-danger" onclick={() => removeEntry(e)}>löschen</button>
                     </td>
                   </tr>
-                {/each}
+                {:else}<tr><td colspan="5">Keine Nachweise für diese Suche.</td></tr>{/each}
               </tbody>
             </table>
           </div>
         {:else}
-          <p class="ld-section-hint">Noch nichts erhoben.</p>
+          <p class="ld-section-hint">Noch keine Nachweise gespeichert. Unter „Protokolle suchen“ kannst du einen Zeitraum prüfen und das Ergebnis speichern.</p>
         {/if}
       </div>
     {/if}

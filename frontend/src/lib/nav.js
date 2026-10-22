@@ -28,37 +28,33 @@ export const NAV_GROUPS = [
     id: 'managed',
     label: 'Managed Service',
     items: [
-      { id: 'mspfleet', icon: 'building', label: 'Service-Cockpit', isNew: true,
+      { id: 'mspfleet', icon: 'building', label: 'Service-Cockpit',
         desc: 'Alle betreuten Tenants: offene Befunde, SLA, Secure Score, Live-Meldungen und Teams-Anbindung' },
-      { id: 'managed', icon: 'shieldCheck', label: 'Managed Service', isNew: true,
+      { id: 'managed', icon: 'shieldCheck', label: 'Befunde & Überwachung',
         desc: 'Überwachung pro Tenant: CA- und Policy-Drift, Risiken, Anfragen, Postfachregeln, Freigaben, Geräte, Lizenzen, Quartalsreport' }
     ]
   },
   {
     id: 'control',
-    label: 'Control Center',
+    label: 'Änderungen & Abläufe',
     items: [
-      { id: 'overview', icon: 'chart', label: 'Overview',
-        desc: 'Tenant-Lage in einer Sicht: Security, Changes, Evidence, Service Health und laufende Jobs' },
-      { id: 'changes', icon: 'refresh', label: 'Changes', isNew: true,
-        desc: 'Entra- und Intune-Änderungen priorisieren: Akteur, Objekt, Before/After und Risiko' },
-      { id: 'risks', icon: 'shieldCheck', label: 'Risks', isNew: true,
-        desc: 'Gemeinsame Arbeitsliste aus Security-Findings und auffälligen Tenant-Änderungen' },
-      { id: 'automations', icon: 'wrench', label: 'Automations', isNew: true,
+      { id: 'changes', icon: 'refresh', label: 'Änderungen',
+        desc: 'Entra- und Intune-Änderungen priorisieren: Bearbeiter, Objekt, Vorher/Nachher und Prüfhinweise' },
+      { id: 'automations', icon: 'wrench', label: 'Automatisierung',
         desc: 'Lokale Jobs und optionale Semaphore-Ausführung für PowerShell, Terraform und OpenTofu' }
     ]
   },
   {
     id: 'assurance',
-    label: 'Assurance',
+    label: 'Prüfungen & Dokumentation',
     items: [
-      { id: 'nachweise', icon: 'search', label: 'Evidence',
-        desc: 'Änderungsprotokoll, Unified Audit Log, Konten, Apps, Empfänger und Service-Status archivieren' },
+      { id: 'nachweise', icon: 'search', label: 'Protokolle & Nachweise',
+        desc: 'Gespeicherte Prüfungen, Protokollsuche und dokumentierte Kontoausnahmen' },
       { id: 'maester', icon: 'shieldCheck', label: 'Security Audit',
         desc: 'Maester mit CISA SCuBA, CIS, EIDSCA und ORCA — Score, Verlauf und Reports' },
-      { id: 'istzustand', icon: 'book', label: 'Ist-Zustand',
+      { id: 'istzustand', icon: 'book', label: 'Konfigurationsdokumentation',
         desc: 'Kundenfähige Konfigurationsdokumentation mit Entscheiden, Änderungen und Abweichungen' },
-      { id: 'reports', icon: 'chart', label: 'Reports',
+      { id: 'reports', icon: 'chart', label: 'Kundenberichte',
         desc: 'Statusberichte pro Kunde und Übersicht über alle Tenants' }
     ]
   },

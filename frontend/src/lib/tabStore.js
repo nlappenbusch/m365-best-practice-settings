@@ -6,15 +6,18 @@ import { navItem } from './nav.js'
 import { closeMobileNav } from './sidebarStore.js'
 
 const FALLBACK = 'cockpit'
+const LEGACY_TABS = { overview: 'managed', risks: 'managed' }
+export const resolveTab = id => LEGACY_TABS[id] || (navItem(id) ? id : FALLBACK)
 
 function initial() {
   try {
     const saved = localStorage.getItem('m365-tab')
-    return saved && navItem(saved) ? saved : FALLBACK
+    return resolveTab(saved)
   } catch { return FALLBACK }
 }
 
-export const activeTab = writable(initial())
+const tab = writable(initial())
+export const activeTab = { subscribe: tab.subscribe, set: id => tab.set(resolveTab(id)), update: fn => tab.update(id => resolveTab(fn(id))) }
 
 activeTab.subscribe((id) => {
   try { localStorage.setItem('m365-tab', id) } catch { /* egal */ }
