@@ -66,3 +66,11 @@ npm run dev
 ```
 
 Der Vite-Proxy erwartet das Backend auf Port 3000. Ein produktiver Frontend-Build entsteht mit `npm run build`. CI führt jetzt auch die Backend-Test-Suite aus. Produktive Deployments erfolgen im bestehenden Repo bei Merge auf `main`; diese Änderung wird deshalb als separater Branch/PR bereitgestellt.
+
+## Dashboard näher an der Marketplace-Referenz
+
+Tenant-Ansichten mit Zähler, Verbindungsschalter, Suche, Kachel-/Listenumschaltung und konfigurierbare Kennzahlen folgen dem gelieferten Dashboard-Screenshot. Drei Karten erscheinen auf breiten Desktopflächen, auf schmaleren Flächen zwei beziehungsweise eine. Verbindung bedeutet weiterhin die vorhandenen Onboarding-Voraussetzungen, nicht eine neue Live-Verbindungsprüfung.
+
+Die Standardkarten zeigen lizenzierte Benutzer, offene Monitoring-Befunde, verwaltete Intune-Geräte und Secure Score. Die Fleet-API liefert dafür ausschließlich vorhandene Messwerte; fehlende Quellen bleiben unbekannt, gemessene Nullen bleiben nullzählige Werte. Tooltips enthalten vorhandene Quellzeitstempel. Offene Befunde sind keine gesonderten Alarmereignisse. Die Score-Ampel ist eine UI-Einordnung: unter 40 % rot, 40–69 % gelb, ab 70 % grün.
+
+Ansichten, Filter, Darstellungsmodus, Kennzahlenauswahl und Ampelfarben werden pro angemeldeter Identität lokal in diesem Browser gespeichert. Es ist keine serverweite Teamansicht. Tenant-IDs in gespeicherten Ansichten erweitern keine Zugriffsrechte; die Ansicht schneidet sie mit der aktuellen serverseitig freigegebenen Tenant-Liste. Das Löschen einer Ansicht löscht keine Tenants.

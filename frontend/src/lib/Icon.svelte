@@ -11,6 +11,14 @@
   let { name, size = 18, stroke = 1.75, label = null } = $props()
 
   const PATHS = {
+    cloud: 'M6 18a5 5 0 1 1 1-9.9A7 7 0 0 1 20 10a4 4 0 0 1 0 8z',
+    bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9|M10 21h4',
+    monitor: 'M4 3h16a2 2 0 0 1 2 2v12H2V5a2 2 0 0 1 2-2z|M8 21h8|M12 17v4',
+    clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z|M12 6v6l4 2',
+    eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+    pencil: 'm16 3 5 5-12 12-6 1 1-6z|m14 5 5 5',
+    grid: 'M3 3h7v7H3z|M14 3h7v7h-7z|M3 14h7v7H3z|M14 14h7v7h-7z',
+    list: 'M8 6h13|M8 12h13|M8 18h13|M3 6h.01|M3 12h.01|M3 18h.01',
     // Navigation
     building: 'M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z|M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2|M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2|M10 6h4|M10 10h4|M10 14h4|M10 18h4',
     sliders: 'M4 21v-7|M4 10V3|M12 21v-9|M12 8V3|M20 21v-5|M20 12V3|M1 14h6|M9 8h6|M17 16h6',
