@@ -740,7 +740,7 @@ const READONLY_ALLOW = [
   /^\/evidence\//, /^\/sharepoint\/run$/, /^\/istzustand\/(run|settings)$/,
   // Managed Service: liest den Tenant nur, speichert lokal bzw. legt SDP-Tickets an.
   /^\/managed\/(run|settings|baseline\/[^/]+|findings\/[^/]+\/action)$/,
-  /^\/cockpit\/(compliance\/[^/]+|apps\/[^/]+\/review|alarms(?:\/[^/]+)?|dmarc\/import)$/
+  /^\/cockpit\/(compliance\/[^/]+|apps\/[^/]+\/review|alarms(?:\/[^/]+)?|dmarc\/import|geo\/preview)$/
 ];
 const READONLY_BODY_ROUTES = /^\/(grouptags|appgroups)\//;
 const READONLY_BODY_ALLOW = [/^\/grouptags\/groups$/, /^\/grouptags\/devices$/, /^\/appgroups\/list$/];

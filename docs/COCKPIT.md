@@ -9,10 +9,12 @@ Die neue Oberfläche orientiert sich an den bereitgestellten Marketplace-Screens
 | Dashboard | Tenant-Kacheln oder Liste, Suche, Verbindungsfilter, Handlungsbedarf, Secure Score, Geräte-Compliance, SLA, Synchronisierung über bestehende Managed-Service-Jobs |
 | Benutzer & MFA | Live-Entra-Benutzer, Gäste, Gruppen, Lizenzzahlen, MFA-Registrierung, Suche/Filter, CSV, Kennzahlengrafiken; Passwort-/MFA-Reset und Sitzungswiderruf über bestehende freigabepflichtige Kontoaktionen |
 | Apps | Service Principals, delegierte Grants und App-Role-Assignments; transparentes Berechtigungsrisiko; aufklappbare Faktoren; begründete Prüfvermerke je Tenant |
+| App-Credentials | Ablaufende Secrets-/Zertifikatsmetadaten in Apps und Service Principals; Monitoring-Befunde, Fristen, CSV und Anschluss an vorhandene Alarmierung |
 | Anmeldungen | Sieben Tage, maximal 1000 neueste Einträge, Länder-/Ereignisfilter, schematische Standortkarte, CSV; Begrenzung wird angezeigt |
 | DSGVO-Check | Fünf technische Befundkategorien und zehn manuelle Maßnahmen; begründete Statusänderungen mit Benutzer/Zeitpunkt und gespeichertem Verlauf; Maßnahmenexport |
 | Alarm-Regeln | Bereich, Mindestschweregrad, Anzahl, Aktivierung, Bearbeiten/Löschen, manuelle und automatische Auswertung nach Managed-Service-Lauf; interner Verlauf |
 | Policy-Rollout | Vorhandene CA-Zustandsvorlagen erfassen, Zielmandanten wählen, pro Tenant vergleichen, Policy-Ausnahmen, explizite Aktivierungsfreigabe, Einzelresultate. Verwendet bestehende CA-APIs. |
+| Geo-Blocking | Neue Länder-Policies je Zieltenant, serverseitige Vorschau, explizite aktive Notfallkonto-Ausnahmen, Report-only-Start, Planbindung und Wiederaufnahme nach Teilfehlern |
 | DMARC | Import unkomprimierter XML-Aggregatberichte, Format-/Größenprüfung, DTD-/Entity-Abweisung, Duplikaterkennung, nach Nachrichtenanzahl gewichtete Pass-Rate, Domain-/Fehlerfilter, CSV |
 | Kostenplanung | Eigene Benutzerzahl, Preis, Grundgebühr und Währung; monatliche und jährliche Schätzung |
 
@@ -27,12 +29,14 @@ SharePoint/OneDrive, Geräte, Intune, Lizenzen, Rollen, Mail-Security, Maester, 
 - Alarmregeln erzeugen interne Ereignisse. Die bestehende Teams-/Ticket-Benachrichtigung des Managed Service bleibt separat konfiguriert; frei wählbare E-Mail-Empfänger sind nicht angebunden.
 - DMARC enthält keinen automatischen Postfachempfang und keine DNS-Verifizierung. Derzeit werden höchstens 200 Berichte je Tenant aufbewahrt. Die Übersichten aggregieren die importierten Berichte; überlappende Zeiträume unterschiedlicher Reporter werden nicht zusätzlich dedupliziert.
 - Die Kostenplanung bucht keine Subscription und verwendet keine fremden Marketplace-Preise als verbindliche Konditionen.
-- Der neue Multi-Tenant-Ablauf ändert Zustände bestehender CA-Policies. Er erzeugt keine neuen Länder-Policies, kopiert keine Tenant-IDs und legt keine fehlenden Policies an.
+- Der CA-Zustandsrollout ändert bestehende eigene Policies. Der separate Geo-Ablauf erstellt neue Länder-Policies ausschließlich in Report-only; produktive Aktivierung erfolgt später in Conditional Access. Andere fehlende Baseline-Policies werden weiterhin im bestehenden Fachmodul angelegt.
 - CSV ist für Excel geeignet; es handelt sich nicht um native XLSX-Dateien. Formelanfänge werden neutralisiert.
 
 ## Betrieb und Berechtigungen
 
 Alle neuen Routen liegen hinter dem bestehenden Session-Guard. Lokale Notizen, Alarmregeln, DMARC und Maßnahmen dürfen auch in einem Prüfmandat gespeichert werden; produktive Konto-/CA-Schreibaktionen bleiben gesperrt. Die neuen lokalen Daten liegen unter `tenant.cockpit` im bestehenden State und müssen zusammen mit diesem gesichert werden. XML-Rohdateien werden nicht gespeichert. Sign-in- und Identity-Antworten werden für die jeweilige Ansicht geladen.
+
+Geo-Pläne liegen zusätzlich unter `STATE_DIR/managed/<tenant>/geo-plans.json`, atomar ersetzt und auf 100 Einträge begrenzt. Die Microsoft-Objekte werden nicht automatisch entfernt, wenn ein lokaler Historieneintrag ausläuft. Credential-Monitoring-Daten liegen in der bestehenden Managed-Service-Ablage. Beide Ablagen gehören ins Backup. Vollständiger Funktionsvergleich und weiteres Zielbild: [FOCUS-PARITY-PLAN.md](FOCUS-PARITY-PLAN.md).
 
 Die bestehenden Graph-Application-Permissions und Zertifikate gelten weiter. MFA und [Sign-ins](https://learn.microsoft.com/en-us/graph/api/signin-list?view=graph-rest-1.0) benötigen `AuditLog.Read.All`, [Secure Score](https://learn.microsoft.com/en-us/graph/api/security-list-securescores?view=graph-rest-1.0) benötigt `SecurityEvents.Read.All`. Benutzer, Gruppen, Apps und Intune benötigen zusätzlich ihre jeweiligen Leserechte. Rechte werden durch diese Ansichten nicht automatisch erweitert; Fehler werden sichtbar ausgegeben.
 

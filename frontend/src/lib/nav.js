@@ -11,8 +11,10 @@ export const NAV_GROUPS = [
     id: 'cockpit', label: 'Microsoft 365 Cockpit', items: [
       { id: 'cockpit', icon: 'building', label: 'Dashboard', desc: 'Mandanten, Verbindungen, Befunde und Secure Score' },
       { id: 'cockpit-rollout', icon: 'rocket', label: 'Policy-Rollout', desc: 'CA-Zustandsvorlagen auf mehrere Mandanten anwenden' },
+      { id: 'cockpit-geo', icon: 'map', label: 'Geo-Blocking', desc: 'Länder-Blueprints mit Vorschau und Notfallkonto-Ausnahmen' },
       { id: 'cockpit-users', icon: 'users', label: 'Benutzer & MFA', desc: 'Benutzer, Gäste, Gruppen und registrierte MFA-Methoden' },
       { id: 'cockpit-apps', icon: 'package', label: 'App-Registrierungen', desc: 'Unternehmensanwendungen und Bewertung ihrer erteilten Berechtigungen' },
+      { id: 'cockpit-credentials', icon: 'key', label: 'App-Credentials', desc: 'Ablaufende Secrets und Zertifikate überwachen' },
       { id: 'cockpit-signins', icon: 'map', label: 'Anmelde-Aktivität', desc: 'Globale Anmeldungen der letzten sieben Tage' },
       { id: 'cockpit-compliance', icon: 'shieldCheck', label: 'DSGVO-Check', desc: 'Technische Befunde und dokumentierte organisatorische Maßnahmen' },
       { id: 'cockpit-alarms', icon: 'alert', label: 'Alarm-Regeln', desc: 'Eigene Schwellwerte und Alarmverlauf je Tenant' },

@@ -17,6 +17,8 @@ Architektur: [docs/PRODUCT-REWORK.md](docs/PRODUCT-REWORK.md)
 
 Neu: **Microsoft 365 Cockpit** im Marketplace-Stil mit Tenant-Dashboard, Benutzer/MFA, App-Risiken, Anmeldekarte, dokumentierbaren Maßnahmen, Alarmregeln, Multi-Tenant-CA-Zustandsrollout und DMARC-XML-Import. Technischer Umfang, Datenquellen, Grenzen und Startanleitung: [docs/COCKPIT.md](docs/COCKPIT.md).
 
+Ergänzt: Credential-Ablaufmonitoring und Geo-Blocking-Blueprints mit serverseitig geprüften Report-only-Plänen. [Funktionsabgleich mit Fokus und priorisierter Ausbauplan](docs/FOCUS-PARITY-PLAN.md).
+
 - 🛡️ **Anti-Phishing Policy** Configuration
 - 📧 **Anti-Spam Policy** Settings
 - 🦠 **Anti-Malware Policy** Management

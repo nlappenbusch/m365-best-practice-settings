@@ -2,10 +2,17 @@
 const C = require('./cockpit');
 const S = require('./managedService');
 const G = require('./graph');
+const GEO = require('./geoPolicies');
+const crypto = require('crypto');
+const fs = require('fs');
 
 function register(app, deps) {
   const { STATE_DIR, loadState, saveState, requireTenant, certPemPath, wrap } = deps;
   const prefix = '/api/tenants/:id/cockpit';
+  const geoRunning = new Set();
+  const geoFile = id => S.file(STATE_DIR,id,'geo-plans.json');
+  function geoPlans(id) { const file=geoFile(id); if(!fs.existsSync(file)) return []; const plans=JSON.parse(fs.readFileSync(file,'utf8')); if(!Array.isArray(plans)) throw new Error('Geo-Verlauf ist ungültig.'); return plans; }
+  function saveGeo(id,plan) { const file=geoFile(id),temp=file+'.'+crypto.randomUUID()+'.tmp'; const rows=[plan,...geoPlans(id).filter(p=>p.id!==plan.id)].slice(0,100); fs.writeFileSync(temp,JSON.stringify(rows,null,2)); fs.renameSync(temp,file); }
   const tenant = req => {
     const t = (loadState().tenants || []).find(t => t.id === req.params.id);
     if (!t) throw Object.assign(new Error('Tenant nicht gefunden'), { status: 404 });
@@ -41,6 +48,27 @@ function register(app, deps) {
     d.users = d.users?.map(u => ({ ...u, mfaRegistered: mfa.has(u.id) ? !!mfa.get(u.id).isMfaRegistered : null, methods: mfa.get(u.id)?.methodsRegistered || [] }));
     delete d.mfa;
     res.json({ ok: true, ...d });
+  }));
+  app.get(prefix + '/geo/plans',wrap(async(req,res)=>{ const t=tenant(req);res.json({ok:true,plans:geoPlans(t.id)}); }));
+  app.post(prefix + '/geo/preview',wrap(async(req,res)=>{
+    const t=requireTenant(req),cert=certPemPath(t.tenantId),config=GEO.validateGeo(req.body || {});
+    const exclusions=await GEO.resolveExclusions(t,cert,config);
+    await G.graphAllPages(t,cert,'/identity/conditionalAccess/namedLocations');
+    const plan={id:crypto.randomUUID(),tenantId:t.id,by:req.session.user,createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+15*60000).toISOString(),status:'preview',config,exclusions};
+    plan.preview=GEO.bodies(config,exclusions.map(u=>u.id),plan.id);saveGeo(t.id,plan);res.json({ok:true,plan});
+  }));
+  app.post(prefix + '/geo/apply',wrap(async(req,res)=>{
+    const t=requireTenant(req);
+    if(t.readOnly) return res.status(403).json({error:'Prüfmandat: Geo-Policies können nicht erstellt werden.'});
+    if(geoRunning.has(t.id)) return res.status(409).json({error:'Für diesen Tenant läuft bereits ein Geo-Rollout.'});
+    const plan=geoPlans(t.id).find(p=>p.id===req.body?.planId);
+    if(!plan || plan.by!==req.session.user) return res.status(404).json({error:'Eigene Vorschau nicht gefunden.'});
+    if(plan.status==='done') return res.json({ok:true,plan,replayed:true});
+    if(Date.parse(plan.expiresAt)<=Date.now()) return res.status(409).json({error:'Vorschau abgelaufen. Bitte neu erstellen.'});
+    geoRunning.add(t.id);
+    try { await GEO.applyGeo(t,certPemPath(t.tenantId),plan,p=>saveGeo(t.id,p));res.json({ok:true,plan}); }
+    catch(e) { plan.status='failed';plan.error=e.message;saveGeo(t.id,plan);throw e; }
+    finally { geoRunning.delete(t.id); }
   }));
   app.get(prefix + '/apps', wrap(async (req, res) => {
     const d = await collect(req, {

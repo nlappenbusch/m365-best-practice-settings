@@ -45,3 +45,34 @@ test('cockpit routes isolate tenant state, validate writes, preserve gaps and ev
   assert.equal((await req('a/cockpit/dmarc')).data.reports.length,1);
   assert.equal((await req('b/cockpit/dmarc')).data.reports.length,0);
 });
+
+test('geo routes bind immutable previews to the actor and reject read-only applies',async t=>{
+  const S=require('../lib/managedService');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cockpit-test-'));
+  const state={tenants:[{id:'a'},{id:'ro',readOnly:true}]};
+  const originalReq=G.graphReq,originalAll=G.graphAllPages;
+  const locations=[],policies=[];
+  G.graphAllPages=async(t,c,p)=>p.endsWith('namedLocations')?locations:policies;
+  G.graphReq=async(t,c,m,p,b)=>{
+    if(m==='GET')return {id:'bg',displayName:'BG',userPrincipalName:'bg@example.com',accountEnabled:true,userType:'Member'};
+    const obj={...b,id:p.endsWith('namedLocations')?'loc':'policy'};
+    (p.endsWith('namedLocations')?locations:policies).push(obj);return obj;
+  };
+  const app=express();app.use(express.json());app.use((req,res,next)=>{req.session={user:req.headers['x-user']||'tester'};next()});
+  C.register(app,{STATE_DIR:dir,loadState:()=>structuredClone(state),saveState:()=>{},requireTenant:req=>state.tenants.find(t=>t.id===req.params.id),certPemPath:()=>'',wrap:f=>(req,res,next)=>Promise.resolve(f(req,res)).catch(next)});
+  app.use((err,req,res,next)=>res.status(err.status||500).json({error:err.message}));
+  const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
+  t.after(async()=>{G.graphReq=originalReq;G.graphAllPages=originalAll;await new Promise(resolve=>server.close(resolve));assert.equal(path.dirname(path.resolve(dir)),path.resolve(os.tmpdir()));assert.ok(path.basename(dir).startsWith('cockpit-test-'));fs.rmSync(dir,{recursive:true,force:true})});
+  const request=async(id,part,body,user='tester')=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/api/tenants/${id}/cockpit/geo/${part}`,{method:'POST',headers:{'content-type':'application/json','x-user':user},body:JSON.stringify(body)});return {status:r.status,data:await r.json()}};
+  const input={name:'DACH',mode:'allowOnly',countries:['CH','DE','AT'],excludedUpns:'bg@example.com'};
+  const preview=await request('a','preview',input);assert.equal(preview.status,200);
+  const planId=preview.data.plan.id;
+  assert.equal((await request('a','apply',{planId},'different-user')).status,404);
+  const applied=await request('a','apply',{planId,state:'enabled',countries:['US']});assert.equal(applied.status,200);
+  assert.equal(policies[0].state,'enabledForReportingButNotEnforced');assert.deepEqual(locations[0].countriesAndRegions,['AT','CH','DE']);
+  assert.equal((await request('a','apply',{planId})).data.replayed,true);assert.equal(policies.length,1);
+  const ro=await request('ro','preview',input);assert.equal((await request('ro','apply',{planId:ro.data.plan.id})).status,403);
+  const expired=await request('a','preview',input);
+  const f=S.file(dir,'a','geo-plans.json'),p=JSON.parse(fs.readFileSync(f,'utf8'));p.find(p=>p.id===expired.data.plan.id).expiresAt='2000-01-01T00:00:00Z';fs.writeFileSync(f,JSON.stringify(p));
+  assert.equal((await request('a','apply',{planId:expired.data.plan.id})).status,409);
+});

@@ -28,6 +28,7 @@ const C = require("./managedCollectors");
 const STAND = require("./managedStand");
 
 const AREAS = [
+  { id: "credentials", label: "App-Credentials", group: "Identität", engine: "graph", icon: "key" },
   { id: "ca", label: "Conditional Access", group: "Identität", engine: "graph", icon: "lock", drift: "baseline" },
   { id: "risk", label: "Sign-in- & User-Risk", group: "Identität", engine: "graph", icon: "alert" },
   { id: "consent", label: "App-Consent-Anfragen", group: "Identität", engine: "graph", icon: "key", drift: "new" },

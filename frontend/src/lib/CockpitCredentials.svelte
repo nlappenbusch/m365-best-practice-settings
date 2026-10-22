@@ -1,0 +1,19 @@
+<script>
+  import { onMount } from 'svelte'
+  import { msApi, followJob } from './managed.js'
+  import { csv } from './cockpit.js'
+  import { fmtDateTime } from './product.js'
+  import { goToTab } from './tabStore.js'
+  let { tenant } = $props()
+  let data = $state(null), error = $state(''), busy = $state(false), q = $state(''), filter = $state('attention'), scanStatus = $state(null)
+  let rows = $derived((data?.credentials || []).filter(c=>filter==='all' || c.status!=='ok').filter(c=>!q || `${c.name} ${c.appId} ${c.label}`.toLowerCase().includes(q.toLowerCase())))
+  async function load() { try { const [a,o]=await Promise.all([msApi.area(tenant.id,'credentials'),msApi.overview(tenant.id)]); data=a.data; scanStatus=o.areas.find(a=>a.id==='credentials')?.status } catch(e) {error=e.message} }
+  async function run() { busy=true;error='';try { const j=await msApi.run(tenant.id,['credentials']); const r=await followJob(j.jobId); if(!r || r.status!=='done') throw new Error(r?.error || 'Erhebung fehlgeschlagen'); await load() } catch(e) {error=e.message};busy=false }
+  onMount(load)
+  const labels={expired:'Abgelaufen',urgent:'≤ 7 Tage',soon:'≤ 30 Tage',ok:'Gültig',unknown:'Unbekannt'}
+</script>
+<div class="cp-head"><div><h2>App-Credentials</h2><p>{tenant.name} · Secrets und Zertifikate</p></div><div class="cp-actions"><button class="btn btn-secondary" onclick={()=>csv('App-Credentials',['Anwendung','App-ID','Quelle','Typ','Bezeichnung','Ablauf','Status'],rows.map(c=>[c.name,c.appId,c.source,c.type,c.label,c.expires,labels[c.status]]))}>CSV Export</button><button class="btn btn-primary" onclick={run} disabled={busy}>{busy?'Prüfung läuft…':'Jetzt prüfen'}</button></div></div>
+<div class="cp-note">Die Prüfung liest ausschließlich Metadaten. Secret-Werte und private Schlüssel werden nicht angezeigt. Automatische Läufe und Alarmierung aktivierst du im Managed Service für den Bereich „App-Credentials“.</div>
+{#if error || scanStatus?.ok===false}<div class="cp-note cp-gaps" role="alert">{error || scanStatus.error} · Der letzte vollständige Stand bleibt sichtbar.</div>{/if}
+{#if data}<div class="cp-kpis">{#each [['Credentials gesamt',data.credentials.length],['Abgelaufen',data.credentials.filter(c=>c.status==='expired').length],['In 30 Tagen fällig',data.credentials.filter(c=>['soon','urgent'].includes(c.status)).length],['Ablauf unbekannt',data.credentials.filter(c=>c.status==='unknown').length]] as [label,value]}<div class="cp-kpi"><span>{label}</span><strong>{value}</strong></div>{/each}</div><div class="cp-panel cp-toolbar"><input type="search" placeholder="Anwendung oder Credential suchen…" aria-label="Credentials suchen" bind:value={q}/><select bind:value={filter} aria-label="Credential-Status"><option value="attention">Handlungsbedarf</option><option value="all">Alle Credentials</option></select><span class="cp-sub">Stand {fmtDateTime(data.at)}</span></div><div class="cp-table-wrap"><table><thead><tr><th>Anwendung</th><th>Credential</th><th>Quelle</th><th>Ablauf</th><th>Status</th></tr></thead><tbody>{#each rows as c}<tr><td>{c.name}<small>{c.appId}</small></td><td>{c.label}<small>{c.type}</small></td><td>{c.source==='applications'?'App-Registrierung':'Unternehmensanwendung'}</td><td>{fmtDateTime(c.expires)}</td><td><span class="cp-badge" class:ok={c.status==='ok'} class:high={['expired','urgent'].includes(c.status)} class:medium={['soon','unknown'].includes(c.status)}>{labels[c.status]}</span></td></tr>{:else}<tr><td colspan="5">Keine Credentials in dieser Ansicht.</td></tr>{/each}</tbody></table></div>{:else}<div class="cp-empty">Noch keine vollständige Erhebung. Starte die erste Prüfung.</div>{/if}
+<div class="cp-actions" style="margin-top:20px"><button class="btn btn-secondary" onclick={()=>goToTab('managed')}>Monitoring konfigurieren</button><button class="btn btn-secondary" onclick={()=>goToTab('cockpit-alarms')}>Alarmregel erstellen</button></div>

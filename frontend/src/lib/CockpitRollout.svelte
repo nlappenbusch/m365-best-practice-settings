@@ -31,7 +31,7 @@
   onMount(load)
 </script>
 <div class="cp-head"><div><h2>Multi-Tenant Policy-Rollout</h2><p>Gespeicherte CA-Zustandsvorlagen mit Vorschau und Ausnahmen</p></div><button class="btn btn-secondary" disabled={!$activeTenant} onclick={() => { name = ''; capture = true }}>Blueprint aus Tenant erstellen</button></div>
-<div class="cp-note">Dieser Ablauf übernimmt Zustände bereits vorhandener eigener CA-Policies. Fehlende Policies werden in der Vorschau ausgewiesen. Neue Baseline-Richtlinien stellst du im Bereich Conditional Access bereit.</div>
+<div class="cp-note">Dieser Ablauf übernimmt Zustände bereits vorhandener eigener CA-Policies. Fehlende Policies werden in der Vorschau ausgewiesen. Neue Baseline-Richtlinien stellst du im Bereich Conditional Access bereit. <button class="btn btn-secondary" onclick={()=>goToTab('cockpit-geo')}>Länder-Blueprint erstellen</button></div>
 {#if error}<div class="cp-note cp-gaps" role="alert">{error}</div>{/if}
 <div>{#each ['Blueprint','Mandanten','Vorschau & Ausnahmen','Ergebnis'] as label,i}<span class="cp-step" class:active={step === i+1}>{i+1} · {label}</span>{/each}</div>
 {#if step === 1}<div class="cp-grid">{#each templates as t}<section class="cp-panel"><h3>{t.name}</h3><p>{t.quelle.tenantName} · {t.zusammenfassung.gesamt} Elemente</p><button class="btn btn-primary" onclick={() => { templateId = t.id; step = 2; selected = []; allowEnable = false }}>Auf Mandanten ausrollen</button></section>{:else}<div class="cp-empty">Noch keine Blueprints. Erstelle zuerst eine Vorlage aus einem verbundenen Mandanten.</div>{/each}</div>

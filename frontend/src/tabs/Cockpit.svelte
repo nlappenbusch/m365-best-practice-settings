@@ -13,6 +13,8 @@
   import CockpitSignins from '../lib/CockpitSignins.svelte'
   import CockpitCosts from '../lib/CockpitCosts.svelte'
   import CockpitRollout from '../lib/CockpitRollout.svelte'
+  import CockpitCredentials from '../lib/CockpitCredentials.svelte'
+  import CockpitGeo from '../lib/CockpitGeo.svelte'
   let q = $state(''), connected = $state(false), list = $state(false), attention = $state(false)
   let rows = $state([]), error = $state(''), loading = $state(false), busy = $state({}), loaded = $state(false)
   let shown = $derived($tenants.filter(t => !q || `${t.name} ${t.organization}`.toLowerCase().includes(q.toLowerCase())).filter(t => !connected || tenantReady(t)).filter(t => !attention || Object.values(rows.find(r => r.id === t.id)?.counts || {}).some(n => n > 0)))
@@ -54,11 +56,13 @@
     </div>
   {:else if $activeTab === 'cockpit-costs'}<CockpitCosts/>
   {:else if $activeTab === 'cockpit-rollout'}<CockpitRollout/>
+  {:else if $activeTab === 'cockpit-geo'}<CockpitGeo/>
   {:else if !$activeTenant}<div class="cp-empty">Bitte zuerst einen Mandanten auswählen.<button class="btn btn-primary" onclick={() => goToTab('tenants')}>Mandanten verwalten</button></div>
   {:else}
     {#key $activeTenant.id + $activeTab}
       {#if $activeTab === 'cockpit-users'}<CockpitIdentity tenant={$activeTenant}/>
       {:else if $activeTab === 'cockpit-apps'}<CockpitApps tenant={$activeTenant}/>
+      {:else if $activeTab === 'cockpit-credentials'}<CockpitCredentials tenant={$activeTenant}/>
       {:else if $activeTab === 'cockpit-compliance'}<CockpitCompliance tenant={$activeTenant}/>
       {:else if $activeTab === 'cockpit-alarms'}<CockpitAlarms tenant={$activeTenant}/>
       {:else if $activeTab === 'cockpit-dmarc'}<CockpitDmarc tenant={$activeTenant}/>
