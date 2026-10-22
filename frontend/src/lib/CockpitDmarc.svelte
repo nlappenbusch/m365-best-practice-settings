@@ -1,4 +1,5 @@
 <script>
+  import { canOperate } from './cockpit.js'
   import { onMount } from 'svelte'
   import { apiGet, apiPost } from './api.js'
   import { url, csv } from './cockpit.js'
@@ -24,7 +25,7 @@
   }
   onMount(load)
 </script>
-<div class="cp-head"><div><h2>DMARC Reporting</h2><p>{tenant.name} · Aggregatberichte und fehlgeschlagene Authentifizierung</p></div><div class="cp-actions"><button class="btn btn-secondary" onclick={() => csv('DMARC',['Domain','Quell-IP','Anzahl','Bestanden','Disposition','Reporter','Zeitraum ab'],rows.map(r => [r.domain,r.ip,r.count,r.pass,r.disposition,r.reporter,r.at]))}>CSV Export</button><label class="btn btn-primary" style="color:#08202a;cursor:pointer">{busy ? 'Import läuft…' : '+ XML-Berichte importieren'}<input type="file" accept=".xml,text/xml,application/xml" multiple onchange={upload} disabled={busy} style="display:none"/></label></div></div>
+<div class="cp-head"><div><h2>DMARC Reporting</h2><p>{tenant.name} · Aggregatberichte und fehlgeschlagene Authentifizierung</p></div><div class="cp-actions"><button class="btn btn-secondary" onclick={() => csv('DMARC',['Domain','Quell-IP','Anzahl','Bestanden','Disposition','Reporter','Zeitraum ab'],rows.map(r => [r.domain,r.ip,r.count,r.pass,r.disposition,r.reporter,r.at]))}>CSV Export</button><label class="btn btn-primary" style="color:#08202a;cursor:pointer">{busy ? 'Import läuft…' : '+ XML-Berichte importieren'}<input type="file" accept=".xml,text/xml,application/xml" multiple onchange={upload} disabled={busy || !canOperate(tenant)} style="display:none"/></label></div></div>
 <div class="cp-note">Importiere unkomprimierte DMARC-Aggregatberichte (.xml) aus deinem Reporting-Postfach. Der Import dedupliziert nach Domain, Reporter und Report-ID. Automatischer E-Mail-Empfang und DNS-Verifizierung sind hier nicht eingerichtet. Eine Nachricht besteht, wenn SPF oder DKIM im DMARC-Ergebnis als ausgerichtet und bestanden gemeldet wird.</div>
 {#if error}<div class="cp-note cp-gaps" role="alert">{error}</div>{/if}{#if message}<div class="cp-note" role="status">{message}</div>{/if}
 <div class="cp-kpis"><div class="cp-kpi"><span>Domains</span><strong>{domains.length}</strong></div><div class="cp-kpi"><span>Berichte gesamt</span><strong>{reports.length}</strong></div><div class="cp-kpi"><span>Pass-Rate (gefiltert)</span><strong class="cp-ok">{total ? ((total-failed)/total*100).toFixed(1)+'%' : '—'}</strong></div><div class="cp-kpi"><span>Fehlgeschlagen (gefiltert)</span><strong class="cp-crit">{failed}</strong></div></div>

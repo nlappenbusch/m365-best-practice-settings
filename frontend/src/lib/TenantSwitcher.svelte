@@ -5,14 +5,15 @@
   let { onManage } = $props() // () => void — springt in den "Tenants"-Tab
 
   let open = $state(false)
-  let loaded = $state(false)
+  let loadedFor = ''
 
   $effect(() => {
-    if ($session.ready && $session.online && $session.loggedIn && !loaded) {
-      loaded = true
+    const key=$session.loggedIn && $session.online ? JSON.stringify($session.access) : ''
+    if ($session.ready && key && key!==loadedFor) {
+      loadedFor = key
       loadTenants()
     }
-    if (!($session.loggedIn && $session.online)) loaded = false
+    if (!key) { loadedFor='';tenants.set([]);activeTenantId.set(null) }
   })
 
   function initials(name) {
@@ -65,9 +66,9 @@
             </div>
           {/each}
         {/if}
-        <div class="tswitch-foot">
+        {#if $session.access?.admin}<div class="tswitch-foot">
           <button type="button" class="linklike" onclick={manage}>Tenants verwalten / onboarden</button>
-        </div>
+        </div>{/if}
       </div>
     {/if}
   </div>

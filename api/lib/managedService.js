@@ -28,6 +28,7 @@ const C = require("./managedCollectors");
 const STAND = require("./managedStand");
 
 const AREAS = [
+  { id: "signins", label: "Anmelde-Synchronisierung", group: "Identität", engine: "graph", icon: "map", intervalMin: 10 },
   { id: "credentials", label: "App-Credentials", group: "Identität", engine: "graph", icon: "key" },
   { id: "ca", label: "Conditional Access", group: "Identität", engine: "graph", icon: "lock", drift: "baseline" },
   { id: "risk", label: "Sign-in- & User-Risk", group: "Identität", engine: "graph", icon: "alert" },
@@ -411,7 +412,9 @@ function dueAreas(tenant, statusAll, now) {
 }
 
 async function run(ctx) {
-  const { stateDir, tenant, cert, areas, onProgress, ai } = ctx;
+  const { stateDir, tenant, cert, areas, onProgress, ai, platform } = ctx;
+  const check=()=>{ctx.signal?.throwIfAborted();ctx.assertLease?.()};
+  const started=id=>{check();platform?.syncStart(tenant.id,id)};
   const tid = tenant.id;
   const s = settingsOf(tenant);
   const statusFile = file(stateDir, tid, "status.json");
@@ -423,13 +426,15 @@ async function run(ctx) {
 
   // 1) Graph-Bereiche nacheinander (Graph drosselt parallele Abrufe pro App).
   for (const id of wanted.filter(a => AREA[a].engine === "graph" && C.GRAPH_COLLECTORS[a])) {
+    started(id);
     say(AREA[id].label);
-    try { results[id] = await C.GRAPH_COLLECTORS[id](tenant, cert); }
-    catch (e) { results[id] = { error: e.message }; }
+    try { results[id] = await C.GRAPH_COLLECTORS[id](tenant, cert,ctx); }
+    catch (e) { results[id] = { error: e.message, status:e.status }; }
   }
   // 2) Exchange in einer Sitzung.
   const exoParts = wanted.filter(a => AREA[a].engine === "exo");
   if (exoParts.length) {
+    for(const id of exoParts)started(id);
     say("Exchange Online verbinden");
     try {
       const r = await C.collectExo(tenant, cert, exoParts, { maxMailboxes: s.maxMailboxes }, say);
@@ -446,10 +451,12 @@ async function run(ctx) {
   else if (status._facts && status._facts.threat) facts.threat = status._facts.threat;
   // 3) Freigaben (Audit-Log, zustandsbehaftet).
   if (wanted.includes("sharing")) {
+    started('sharing');
     say(AREA.sharing.label);
     const uf = file(stateDir, tid, "ual-sharing.json");
     try {
       const r = await C.collectSharing(tenant, cert, readJson(uf, {}));
+      check();
       writeJson(uf, r.ualState);
       delete r.ualState;
       results.sharing = r;
@@ -459,6 +466,7 @@ async function run(ctx) {
   // 4) Message Center zuletzt — braucht die Fakten der anderen Bereiche.
   const readData = a => readJson(areaFile(stateDir, tid, "data", a), null);
   if (wanted.includes("messages")) {
+    started('messages');
     say(AREA.messages.label);
     const ca = results.ca && results.ca.data ? results.ca.data : readData("ca");
     if (ca && ca.policies) facts.ca = { total: ca.policies.length, enabled: ca.policies.filter(p => p.state === "enabled").length, reportOnly: ca.policies.filter(p => p.state === "enabledForReportingButNotEnforced").length };
@@ -496,10 +504,12 @@ async function run(ctx) {
   const ran = new Set();
   const newItems = {};
   for (const id of wanted) {
+    check();
     const r = results[id];
     const now = new Date().toISOString();
     if (!r || r.error) {
       status[id] = { ...(status[id] || {}), ok: false, error: r ? r.error : "nicht gelaufen", at: now, lastOkAt: (status[id] || {}).lastOkAt || null };
+      platform?.syncFinish(tid,id,status[id].error,AREA[id].engine==='exo'?s.exoIntervalHours*3600000:(AREA[id].intervalMin || s.graphIntervalMin)*60000,[401,403].includes(r?.status)||/permission|forbidden|lizenz|license|not licensed/i.test(status[id].error));
       continue;
     }
     ran.add(id);
@@ -536,6 +546,7 @@ async function run(ctx) {
     for (const f of [...(r.findings || []), ...extra]) fresh.push({ ...f, area: id });
     status[id] = { ok: true, at: now, lastOkAt: now, metrics: r.metrics || [], note: note || (r.data && r.data.note) || null, newItems: (newItems[id] || []).length };
     writeJson(areaFile(stateDir, tid, "data", id), r.data || {});
+    check();platform?.syncFinish(tid,id,null,AREA[id].engine==='exo'?s.exoIntervalHours*3600000:(AREA[id].intervalMin || s.graphIntervalMin)*60000);
   }
   for (const c of correlate(fresh)) fresh.push(c);
   status._facts = { ...(status._facts || {}), ...facts };

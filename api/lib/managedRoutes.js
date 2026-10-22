@@ -17,15 +17,19 @@ const STANDPDF = require("./managedStandPdf");
 const AI = require("./aiProviders");
 const MCAI = require("./mcAi");
 const { cut } = require("./managedCollectors");
+const ACCESS = require('./tenantAccess');
+const { DurableWorker } = require('./durableWorker');
 
-const TICK_MS = 5 * 60 * 1000;
+const TICK_MS = 30 * 1000;
 const MAX_TICKETS_PER_RUN = 8;
 
 function register(app, deps) {
-  const { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap, createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST } = deps;
+  const { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap, createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST, platform, jobSummary } = deps;
   const who = req => (req.session && req.session.user) || "unbekannt";
   const globalCfg = () => ({ teamsWebhook: "", notifyMin: "high", brand: "igeeks AG", ...((loadState().managedGlobal) || {}), envWebhook: !!process.env.MANAGED_TEAMS_WEBHOOK });
   const webhookUrl = () => process.env.MANAGED_TEAMS_WEBHOOK || (loadState().managedGlobal || {}).teamsWebhook || "";
+  // Import timestamps for all existing tenants, including disabled schedules. Never invent a fresh success.
+  for(const t of loadState().tenants||[]){const cfg=S.settingsOf(t),old=S.readJson(S.file(STATE_DIR,t.id,'status.json'),{});for(const a of S.AREAS){const s=old[a.id];if(!s)continue;const interval=a.engine==='exo'?cfg.exoIntervalHours*3600000:(a.intervalMin||cfg.graphIntervalMin)*60000;platform.db.prepare('INSERT OR IGNORE INTO sync_state(tenant_id,source,attempt_at,success_at,next_at,status,error) VALUES(?,?,?,?,?,?,?)').run(t.id,a.id,Date.parse(s.at)||null,Date.parse(s.lastOkAt||(s.ok?s.at:''))||null,(Date.parse(s.at)||0)+interval,s.ok?'ok':'error',s.error||null)}}
 
   // ---------------------------------------------------------------- KI-Einordnung Message Center
   // Relevanz je Kunde ueber den KI-Dienst des Zwecks «messages» (lib/mcAi.js).
@@ -118,11 +122,18 @@ function register(app, deps) {
 
   // ---------------------------------------------------------------- Lauf
   const running = new Set();
-  async function execute(t, areas, job) {
+  async function execute(t, areas, job, control) {
     running.add(t.id);
     const say = job ? appJobProgress(job) : () => {};
     try {
-      const r = await S.run({ stateDir: STATE_DIR, tenant: t, cert: certPemPath(t.tenantId), areas, onProgress: say, ai: aiEnrich });
+      let checkpoint=control.persisted.checkpoint;
+      let r;
+      if(checkpoint?.collectionCompleted){const byId=Object.fromEntries(S.listFindings(STATE_DIR,t.id).map(f=>[f.id,f]));r={ran:checkpoint.ran,failed:checkpoint.failed,events:checkpoint.events.map(e=>({kind:e.kind,f:byId[e.id]})).filter(e=>e.f)};}
+      else {
+        r = await require('./graph').withSignal(control.signal,()=>S.run({ stateDir: STATE_DIR, tenant: t, cert: certPemPath(t.tenantId), areas, onProgress: say, ai: aiEnrich, platform, signal:control.signal,assertLease:control.assertLease }));
+        checkpoint={collectionCompleted:true,ran:r.ran,failed:r.failed,events:r.events.map(e=>({kind:e.kind,id:e.f.id})),effectsStarted:false,effectsCompleted:false};control.progress(jobSummary(job),checkpoint);
+      }
+      control.assertLease();
       say("Tickets & Meldungen");
       // Tenant frisch laden: Einstellungen koennen sich waehrend des Laufs geaendert haben.
       const fresh = (loadState().tenants || []).find(x => x.id === t.id) || t;
@@ -138,21 +149,39 @@ function register(app, deps) {
       }
       const findings = Object.fromEntries(S.listFindings(STATE_DIR, t.id).map(f => [f.id, f]));
       const events = r.events.map(e => ({ ...e, f: findings[e.f.id] || e.f }));
-      const tickets = await autoTickets(fresh, events);
+      const uncertain=checkpoint.effectsStarted&&!checkpoint.effectsCompleted;
+      let tickets=[];
+      if(!checkpoint.effectsStarted){
+      checkpoint.effectsStarted=true;control.progress(jobSummary(job),checkpoint);
+      tickets = await autoTickets(fresh, events);
       // Ticketnummern in die Meldung uebernehmen.
       const after = Object.fromEntries(S.listFindings(STATE_DIR, t.id).map(f => [f.id, f]));
       await notify(fresh, events.map(e => ({ ...e, f: after[e.f.id] || e.f })));
+      checkpoint.effectsCompleted=true;control.progress(jobSummary(job),checkpoint);
+      }
       if (job) {
         job.result = { ran: r.ran, failed: r.failed, events: r.events.length, tickets: tickets.map(x => x.id) };
         finishAppJob(job, true, null, r.failed.length ? "Nicht abrufbar: " + r.failed.map(a => S.AREA[a].label).join(", ") : null);
       }
-      return r;
+      return {partial:r.failed.length>0||uncertain,warning:uncertain?'Zustellung nach Worker-Unterbrechung unbestätigt; keine automatische Wiederholung.':r.failed.length?'Nicht abrufbar: '+r.failed.join(', '):null};
     } catch (e) {
       console.log(`Managed Service: Lauf fuer ${t.name} fehlgeschlagen: ${e.message}`);
       if (job) finishAppJob(job, false, e.message, null);
       throw e;
     } finally { running.delete(t.id); }
   }
+
+  const worker=new DurableWorker(platform,async(persisted,control)=>{
+    const t=(loadState().tenants||[]).find(t=>t.id===persisted.tenant_id);
+    if(!t)throw new Error('Tenant wurde entfernt.');
+    if(persisted.payload.scheduled&&!S.settingsOf(t).enabled)throw new Error('Monitoring wurde deaktiviert.');
+    if(!persisted.payload.scheduled&&!ACCESS.allowed(platform.access(persisted.actor),t.id,'operator'))throw Object.assign(new Error('Ausführungsberechtigung wurde entzogen.'),{status:403});
+    if(!t.organization||!fs.existsSync(certPemPath(t.tenantId)))throw new Error('Tenant-Verbindung oder Zertifikat fehlt.');
+    const job={id:persisted.id,tenantId:t.id,tenantName:t.name,status:'running',phase:'Vorbereitung',steps:[],isManaged:true,startedAt:new Date().toISOString(),...persisted.summary};
+    job._durableProgress=control.progress;appJobs.set(job.id,job);
+    const assertLease=()=>{control.signal.throwIfAborted();const current=platform.job(job.id);if(current?.lease_owner!==control.owner||current?.status!=='running'||current.lease_until<=Date.now())throw new Error('Worker-Lease verloren.');};
+    try{return await execute(t,persisted.payload.areas,job,{...control,persisted,assertLease})}finally{appJobs.delete(job.id)}
+  },{concurrency:2,blockedTenants:()=>[...appJobs.values()].filter(j=>j.status==='running'&&!j.isManaged).map(j=>j.tenantId)}).start();
 
   // Quartalsreport des Vorquartals automatisch ablegen (einmal, beim ersten Tick im neuen Quartal).
   function ensureQuarterReport(t) {
@@ -172,11 +201,15 @@ function register(app, deps) {
       const now = Date.now();
       for (const t of s.tenants || []) {
         const cfg = S.settingsOf(t);
-        if (!cfg.enabled || running.has(t.id)) continue;
+        if (!cfg.enabled || platform.jobs().some(j=>j.tenant_id===t.id&&['queued','running','retry'].includes(j.status))) continue;
         if (!t.organization || !t.clientId || !fs.existsSync(certPemPath(t.tenantId))) continue;
         try { ensureQuarterReport(t); } catch (e) { console.log("Managed Service: Quartalsreport-Fehler: " + e.message); }
         const status = S.readJson(S.file(STATE_DIR, t.id, "status.json"), {});
-        const due = S.dueAreas(t, status, now);
+        const sync=Object.fromEntries(platform.sync(t.id).map(s=>[s.source,s]));
+        for(const a of S.AREAS){if(!sync[a.id]&&status[a.id]){const old=status[a.id],interval=a.engine==='exo'?cfg.exoIntervalHours*3600000:(a.intervalMin||cfg.graphIntervalMin)*60000;platform.db.prepare('INSERT OR IGNORE INTO sync_state(tenant_id,source,attempt_at,success_at,next_at,status,error) VALUES(?,?,?,?,?,?,?)').run(t.id,a.id,Date.parse(old.at)||null,Date.parse(old.lastOkAt||(old.ok?old.at:''))||null,(Date.parse(old.at)||0)+interval,old.ok?'ok':'error',old.error||null)}}
+        const latest=Object.fromEntries(platform.sync(t.id).map(s=>[s.source,s]));
+        const configured=new Set(cfg.areas?.length?cfg.areas:S.AREAS.map(a=>a.id));
+        const due=S.AREAS.filter(a=>configured.has(a.id)&&(!latest[a.id]||latest[a.id].next_at<=now)).map(a=>a.id);
         if (!due.length) continue;
         // Kein Monitoring-Lauf parallel zu einem anderen Job desselben Tenants
         // (Exchange-Sitzungen pro App sind begrenzt).
@@ -184,15 +217,12 @@ function register(app, deps) {
         for (const j of appJobs.values()) if (j.tenantId === t.id && j.status === "running") { busy = true; break; }
         if (busy) continue;
         console.log(`Managed Service: Zeitplan ${t.name} — ${due.join(", ")}`);
-        const job = createAppJob(t, ["Vorbereitung"]);
-        job.isManaged = true; job.scheduled = true;
-        execute(t, due, job).catch(() => {});
-        return; // ein Tenant pro Tick
+        platform.enqueue(t,due,'system:scheduler',true);
       }
     } catch (e) { console.log("Managed Service: Zeitplan-Fehler: " + e.message); }
   }
-  setInterval(tick, TICK_MS);
-  setTimeout(tick, 2 * 60 * 1000);
+  const scheduler=setInterval(tick,TICK_MS);scheduler.unref?.();
+  const initial=setTimeout(tick,1000);initial.unref?.();
 
   // ---------------------------------------------------------------- Routen
   const tenantOf = req => {
@@ -229,8 +259,9 @@ function register(app, deps) {
 
   app.get("/api/managed/fleet", (req, res) => {
     const s = loadState();
-    const rows = (s.tenants || []).map(t => ({ ...S.fleetRow(STATE_DIR, t), running: running.has(t.id) }));
-    const alerts = (s.tenants || []).flatMap(t => S.readAlerts(STATE_DIR, t.id, 40)).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 80);
+    const visible=ACCESS.filtered(req.access,s.tenants || []);
+    const rows = visible.map(t => ({ ...S.fleetRow(STATE_DIR, t), running: running.has(t.id) }));
+    const alerts = visible.flatMap(t => S.readAlerts(STATE_DIR, t.id, 40)).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 80);
     res.json({ ok: true, tenants: rows, alerts });
   });
 
@@ -270,12 +301,11 @@ function register(app, deps) {
 
   app.post("/api/tenants/:id/managed/run", wrap(async (req, res) => {
     const t = requireTenant(req);
+    if(req.body?.areas!==undefined && (!Array.isArray(req.body.areas)||req.body.areas.some(a=>!S.AREA[a])))return res.status(400).json({error:'Unbekannter Sync-Bereich.'});
     if (running.has(t.id)) return res.status(409).json({ error: "Für diesen Tenant läuft bereits eine Erhebung." });
-    for (const j of appJobs.values()) if (j.tenantId === t.id && j.status === "running") return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: j.id });
+    for (const j of appJobs.values()) if (j.tenantId === t.id && j.status === "running" && !j.isManaged) return res.status(409).json({ error: "Für diesen Tenant läuft bereits ein Job.", jobId: j.id });
     const areas = Array.isArray(req.body && req.body.areas) ? req.body.areas.filter(a => S.AREA[a]) : [];
-    const job = createAppJob(t, ["Vorbereitung"]);
-    job.isManaged = true;
-    execute(t, areas.length ? areas : null, job).catch(() => {});
+    const job = platform.enqueue(t,areas.length?areas:S.AREAS.map(a=>a.id),who(req));
     res.json({ ok: true, jobId: job.id });
   }));
 
@@ -440,6 +470,7 @@ function register(app, deps) {
     if (req.query.download) res.set("content-disposition", `attachment; filename="Managed-M365_${String(t.name).replace(/[^A-Za-z0-9_-]+/g, "-")}_${q}.html"`);
     res.send(html);
   }));
+  return {worker,stop:async()=>{clearInterval(scheduler);clearTimeout(initial);await worker.stop()}};
 }
 
 module.exports = { register };

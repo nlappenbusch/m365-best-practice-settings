@@ -3,7 +3,7 @@
   import { session, refreshSession } from './lib/session.js'
   import { theme, cycleTheme } from './lib/theme.js'
   import { activeTab } from './lib/tabStore.js'
-  import { navItem } from './lib/nav.js'
+  import { navItem, isVisible } from './lib/nav.js'
   import { mobileNavOpen, toggleMobileNav, closeMobileNav } from './lib/sidebarStore.js'
   import Sidebar from './lib/Sidebar.svelte'
   import Icon from './lib/Icon.svelte'
@@ -78,7 +78,8 @@
     })
   }
 
-  onMount(refreshSession)
+  $effect(()=>{if($session.ready && $session.loggedIn && !isVisible(navItem($activeTab),$session))activeTab.set('cockpit')})
+  onMount(()=>{refreshSession();const timer=setInterval(refreshSession,60000);return()=>clearInterval(timer)})
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && closeMobileNav()} />

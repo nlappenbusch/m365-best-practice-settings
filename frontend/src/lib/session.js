@@ -8,7 +8,7 @@ export const session = writable({ online: false, loggedIn: false, pwsh: null, ti
 export async function refreshSession() {
   try {
     const h = await apiGet('/api/health')
-    session.set({ online: !!h.ok, loggedIn: !!h.loggedIn, pwsh: h.pwsh || null, ticketsAllowed: !!h.ticketsAllowed, ready: true })
+    session.set({ online: !!h.ok, loggedIn: !!h.loggedIn, pwsh: h.pwsh || null, ticketsAllowed: !!h.ticketsAllowed, access:h.access || null, ready: true })
   } catch {
     session.set({ online: false, loggedIn: false, pwsh: null, ticketsAllowed: false, ready: true })
   }

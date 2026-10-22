@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 
 function register(app, deps) {
-  const { STATE_DIR, loadState, saveState, requireTenant, certPemPath, wrap } = deps;
+  const { STATE_DIR, loadState, saveState, requireTenant, certPemPath, wrap, platform } = deps;
   const prefix = '/api/tenants/:id/cockpit';
   const geoRunning = new Set();
   const geoFile = id => S.file(STATE_DIR,id,'geo-plans.json');
@@ -105,6 +105,7 @@ function register(app, deps) {
     res.json({ ok: true, review: c.appReviews[req.params.appId] });
   }));
   app.get(prefix + '/signins', wrap(async (req, res) => {
+    if(platform){const t=tenant(req),since=Date.now()-7*86400000;return res.json({ok:true,since:new Date(since).toISOString(),source:'archive',...platform.signins(t.id,since),sync:platform.sync(t.id).find(s=>s.source==='signins')||null})}
     const since = new Date(Date.now() - 7 * 86400000).toISOString();
     // A bounded sample is labelled as such; do not silently imply complete logs.
     const t = requireTenant(req);

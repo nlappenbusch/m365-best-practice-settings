@@ -10,6 +10,8 @@ export const NAV_GROUPS = [
   {
     id: 'cockpit', label: 'Microsoft 365 Cockpit', items: [
       { id: 'cockpit', icon: 'building', label: 'Dashboard', desc: 'Mandanten, Verbindungen, Befunde und Secure Score' },
+      { id: 'cockpit-jobs', icon: 'refresh', label: 'Jobs & Synchronisierung', desc: 'Dauerhafte Läufe, Wiederholungen und Datenalter je Quelle' },
+      { id: 'cockpit-access', icon: 'userCog', label: 'Zugriff & Rollen', desc: 'SSO-Benutzer und Tenant-Zuweisungen administrieren', gated:'platformAdmin' },
       { id: 'cockpit-rollout', icon: 'rocket', label: 'Policy-Rollout', desc: 'CA-Zustandsvorlagen auf mehrere Mandanten anwenden' },
       { id: 'cockpit-geo', icon: 'map', label: 'Geo-Blocking', desc: 'Länder-Blueprints mit Vorschau und Notfallkonto-Ausnahmen' },
       { id: 'cockpit-users', icon: 'users', label: 'Benutzer & MFA', desc: 'Benutzer, Gäste, Gruppen und registrierte MFA-Methoden' },
@@ -159,5 +161,9 @@ export function navItem(id) {
 }
 
 export function isVisible(item, session) {
+  if(!item)return false
+  if(item.gated==='platformAdmin')return !!session?.access?.admin
+  if(session?.loggedIn && !session?.access?.admin && !item.id.startsWith('cockpit'))return false
+  if(session?.loggedIn && !session?.access?.admin && ['cockpit-geo','cockpit-rollout'].includes(item.id))return Object.values(session?.access?.grants||{}).some(r=>r==='manager')
   return !item.gated || !!session?.[item.gated]
 }

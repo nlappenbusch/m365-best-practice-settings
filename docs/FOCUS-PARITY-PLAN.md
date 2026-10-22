@@ -1,6 +1,6 @@
 # M365 Config Tool: Funktionsabgleich und Ausbauplan
 
-Stand: 22. Oktober 2026. Basis: öffentlich sichtbare Produktseite, deren FAQ, die bereitgestellten Screenshots und der Quellcode dieses Repositorys. Die konkurrierende Anwendung wurde nicht mit einem Partnerkonto untersucht. Die frühere Aussage „umgesetzt“ bezog sich auf den dokumentierten Cockpit-Ausbau, nicht auf vollständige Funktionsgleichheit.
+Stand: 23. Oktober 2026. Basis: öffentlich sichtbare Produktseite, deren FAQ, die bereitgestellten Screenshots und der Quellcode dieses Repositorys. Die konkurrierende Anwendung wurde nicht mit einem Partnerkonto untersucht. Die frühere Aussage „umgesetzt“ bezog sich auf den dokumentierten Cockpit-Ausbau, nicht auf vollständige Funktionsgleichheit.
 
 ## Was die Referenz tatsächlich belegt
 
@@ -11,7 +11,7 @@ Die [Produktseite von Fokus MSP](https://fokus-msp.de/en/produkt/fokus-msp-m365-
 | Tenant-Onboarding und zentrale Verwaltung | Vorhanden: Zertifikate, Consent, Verbindungsprüfung. Vereinfachter durchgehender Einrichtungsablauf fehlt. |
 | Benutzer, Gruppen, MFA, Lizenzen, Offboarding | Teilweise: Inventar, Kontoaktionen, Lizenzanalyse vorhanden. TAP, Kontoklonen und geführter Offboarding-Prozess fehlen. |
 | Tenantübergreifende Policy-Blueprints, Geo-Blocking | Zustandsvorlagen vorhanden. Neu: neue Länder-Policies mit geprüften Ausnahmen und Report-only-Rollout. |
-| Bedrohungen aus mehreren Microsoft-Datenquellen | Risk-Daten und Korrelation vorhanden. Security-Alerts/Incidents und inkrementelle Sign-in-Pipeline fehlen. |
+| Bedrohungen aus mehreren Microsoft-Datenquellen | Risk-Daten und Korrelation vorhanden. Persistierte inkrementelle Sign-in-Pipeline ergänzt; Security-Alerts/Incidents fehlen. |
 | Freigaben in SharePoint und OneDrive bearbeiten | Inventar und Sharing-Ereignisse vorhanden. Vollständige Datei-/Berechtigungssicht und gezielter Widerruf fehlen. |
 | App-Risiken und Credential-Ablauf | Rechteanalyse vorhanden. Neu: Credential-Ablauf als reguläre Monitoring-Befunde. App-Deinstallation fehlt. |
 | Mandantenübergreifende E-Mail-/Webhook-Alarme | Regeln derzeit tenantbezogen und intern; bestehende Teams-/Ticket-Meldungen ergänzen sie. Gemeinsame Zustellpipeline fehlt. |
@@ -90,9 +90,9 @@ Rohdaten und große Berichte bleiben in einem getrennten, gesicherten Artefaktsp
 
 ### Job-Ausführung und Sync
 
-Empfehlung für dieses bestehende Node-/Postgres-Umfeld: PostgreSQL als Datenbasis und eine auf PostgreSQL aufbauende Job-Queue, etwa `pg-boss`, nach Kompatibilitätsprüfung. So ist für die erste Version kein zusätzlicher Redis-Betrieb nötig. Graph- und Exchange-Worker werden getrennt ausgeführt; ihre Abhängigkeiten und Laufzeiten unterscheiden sich erheblich.
+Aktuell umgesetzt: SQLite im vorhandenen persistenten State-Volume, ohne zusätzlichen Datenbankdienst. Die vorangegangene Annahme eines bestehenden Postgres-Betriebs traf auf diese Installation nicht zu. Jobs, Leases, Tenant-Rollen, Journal und Sign-in-Cursor sind jetzt dauerhaft gespeichert. Für mehrere API-Instanzen bleibt PostgreSQL mit geeigneter Queue eine mögliche nächste Migration. Graph und Exchange besitzen unterschiedliche Quellintervalle; eine Trennung in eigene Worker-Pools bleibt ein Skalierungsschritt.
 
-Der aktuelle Managed-Service-Scheduler ist speicher-/prozessgebunden; sein Graph-Standardintervall liegt bei 60 Minuten. Das ist keine Zusage einer Überwachung innerhalb von zehn Minuten. Für kurze Reaktionszeiten brauchen wir:
+Der Scheduler legt jetzt dauerhafte Jobs an. Allgemeine Graph-Quellen behalten ihr konfiguriertes Intervall; Sign-ins erhalten bei aktivierter Quelle ein Zehn-Minuten-Intervall. Die folgenden Anforderungen sind durch Leases, Quellzustände und zeitbasierten Sign-in-Sync teilweise umgesetzt; eine vollständige Delta-Migration aller Quellen bleibt offen:
 
 - Kleine Ereignisquellen alle fünf bis zehn Minuten; Inventar und teure Berechtigungsauflösungen wesentlich seltener.
 - Pro Quelle echte unterstützte Delta-APIs verwenden. Bei Sign-ins zeitbasierte Fenster mit Überlappung und Deduplikation, statt eine nicht vorhandene universelle Delta-API anzunehmen.
@@ -107,11 +107,17 @@ Alle schreibenden Abläufe erhalten dasselbe Muster: Ziel wählen → serverseit
 
 Offboarding wird kein Alles-oder-nichts-Button: Anmeldung sperren, Sitzungen widerrufen, Postfachübergabe, Aufbewahrung, Gruppen und Lizenzen sind einzelne abhängige Schritte. Lizenzentzug und Löschung folgen erst nach den jeweiligen fachlichen Voraussetzungen. Jeder Schritt benötigt einen definierten Wiederholungs- und Fehlerpfad.
 
+## Priorität 1 des aktuellen Auftrags: Plattformausbau
+
+Implementiert sind dauerhafte Monitoring-Jobs mit zwei parallelen Tenants, Tenant-Rollen mit serverseitigen Grenzen, Quell-Backoff/Datenalter und atomare Sign-in-Cursor nach vollständiger Pagination. Details und Betriebsgrenzen: [PLATFORM-OPERATIONS.md](PLATFORM-OPERATIONS.md). Alte JSON-Artefakte sind noch nicht vollständig migriert, schreibende Alt-Jobs werden nicht automatisch wiederholt. Live-Microsoft-Abnahme und Restore im Zielcluster stehen aus.
+
+Die nachfolgenden P0/P1/P2-Kategorien beschreiben den ursprünglichen Produktplan; die Auftragspriorität oben bezieht sich auf die jetzt umgesetzte Plattformbasis.
+
 ## Priorisierter Ausbau
 
 ### P0 — Plattform für verlässlichen Betrieb
 
-1. Tenantbezogene Rollen/Fähigkeiten für Lesen, Operieren, Freigeben und Administrieren. Das bestehende Session-Gate ist noch keine vollständige Tenant-RBAC.
+1. Tenantbezogene Rollen/Fähigkeiten für Lesen, Operieren, Freigeben und Administrieren. Tenant-RBAC ist für freigegebene Routen umgesetzt; übrige ältere Fachmodule bleiben für Mitglieder gesperrt.
 2. Dauerhafte Jobs, Audit-Journal und Datenbank-Repositories. Alte JSON-Daten vollständig migrieren und Wiederherstellung testen.
 3. Zentraler Fähigkeitsstatus je Tenant: Rechte fehlen, Lizenz fehlt, noch nie gelaufen, Daten veraltet oder betriebsbereit.
 4. Integrations-Testtenant und Tests für Consent, Zertifikatsrotation, 403, 429, Neustart, Teilfehler und konkurrierende Jobs.
@@ -155,4 +161,4 @@ Teams, Copilot-Auswertung, Service-Health-Ansichten, BitLocker/LAPS-Zugriffe, um
 
 Eine vollständige Produktparität ist ein Ausbau über mehrere Iterationen, nicht ein weiterer Oberflächen-Patch. Vor einer belastbaren Termin-/Kostenschätzung brauchen wir die erwartete Tenantzahl, Zugriffspersonen, Betriebsumgebung, Benachrichtigungskanäle und einen geeigneten Testtenant. Diese Angaben blockieren die aktuelle Codeverbesserung nicht; sie bestimmen aber die Reihenfolge und Dimensionierung der Plattformmigration.
 
-Als Planungsannahme dient zunächst eine interne MSP-Installation mit wenigen gleichzeitig arbeitenden Technikern und einigen Dutzend bis niedrigen Hunderten Tenants. Das ist keine bereits nachgewiesene Kapazität. Bei mehr Instanzen oder mehr Last werden die heutigen Prozess-Locks durch Datenbank-Leases ersetzt; große Scans erhalten eigene Worker-Pools und Lasttests. Redis beziehungsweise ein zusätzlicher Broker wäre erst neu zu bewerten, wenn Queue-Last oder Entkopplungsanforderungen dies rechtfertigen.
+Als Planungsannahme dient zunächst eine interne MSP-Installation mit wenigen gleichzeitig arbeitenden Technikern und einigen Dutzend bis niedrigen Hunderten Tenants. Das ist keine bereits nachgewiesene Kapazität. Datenbank-Leases sind für Monitoring-Jobs umgesetzt. Bei mehr Instanzen müssen zusätzlich JSON-Ablagen und Sessions migriert werden; große Scans erhalten eigene Worker-Pools und Lasttests. Redis beziehungsweise ein zusätzlicher Broker wäre erst neu zu bewerten, wenn Queue-Last oder Entkopplungsanforderungen dies rechtfertigen.

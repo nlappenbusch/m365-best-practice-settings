@@ -9,6 +9,9 @@
  */
 const fs = require("fs");
 const crypto = require("crypto");
+const { AsyncLocalStorage } = require('async_hooks');
+const requestContext = new AsyncLocalStorage();
+const withSignal=(signal,fn)=>requestContext.run({signal},fn);
 
 const GRAPH_V1 = "https://graph.microsoft.com/v1.0";
 const GRAPH_BETA = "https://graph.microsoft.com/beta";
@@ -42,7 +45,7 @@ async function getGraphToken(tenant, certPemPath) {
     client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
     client_assertion: clientAssertion(tenant, pem, thumb)
   });
-  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, signal: requestContext.getStore()?.signal });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error("Graph-Token-Fehler: " + (j.error_description || j.error || r.status));
   tokenCache.set(tenant.tenantId, { value: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 });
@@ -67,11 +70,13 @@ function isTransientGraphError(status, message) {
 
 /** Graph-Request app-only. path beginnt mit '/', opts.beta fuer beta-Endpoint. */
 async function graphReq(tenant, certPemPath, method, path, body, opts) {
+  const signal=opts?.signal || requestContext.getStore()?.signal;
+  signal?.throwIfAborted();
   const token = await getGraphToken(tenant, certPemPath);
   const base = (opts && opts.beta) ? GRAPH_BETA : GRAPH_V1;
   const url = path.startsWith("https://") ? path : base + path;
   const r = await fetch(url, {
-    method,
+    method, signal,
     headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/json" } : {}), ...(opts && opts.headers) },
     body: body ? JSON.stringify(body) : undefined
   });
@@ -147,4 +152,4 @@ async function graphAllPages(tenant, certPemPath, path, opts) {
   return results;
 }
 
-module.exports = { graphReq, graphAllPages, getGraphToken, clearTenantToken };
+module.exports = { graphReq, graphAllPages, getGraphToken, clearTenantToken, withSignal };

@@ -1442,6 +1442,7 @@ async function collectExo(tenant, cert, parts, opts, onProgress) {
 }
 
 const GRAPH_COLLECTORS = {
+  signins: require('./signinSync').collectSignins,
   credentials: require('./appCredentials').collectCredentials,
   ca: collectCa, risk: collectRisk, score: collectScore, consent: collectConsent,
   devices: collectDevices, licenses: collectLicenses

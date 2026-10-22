@@ -1,5 +1,7 @@
 export const STATUS = { fulfilled: 'Erfüllt', open: 'Offen', unknown: 'Zu prüfen', na: 'Nicht anwendbar' }
 export const LEVEL = { critical: 'Kritisch', high: 'Hoch', medium: 'Mittel', low: 'Niedrig' }
+export const canOperate=t=>['admin','manager','operator'].includes(t?.accessRole)
+export const canManage=t=>['admin','manager'].includes(t?.accessRole)
 export const url = (id, part) => `/api/tenants/${encodeURIComponent(id)}/cockpit/${part}`
 export function csv(name, columns, rows) {
   const cell = v => '"' + String(v ?? '').replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""') + '"'

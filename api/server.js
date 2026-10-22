@@ -193,7 +193,7 @@ const GRAPH_APP_PERMS_MONITOR = ["IdentityRiskyUser.Read.All", "IdentityRiskEven
 function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch (e) { return { tenants: [] }; }
 }
-function saveState(s) { fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 2), "utf8"); }
+function saveState(s) { const temp=STATE_FILE+'.tmp';fs.writeFileSync(temp, JSON.stringify(s, null, 2), {encoding:'utf8',mode:0o600});fs.renameSync(temp,STATE_FILE); }
 // Die Namenskonvention liegt im Zustand — das Modul liest ihn nicht selbst,
 // sondern bekommt den Zugriff hier hereingereicht.
 NAMING.useStateProvider(loadState);
@@ -583,6 +583,11 @@ async function repairAppReg(token, rec, opts) {
 
 // ---------- App ----------
 const state = ensureAdmin(loadState());
+const { PlatformStore } = require('./lib/platformStore');
+const TENANT_ACCESS = require('./lib/tenantAccess');
+const platform = new PlatformStore(path.join(STATE_DIR,'platform.sqlite'));
+platform.bootstrap(state.auth.username,process.env.RBAC_BOOTSTRAP_ADMIN_UPN || 'nils.lappenbusch@igeeks.ch');
+platform.interruptLegacy();
 const app = express();
 app.use(express.json({ limit: "512kb" }));
 if (process.env.TRUST_PROXY !== "0") app.set("trust proxy", 1);
@@ -644,7 +649,7 @@ function isTicketsAllowed(req) {
   return true;
 }
 
-app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user), ticketsAllowed: isTicketsAllowed(req) }));
+app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user), ticketsAllowed: isTicketsAllowed(req) && platform.access(req.session?.user).admin, access: req.session?.user ? platform.access(req.session.user) : null }));
 
 // Brute-Force-Schutz fuer den lokalen Admin-Login (kein SSO/MFA-Schutz wie beim
 // iGeeks-SSO-Pfad) -- pro IP max. 5 Fehlversuche innerhalb von 15 Minuten, danach
@@ -726,6 +731,10 @@ app.use("/api", (req, res, next) => {
   if (req.session && req.session.user) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
 });
+
+// Prüfmandat: Für nur lesend angebundene Tenants ist jede schreibende Anfrage
+app.use('/api',TENANT_ACCESS.middleware(platform));
+require('./lib/platformRoutes').register(app,{platform,loadState,wrap});
 
 // Prüfmandat: Für nur lesend angebundene Tenants ist jede schreibende Anfrage
 // gesperrt — Voreinstellung "verboten", durch kommen nur Routen, die den Tenant
@@ -1310,10 +1319,10 @@ app.delete("/api/runbooks/:id", (req, res) => {
 // ---------- Tenants ----------
 app.get("/api/tenants", (req, res) => {
   const s = loadState();
-  res.json((s.tenants || []).map(t => ({
+  res.json(TENANT_ACCESS.filtered(req.access,s.tenants || []).map(t => ({
     id: t.id, name: t.name, tenantId: t.tenantId, organization: t.organization,
     appId: t.clientId, exoRole: !!t.exoRole, sccRole: !!t.sccRole, addedAt: t.addedAt,
-    readOnly: !!t.readOnly,
+    readOnly: !!t.readOnly, accessRole:req.access.admin?'admin':req.access.grants[t.id],
     certPresent: fs.existsSync(certPemPath(t.tenantId)),
     onboardingSteps: t.onboardingSteps || {},
     // Nur ob und wann eine Vorlage hinterlegt ist — der Inhalt kommt ueber
@@ -3728,6 +3737,7 @@ app.post("/api/jobs/:id/cancel", (req, res) => {
 // dynamische GroupTag-Geraetegruppe wird als Mitglied genestet, damit ihre
 // Geraete transitiv adressiert werden (Intune unterstuetzt das fuer App-Assignment).
 const appJobs = new Map(); // jobId -> Job
+for(const j of platform.jobs().filter(j=>j.kind==='legacy'))appJobs.set(j.id,platform.publicJob(j));
 const APPDEPLOY_PHASES = ["Installer holen", "Gruppen vorbereiten", "App erzeugen & hochladen", "Veröffentlichen & zuweisen"];
 
 function createAppJob(t, phaseNames) {
@@ -3743,6 +3753,7 @@ function createAppJob(t, phaseNames) {
     for (const [k, j] of appJobs) { if (appJobs.size < 20) break; if (j.status !== "running") appJobs.delete(k); }
   }
   appJobs.set(id, job);
+  platform.saveLegacy(job);
   return job;
 }
 
@@ -3759,6 +3770,7 @@ function appJobProgress(job) {
     job.phase = label;
     st.state = "running";
     if (extra && extra.total) st.detail = `${extra.done}/${extra.total} Chunks`;
+    if(job._durableProgress)job._durableProgress(jobSummary(job));else platform.saveLegacy(job);
   };
 }
 
@@ -3766,22 +3778,27 @@ function finishAppJob(job, ok, error, hint) {
   for (const s of job.steps) { if (s.state === "running") s.state = "done"; }
   job.status = ok ? "done" : "failed";
   if (!ok) { job.error = error; job.hint = hint || null; }
+  if(hint)job.hint=hint;
   job.finishedAt = new Date().toISOString();
+  if(job._durableProgress)job._durableProgress(jobSummary(job));else platform.saveLegacy(job);
 }
 
+function jobSummary(job) { const out={};for(const key of ['tenantName','phase','steps','startedAt','finishedAt','error','hint','result','isManaged','scheduled'])if(job[key]!==undefined)out[key]=job[key];return out; }
+
 app.get("/api/appjobs/:id", (req, res) => {
-  const job = appJobs.get(req.params.id);
+  const persisted=platform.job(req.params.id);
+  const job = persisted && (persisted.kind==='managed'||!req.access.admin) ? platform.publicJob(persisted) : appJobs.get(req.params.id) || (persisted ? platform.publicJob(persisted) : null);
   if (!job) return res.status(404).json({ error: "Job nicht gefunden (Backend neu gestartet?)" });
   // _child ist der laufende pwsh-Prozess (Maester) — gehoert nie in die Antwort.
-  const { _child, ...rest } = job;
+  const { _child, _durableProgress, ...rest } = job;
   res.json(rest);
 });
 
 // Product-facing job list. The existing per-job endpoint remains unchanged;
 // this compact list powers Control Center and Automation without exposing child processes.
 app.get("/api/appjobs", (req, res) => {
-  const jobs = [...appJobs.values()]
-    .map(j => { const { _child, ...safe } = j; return safe; })
+  const jobs = platform.jobs().filter(j=>TENANT_ACCESS.visible(req.access,j.tenant_id))
+    .map(j => platform.publicJob(j))
     .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")))
     .slice(0, 50);
   res.json({ ok: true, jobs });
@@ -7473,10 +7490,13 @@ app.post("/api/tenants/:id/deviations", wrap(async (req, res) => {
 }));
 
 // ---------- Managed Service (MSP-Monitoring) ----------
-require('./lib/cockpitRoutes').register(app, { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap });
-MANAGED_ROUTES.register(app, {
+require('./lib/cockpitRoutes').register(app, { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap, platform });
+const managedRuntime=MANAGED_ROUTES.register(app, {
   STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap,
-  createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST
+  createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST, platform, jobSummary
 });
 
-app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + PORT + " (State: " + STATE_DIR + ")"));
+const httpServer=app.listen(PORT, () => console.log("Live-Deploy-API laeuft auf Port " + httpServer.address().port + " (State: " + STATE_DIR + ")"));
+let shuttingDown=false;
+async function shutdown(){if(shuttingDown)return;shuttingDown=true;httpServer.close();const deadline=setTimeout(()=>process.exit(0),20000);try{await managedRuntime.stop();platform.close();clearTimeout(deadline);process.exit(0)}catch{process.exit(1)}}
+process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);

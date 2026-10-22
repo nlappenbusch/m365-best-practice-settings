@@ -3,15 +3,19 @@
   import { apiGet } from './api.js'
   import { url, csv } from './cockpit.js'
   import { fmtDateTime } from './product.js'
+  import { msApi,followJob } from './managed.js'
+  import { canOperate } from './cockpit.js'
   let { tenant } = $props()
   let data = $state(null), error = $state(''), busy = $state(false), country = $state(''), type = $state('all'), q = $state('')
   let countries = $derived([...new Set((data?.signins || []).map(s => s.country))].sort())
   let rows = $derived((data?.signins || []).filter(s => !country || s.country === country).filter(s => type === 'all' || (type === 'risk' ? s.risk : type === 'success' ? s.success : !s.success)).filter(s => !q || `${s.user} ${s.app} ${s.city}`.toLowerCase().includes(q.toLowerCase())))
   let locations = $derived(Object.values((data?.signins || []).filter(s => Number.isFinite(s.latitude) && Number.isFinite(s.longitude)).reduce((acc,s) => { const k = `${s.country}:${s.city}`; acc[k] ||= { ...s,count:0 }; acc[k].count++; return acc },{})))
   async function load() { busy = true; error = ''; try { data = await apiGet(url(tenant.id,'signins')) } catch(e) { error = e.message }; busy = false }
+  async function sync(){busy=true;error='';try{const j=await msApi.run(tenant.id,['signins']);const result=await followJob(j.jobId);if(!result||result.status!=='done')throw new Error(result?.error||'Sync fehlgeschlagen');await load()}catch(e){error=e.message}finally{busy=false}}
   onMount(load)
 </script>
-<div class="cp-head"><div><h2>Globale Anmelde-Aktivität</h2><p>{tenant.name} · Letzte 7 Tage</p></div><div class="cp-actions"><button class="btn btn-secondary" onclick={() => csv('Anmeldungen',['Zeit','Benutzer','Anwendung','Land','Stadt','Erfolg','Risiko'],rows.map(s => [s.at,s.user,s.app,s.country,s.city,s.success,s.risk]))}>CSV Export</button><button class="btn btn-primary" onclick={load} disabled={busy}>{busy ? 'Lade…' : 'Synchronisieren'}</button></div></div>
+<div class="cp-head"><div><h2>Globale Anmelde-Aktivität</h2><p>{tenant.name} · Letzte 7 Tage</p></div><div class="cp-actions"><button class="btn btn-secondary" onclick={() => csv('Anmeldungen',['Zeit','Benutzer','Anwendung','Land','Stadt','Erfolg','Risiko'],rows.map(s => [s.at,s.user,s.app,s.country,s.city,s.success,s.risk]))}>CSV Export</button><button class="btn btn-primary" onclick={sync} disabled={busy||!canOperate(tenant)}>{busy ? 'Sync läuft…' : 'Synchronisieren'}</button></div></div>
+{#if data?.source==='archive'}<div class="cp-note">Persistierter Datenstand · letzter erfolgreicher Sync: {fmtDateTime(data.sync?.success_at)} · {data.sync?.status||'Noch nie synchronisiert'}. Der erste Lauf lädt 24 Stunden; danach wächst das Archiv bis auf sieben Tage. Neue Ereignisse werden mit Zeitüberlappung und Deduplikation eingelesen.</div>{/if}
 {#if error}<div class="cp-note cp-gaps" role="alert">{error}</div>{/if}
 {#if data?.sampled}<div class="cp-note cp-gaps">Die Ansicht enthält die neuesten 1000 Anmeldungen. Weitere Anmeldungen im Zeitraum sind vorhanden.</div>{/if}
 <section class="cp-panel"><div class="cp-toolbar"><h3>Standorte</h3><span class="cp-sub">Klicke einen Punkt, um nach Land zu filtern. IP-Geolokation ist näherungsweise.</span></div>

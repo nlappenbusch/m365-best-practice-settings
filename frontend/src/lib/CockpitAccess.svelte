@@ -1,0 +1,19 @@
+<script>
+  import { onMount } from 'svelte'
+  import { apiGet,apiPut } from './api.js'
+  import Modal from './CockpitModal.svelte'
+  import { fmtDateTime } from './product.js'
+  let data=$state(null),audit=$state([]),error=$state(''),busy=$state(false),edit=$state(null)
+  const names={reader:'Lesen',operator:'Operator',manager:'Tenant-Admin'}
+  async function load(){try{const [a,b]=await Promise.all([apiGet('/api/platform/access'),apiGet('/api/platform/audit')]);data=a;audit=b.entries}catch(e){error=e.message}}
+  function open(p){edit=p?{...p,grants:p.grants.map(g=>({...g}))}:{principal:'sso:',role:'member',enabled:true,grants:[]};error=''}
+  function setGrant(id,role){edit.grants=edit.grants.filter(g=>g.tenantId!==id);if(role)edit.grants.push({tenantId:id,role})}
+  async function save(){busy=true;error='';try{await apiPut('/api/platform/access',edit);edit=null;await load()}catch(e){error=e.message}finally{busy=false}}
+  onMount(load)
+</script>
+<div class="cp-head"><div><h2>Zugriff & Tenant-Rollen</h2><p>Plattformadministration und explizite SSO-Zuweisungen</p></div><button class="btn btn-primary" onclick={()=>open(null)}>+ SSO-Benutzer zuweisen</button></div>
+<div class="cp-note">„Lesen“ öffnet freigegebene Daten. „Operator“ darf Prüfungen starten und Befunde dokumentieren. „Tenant-Admin“ darf zusätzlich konfigurierte operative Aktionen ausführen. Vorhandene Tenant- und Graph-Freigaben gelten weiter. Plattform-Admins verwalten alle Tenants und die Rollen.</div>
+{#if error}<div class="cp-note cp-gaps" role="alert">{error}</div>{/if}
+{#if data}<section class="cp-panel"><h3>Wiederherstellungszugang</h3><p>Lokaler Admin: {data.localAdmin}. Dieser bestehende Login bleibt Plattform-Admin; es werden hier keine neuen Passwörter oder SSO-Konten angelegt.</p></section><div class="cp-table-wrap"><table><thead><tr><th>SSO-Identität</th><th>Plattformrolle</th><th>Status</th><th>Tenant-Zuweisungen</th><th></th></tr></thead><tbody>{#each data.principals as p}<tr><td>{p.principal}</td><td>{p.role==='admin'?'Plattform-Admin':'Mitglied'}</td><td>{p.enabled?'Aktiv':'Gesperrt'}</td><td style="white-space:normal">{p.role==='admin'?'Alle Tenants':p.grants.map(g=>(data.tenants.find(t=>t.id===g.tenantId)?.name||g.tenantId)+': '+names[g.role]).join(' · ')||'Keine Zuweisung'}</td><td><button class="btn btn-secondary" onclick={()=>open(p)}>Bearbeiten</button></td></tr>{/each}</tbody></table></div>{/if}
+<section class="cp-panel" style="margin-top:22px"><h3>Plattform-Journal</h3><div class="cp-table-wrap" style="margin-top:16px"><table><thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Referenz</th><th>Ergebnis</th></tr></thead><tbody>{#each audit as a}<tr><td>{fmtDateTime(a.at)}</td><td>{a.actor}</td><td>{a.action}</td><td>{a.reference||'—'}</td><td>{a.result}</td></tr>{/each}</tbody></table></div></section>
+{#if edit}<Modal label="Tenant-Zugriff bearbeiten" {error} {busy} onclose={()=>edit=null}><h3>SSO-Zugriff</h3><label>Identität<input bind:value={edit.principal} placeholder="sso:techniker@firma.ch"/></label><label>Plattformrolle<select bind:value={edit.role}><option value="member">Mitglied mit Tenant-Zuweisungen</option><option value="admin">Plattform-Admin</option></select></label><label style="flex-direction:row"><input type="checkbox" bind:checked={edit.enabled}/>Zugang aktiviert</label>{#if edit.role==='member'}{#each data.tenants as t}<label>{t.name}<select value={edit.grants.find(g=>g.tenantId===t.id)?.role||''} onchange={e=>setGrant(t.id,e.currentTarget.value)}><option value="">Kein Zugriff</option>{#each Object.entries(names) as [value,label]}<option {value}>{label}</option>{/each}</select></label>{/each}{/if}<div class="cp-actions"><button class="btn btn-secondary" disabled={busy} onclick={()=>edit=null}>Abbrechen</button><button class="btn btn-primary" disabled={busy} onclick={save}>Zuweisungen speichern</button></div></Modal>{/if}
