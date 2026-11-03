@@ -86,12 +86,17 @@ class PlatformStore {
           .get()
       )
         return;
-      if (ssoAdmin)
-        this.db
-          .prepare(
-            "INSERT OR IGNORE INTO principals(principal,role,enabled) VALUES(?,'admin',1)",
-          )
-          .run("sso:" + ssoAdmin.toLowerCase());
+      // Mehrere Erst-Admins erlaubt ("a@x.ch, b@x.ch"): auf einer Instanz mit
+      // bestehenden SSO-Nutzern (igeeks-prod) wuerden sonst alle ausser dem
+      // einen Bootstrap-Konto beim ersten Start der Rollensteuerung ausgesperrt.
+      const admins = String(ssoAdmin || "")
+        .split(/[,;\s]+/)
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean);
+      const insert = this.db.prepare(
+        "INSERT OR IGNORE INTO principals(principal,role,enabled) VALUES(?,'admin',1)",
+      );
+      for (const upn of admins) insert.run("sso:" + upn);
       this.db
         .prepare("INSERT INTO platform_meta VALUES('rbac_initialized','1')")
         .run();

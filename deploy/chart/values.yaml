@@ -30,6 +30,10 @@ api:
   sdpBaseUrl: ""
   sdpOwnerId: ""
   anthropicModel: ""
+  # Erst-Admins der Rollensteuerung (SSO-UPNs, kommagetrennt). Wirkt nur beim
+  # allerersten Start mit platform.sqlite; danach im Tool unter
+  # «Zugriff & Tenant-Rollen» pflegen. Leer = nur nils.lappenbusch@igeeks.ch.
+  rbacBootstrapAdmins: ""
   zohoRegion: eu   # SDP-CRM-Matcher (/plan/-Dashboard); Client-ID/-Secret/Refresh-Token kommen aus Vault (secret.yaml)
   # Der CRM-Matcher ist standardmaessig AUS. Erst einschalten, wenn
   # ZOHO_CLIENT_ID/-SECRET/-REFRESH_TOKEN im Vault des Clusters wirklich

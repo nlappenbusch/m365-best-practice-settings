@@ -173,3 +173,12 @@ test("bootstrap is one-time, new SSO users have no implicit tenant rights, and c
     /Eigene/,
   );
 });
+test("bootstrap accepts a list of initial admins (comma, semicolon or space separated)", (t) => {
+  const s = new PlatformStore(":memory:");
+  t.after(() => s.close());
+  s.bootstrap("admin", "Owner@example.com, tech@example.com;ops@example.com");
+  assert.equal(s.access("sso:owner@example.com").admin, true);
+  assert.equal(s.access("sso:tech@example.com").admin, true);
+  assert.equal(s.access("sso:ops@example.com").admin, true);
+  assert.equal(s.access("sso:someone@example.com").admin, false);
+});

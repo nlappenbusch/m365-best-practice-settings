@@ -30,6 +30,7 @@ spec:
             - { name: SDP_OWNER_ID, value: {{ .Values.api.sdpOwnerId | quote }} }
             - { name: ANTHROPIC_MODEL, value: {{ .Values.api.anthropicModel | quote }} }
             - { name: ZOHO_REGION, value: {{ .Values.api.zohoRegion | quote }} }
+            - { name: RBAC_BOOTSTRAP_ADMIN_UPN, value: {{ .Values.api.rbacBootstrapAdmins | quote }} }
             - name: ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: m365-configurator-secret, key: ADMIN_PASSWORD } }
             - name: BD_API_KEY
