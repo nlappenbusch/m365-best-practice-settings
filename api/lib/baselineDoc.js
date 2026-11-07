@@ -546,7 +546,7 @@ function renderDocument(b, opts) {
   <p>Version ${esc(m.version)} · gültig ab ${esc(m.gueltigAb)} · erzeugt am ${esc(stand)}${opts.tenantName ? " · Namensschema des Tenants " + esc(opts.tenantName) : ""}</p>
 </header>
 ${renderSections(b)}
-<footer class="doc">igeeks AG · intern — erzeugt aus <code>baseline.json</code>, Version ${esc(m.version)}. Änderungen laufen über einen Commit mit Review, nicht über diese Datei.</footer>
+<footer class="doc">Intern — erzeugt aus <code>baseline.json</code>, Version ${esc(m.version)}. Änderungen laufen über einen Commit mit Review, nicht über diese Datei.</footer>
 </div></body></html>`;
 }
 

@@ -40,7 +40,7 @@
   let reportQ = $state('')
   // Fachansicht-Filter
   let mbOnly = $state('attention')
-  // Eingefrorener Stand (Drift-Referenz) — getrennt von den igeeks-Best-Practices
+  // Eingefrorener Stand (Drift-Referenz) — getrennt von den Best-Practices
   let stand = $state(null)
   let standForm = $state(null)      // { area: null | 'ca' | 'threat', reason }
   let standBusy = $state(false)
@@ -557,7 +557,7 @@
                   <p class="dim small">
                     Grundlage ist die letzte Erhebung{#each (stand?.areas || []).filter(x => !standForm.area || x.id === standForm.area) as sa}{' · '}{sa.label} {sa.snapAt ? fmtDateTime(sa.snapAt) : 'noch nie'}{/each}.
                     {#if standDriftOf(standForm)}<b>{standDriftOf(standForm)} offene Drift-Befunde</b> werden damit als gewollt übernommen und geschlossen.{/if}
-                    Es entsteht eine neue Version; die bisherige bleibt mit PDF erhalten. Die igeeks-Best-Practices (auch für andere Tenants) bleiben unberührt.
+                    Es entsteht eine neue Version; die bisherige bleibt mit PDF erhalten. Die Best-Practices (auch für andere Tenants) bleiben unberührt.
                   </p>
                   <textarea rows="2" bind:value={standForm.reason} placeholder="Begründung, z. B. «Onboarding abgeschlossen, mit Kunde abgenommen — Change #4711» (Pflicht, steht im Stand-PDF)"></textarea>
                   <div class="row">
@@ -599,7 +599,7 @@
                   <div class="tw"><table><thead><tr><th>Policy</th><th>Status</th><th>Verwaltet</th><th>Geändert</th><th>Drift</th></tr></thead>
                     <tbody>{#each c.data.policies as p}
                       {@const df = (ov.findings || []).find(f => f.area === 'ca' && f.drift && f.objId === p.id)}
-                      <tr class:rbad={df}><td><b>{p.name}</b></td><td><i class="state {p.state}">{stateDe(p.state)}</i></td><td>{p.managed ? 'igeeks (BP_)' : 'kundenseitig'}</td><td>{p.modified ? fmtDateTime(p.modified) : '—'}</td>
+                      <tr class:rbad={df}><td><b>{p.name}</b></td><td><i class="state {p.state}">{stateDe(p.state)}</i></td><td>{p.managed ? 'Baseline (BP_)' : 'kundenseitig'}</td><td>{p.modified ? fmtDateTime(p.modified) : '—'}</td>
                         <td>{#if df}<button class="linkb" onclick={() => openFinding(df)}>{SEV_DE[df.severity]} ansehen</button>{:else}<span class="okt">✓</span>{/if}</td></tr>
                     {/each}</tbody></table></div>
                 {:else if a === 'threat' && c?.data?.policies}

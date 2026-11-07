@@ -45,7 +45,7 @@ else {
     log info "Local path $localPath already exists"
 }
 
-# [igeeks] Arbeitsverzeichnis abschotten.
+# [Anpassung] Arbeitsverzeichnis abschotten.
 # In dieses Verzeichnis wird gleich das komplette Paket kopiert -- inklusive
 # config.json mit den Client Secrets BEIDER Tenants und dem Provisioning
 # Package (enthaelt den Bulk-Enrollment-Token des Zieltenants). Unterhalb von
@@ -427,7 +427,7 @@ else {
     exit 1
 }
 
-# [igeeks] Fallback-Admin anlegen -- BEVOR irgendetwas Destruktives passiert.
+# [Anpassung] Fallback-Admin anlegen -- BEVOR irgendetwas Destruktives passiert.
 #
 # Ab dem naechsten Abschnitt wird das Geraet aus dem Quelltenant geloest (MDM-
 # Zertifikat, Enrollment, Entra-Join). Bricht die Migration danach ab -- etwa
@@ -438,7 +438,7 @@ else {
 # Weg zurueck auf ein gestrandetes Geraet.
 $fallbackConfig = $config.fallbackAdmin
 if ($fallbackConfig -and $fallbackConfig.enabled -eq $true) {
-    $fallbackName = if ([string]::IsNullOrWhiteSpace($fallbackConfig.name)) { "igeeksRecovery" } else { $fallbackConfig.name }
+    $fallbackName = if ([string]::IsNullOrWhiteSpace($fallbackConfig.name)) { "M365Recovery" } else { $fallbackConfig.name }
     log info "Creating fallback local admin '$fallbackName'..."
 
     # Passwort aus der Konfiguration, sonst zufaellig. Zufaellig heisst: niemand
@@ -459,7 +459,7 @@ if ($fallbackConfig -and $fallbackConfig.enabled -eq $true) {
             Set-LocalUser -Name $fallbackName -Password $fallbackPW -PasswordNeverExpires $true
         }
         else {
-            New-LocalUser -Name $fallbackName -Password $fallbackPW -PasswordNeverExpires -Description "igeeks migration recovery account" | Out-Null
+            New-LocalUser -Name $fallbackName -Password $fallbackPW -PasswordNeverExpires -Description "M365 migration recovery account" | Out-Null
         }
 
         $localAdminGroup = (Get-CimInstance -Query "Select * From Win32_Group Where LocalAccount = True And SID = 'S-1-5-32-544'").Name
@@ -588,7 +588,7 @@ else {
 # Leave domain/hybrid join
 
 # Set local migration admin
-# [igeeks] Passwort zusaetzlich im Klartext halten. Zwei Stellen brauchen es:
+# [Anpassung] Passwort zusaetzlich im Klartext halten. Zwei Stellen brauchen es:
 # der Domain-Unjoin weiter unten (Win32-Methode, nimmt keinen SecureString) und
 # die Autologon-Registry. Im Original stand dort ein hartkodiertes
 # "@Password*123", das mit dem tatsaechlich gesetzten Zufallspasswort nichts zu
@@ -639,7 +639,7 @@ if ($pc.domainJoined -eq "YES") {
         $instance = Get-CimInstance -ClassName 'Win32_ComputerSystem'
         $invCimParams = @{
             MethodName = 'UnjoinDomainOrWorkGroup'
-            # [igeeks] $adminPW ist ein SecureString -- "$adminPW" ergibt woertlich
+            # [Anpassung] $adminPW ist ein SecureString -- "$adminPW" ergibt woertlich
             # "System.Security.SecureString" und der Unjoin scheitert. Klartext verwenden.
             Arguments  = @{ FUnjoinOptions = 0; Username = "$hostname\$migrateAdmin"; Password = $adminPWPlain }
         }
@@ -765,7 +765,7 @@ else {
     log info "SCCM not enabled."
 }
 
-# [igeeks] Loeschen der Quellobjekte in eine Funktion gefasst und ans Ende
+# [Anpassung] Loeschen der Quellobjekte in eine Funktion gefasst und ans Ende
 # verschoben. Im Original lief dieser Block VOR der Installation des
 # Provisioning Package: schlug die Installation fehl (dafuer gab es in 9.1
 # gerade erst Fixes), war das Geraet bereits aus Intune und Autopilot des
@@ -806,7 +806,7 @@ if ($pc.autopilotId) {
 else {
     log info "Autopilot object not found"
 }
-}   # [igeeks] Ende removeSourceTenantObjects -- Aufruf erst nach erfolgreichem PPKG-Install
+}   # [Anpassung] Ende removeSourceTenantObjects -- Aufruf erst nach erfolgreichem PPKG-Install
 
 # Install provisioning package
 $ppkg = (Get-ChildItem -Path $config.localPath -Filter "*.ppkg" -Recurse).FullName
@@ -883,7 +883,7 @@ else {
     exit 1
 }
 
-# [igeeks] Erst jetzt -- das Geraet haengt am Zieltenant, der Weg zurueck wird
+# [Anpassung] Erst jetzt -- das Geraet haengt am Zieltenant, der Weg zurueck wird
 # nicht mehr gebraucht. Scheitert das Aufraeumen, bleiben nur verwaiste Objekte
 # im Quelltenant zurueck; die Migration selbst ist zu diesem Zeitpunkt durch.
 log info "Provisioning package is in place -- cleaning up source tenant objects"
@@ -891,7 +891,7 @@ removeSourceTenantObjects
 
 # Set autologon
 log info "Setting auto logon policy"
-# [igeeks] Das tatsaechlich gesetzte Passwort verwenden, nicht den hartkodierten
+# [Anpassung] Das tatsaechlich gesetzte Passwort verwenden, nicht den hartkodierten
 # Platzhalter aus dem Original. Der Wert steht bauartbedingt im Klartext in der
 # Registry -- reboot.ps1 loescht ihn beim naechsten Start wieder, und das Konto
 # selbst wird von postMigrate entfernt.

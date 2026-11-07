@@ -1,8 +1,8 @@
 /**
  * Paketbau fuer die Tenant-zu-Tenant-Geraetemigration.
  *
- * Grundlage ist der igeeks-Fork von stevecapacity/intunemigration-v9
- * (gitlab.igeeks.ch/igeeks/igeeks-apps/intune-tenant-migration). Die Skripte
+ * Grundlage ist ein angepasster Fork von stevecapacity/intunemigration-v9.
+ * Die Skripte
  * liegen unveraendert unter assets/migration; dieses Modul erzeugt nur die
  * config.json und stellt die Dateiliste fuer die Win32-App zusammen.
  *
@@ -60,7 +60,7 @@ function buildConfig(input) {
 
   const fb = input.fallbackAdmin || {};
   const fallbackEnabled = fb.enabled !== false;   // Standard: an
-  const fallbackName = String(fb.name || "igeeksRecovery").trim();
+  const fallbackName = String(fb.name || "M365Recovery").trim();
   if (fallbackEnabled && !/^[A-Za-z0-9_-]{3,20}$/.test(fallbackName)) {
     bad("Name des Fallback-Admins: 3-20 Zeichen, nur Buchstaben, Ziffern, - und _.");
   }
@@ -139,8 +139,8 @@ function buildAppPayload(opts) {
   return {
     "@odata.type": "#microsoft.graph.win32LobApp",
     displayName: opts.appName,
-    description: opts.description || "Geraetemigration in den Tenant " + opts.targetTenantName + " (igeeks)",
-    publisher: "igeeks AG",
+    description: opts.description || "Geraetemigration in den Tenant " + opts.targetTenantName + "",
+    publisher: require("./brand").PUBLISHER,
     fileName: opts.packageName,
     installCommandLine: 'powershell.exe -ExecutionPolicy Bypass -NoProfile -File .\\StartMigrate.ps1',
     uninstallCommandLine: 'cmd.exe /c "echo Deinstallation nicht vorgesehen"',

@@ -17,7 +17,7 @@
     groupTag: '',
     bitlocker: 'migrate',
     sccm: false,
-    fallbackAdmin: { enabled: true, name: 'igeeksRecovery', password: '', removeAfterMigration: false },
+    fallbackAdmin: { enabled: true, name: 'M365Recovery', password: '', removeAfterMigration: false },
     cleanupLocalPath: true
   })
 

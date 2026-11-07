@@ -215,7 +215,7 @@ async function deployKatalog(tenant, certPemPath, { key, groupIds, taeglich }) {
     "@odata.type": "#microsoft.graph.deviceHealthScript",
     displayName,
     description: vorlage.label + " — angelegt vom M365 Security Policy Manager.",
-    publisher: "igeeks AG",
+    publisher: require("./brand").PUBLISHER,
     detectionScriptContent: b64(vorlage.detection),
     remediationScriptContent: b64(vorlage.remediation),
     runAsAccount: "system",

@@ -24,7 +24,7 @@ function buildPrompt(tenantName, findings) {
     (f.result ? `   Befund: ${clip(f.result, 700)}\n` : "")
   ).join("\n");
 
-  return `Du bist ein erfahrener M365-/Entra-ID-Security-Consultant bei einem Schweizer MSP (igeeks AG). ` +
+  return `Du bist ein erfahrener M365-/Entra-ID-Security-Consultant bei einem MSP. ` +
     `Ein Maester-Security-Audit (maester.dev) im Tenant "${tenantName}" hat die unten gelisteten Tests als GEFALLEN markiert.\n\n` +
     `Antworte AUSSCHLIESSLICH mit einem JSON-Array (kein Text davor/danach). Pro Finding ein Objekt exakt nach diesem Schema:\n` +
     `{"id": string (die id aus der Liste, unveraendert), "titel": string (deutscher, kundenverstaendlicher Titel, max. 90 Zeichen), ` +

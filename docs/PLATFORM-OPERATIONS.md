@@ -14,7 +14,7 @@ Jobs und Journal werden derzeit nicht automatisch gelöscht; die Ansichten zeige
 
 ## Rollen und erste Anmeldung
 
-Der vorhandene lokale Admin bleibt Wiederherstellungszugang. Beim erstmaligen Anlegen der Datenbank wird `RBAC_BOOTSTRAP_ADMIN_UPN` als SSO-Plattformadmin eingetragen; ohne Variable gilt der vorhandene Betreiber `nils.lappenbusch@igeeks.ch`. Die Variable ist **nur ein einmaliger Bootstrap**, kein bei jedem Start wieder gesetztes Recht. Weitere SSO-Zuweisungen erfolgen unter „Zugriff & Tenant-Rollen“. Es werden keine Microsoft-Konten oder Graph-Consents angelegt.
+Der vorhandene lokale Admin bleibt Wiederherstellungszugang. Beim erstmaligen Anlegen der Datenbank wird `RBAC_BOOTSTRAP_ADMIN_UPN` als SSO-Plattformadmin eingetragen; ohne Variable wird kein SSO-Admin angelegt — dann gilt nur der lokale Admin. Die Variable ist **nur ein einmaliger Bootstrap**, kein bei jedem Start wieder gesetztes Recht. Weitere SSO-Zuweisungen erfolgen unter „Zugriff & Tenant-Rollen“. Es werden keine Microsoft-Konten oder Graph-Consents angelegt.
 
 | Rolle | Befugnis im zugewiesenen Tenant |
 | --- | --- |

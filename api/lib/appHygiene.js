@@ -29,7 +29,7 @@ const BEKANNTE_AGENTS = [
     sollPublisher: "N-able Technologies Ltd",
     publisherFalsch: /^n-?abel/i,
     sollName: "Advanced Monitoring Agent",
-    beschreibungsMuster: /igeeks RMM Client/i,
+    beschreibungsMuster: /RMM Client/i,
     hinweisErkennung: "Inno-Setup schreibt weder DisplayVersion noch Publisher in die Registry. Eine Registry-Erkennung mit Versionsvergleich läuft deshalb ins Leere und rollt den Agent endlos neu aus — Datei-Regel auf winagent.exe, Version „grösser oder gleich“."
   },
   {
@@ -208,7 +208,7 @@ function pruefeApp(app, assignments, tenant) {
     if (agent.beschreibungsMuster && !agent.beschreibungsMuster.test(beschreibung)) {
       funde.push(befund("hinweis", "Beschreibung ohne Kundenbezug",
         beschreibung ? `Eingetragen ist „${beschreibung.slice(0, 80)}“.` : "Das Feld ist leer.",
-        "Ohne Kundenbezug sehen zwei Kundentenants in der Patch-My-PC-Übersicht identisch aus — Form: „igeeks RMM Client – <Kunde>“."));
+        "Ohne Kundenbezug sehen zwei Kundentenants in der Patch-My-PC-Übersicht identisch aus — Form: „RMM Client – <Kunde>“."));
     }
 
     if (agent.key === "rmm") {

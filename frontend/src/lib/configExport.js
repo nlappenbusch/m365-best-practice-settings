@@ -42,7 +42,7 @@ function generateDocumentationHeader() {
 function generateOutboundSection() {
     const ob = config.outbound || {};
     const q = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '') + '"';
-    const empf = [config.global.adminEmail, config.global.igeeksEmail].filter(Boolean);
+    const empf = [config.global.adminEmail, config.global.mspEmail].filter(Boolean);
     const L = [];
     L.push('# ============================================');
     L.push('# 6. AUSGEHEND & ORGANISATION');
@@ -553,15 +553,15 @@ try {
             -Category ThreatManagement \`
             -ThreatType Activity \`
             -Operation QuarantineRequestReleaseMessage \`
-            -NotifyUser "${config.global.adminEmail}","${config.global.igeeksEmail}" \`
+            -NotifyUser "${config.global.adminEmail}","${config.global.mspEmail}" \`
             -Severity Low \`
-            -Description "igeeks Best Practice: User requested to release a quarantined message" \`
+            -Description "Best Practice: User requested to release a quarantined message" \`
             -AggregationType None
         Write-Host "✓ Created BP_UserRequestReleaseStatus alert policy" -ForegroundColor Green
     } else {
         # Update existing custom policy
         Set-ProtectionAlert -Identity "BP_UserRequestReleaseStatus" \`
-            -NotifyUser "${config.global.adminEmail}","${config.global.igeeksEmail}"
+            -NotifyUser "${config.global.adminEmail}","${config.global.mspEmail}"
         Write-Host "✓ Updated BP_UserRequestReleaseStatus alert policy" -ForegroundColor Green
     }
 } catch {
@@ -636,7 +636,7 @@ function generateMarkdownDocumentation() {
 | **Accepted Domains** | ${config.global.domains.join(', ')} |
 | **OnMicrosoft Domain** | ${config.global.onmicrosoftDomain} |
 | **Admin Email** | ${config.global.adminEmail} |
-| **MSP Email** | ${config.global.igeeksEmail} |
+| **MSP Email** | ${config.global.mspEmail} |
 
 ---
 
@@ -697,7 +697,7 @@ ${(config.safeLinks && config.safeLinks.enabled === false) ? '❌ **In dieser Vo
 
 **Policy:** BP_UserRequestReleaseStatus  
 **Operation:** QuarantineRequestReleaseMessage  
-**Benachrichtigung:** ${config.global.adminEmail}, ${config.global.igeeksEmail}
+**Benachrichtigung:** ${config.global.adminEmail}, ${config.global.mspEmail}
 
 ---
 

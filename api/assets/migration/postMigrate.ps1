@@ -324,7 +324,7 @@ log info "Removing MigrationUser..."
 Remove-LocalUser -Name "MigrationInProgress" -Confirm:$false
 log info "MigrationUser removed."
 
-# [igeeks] Fallback-Admin: bleibt standardmaessig bestehen, damit ein Geraet
+# [Anpassung] Fallback-Admin: bleibt standardmaessig bestehen, damit ein Geraet
 # auch spaeter noch erreichbar ist, wenn im Zieltenant etwas schiefgeht. Wer das
 # nicht will, setzt removeAfterMigration auf true -- ein dauerhaftes lokales
 # Admin-Konto mit ueberall gleichem Passwort ist selbst ein Risiko (lateral
@@ -332,7 +332,7 @@ log info "MigrationUser removed."
 # LAPS verwalten lassen.
 $fallbackConfig = $config.fallbackAdmin
 if ($fallbackConfig -and $fallbackConfig.enabled -eq $true) {
-    $fallbackName = if ([string]::IsNullOrWhiteSpace($fallbackConfig.name)) { "igeeksRecovery" } else { $fallbackConfig.name }
+    $fallbackName = if ([string]::IsNullOrWhiteSpace($fallbackConfig.name)) { "M365Recovery" } else { $fallbackConfig.name }
     if ($fallbackConfig.removeAfterMigration -eq $true) {
         log info "Removing fallback admin '$fallbackName' as configured..."
         try {
@@ -348,7 +348,7 @@ if ($fallbackConfig -and $fallbackConfig.enabled -eq $true) {
     }
 }
 
-# [igeeks] Arbeitsverzeichnis loeschen. Es enthaelt config.json mit den Client
+# [Anpassung] Arbeitsverzeichnis loeschen. Es enthaelt config.json mit den Client
 # Secrets beider Tenants und das Provisioning Package mit dem Bulk-Enrollment-
 # Token des Zieltenants. Im Original blieb beides dauerhaft auf dem Geraet.
 if ($config.cleanupLocalPath -ne $false) {

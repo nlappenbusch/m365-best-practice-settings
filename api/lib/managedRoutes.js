@@ -7,7 +7,7 @@
  * nicht an den Interna von server.js haengt.
  *
  * Schreibt NIE in den Kundentenant. Schreibend sind nur: eigener State,
- * SDP-Tickets (igeeks-System) und die Teams-Benachrichtigung.
+ * SDP-Tickets und die Teams-Benachrichtigung.
  */
 const fs = require("fs");
 const path = require("path");
@@ -28,7 +28,7 @@ const MAX_TICKETS_PER_RUN = 8;
 function register(app, deps) {
   const { STATE_DIR, loadState, saveState, certPemPath, requireTenant, wrap, createAppJob, appJobProgress, finishAppJob, appJobs, SDP, AISUGGEST, platform, jobSummary } = deps;
   const who = req => (req.session && req.session.user) || "unbekannt";
-  const globalCfg = () => ({ teamsWebhook: "", notifyMin: "high", brand: "igeeks AG", ...((loadState().managedGlobal) || {}), envWebhook: !!process.env.MANAGED_TEAMS_WEBHOOK });
+  const globalCfg = () => ({ teamsWebhook: "", notifyMin: "high", brand: require("./brand").NAME, ...((loadState().managedGlobal) || {}), envWebhook: !!process.env.MANAGED_TEAMS_WEBHOOK });
   const webhookUrl = () => process.env.MANAGED_TEAMS_WEBHOOK || (loadState().managedGlobal || {}).teamsWebhook || "";
   const notifications = new NotificationWorker(platform,loadState).start();
   // Import timestamps for all existing tenants, including disabled schedules. Never invent a fresh success.
@@ -238,7 +238,7 @@ function register(app, deps) {
       g.teamsWebhook = u;
     }
     if (["critical", "high", "medium", "low"].includes(b.notifyMin)) g.notifyMin = b.notifyMin;
-    if (typeof b.brand === "string") g.brand = b.brand.trim().slice(0, 80) || "igeeks AG";
+    if (typeof b.brand === "string") g.brand = b.brand.trim().slice(0, 80);
     s.managedGlobal = g;
     saveState(s);
     res.json({ ok: true });
@@ -338,7 +338,7 @@ function register(app, deps) {
 
   // ---------------------------------------------------------------- Stand (eingefrorener Ist-Zustand)
   // Schreibt ausschliesslich nach STATE_DIR/managed/<tenant>/stand/ (managedStand.js) —
-  // nie in die globale igeeks-Baseline und nie in tenant.acceptedDeviations.
+  // nie in die globale Baseline und nie in tenant.acceptedDeviations.
   app.post("/api/tenants/:id/managed/baseline/:area", wrap(async (req, res) => {
     const t = tenantOf(req);
     const ver = S.acceptBaseline(STATE_DIR, t.id, req.params.area, who(req), null, (req.body || {}).reason);

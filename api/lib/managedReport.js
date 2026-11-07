@@ -127,7 +127,7 @@ function build(stateDir, tenant, quarter, meta) {
   const stand = a => status[a] && status[a].at ? new Date(status[a].at).toLocaleDateString("de-CH") : "—";
   const kpi = (label, value, sub, tone) => `<div class="kpi ${tone || ""}"><div class="kv">${esc(value)}</div><div class="kl">${esc(label)}</div>${sub ? `<div class="ks">${esc(sub)}</div>` : ""}</div>`;
   const generated = new Date().toLocaleString("de-CH");
-  const brand = (meta && meta.brand) || "igeeks AG";
+  const brand = (meta && meta.brand) || require("./brand").NAME;
 
   const verdict = (() => {
     if (ec.critical) return { tone: "bad", text: `${ec.critical} kritische${ec.critical === 1 ? "r" : ""} Befund${ec.critical === 1 ? "" : "e"} am Quartalsende offen — Handlungsbedarf.` };

@@ -67,8 +67,8 @@ New-MalwareFilterPolicy -Name "BP_AntiMalware" `
     -FileTypes $fileTypes `
     -EnableInternalSenderAdminNotifications $true `
     -EnableExternalSenderAdminNotifications $true `
-    -InternalSenderAdminAddress "alerts.normal@igeeks.ch" `
-    -ExternalSenderAdminAddress "alerts.normal@igeeks.ch" `
+    -InternalSenderAdminAddress "alerts@example.com" `
+    -ExternalSenderAdminAddress "alerts@example.com" `
     -ZapEnabled $true `
     -QuarantineTag "BP_Quarantine-RequestReleaseNotification"
 ```
@@ -106,7 +106,7 @@ This makes the script **idempotent** - it can be run multiple times safely.
 
 ### Which Quarantine Policy is Used Where?
 
-Based on the igeeks Best Practice configuration:
+Based on the Best Practice configuration:
 
 | Threat Type | Action | Quarantine Policy |
 |-------------|--------|-------------------|

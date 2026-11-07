@@ -2,7 +2,7 @@
   // Threat Policies im Detail: jede Einstellung mit deutschem Namen, Ist-Wert,
   // Empfehlung und Ampel; dazu die Abweichung von der quittierten Baseline
   // (aus den Drift-Befunden). Empfehlung = Microsoft-Voreinstellung «Standard»
-  // (Stand 2026) bzw. igeeks-Baseline, wo sie strenger ist.
+  // (Stand 2026) bzw. Baseline, wo sie strenger ist.
   let { data, findings = [], onFinding = null } = $props()
 
   const yes = v => v === true, no = v => v === false
@@ -146,7 +146,7 @@
             <div>
               <b>{r.p.Name}</b>
               {#if r.p.IsDefault}<span class="chip">Standard-Policy</span>{/if}
-              {#if /^BP_/.test(r.p.Name)}<span class="chip ig">igeeks-Baseline</span>{/if}
+              {#if /^BP_/.test(r.p.Name)}<span class="chip ig">Baseline</span>{/if}
               {#if /Built-In|Preset|Standard Preset|Strict Preset/i.test(r.p.Name)}<span class="chip">von Microsoft</span>{/if}
             </div>
             <div class="score">

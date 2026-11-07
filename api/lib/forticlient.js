@@ -4,7 +4,7 @@
  * FortiClient EMS bietet keine API zum Enumerieren von Sites oder zum
  * Erzeugen von Installer-Links (vom Nutzer bestaetigt). Pro Kunde/Site liegt
  * stattdessen bereits ein von EMS vorkonfiguriertes MSI+MST-Paar unter einer
- * festen internen URL (forticlient.igeekscloud.ch) -- die .mst-Transform-
+ * festen internen URL (Host per FORTICLIENT_HOST) -- die .mst-Transform-
  * Datei enthaelt die Registrierung auf den passenden EMS-Server/Site, dort
  * hinein gebacken bei der Installer-Erzeugung in EMS selbst. Der Admin gibt
  * die site-spezifische Ordner-URL manuell an (aus der EMS-Site-Uebersicht
@@ -14,9 +14,11 @@
  *   msiexec /i "forticlient.msi" TRANSFORMS="forticlient.mst" /qn
  *           REBOOT=ReallySuppress DONT_PROMPT_REBOOT=1
  */
-const ALLOWED_HOST = "forticlient.igeekscloud.ch";
+// Einziger erlaubter Installer-Host, z. B. forticlient.example.com. Leer = Funktion aus.
+const ALLOWED_HOST = (process.env.FORTICLIENT_HOST || "").trim().toLowerCase();
 
 function assertTrustedUrl(raw) {
+  if (!ALLOWED_HOST) throw new Error("Kein FortiClient-Installer-Host konfiguriert (FORTICLIENT_HOST).");
   let url;
   try { url = new URL(raw); } catch (e) { throw new Error("Ungueltige Installer-Ordner-URL."); }
   if (url.protocol !== "https:") throw new Error("Nur https:// erlaubt.");
@@ -41,4 +43,4 @@ async function fetchInstallerFiles(baseUrl) {
   return { msiBuffer, mstBuffer, msiName: "forticlient.msi", mstName: "forticlient.mst" };
 }
 
-module.exports = { fetchInstallerFiles };
+module.exports = { ALLOWED_HOST, fetchInstallerFiles };

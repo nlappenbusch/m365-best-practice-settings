@@ -7,7 +7,7 @@
  *   data/<bereich>.json Detaildaten fuer die Fachansichten
  *   snap/<bereich>.json Zustand des letzten Laufs (Neu-Erkennung)
  *   stand/             eingefrorene Staende, versioniert (Drift-Referenz CA/Threat,
- *                      siehe managedStand.js — NIE die globale igeeks-Baseline)
+ *                      siehe managedStand.js — NIE die globale Baseline)
  *   findings.json      Befunde mit Lebenszyklus
  *   alerts.jsonl       Meldungsstrom (neu, wieder offen, Drift, Eskalation)
  *   history.json       Tageswerte fuer Trend und Quartalsreport

@@ -1,6 +1,6 @@
 "use strict";
 /**
- * ServiceDesk Plus (on-prem, iGeeks-eigene Instanz) — Ticket-Details, Notizen,
+ * ServiceDesk Plus (on-prem, eigene Instanz per SDP_BASE_URL) — Ticket-Details, Notizen,
  * Tasks und Anhaenge lesen. Portiert aus einem bereits bewaehrten, lokal bei
  * Nils laufenden Python-MCP-Skript (Endpunkte/Verhalten 1:1 uebernommen).
  *
@@ -13,17 +13,17 @@
  * Reihe nach (siehe downloadAttachment).
  */
 
-const DEFAULT_BASE_URL = "https://sdp.igeeks.ch/api/v3";
-
+// Keine Standard-Instanz: ohne SDP_BASE_URL (z. B. https://sdp.example.com/api/v3)
+// und SDP_API_KEY bleibt der Ticket-Bereich inaktiv.
 function config() {
   const key = (process.env.SDP_API_KEY || "").trim();
-  const baseUrl = (process.env.SDP_BASE_URL || DEFAULT_BASE_URL).trim().replace(/\/+$/, "");
+  const baseUrl = (process.env.SDP_BASE_URL || "").trim().replace(/\/+$/, "");
   const ownerId = (process.env.SDP_OWNER_ID || "").trim();
-  return { enabled: key.length > 0, key, baseUrl, ownerId };
+  return { enabled: key.length > 0 && baseUrl.length > 0, key, baseUrl, ownerId };
 }
 
 function requireEnabled(cfg) {
-  if (!cfg.enabled) throw Object.assign(new Error("Kein SDP-Key konfiguriert (SDP_API_KEY)."), { status: 400 });
+  if (!cfg.enabled) throw Object.assign(new Error("ServiceDesk Plus nicht konfiguriert (SDP_BASE_URL und SDP_API_KEY)."), { status: 400 });
 }
 
 /** HTML aus Notizen/Beschreibungen sicher als reinen Text darstellen (kein {@html} noetig). */

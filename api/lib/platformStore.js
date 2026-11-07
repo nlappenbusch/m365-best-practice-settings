@@ -87,7 +87,7 @@ class PlatformStore {
       )
         return;
       // Mehrere Erst-Admins erlaubt ("a@x.ch, b@x.ch"): auf einer Instanz mit
-      // bestehenden SSO-Nutzern (igeeks-prod) wuerden sonst alle ausser dem
+      // bestehenden SSO-Nutzern wuerden sonst alle ausser dem
       // einen Bootstrap-Konto beim ersten Start der Rollensteuerung ausgesperrt.
       const admins = String(ssoAdmin || "")
         .split(/[,;\s]+/)

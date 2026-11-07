@@ -47,7 +47,7 @@ jobs:
           # --- Optional (Variables, nicht sensibel) ---
           # Leer lassen ist der Normalfall: BD_HOST faellt auf den GravityZone-
           # Standardhost zurueck, RMM_SERVER leer = automatische Server-Erkennung,
-          # SDP_BASE_URL/SDP_OWNER_ID fallen auf die iGeeks-Standardwerte zurueck,
+          # SDP_BASE_URL leer = Ticket-Bereich inaktiv, BRAND_* leer = neutrale PDFs,
           # ANTHROPIC_MODEL faellt auf einen aktuellen Claude-Sonnet-Stand zurueck,
           # ZOHO_REGION faellt auf das EU-Rechenzentrum zurueck.
           BD_HOST: ${{ vars.BD_HOST }}
@@ -56,6 +56,12 @@ jobs:
           SDP_OWNER_ID: ${{ vars.SDP_OWNER_ID }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           ZOHO_REGION: ${{ vars.ZOHO_REGION }}
+          ZOHO_ORG_ID: ${{ vars.ZOHO_ORG_ID }}
+          BRAND_NAME: ${{ vars.BRAND_NAME }}
+          BRAND_TAGLINE: ${{ vars.BRAND_TAGLINE }}
+          BRAND_FOOTER: ${{ vars.BRAND_FOOTER }}
+          TOOL_OWNER_UPN: ${{ vars.TOOL_OWNER_UPN }}
+          FORTICLIENT_HOST: ${{ vars.FORTICLIENT_HOST }}
 
           # --- Optional: Semaphore als Execution Engine ---
           # Leer/nicht gesetzt = bestehende lokale Execution.

@@ -8,7 +8,7 @@ function psArray(list) {
 
 export function buildAlertPolicySnippet(global) {
   const recipients = [global.adminEmail].filter(Boolean)
-  if (global.igeeksEmail && global.igeeksEmail !== global.adminEmail) recipients.push(global.igeeksEmail)
+  if (global.mspEmail && global.mspEmail !== global.adminEmail) recipients.push(global.mspEmail)
   const notify = psArray(recipients)
   return [
     "# Alert Policy fuer Quarantine-Release-Anfragen — einmalig pro Tenant",

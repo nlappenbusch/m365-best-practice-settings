@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Projektplan · igeeks</title>
+<title>Projektplan</title>
 <link rel="icon" href="/favicon.svg">
 <style>
   :root{--bg:#0e1116;--panel:#161b22;--panel2:#1c222b;--line:#2a313c;--ink:#e6edf3;--muted:#8b98a5;--accent:#0081ad;--accent2:#3aa8cd;--good:#3fb950;--warn:#d29922;--bad:#f85149;--r:12px;}
@@ -109,7 +109,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">igeeks <span>Projektplan</span></div>
+  <div class="brand"><span>Projektplan</span></div>
   <div class="muted" style="font-size:12.5px">ServiceDesk Plus · Meilensteine und Arbeitspakete</div>
   <div class="sp"></div>
   <div class="who" id="who"></div>
@@ -119,7 +119,7 @@
   <div id="login" class="login card" hidden>
     <h2>Anmeldung nötig</h2>
     <p class="muted">Das Dashboard nutzt die Anmeldung des Konfigurators. Nach dem Login hierher zurückkehren.</p>
-    <p><a class="primary" href="/api/auth/sso/start"><button class="primary">Mit igeeks-Konto anmelden</button></a>
+    <p><a class="primary" href="/api/auth/sso/start"><button class="primary">Mit Firmenkonto anmelden</button></a>
        <a href="/"><button>Lokaler Login</button></a></p>
   </div>
   <div id="nosdp" class="card" hidden>
@@ -382,13 +382,13 @@
       blocks+=`<div class="ms"><div class="msh"><span class="mst">Projektbegleitend</span></div><table class="mtab"><thead><tr><th>Arbeitspaket</th><th>Beschreibung</th><th>Aufwand</th></tr></thead><tbody>${rows}</tbody></table></div>`; total+=uz.reduce((s,t)=>s+(t.est||0),0);}
     const today=fmtD(Date.now());
     v.innerHTML=`<div class="plan">
-      <div class="top"><div><img src="/plan/igeeks_logo.svg" alt="igeeks"><div style="font-size:8.5pt;color:#747373;margin-top:4px">Managed Services &amp; Security</div></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
-      <h1>${esc(cur.name)}</h1><div class="sub">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner||"igeeks AG")}</div>
+      <div class="top"><div></div><div class="meta">Projektplan<br>Stand ${today}</div></div>
+      <h1>${esc(cur.name)}</h1><div class="sub">${esc(cur.customer)} · Projektleitung: ${esc(cur.owner||"—")}</div>
       <h2>1. Projektbeschreibung &amp; Ziel</h2>${cur.description?`<div class="desc">${cur.description}</div>`:'<div class="desc" style="color:#888">— (in SDP-Projektbeschreibung pflegen)</div>'}
       <h2>2. Zeitplan</h2>${planGantt(mss)}
       <h2>3. Meilensteine &amp; Arbeitspakete</h2>${blocks}
       <div class="tot">Geplanter Gesamtaufwand: <b>${hDec(total)}</b> (Richtwert, Abrechnung nach effektivem Aufwand)</div>
-      <div class="foot"><span>igeeks AG · Räffelstrasse 24 · 8045 Zürich · info@igeeks.ch</span><span>${esc(cur.name)}</span></div>
+      <div class="foot"><span></span><span>${esc(cur.name)}</span></div>
     </div>`;
   }
 

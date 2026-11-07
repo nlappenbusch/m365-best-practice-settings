@@ -27,7 +27,7 @@ des Audits.
 | `raw.githubusercontent.com`, `api.github.com` | Import der OpenIntuneBaseline-Policies (Repo `SkipToTheEndpoint/OpenIntuneBaseline`) | `lib/oibImport.js:23-24` |
 | `cloudgz.gravityzone.bitdefender.com` | Bitdefender-Agents: Paketliste und Download. Überschreibbar per `BD_HOST` | `lib/bitdefender.js:16` |
 | `dashboardeurope1.systemmonitor.eu.com`, `wwweurope1.systemmonitor.eu.com`, `www.systemmonitor.eu.com` | N-sight RMM: Kunden/Sites lesen, Agent-Download. Fester Server per `RMM_SERVER`, sonst werden die drei der Reihe nach probiert | `lib/nsight.js:25-29` |
-| `sdp.igeeks.ch` | ServiceDesk-Plus-Tickets (Tickets-Bereich). Überschreibbar per `SDP_BASE_URL` | `lib/sdp.js:16` |
+| Host aus `SDP_BASE_URL` | ServiceDesk-Plus-Tickets (Tickets-Bereich, nur wenn gesetzt) | `lib/sdp.js` |
 | `api.anthropic.com` | KI-Vorschläge im Tool | `lib/aiSuggest.js:15` |
 
 Der Bitdefender-Download folgt Redirects (`redirect: "follow"`). Zeigt GravityZone auf ein
@@ -42,21 +42,14 @@ CDN, muss das Redirect-Ziel ebenfalls erreichbar sein.
 - **`learn.microsoft.com`, `tech.nicolonsky.ch`, `intunedrivemapping.azurewebsites.net`** —
   reine Quellenangaben in Kommentaren und Doku-Texten.
 
-## Build-Zeit (CI-Runner, nicht der laufende Pod)
+## Build-Zeit (docker compose auf dem Server)
 
-| Ziel | Wofür | Job |
-|---|---|---|
-| `gcr.io` | Kaniko-Executor-Image | build-website, build-api |
-| `registry.igeeks.ch` | Ziel-Registry für die gebauten Images | build-* , deploy-prod |
-| `packages.microsoft.com` | PowerShell 7 via apt im api-Image | build-api |
-| PowerShell Gallery (`psg-prod-*.azureedge.net`, `www.powershellgallery.com`) | `ExchangeOnlineManagement` | build-api |
-| `registry.npmjs.org` | `npm ci` für Frontend und API | build-* |
-| Docker Hub (`registry-1.docker.io`, `auth.docker.io`) | Basis-Images `node`, `alpine/git` | build-*, deploy-prod |
-
-**Nicht mehr nötig:** `dl-cdn.alpinelinux.org` (Alpine-Paketrepository). Der
-`deploy-prod`-Job installierte sich früher `git` per `apk add` und scheiterte
-daran — der Runner erreicht diesen CDN nicht. Seit 25.08.2026 nutzt der Job ein
-Image mit vorinstalliertem git und braucht keinen Paket-CDN mehr.
+| Ziel | Wofür |
+|---|---|
+| Docker Hub (`registry-1.docker.io`, `auth.docker.io`) | Basis-Images |
+| `registry.npmjs.org` | `npm ci` für Frontend und API |
+| `packages.microsoft.com` | PowerShell 7 via apt im api-Image |
+| PowerShell Gallery (`psg-prod-*.azureedge.net`, `www.powershellgallery.com`) | `ExchangeOnlineManagement` |
 
 ## Prüfen
 
@@ -64,28 +57,8 @@ Im Tool: **Diagnose → Test starten** prüft die drei zwingenden Microsoft-Ziel
 laufenden Container heraus und zeigt bei Fehlschlag den Netzcode (`ENOTFOUND`,
 `ECONNREFUSED`, Timeout).
 
-Von aussen, im richtigen Namespace:
+Von aussen, aus dem laufenden Container:
 
 ```
-kubectl -n igeeks-prod run egresstest --rm -it --image=curlimages/curl --restart=Never \
-  --command -- curl -sS -m 8 -o /dev/null -w "%{http_code}\n" \
-  https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration
+docker exec m365-security-api node -e "fetch('https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration').then(r=>console.log(r.status))"
 ```
-
-## Egress im Cluster ist selektiv (Stand 2026-08-25)
-
-Der Cluster `igeeks-k8s-201` erreicht manche Ziele, andere nicht — und zwar nicht
-zufällig, sondern reproduzierbar:
-
-| | |
-|---|---|
-| erreichbar | Let's Encrypt, gcr.io, Docker Hub, registry.igeeks.ch |
-| **nicht** erreichbar | `dl-cdn.alpinelinux.org` (zweimal reproduziert, Job 1077 + 1078) |
-| war nicht erreichbar, inzwischen freigegeben | die Microsoft-Endpunkte (19.08.2026, Timeout beim Verbindungsaufbau) |
-
-Das Muster ist immer dasselbe: kein DNS-Fehler, kein «connection refused», sondern
-Timeout — also eine Firewall- oder Routing-Regel, keine Namensauflösung. Die
-Microsoft-Freigabe hat den Egress nicht generell geöffnet. Wer hier aufräumt, sollte
-das Cluster-Netz als Ganzes betrachten und nicht Ziel für Ziel freischalten.
-
-Im Tool lässt sich der Zustand jederzeit prüfen: **Diagnose → Test starten**.

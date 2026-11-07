@@ -4,7 +4,7 @@
  * zeigt an, ob ein SDP-Projekt bereits einen Zoho-Deal hat (Serges Vorgabe
  * "kein Angebot ohne Deal", siehe [[offerte-immer-deal-im-crm]] in Nils' Memory).
  *
- * Gleiches OAuth-Muster wie im bestehenden igeeks-offerten-tool
+ * Gleiches OAuth-Muster wie im bestehenden Offerten-Tool
  * (offerten-tool/lib/zoho.js): Self-Client mit Refresh-Token, EU-Rechenzentrum.
  * Bewusst read-only (kein ZohoCRM.modules.ALL) -- dieses Werkzeug schreibt nichts.
  *
@@ -19,7 +19,7 @@
  *      ZOHO_REFRESH_TOKEN setzen (Secrets, nie ins Repo).
  */
 
-const ORG_ID = "20066824835"; // igeeks CRM-Org, siehe Nils' Memory zoho-crm-records-connector
+const ORG_ID = (process.env.ZOHO_ORG_ID || "").trim(); // CRM-Org-ID fuer Deal-Links; leer = keine Links
 
 function config() {
   const region = (process.env.ZOHO_REGION || "eu").trim();
@@ -66,6 +66,7 @@ async function call(path, params) {
 
 /** Deal-Weblink im UI-Format (tab/Potentials, nicht /Deals -- siehe Memory). */
 function dealUrl(id) {
+  if (!ORG_ID) return null;
   return `https://crm.zoho.${config().region}/crm/org${ORG_ID}/tab/Potentials/${id}`;
 }
 

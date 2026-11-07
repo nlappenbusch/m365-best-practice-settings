@@ -32,7 +32,7 @@ function buildPrompt(ticket, tenantContext) {
       `Conditional-Access-Policies (Name [Status]):\n${caLines}`;
   }
 
-  return `Du bist ein erfahrener M365/Entra-ID-Support-Techniker bei einem MSP (iGeeks). ` +
+  return `Du bist ein erfahrener M365/Entra-ID-Support-Techniker bei einem MSP. ` +
     `Analysiere das folgende ServiceDesk-Plus-Ticket und antworte AUSSCHLIESSLICH mit einem JSON-Objekt ` +
     `(kein Fliesstext davor/danach), das exakt folgendem Schema entspricht:\n` +
     `{"rootCause": string, "assumptions": [{"claim": string, "verdict": "bestaetigt"|"widerlegt"|"unklar", "reasoning": string}], ` +

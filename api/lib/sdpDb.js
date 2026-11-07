@@ -14,7 +14,7 @@
  * das faellt als Fehlermeldung auf, nicht als stille Falschzahl.
  *
  * SQL ist der bevorzugte LESEweg, aber nie der einzige: steht die Verbindung
- * nicht (kein Passwort gesetzt, Instanz ausserhalb des igeeks-Netzes, DB weg),
+ * nicht (kein Passwort gesetzt, Instanz ausserhalb des internen Netzes, DB weg),
  * faellt jede Leseoperation auf die API zurueck. ready() ist der Schalter, an
  * dem die aufrufende Stelle das entscheidet.
  *
@@ -54,7 +54,7 @@ let poolKey = "";
 
 function config() {
   return {
-    host: (process.env.SDP_DB_HOST || "10.0.10.105").trim(),
+    host: (process.env.SDP_DB_HOST || "").trim(),
     port: Number(process.env.SDP_DB_PORT || 65432),
     database: (process.env.SDP_DB_NAME || "servicedesk").trim(),
     user: (process.env.SDP_DB_USER || "sdpadmin").trim()
@@ -104,6 +104,7 @@ function getPool(ssl) {
   const pw = password();
   if (!pw) throw Object.assign(new Error("Kein Datenbank-Passwort gesetzt."), { status: 400 });
   const c = config();
+  if (!c.host) throw Object.assign(new Error("Kein Datenbank-Host gesetzt (SDP_DB_HOST)."), { status: 400 });
   const key = [c.host, c.port, c.database, c.user, pw, ssl ? "ssl" : "plain"].join("|");
   if (pool && poolKey === key) return pool;
   closePool();

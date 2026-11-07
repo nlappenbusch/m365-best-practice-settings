@@ -78,7 +78,7 @@ werden pro Tenant im Tool als „gewollte Abweichung" mit Begründung dokumentie
   <tr><th style="width:34%">Parameter</th><th style="width:30%">Vorlagenwert / Herkunft</th><th>Verwendung</th></tr>
   ${row3('Accepted Domains', 'Get-AcceptedDomain (auto)', 'Empfänger-Scope aller <code>*_Rule</code>-Objekte; Nicht-Mail-Domains (Teams-/SBC-/Telefonie) werden automatisch ausgefiltert.')}
   ${row3('Admin-E-Mail', g.adminEmail || '(pro Tenant)', 'Empfänger der Malware-Admin-Benachrichtigung und der Warnungsrichtlinie.')}
-  ${row3('MSP-E-Mail', g.igeeksEmail || '(pro Tenant)', 'Zweiter Empfänger der Warnungsrichtlinie (Betrieb/Monitoring).')}
+  ${row3('MSP-E-Mail', g.mspEmail || '(pro Tenant)', 'Zweiter Empfänger der Warnungsrichtlinie (Betrieb/Monitoring).')}
 </table>
 </div>
 
@@ -183,7 +183,7 @@ Prüfwerkzeuge (CIS-Benchmark, Maester) lesen genau diese Objekte.</p>
 <table>
   <tr><th style="width:40%">Parameter</th><th style="width:22%">Wert</th><th>Bedeutung</th></tr>
   ${row3('NotifyOutboundSpam', psBool(ob.notifyOutboundSpam), 'Meldung, wenn ein Konto auffällig viele Nachrichten versendet — das typische Muster eines übernommenen Postfachs.')}
-  ${row3('NotifyOutboundSpamRecipients', [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ') || '(pro Tenant)', 'Empfänger der Meldung. Sammelpostfach statt persönlicher Adresse, damit sie auch in Ferienzeiten gelesen wird.')}
+  ${row3('NotifyOutboundSpamRecipients', [g.adminEmail, g.mspEmail].filter(Boolean).join(', ') || '(pro Tenant)', 'Empfänger der Meldung. Sammelpostfach statt persönlicher Adresse, damit sie auch in Ferienzeiten gelesen wird.')}
   ${row3('RecipientLimitExternalPerHour', String(ob.limitExternalPerHour ?? 500), 'Empfänger pro Stunde nach extern. Der Ausgangswert 0 bedeutet nicht «unbegrenzt», sondern den Service-Default — der explizite Wert macht ihn prüfbar.')}
   ${row3('RecipientLimitInternalPerHour', String(ob.limitInternalPerHour ?? 1000), 'Empfänger pro Stunde intern.')}
   ${row3('RecipientLimitPerDay', String(ob.limitPerDay ?? 1000), 'Empfänger pro Tag.')}
@@ -234,7 +234,7 @@ schreibgeschützt ist. Meldet Freigabe-Anfragen aus der Quarantäne an Admin und
   ${row2('Operation', 'QuarantineRequestReleaseMessage')}
   ${row2('Severity', 'Low')}
   ${row2('AggregationType', 'None')}
-  ${row2('NotifyUser', [g.adminEmail, g.igeeksEmail].filter(Boolean).join(', ') || '(pro Tenant)')}
+  ${row2('NotifyUser', [g.adminEmail, g.mspEmail].filter(Boolean).join(', ') || '(pro Tenant)')}
 </table>
 <p class="note">Warnungsrichtlinien setzen ggf. Office 365 E5 bzw. Defender for Office 365 P2 voraus.</p>
 <p class="note">Zusätzlich wird die eingebaute Richtlinie <span class="mono">User restricted from sending email</span>

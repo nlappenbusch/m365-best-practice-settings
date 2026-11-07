@@ -81,7 +81,7 @@ function generatePassword() {
     return $securePassword
 }
 
-# [igeeks] Passwort als Klartext erzeugen.
+# [Anpassung] Passwort als Klartext erzeugen.
 # generatePassword liefert einen SecureString -- den brauchen New-LocalUser und
 # Set-LocalUser, aber die Autologon-Registry und der Win32-Domain-Unjoin
 # brauchen Klartext. Ausserdem stellt diese Funktion sicher, dass alle vier

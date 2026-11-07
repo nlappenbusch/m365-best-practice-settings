@@ -20,7 +20,7 @@
     <div class="sb-logo" aria-hidden="true"><Icon name="shieldCheck" size={17} stroke={2} /></div>
     <div class="sb-brand-text">
       <strong>M365 Config Tool<span class="brand-dot">.</span></strong>
-      <span>igeeks · Microsoft 365 Cockpit</span>
+      <span>Microsoft 365 Cockpit</span>
     </div>
     <button class="sb-drawer-close" onclick={closeMobileNav} aria-label="Menü schliessen"><Icon name="x" size={18} /></button>
   </div>

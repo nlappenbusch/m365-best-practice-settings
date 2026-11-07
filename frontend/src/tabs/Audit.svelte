@@ -170,7 +170,7 @@
       const notifySoll = ob.notifyOutboundSpam !== false
       cmpBool(gob, 'Benachrichtigung bei ausgehendem Spam', notifySoll, o.NotifyOutboundSpam)
       if (notifySoll) {
-        const sollE = [g.adminEmail, g.igeeksEmail].filter(Boolean).map(e => String(e).toLowerCase())
+        const sollE = [g.adminEmail, g.mspEmail].filter(Boolean).map(e => String(e).toLowerCase())
         const istE = (o.NotifyOutboundSpamRecipients || []).map(e => String(e).toLowerCase())
         const fehlend = sollE.filter(e => !istE.includes(e))
         if (!fehlend.length && istE.length) ok(gob, 'Empfänger der Meldung', (o.NotifyOutboundSpamRecipients || []).join(', '))
@@ -738,7 +738,7 @@
       '<tr><td class="pn">Soll-Domain-Quelle</td><td class="v">' + ldEsc(data.domSrc) + '</td></tr>' +
       '<tr><td class="pn">Mail-Domains (Scope)</td><td class="v">' + ldEsc((data.sollDomains || []).join(', ') || '—') + '</td></tr>' +
       '<tr><td class="pn">Admin-E-Mail</td><td class="v">' + ldEsc(g.adminEmail || '—') + '</td></tr>' +
-      '<tr><td class="pn">MSP-E-Mail</td><td class="v">' + ldEsc(g.igeeksEmail || '—') + '</td></tr>' +
+      '<tr><td class="pn">MSP-E-Mail</td><td class="v">' + ldEsc(g.mspEmail || '—') + '</td></tr>' +
       '<tr><td class="pn">Konformität</td><td class="v">' + data.okCount + ' von ' + data.total + ' Prüfpunkten (' + pct + '%)' +
       (data.accepted ? ' · ' + data.accepted + ' gewollte Abweichung(en)' : '') + '</td></tr>' +
       '</table>' +

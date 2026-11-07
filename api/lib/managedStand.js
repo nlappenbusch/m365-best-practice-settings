@@ -5,7 +5,7 @@
  * Ein Stand haelt den Ist-Zustand eines Tenants zu einem Zeitpunkt fest —
  * bewusst eingefroren, mit Begruendung, nachvollziehbar versioniert. Drift ist
  * jede Abweichung vom aktuellen Stand. Das ist etwas anderes als der Abgleich
- * mit den igeeks-Best-Practices (baseline.json + tenant.acceptedDeviations):
+ * mit den Best-Practices (baseline.json + tenant.acceptedDeviations):
  * dort geht es um das Soll fuer die Erstkonfiguration, hier um "so war es
  * abgenommen".
  *
@@ -16,7 +16,7 @@
  * Schutzregeln (hart, nicht konfigurierbar):
  *  - Dieses Modul schreibt AUSSCHLIESSLICH in das stand/-Verzeichnis des
  *    jeweiligen Tenants. Jeder Schreibzugriff laeuft durch guardedWrite(), das
- *    jedes andere Ziel verweigert — insbesondere die globale igeeks-Baseline
+ *    jedes andere Ziel verweigert — insbesondere die globale Baseline
  *    (api/baseline/baseline.json). Ein Stand kann damit weder die
  *    Best-Practices noch einen anderen Tenant veraendern.
  *  - Versionen sind unveraenderlich. Uebernehmen erzeugt immer eine neue

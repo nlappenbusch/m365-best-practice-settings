@@ -32,6 +32,12 @@ services:
       # generiert und einmalig ins Container-Log geschrieben (docker logs m365-security-api).
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Marke in PDFs/Berichten (leer = neutral) und Inhaber-Konto fuer Tickets/Geheimnisse bei SSO.
+      - BRAND_NAME=${BRAND_NAME:-}
+      - BRAND_TAGLINE=${BRAND_TAGLINE:-}
+      - BRAND_FOOTER=${BRAND_FOOTER:-}
+      - TOOL_OWNER_UPN=${TOOL_OWNER_UPN:-}
+      - FORTICLIENT_HOST=${FORTICLIENT_HOST:-}
       # Agent-Downloads: API-Keys bleiben im Backend, nie im Browser.
       # Ohne Key ist der jeweilige Bereich im Tab einfach inaktiv.
       - BD_HOST=${BD_HOST:-cloudgz.gravityzone.bitdefender.com}
@@ -39,8 +45,8 @@ services:
       # RMM_SERVER leer lassen = automatische Server-Erkennung (empfohlen)
       - RMM_SERVER=${RMM_SERVER:-}
       - RMM_API_KEY=${RMM_API_KEY:-}
-      # SDP-Ticket-Copilot (ServiceDesk Plus). SDP_BASE_URL nur setzen, wenn nicht
-      # die Standard-Instanz (sdp.igeeks.ch) gemeint ist.
+      # SDP-Ticket-Copilot (ServiceDesk Plus). Ohne SDP_BASE_URL + SDP_API_KEY
+      # bleibt der Bereich inaktiv.
       - SDP_API_KEY=${SDP_API_KEY:-}
       - SDP_BASE_URL=${SDP_BASE_URL:-}
       - SDP_OWNER_ID=${SDP_OWNER_ID:-}
@@ -50,6 +56,7 @@ services:
       # SDP-CRM-Matcher im Projektplan-Dashboard (/plan/): Zoho-Self-Client, nur lesend.
       # Ohne diese drei bleibt der CRM-Abgleich einfach inaktiv (kein Fehler).
       - ZOHO_REGION=${ZOHO_REGION:-eu}
+      - ZOHO_ORG_ID=${ZOHO_ORG_ID:-}
       - ZOHO_CLIENT_ID=${ZOHO_CLIENT_ID:-}
       - ZOHO_CLIENT_SECRET=${ZOHO_CLIENT_SECRET:-}
       - ZOHO_REFRESH_TOKEN=${ZOHO_REFRESH_TOKEN:-}

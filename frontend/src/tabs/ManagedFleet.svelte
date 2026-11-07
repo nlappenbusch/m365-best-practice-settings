@@ -17,7 +17,7 @@
   let q = $state('')
   let busy = $state({})
   let showGlobal = $state(false)
-  let g = $state({ teamsWebhook: '', notifyMin: 'high', brand: 'igeeks AG' })
+  let g = $state({ teamsWebhook: '', notifyMin: 'high', brand: '' })
   let gMsg = $state(null)
   let loaded = $state(false)
 
@@ -44,7 +44,7 @@
       rows = f.tenants || []
       alerts = f.alerts || []
       meta = m
-      g = { teamsWebhook: m.global?.teamsWebhook || '', notifyMin: m.global?.notifyMin || 'high', brand: m.global?.brand || 'igeeks AG' }
+      g = { teamsWebhook: m.global?.teamsWebhook || '', notifyMin: m.global?.notifyMin || 'high', brand: m.global?.brand || '' }
       loaded = true
     } catch (e) { error = errText(e) }
     loading = false

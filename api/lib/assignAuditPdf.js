@@ -2,7 +2,7 @@
 /**
  * Konfigurationsdokumentation (PDF) zu Apps, Intune-Richtlinien und Conditional
  * Access — erzeugt aus den gespeicherten Erhebungen des Bereichs
- * "Zuweisungen & Audit". Layout aus lib/pdfDesign.js (igeeks-CI).
+ * "Zuweisungen & Audit". Layout aus lib/pdfDesign.js (Dokument-CI).
  *
  * Der Hauptteil BESCHREIBT, was eingerichtet ist — welche App wie installiert
  * und an wen verteilt wird, was jede Richtlinie einstellt und für wen sie gilt.

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
-// Frontend fuer den igeeks Security Policy Manager.
+// Frontend fuer den M365 Security Policy Manager.
 // Dev: `npm run dev` -> Vite auf :5173, /api wird ans Node-Backend geproxied.
 // Prod: `npm run build` -> dist/, das der website-Container per nginx ausliefert.
 export default defineConfig({

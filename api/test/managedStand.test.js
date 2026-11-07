@@ -1,6 +1,6 @@
 "use strict";
 // Stand-Freeze im Managed Service: Versionen, Pflicht-Begruendung, Drift und
-// die Schutzregel gegen die globale igeeks-Baseline. Ausfuehren: npm test (im Ordner api).
+// die Schutzregel gegen die globale Baseline. Ausfuehren: npm test (im Ordner api).
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("fs");

@@ -7,7 +7,7 @@
 // Tenantwechsel nie unbemerkt Eingaben wegwirft.
 import { writable, get } from 'svelte/store'
 import { apiGet, apiPut, apiDelete } from './api.js'
-import { config, defaultConfig } from './config.js'
+import { config, defaultConfig, migrateConfig } from './config.js'
 import { tenants } from './tenantStore.js'
 
 // { tenantId, savedAt, loading, error, ownerId }
@@ -29,7 +29,7 @@ export async function loadTenantConfig(tenantId) {
     if (r.config) {
       // Fehlende Abschnitte aus den Standardwerten auffuellen: eine aeltere
       // gespeicherte Vorlage darf nach einem Update nicht halb leer ankommen.
-      config.set({ ...defaultConfig(), ...r.config })
+      config.set(migrateConfig({ ...defaultConfig(), ...r.config }))
       tenantConfigState.set({ tenantId, savedAt: r.savedAt || null, loading: false, error: null, ownerId: tenantId })
       return { loaded: true, savedAt: r.savedAt }
     }

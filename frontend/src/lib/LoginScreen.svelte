@@ -1,5 +1,5 @@
 <script>
-  // Vollbild-Login-Gate: SSO ueber den iGeeks-Tenant ist der primaere Weg,
+  // Vollbild-Login-Gate: SSO ueber den Betreiber-Tenant ist der primaere Weg,
   // der lokale Passwort-Login bleibt als Fallback (aufklappbar).
   import { session, login } from './session.js'
   import { apiGet } from './api.js'

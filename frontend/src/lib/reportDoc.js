@@ -83,7 +83,7 @@ ${failed}
 ${sections}
 
 <footer>
-  Erzeugt mit dem igeeks M365 Security Policy Manager. Die Zahlen sind eine Momentaufnahme zum
+  Erzeugt mit dem M365 Security Policy Manager. Die Zahlen sind eine Momentaufnahme zum
   angegebenen Zeitpunkt und ausschliesslich lesend erhoben — es wurde nichts am Tenant verändert.
 </footer>
 </body></html>`

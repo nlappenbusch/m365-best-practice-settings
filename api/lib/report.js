@@ -91,7 +91,7 @@ async function sectionConditionalAccess(tenant, cert) {
       metric("Deaktiviert", disabled, disabled > 0 ? "warn" : "ok")
     ],
     lists: all.length ? [list("caPolicies", "Alle Conditional-Access-Policies", ["Policy", "Status", "Verwaltet"],
-      sorted.map(p => [p.displayName, stateDe(p.state), p.managed ? "igeeks (BP_)" : "kundenseitig"]),
+      sorted.map(p => [p.displayName, stateDe(p.state), p.managed ? "Baseline (BP_)" : "kundenseitig"]),
       (reportOnly + disabled) > 0 ? "warn" : null)] : [],
     data: all.map(p => ({ name: p.displayName, state: p.state, managed: p.managed }))
   };

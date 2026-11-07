@@ -2,7 +2,7 @@
 /**
  * Gemeinsames Layout für die Dokumentations- und Nachweis-PDFs (pdfkit).
  *
- * igeeks-CI (verbindlich, siehe Maester-Report): Petrol #0081ad als Akzent, KEINE
+ * Dokument-CI (verbindlich, siehe Maester-Report): Petrol #0081ad als Akzent, KEINE
  * Seitenumbrüche zwischen Abschnitten (nur Deckblatt und Inhaltsverzeichnis sind
  * eigene Seiten), nummerierte fette Überschriften ohne Deko-Striche davor.
  *
@@ -17,7 +17,8 @@ const path = require("path");
 const fs = require("fs");
 const PDFDocument = require("pdfkit");
 
-const LOGO_PATH = path.join(__dirname, "..", "assets", "igeeks-logo.png");
+const BRAND = require("./brand");
+const LOGO_PATH = BRAND.LOGO_PATH;
 const ACCENT = "#0081ad";
 const C = {
   text: "#2f3437", muted: "#6b7680", faint: "#9aa4ad", line: "#e1e7eb", zebra: "#f6f9fb", head: "#e6f2f7",
@@ -92,7 +93,7 @@ function create(meta) {
     const PW = doc.page.width;
     let logo = false;
     try { if (fs.existsSync(LOGO_PATH)) { doc.image(LOGO_PATH, L, 46, { width: 138 }); logo = true; } } catch (e) { /* Text */ }
-    if (!logo) doc.font("Helvetica-Bold").fontSize(13).fillColor(ACCENT).text("igeeks AG", L, 58);
+    if (!logo && BRAND.NAME) doc.font("Helvetica-Bold").fontSize(13).fillColor(ACCENT).text(san(BRAND.NAME), L, 58);
 
     const top = 196, h = 272;
     doc.rect(0, top, PW, h).fill(ACCENT);
@@ -470,7 +471,7 @@ function create(meta) {
       if (chapter && p > 1) doc.font("Helvetica").fontSize(7.5).fillColor(C.muted).text(san(cap(chapter.title, 70)), L + W / 2, 36, { width: W / 2, align: "right", lineBreak: false });
       doc.moveTo(L, 50).lineTo(L + W, 50).lineWidth(0.5).strokeColor(C.line).stroke();
       doc.moveTo(L, doc.page.height - 50).lineTo(L + W, doc.page.height - 50).lineWidth(0.5).strokeColor(C.line).stroke();
-      doc.font("Helvetica").fontSize(7.5).fillColor(C.muted).text(san(`igeeks AG · ${meta.tenantName || ""} · Stand ${fmtDate(meta.date)}`), L, doc.page.height - 42, { width: W - 80, lineBreak: false });
+      doc.font("Helvetica").fontSize(7.5).fillColor(C.muted).text(san(`${BRAND.prefix()}${meta.tenantName || ""} · Stand ${fmtDate(meta.date)}`), L, doc.page.height - 42, { width: W - 80, lineBreak: false });
       doc.font("Helvetica").fontSize(7.5).fillColor(C.muted).text(`Seite ${p} von ${total - 1}`, L + W - 80, doc.page.height - 42, { width: 80, align: "right", lineBreak: false });
       doc.page.margins.bottom = keepB; doc.page.margins.top = keepT;
     }

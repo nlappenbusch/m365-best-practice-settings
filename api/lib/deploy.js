@@ -87,7 +87,7 @@ function sanitizeConfig(raw) {
   if (!isEmail(adminEmail)) throw new Error("Ungueltige Admin-Email: " + adminEmail.slice(0, 60));
 
   // MSP-Alert-Email (optional, zweiter Empfaenger der Alert Policy)
-  const mspEmail = String(g.igeeksEmail || "").trim();
+  const mspEmail = String(g.mspEmail || g[LEGACY_MSP_EMAIL_KEY] || "").trim();
   if (mspEmail && !isEmail(mspEmail)) throw new Error("Ungueltige MSP-Alert-Email: " + mspEmail.slice(0, 60));
 
   // Filetypes: fuehrende Punkte entfernen — M365 erwartet sie ohne Punkt,
@@ -137,7 +137,7 @@ function sanitizeConfig(raw) {
     },
     // Safe Links / Safe Attachments (Defender for Office 365 P1/P2) — anders als
     // die drei Bereiche oben NICHT bei jedem Tenant verfuegbar, deshalb ein
-    // eigener enabled-Schalter (weich mit Default true: die meisten igeeks-
+    // eigener enabled-Schalter (weich mit Default true: die meisten
     // Kunden haben Business Premium und damit P1). Faellt die Lizenz, meldet
     // Invoke-BPStep den fehlenden Cmdlet-Import als klaren, isolierten Fehler
     // fuer genau diese Phase — der Rest des Deploys laeuft trotzdem durch.

@@ -6,9 +6,9 @@
  *
  * Bewusst KEIN Best-Practice-Abgleich: Dieses Dokument sagt "so war es
  * abgenommen", nicht "so sollte es sein". Der Abgleich mit den
- * igeeks-Best-Practices hat seinen eigenen Bericht.
+ * Best-Practices hat seinen eigenen Bericht.
  *
- * Layout: pdfDesign.js (igeeks-CI, Deckblatt, Inhaltsverzeichnis, Tabellen).
+ * Layout: pdfDesign.js (Dokument-CI, Deckblatt, Inhaltsverzeichnis, Tabellen).
  */
 const { create, fmtDate, fmtDateTime, pl } = require("./pdfDesign");
 const STAND = require("./managedStand");
@@ -89,7 +89,7 @@ async function build(tenant, d) {
     ],
     stamps: Object.values(ver.areas).map(a => `${a.label} erhoben ${fmtDateTime(a.at)}`),
     footerLabel: drift ? `Drift-Bericht · Stand v${ver.v}` : `Stand v${ver.v}`,
-    coverNote: "Dieses Dokument hält den Ist-Zustand zum Zeitpunkt des Einfrierens fest. Es ist kein Abgleich mit den igeeks-Best-Practices — dafür gibt es den separaten Best-Practice-Bericht mit begründet zugelassenen Abweichungen."
+    coverNote: "Dieses Dokument hält den Ist-Zustand zum Zeitpunkt des Einfrierens fest. Es ist kein Abgleich mit den Best-Practices — dafür gibt es den separaten Best-Practice-Bericht mit begründet zugelassenen Abweichungen."
   });
   b.cover();
 
@@ -130,7 +130,7 @@ async function build(tenant, d) {
       { label: "Aus", value: String(caList.filter(p => p.state === "disabled").length), tone: "muted" }
     ]);
     b.table([{ label: "Policy", w: 0.56 }, { label: "Status", w: 0.16 }, { label: "Herkunft", w: 0.28 }],
-      caList.map(p => [{ text: p.name, bold: true }, { text: CA_STATE[p.state] || p.state || "—", pill: p.state === "enabled" ? "ok" : p.state === "disabled" ? "muted" : "info" }, p.managed ? "igeeks (BP_)" : "kundenseitig"]));
+      caList.map(p => [{ text: p.name, bold: true }, { text: CA_STATE[p.state] || p.state || "—", pill: p.state === "enabled" ? "ok" : p.state === "disabled" ? "muted" : "info" }, p.managed ? "Baseline (BP_)" : "kundenseitig"]));
     b.h2("Policies im Detail");
     for (const p of caList) {
       const s = caSummary(p.body);

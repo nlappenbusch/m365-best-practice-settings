@@ -1,8 +1,8 @@
 "use strict";
 /**
  * Layout der Ist-Zustand-Dokumentation (pdfkit) — nachgebaut nach der Vorlage, die
- * für SG Value Partners von Hand entstand (ist.css): schlichte Kopfzeile mit Logo,
- * nummerierte fette Überschriften in igeeks-Petrol ohne Deko-Striche davor, eine
+ * für einen Kunden von Hand entstand (ist.css): schlichte Kopfzeile mit Logo,
+ * nummerierte fette Überschriften in Petrol ohne Deko-Striche davor, eine
  * feine Linie unter der Kapitelüberschrift, Tabellen mit kleinem Versalien-Kopf, der
  * sich bei jedem Seitenumbruch wiederholt, Status-Pillen, Kennzahl-Kacheln,
  * Speicherbalken, Fusszeile «Seite x von y». Keine erzwungenen Seitenumbrüche:
@@ -17,7 +17,8 @@ const fs = require("fs");
 const PDFDocument = require("pdfkit");
 const { san } = require("./pdfDesign");
 
-const LOGO_PATH = path.join(__dirname, "..", "assets", "igeeks-logo.png");
+const BRAND = require("./brand");
+const LOGO_PATH = BRAND.LOGO_PATH;
 const C = {
   accent: "#0081ad", text: "#373737", dark: "#232a31", muted: "#707070", faint: "#8a97a2", note: "#5a6b78",
   line: "#d7dee3", rowLine: "#eef2f4", headLine: "#cfd8de", kpiBg: "#f7fafc", barBg: "#eef2f4", sign: "#9aa7b1"
@@ -34,7 +35,7 @@ const FONT = { r: "Helvetica", b: "Helvetica-Bold", m: "Courier", i: "Helvetica-
 
 function create(meta) {
   meta = meta || {};
-  const doc = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 54, left: 37, right: 37 }, bufferPages: true, info: { Title: san(meta.title || "Ist-Zustand Microsoft 365"), Author: "igeeks AG" } });
+  const doc = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 54, left: 37, right: 37 }, bufferPages: true, info: { Title: san(meta.title || "Ist-Zustand Microsoft 365"), Author: BRAND.PUBLISHER } });
   const chunks = [];
   const done = new Promise((resolve, reject) => {
     doc.on("data", c => chunks.push(c));
@@ -121,8 +122,8 @@ function create(meta) {
     const y0 = top();
     let logoOk = false;
     try { if (fs.existsSync(LOGO_PATH)) { doc.image(LOGO_PATH, L, y0 - 2, { height: 27 }); logoOk = true; } } catch (e) { /* Text-Ersatz */ }
-    if (!logoOk) doc.font(FONT.b).fontSize(15).fillColor(C.accent).text("igeeks", L, y0 + 4, { lineBreak: false });
-    doc.font(FONT.r).fontSize(7.8).fillColor("#747373").text("Managed Services & Security", L, y0 + 29, { lineBreak: false });
+    if (!logoOk && BRAND.NAME) doc.font(FONT.b).fontSize(15).fillColor(C.accent).text(san(BRAND.NAME), L, y0 + 4, { lineBreak: false });
+    if (BRAND.TAGLINE) doc.font(FONT.r).fontSize(7.8).fillColor("#747373").text(san(BRAND.TAGLINE), L, y0 + 29, { lineBreak: false });
     doc.font(FONT.b).fontSize(14).fillColor(C.accent).text(san(h.kicker || "Ist-Zustand"), L, y0 + 5, { width: W, align: "right", lineBreak: false });
     doc.font(FONT.r).fontSize(8.2).fillColor(C.muted).text(san(h.stamp || ""), L, y0 + 25, { width: W, align: "right", lineBreak: false });
     const ly = y0 + 42;

@@ -6,7 +6,7 @@ export const defaultConfig = () => ({
     domains: ['example.com'],
     onmicrosoftDomain: 'example.onmicrosoft.com',
     adminEmail: 'admin@example.com',
-    igeeksEmail: 'support@msp-provider.com'
+    mspEmail: 'support@msp-provider.com'
   },
   antiPhishing: {
     spoofIntelligence: true,
@@ -49,7 +49,7 @@ export const defaultConfig = () => ({
   // Safe Links / Safe Attachments (Defender for Office 365 P1/P2) — anders als
   // die drei Bereiche oben nicht bei jedem Tenant lizenziert, deshalb ein
   // eigener Schalter statt einer harten Vorgabe. Default an, weil die meisten
-  // igeeks-Kunden Business Premium (und damit P1) haben; fehlt die Lizenz,
+  // Kunden Business Premium (und damit P1) haben; fehlt die Lizenz,
   // meldet der Deploy nur diese eine Phase als Fehler, der Rest laeuft durch.
   safeLinks: {
     enabled: true,
@@ -90,3 +90,15 @@ export const defaultConfig = () => ({
 })
 
 export const config = writable(defaultConfig())
+
+// Gespeicherte Konfigurationen kennen die MSP-Alert-Email noch unter ihrem
+// frueheren Feldnamen -- beim Laden einmal auf mspEmail umziehen.
+const LEGACY_MSP_EMAIL_KEY = 'igeeks' + 'Email'
+export function migrateConfig(c) {
+  const g = c && c.global
+  if (g && g[LEGACY_MSP_EMAIL_KEY] !== undefined) {
+    if (!g.mspEmail) g.mspEmail = g[LEGACY_MSP_EMAIL_KEY]
+    delete g[LEGACY_MSP_EMAIL_KEY]
+  }
+  return c
+}

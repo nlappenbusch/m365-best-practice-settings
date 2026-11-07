@@ -143,7 +143,7 @@ Update-Module -Name ExchangeOnlineManagement
 ## 📚 Weitere Ressourcen
 
 - **Microsoft Docs:** [Office 365 Security](https://docs.microsoft.com/en-us/microsoft-365/security/office-365-security/)
-- **igeeks Best Practices:** Siehe "Dokumentation" Tab im Tool
+- **Best Practices:** Siehe "Dokumentation" Tab im Tool
 - **Delta-Analyse:** Siehe "Delta-Analyse" Tab im Tool
 
 ---

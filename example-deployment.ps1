@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    igeeks Best Practice M365 Security Policy Deployment - EXAMPLE
+    Best Practice M365 Security Policy Deployment - EXAMPLE
 
 .DESCRIPTION
-    Dieses Script implementiert die igeeks Best-Practice Konfiguration für:
+    Dieses Script implementiert die Best Practice Konfiguration für:
     - Anti-Phishing Policy
     - Anti-Spam Inbound Policy
     - Anti-Malware Policy
@@ -11,7 +11,7 @@
 
 .NOTES
     Domains: hotel-krone.ch, kroneunterstrass.onmicrosoft.com
-    Admin Email: alerts.normal@igeeks.ch
+    Admin Email: alerts@example.com
     Generated: 2026-02-12
     
 .LINK
@@ -130,8 +130,8 @@ New-MalwareFilterPolicy -Name "BP_AntiMalware" `
     -Action Reject `
     -EnableInternalSenderAdminNotifications $true `
     -EnableExternalSenderAdminNotifications $true `
-    -InternalSenderAdminAddress "alerts.normal@igeeks.ch" `
-    -ExternalSenderAdminAddress "alerts.normal@igeeks.ch" `
+    -InternalSenderAdminAddress "alerts@example.com" `
+    -ExternalSenderAdminAddress "alerts@example.com" `
     -ZapEnabled $true `
     -QuarantineTag "BP_Quarantine-RequestReleaseNotification"
 

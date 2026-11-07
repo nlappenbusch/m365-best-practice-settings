@@ -1,6 +1,6 @@
 <script>
   // Ist-Zustand Microsoft 365 — das Kunden-PDF «Konfiguration und Ist-Zustand»
-  // (Vorlage: SGVP, 18.09.2026), vollständig aus dem Werkzeug:
+  // (Kundenvorlage, 18.09.2026), vollständig aus dem Werkzeug:
   //  1. Erheben: rein lesend, als Job, auch im Prüfmandat — Konten, CA, Intune,
   //     E-Mail, Anwendungen, SharePoint, optional die Änderungen eines Zeitraums.
   //  2. Register «Entscheide und Kommentare»: was Entra und Intune nicht speichern —
@@ -359,7 +359,7 @@
         <h4 style="margin:0 0 0.3rem">Änderungen{#if data?.params?.changes}{' '}vom {fmtD(data.params.changes.from)} bis {fmtD(data.params.changes.to)}{/if}</h4>
         <p class="ld-section-hint" style="margin:0 0 0.5rem">Aus den Protokollen von Entra ID und Intune; Anmeldungen und automatische Änderungen durch Microsoft-Dienste sind ausgeblendet. Die Begründung kommt aus dem Register — je Änderung oder, wenn keine erfasst ist, aus dem Kommentar zum Objekt.</p>
         <div class="iz-row">
-          <label class="iz-opt">nur Akteur enthält <input type="text" bind:value={settings.aendAkteur} placeholder="z. B. administrator@ oder igeeks" onchange={async () => { await saveSettings(true); await load() }} /></label>
+          <label class="iz-opt">nur Akteur enthält <input type="text" bind:value={settings.aendAkteur} placeholder="z. B. administrator@ oder msp" onchange={async () => { await saveSettings(true); await load() }} /></label>
           <label class="iz-opt"><input type="checkbox" bind:checked={settings.aendAlle} onchange={async () => { await saveSettings(true); await load() }} /> auch Änderungen durch Microsoft-Dienste</label>
         </div>
         {#if !data?.changes}
@@ -418,7 +418,7 @@
           <label>Fassung <input type="text" bind:value={settings.fassung} placeholder="1.0" /></label>
           <label class="iz-opt"><input type="checkbox" bind:checked={settings.entwurf} /> Entwurf</label>
           <label>ersetzt <input type="text" bind:value={settings.ersetzt} placeholder="z. B. 1.1 und 1.0" /></label>
-          <label class="iz-wide">Erstellt von <input type="text" bind:value={settings.erstelltVon} placeholder="Name, Funktion, igeeks AG" /></label>
+          <label class="iz-wide">Erstellt von <input type="text" bind:value={settings.erstelltVon} placeholder="Name, Funktion, Firma" /></label>
           <label>Anrede
             <select bind:value={settings.empfaengerLabel}><option>Empfänger</option><option>Empfängerin</option><option>Empfänger:in</option></select>
           </label>

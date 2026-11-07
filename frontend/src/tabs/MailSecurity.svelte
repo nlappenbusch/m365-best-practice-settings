@@ -735,7 +735,7 @@
       </button>
       <div class="input-group" style="max-width:220px; margin-bottom:0;">
         <label for="alertMspMail"><small>MSP Alert Email (global)</small></label>
-        <input id="alertMspMail" type="email" bind:value={$config.global.igeeksEmail} />
+        <input id="alertMspMail" type="email" bind:value={$config.global.mspEmail} />
       </div>
       {#if tenantAdminMsg}
         <small style="flex-basis:100%; color:{tenantAdminMsg.ok ? 'var(--ok)' : 'var(--crit)'};">{tenantAdminMsg.text}</small>
@@ -776,7 +776,7 @@
     {@const sa = $config.safeAttach}
     {@const ob = $config.outbound || {}}
     {@const fileTypeCount = String(am.customFileTypes || '').split(',').map(s => s.trim()).filter(Boolean).length}
-    {@const recipients = [effectiveAdminEmail, g.igeeksEmail].filter(Boolean).join(', ')}
+    {@const recipients = [effectiveAdminEmail, g.mspEmail].filter(Boolean).join(', ')}
     {@const domains = [...g.domains, g.onmicrosoftDomain].filter(Boolean)}
     <div class="ld-confirm">
       <strong>Deploy nach {$activeTenant.name} — das wird angewendet:</strong>

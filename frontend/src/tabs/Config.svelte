@@ -94,7 +94,7 @@
     for (const d of (g.domains || [])) if (isPlaceholder(d)) bad.push(`Domain „${d}“`)
     if (isPlaceholder(g.onmicrosoftDomain)) bad.push('OnMicrosoft-Domain')
     if (isPlaceholder(g.adminEmail)) bad.push('Admin Notification Email')
-    if (isPlaceholder(g.igeeksEmail)) bad.push('MSP Alert Email')
+    if (isPlaceholder(g.mspEmail)) bad.push('MSP Alert Email')
     return bad
   })
 </script>
@@ -180,7 +180,7 @@
     </div>
     <div class="input-group">
       <label for="mspMail">MSP Alert Email</label>
-      <input id="mspMail" type="email" bind:value={$config.global.igeeksEmail} />
+      <input id="mspMail" type="email" bind:value={$config.global.mspEmail} />
       <small>Email für Managed Service Alerts (Quarantine Requests)</small>
     </div>
   </div>
@@ -252,7 +252,7 @@
         <div class="input-group"><label>Admin Email</label>
           <input type="email" bind:value={$config.global.adminEmail}><small>Email für Admin-Benachrichtigungen</small></div>
         <div class="input-group"><label>MSP Alert Email</label>
-          <input type="email" bind:value={$config.global.igeeksEmail}><small>Email für Managed Service Alerts (Quarantine Requests)</small></div>
+          <input type="email" bind:value={$config.global.mspEmail}><small>Email für Managed Service Alerts (Quarantine Requests)</small></div>
         <div class="alert alert-warning" style="margin-bottom:.75rem;">
           <strong>Legacy-ASF-Optionen (Advanced Spam Filter):</strong> Microsoft empfiehlt <strong>Off</strong> — auch die Microsoft Standard-/Strict-Presets lassen alle aus. Sie übersteuern ARC/Composite-Authentication, erzeugen False Positives (z.B. SPF Hard Fail hinter Verschlüsselungs-Gateways wie SEPPmail) und ASF-Treffer sind bei Microsoft <em>nicht als False Positive meldbar</em>. Nur gezielt und mit klarem Grund aktivieren.
         </div>
@@ -383,7 +383,7 @@
           <span>Benachrichtigung bei ausgehendem Spam</span>
         </label>
         <small>Meldet ein Konto, das auffällig viele Nachrichten versendet — das typische Muster eines übernommenen
-        Postfachs. Empfänger sind <strong>{[$config.global.adminEmail, $config.global.igeeksEmail].filter(Boolean).join(', ') || '(oben eintragen)'}</strong>
+        Postfachs. Empfänger sind <strong>{[$config.global.adminEmail, $config.global.mspEmail].filter(Boolean).join(', ') || '(oben eintragen)'}</strong>
         aus den globalen Einstellungen. Ein Sammelpostfach ist einer persönlichen Adresse vorzuziehen, damit die
         Meldung auch in Ferienzeiten gelesen wird.</small>
         <div class="action-grid" style="margin-top:.75rem;">

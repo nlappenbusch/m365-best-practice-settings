@@ -578,7 +578,7 @@ Einträge — z.&nbsp;B. für den eigenen RMM-Agent, der pro Kunde anders benann
   <thead><tr><th>Feld (Patch My PC)</th><th>Landet in Intune als</th><th>Bemerkung</th></tr></thead>
   <tbody>
     <tr><td><code>Vendor</code> *</td><td><code>publisher</code></td><td>Pflichtfeld</td></tr>
-    <tr><td><code>Description</code> *</td><td><code>description</code></td><td>Pflichtfeld — bei Kunden-individuellen Agents z.B. „igeeks RMM Client - &lt;Kundenname&gt;"</td></tr>
+    <tr><td><code>Description</code> *</td><td><code>description</code></td><td>Pflichtfeld — bei Kunden-individuellen Agents z.B. „RMM Client - &lt;Kundenname&gt;"</td></tr>
     <tr><td><code>Owner</code></td><td><code>owner</code></td><td>optional, rein informativ</td></tr>
     <tr><td><code>Intune Notes</code></td><td><code>notes</code></td><td>interner Kommentar</td></tr>
     <tr><td><code>Information URL</code> / <code>Privacy URL</code></td><td><code>informationUrl</code> / <code>privacyInformationUrl</code></td><td>optional</td></tr>

@@ -64,7 +64,7 @@ function stripNotes(html) {
 
 /** Interne Links (Zoho-CRM-Deal, SDP-Ticket) aus dem kundentauglichen Text entfernen. */
 function stripInternalLinks(html) {
-  return String(html || "").replace(/<a\s[^>]*href="[^"]*(?:crm\.zoho|zoho\.|sdp\.igeeks|servicedesk|manageengine)[^"]*"[^>]*>.*?<\/a>/gis, "");
+  return String(html || "").replace(/<a\s[^>]*href="[^"]*(?:crm\.zoho|zoho\.|sdp\.|servicedesk|manageengine)[^"]*"[^>]*>.*?<\/a>/gis, "");
 }
 
 /** SDP haengt manchmal feste Schriftgroessen/-familien an -- die eigene CSS soll gelten. */

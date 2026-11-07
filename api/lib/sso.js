@@ -1,7 +1,7 @@
 /**
- * SSO-Login ueber den iGeeks-M365-Tenant (OIDC Authorization Code Flow,
+ * SSO-Login ueber den Betreiber-M365-Tenant (OIDC Authorization Code Flow,
  * Confidential Client). Dient AUSSCHLIESSLICH der Authentifizierung am Tool —
- * nicht dem Management des iGeeks-Tenants (dafuer gibt es das normale
+ * nicht dem Management dieses Tenants (dafuer gibt es das normale
  * Tenant-Onboarding).
  *
  * Sicherheitsmodell:
@@ -59,7 +59,7 @@ function decodeJwtPayload(jwt) {
 
 /**
  * Callback verarbeiten: state pruefen, Code gegen Token tauschen, Claims
- * validieren. Rueckgabe: { upn, name } des angemeldeten iGeeks-Nutzers.
+ * validieren. Rueckgabe: { upn, name } des angemeldeten Nutzers.
  */
 async function handleCallback(req, sso) {
   const flow = req.session.ssoFlow;

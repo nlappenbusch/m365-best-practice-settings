@@ -150,7 +150,7 @@ export function buildInventoryHtml(inventory) {
   <dl class="cover-meta">
     <div><dt>Erhoben am</dt><dd>${esc(dateStr)}</dd></div>
     <div><dt>Erhebungsart</dt><dd>Ausschliesslich lesend, app-only</dd></div>
-    <div><dt>Erstellt mit</dt><dd>igeeks M365 Security Policy Manager</dd></div>
+    <div><dt>Erstellt mit</dt><dd>M365 Security Policy Manager</dd></div>
     <div><dt>Dokumenttyp</dt><dd>Momentaufnahme</dd></div>
   </dl>
 </header>
@@ -223,7 +223,7 @@ für eine Entscheidung mit finanzieller oder vertraglicher Wirkung gehört der S
 </div>
 
 <footer>
-  Erzeugt mit dem igeeks M365 Security Policy Manager · ${esc(dateStr)} ·
+  Erzeugt mit dem M365 Security Policy Manager · ${esc(dateStr)} ·
   ${esc(inv.tenantName)}${inv.organization ? ' · ' + esc(inv.organization) : ''}
 </footer>
 

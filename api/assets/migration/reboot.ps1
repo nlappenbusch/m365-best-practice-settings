@@ -58,7 +58,7 @@ log info "Reboot task disabled"
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value 0 -Verbose
 log info "Auto logon disabled."
 
-# [igeeks] Autologon-Zugangsdaten wieder entfernen. Das Original setzte
+# [Anpassung] Autologon-Zugangsdaten wieder entfernen. Das Original setzte
 # AutoAdminLogon auf 0, liess DefaultUserName und DefaultPassword aber im
 # Klartext in der Registry stehen -- lesbar fuer jeden angemeldeten Benutzer.
 log info "Removing auto logon credentials from registry..."

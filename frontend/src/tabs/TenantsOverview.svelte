@@ -397,7 +397,7 @@
   const fixIcons = { ok: '✅', fixed: '🔧', failed: '❌', mismatch: '⚠️', skipped: '➖' }
   const fixText = { ok: 'war korrekt', fixed: 'repariert', failed: 'fehlgeschlagen', mismatch: 'Eingriff nötig', skipped: 'nicht zuweisbar' }
 
-  // ---------- SSO-Konfiguration (iGeeks-Tenant "verheiraten") ----------
+  // ---------- SSO-Konfiguration (Betreiber-Tenant "verheiraten") ----------
   let ssoInfo = $state(null)        // { enabled, redirectUri }
   let ssoFormOpen = $state(false)
   let ssoTenantId = $state('')
@@ -749,13 +749,13 @@
     <p class="ld-section-hint">Legt im Ziel-Tenant eine App-Registrierung samt Zertifikat an und erteilt ihr die
       Berechtigungen, mit denen dieses Werkzeug arbeitet. Anmeldung per Device-Code als Administrator des Kunden.</p>
     <!-- Pflichtfeld, nicht optional: leer laeuft die Anmeldung gegen den Multi-Tenant-
-         Endpunkt "organizations". Wer im Browser noch mit dem igeeks-Konto angemeldet ist,
+         Endpunkt "organizations". Wer im Browser noch mit dem eigenen Konto angemeldet ist,
          legt die App-Registrierung dann im EIGENEN Tenant an statt beim Kunden. -->
     <div class="input-group" style="max-width:420px; margin-bottom:0.75rem;">
       <label for="tOnboardTenant">Tenant-Domain oder Tenant-ID des Kunden</label>
       <input id="tOnboardTenant" type="text" placeholder="kunde.onmicrosoft.com" bind:value={onboardTenant} disabled={onboardBusy || !!onboardStep} />
       <small>Pflichtangabe — sie bestimmt, in welchem Tenant die App-Registrierung entsteht. Ohne sie könnte die
-        Anmeldung im igeeks-Tenant landen statt beim Kunden.</small>
+        Anmeldung im eigenen Tenant landen statt beim Kunden.</small>
     </div>
 
     <div class="onboard-mode" style="max-width:640px; margin-bottom:0.7rem;">
@@ -892,27 +892,27 @@
   </div>
 
   <div class="settings-group">
-    <h4>SSO: Anmeldung über den iGeeks-Tenant</h4>
-    <p class="ld-section-hint">Verheiratet das Tool mit dem iGeeks-M365-Tenant als primäre Anmeldemethode — dient NUR dem Zugriff auf dieses Tool, nicht dem Management des iGeeks-Tenants. Der Passwort-Login bleibt als Fallback erhalten.</p>
+    <h4>SSO: Anmeldung über den Betreiber-Tenant</h4>
+    <p class="ld-section-hint">Verheiratet das Tool mit dem eigenen M365-Tenant (Betreiber) als primäre Anmeldemethode — dient NUR dem Zugriff auf dieses Tool, nicht dem Management dieses Tenants. Der Passwort-Login bleibt als Fallback erhalten.</p>
 
     {#if ssoInfo?.enabled}
       <div class="ld-banner ok">SSO ist aktiv — der Anmeldebildschirm zeigt „Mit Microsoft anmelden" als primären Weg.</div>
       <button class="btn btn-secondary" onclick={removeSso} disabled={ssoBusy}>SSO-Konfiguration entfernen</button>
     {:else}
       <button class="btn btn-primary" onclick={() => (ssoFormOpen = !ssoFormOpen)} disabled={ssoBusy}>
-        {ssoFormOpen ? '✕ Schliessen' : '🔗 iGeeks-Tenant verheiraten'}
+        {ssoFormOpen ? '✕ Schliessen' : '🔗 Betreiber-Tenant verheiraten'}
       </button>
     {/if}
 
     {#if ssoFormOpen && !ssoInfo?.enabled}
       <div class="ld-job" style="margin-top:1rem">
-        <div class="ld-step"><small>Einmalig im <b>iGeeks-Tenant</b> eine App-Registrierung anlegen (Entra Admin Center → App-Registrierungen → Neu):
+        <div class="ld-step"><small>Einmalig im <b>Betreiber-Tenant</b> eine App-Registrierung anlegen (Entra Admin Center → App-Registrierungen → Neu):
           Typ „Web", Redirect-URI wie unten, dann unter „Zertifikate &amp; Geheimnisse" ein Client-Secret erzeugen.
           Keine API-Berechtigungen nötig — der Standard-<code>openid</code>-Scope reicht.</small></div>
         <div class="ld-onboard-step">📋 Redirect-URI für die App-Registrierung: <code>{ssoInfo?.redirectUri || '…'}</code></div>
         <div class="settings-grid" style="margin-top:0.75rem;">
           <div class="input-group">
-            <label for="ssoTid">iGeeks Tenant-ID</label>
+            <label for="ssoTid">Tenant-ID (Betreiber)</label>
             <input id="ssoTid" type="text" placeholder="00000000-0000-0000-0000-000000000000" bind:value={ssoTenantId} />
           </div>
           <div class="input-group">

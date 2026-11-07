@@ -2,7 +2,7 @@
   "meta": {
     "version": "1.2",
     "gueltigAb": "2026-09-02",
-    "titel": "igeeks Managed-Setup — Baseline",
+    "titel": "Managed-Setup — Baseline",
     "zweck": "Maschinenlesbare Fassung der Betriebsrichtlinien. Werkzeug, Wissensseiten und Dokumentation speisen sich aus dieser Quelle, damit eine Regeländerung überall gleichzeitig wirkt.",
     "hinweis": "Keine Kundendaten, keine Geheimnisse — reine Richtlinien. Das Namensschema steht NICHT hier, sondern kommt live aus lib/naming.js; die API führt beides zusammen.",
     "changelog": [
@@ -141,7 +141,7 @@
       "titel": "RMM-Agent (N-able N-sight)",
       "displayName": "Advanced Monitoring Agent",
       "vendor": "N-able Technologies Ltd",
-      "description": "igeeks RMM Client – <Kunde>",
+      "description": "RMM Client – <Kunde>",
       "zielgruppeKind": "appGroup",
       "zielgruppeApp": "AdvancedMonitoringAgent",
       "herkunft": "Kundenspezifischer Installer aus dem N-sight-Dashboard, Bezug über den Tab Agents mit Kundensuche.",

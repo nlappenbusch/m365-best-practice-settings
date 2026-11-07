@@ -53,7 +53,7 @@ const CREDENTIAL_FREE = [
     id: "info:forticlient",
     kind: "FortiClient / Fortigate",
     label: "FortiClient-Installer",
-    scope: "forticlient.igeekscloud.ch",
+    scope: process.env.FORTICLIENT_HOST || "(FORTICLIENT_HOST nicht gesetzt)",
     note: "Speichert keine Zugangsdaten. Das Werkzeug laedt den Installer von einer fest verdrahteten, vertrauenswuerdigen URL — andere Hosts weist es ab. Die site-spezifische Ordner-URL wird pro Einsatz angegeben, nicht hinterlegt."
   },
   {
@@ -112,10 +112,10 @@ function collectSecrets(loadState, certPemPath) {
     });
   }
 
-  // 2. SSO-Clientgeheimnis (Anmeldung über den igeeks-Tenant)
+  // 2. SSO-Clientgeheimnis (Anmeldung über den Betreiber-Tenant)
   if (s.sso && s.sso.clientSecret) {
     out.push({
-      id: "sso:clientSecret", group: "Dieses Werkzeug", kind: "SSO-Clientgeheimnis", label: "Anmeldung über igeeks-Tenant",
+      id: "sso:clientSecret", group: "Dieses Werkzeug", kind: "SSO-Clientgeheimnis", label: "Anmeldung über Betreiber-Tenant",
       scope: s.sso.tenantId || "—", recoverable: true, severity: "hoch",
       editable: true,
       editHint: "Nach dem Rotieren im Entra-Portal hier eintragen.",
@@ -150,8 +150,7 @@ function collectSecrets(loadState, certPemPath) {
         "Zweck": desc,
         "Gesetzt": v ? "ja" : "nein",
         "Wert": v ? maskValue(v) : "—",
-        "Ändern auf m365.nerdag.ch": "GitHub Secret " + name + " im Repo nlappenbusch/m365-best-practice-settings (Settings → Secrets and variables → Actions), danach Deploy auslösen",
-        "Ändern auf igeeks-prod": "Vault: kv-v2/<cluster>/m365-configurator#" + name + ", danach Pod neu starten"
+        "Ändern auf m365.nerdag.ch": "GitHub Secret " + name + " im Repo nlappenbusch/m365-best-practice-settings (Settings → Secrets and variables → Actions), danach Deploy auslösen"
       },
       note: (v ? "" : "Nicht gesetzt — die zugehörige Funktion steht damit nicht zur Verfügung. ") +
         "Hier bewusst nur zur Ansicht: Der Wert kommt beim Start aus der Umgebung des Containers. " +
@@ -235,7 +234,7 @@ const EDITABLE = {
   "sso:clientSecret": {
     label: "SSO-Clientgeheimnis",
     multiline: false,
-    hint: "Nach dem Rotieren im Entra-Portal hier das neue Geheimnis eintragen. Bis dahin schlägt die Anmeldung über den igeeks-Tenant fehl.",
+    hint: "Nach dem Rotieren im Entra-Portal hier das neue Geheimnis eintragen. Bis dahin schlägt die Anmeldung über den Betreiber-Tenant fehl.",
     apply(state, value) { state.sso = Object.assign({}, state.sso || {}, { clientSecret: value }); }
   },
   "state:sessionSecret": {

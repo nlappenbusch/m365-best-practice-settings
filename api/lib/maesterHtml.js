@@ -9,13 +9,14 @@
  * aufgeklappt: nur kritische/hohe Findings starten offen.
  *
  * Gleiche Datenbasis wie der PDF (collectMaesterReportData in server.js),
- * gleiche igeeks-Gestaltungsregeln: Petrol #0081ad, nummerierte Kapitel.
+ * gleiche Gestaltungsregeln: Petrol #0081ad, nummerierte Kapitel.
  */
 const path = require("path");
 const fs = require("fs");
 
 const ACCENT = "#0081ad";
-const LOGO_PATH = path.join(__dirname, "..", "assets", "igeeks-logo.png");
+const BRAND = require("./brand");
+const LOGO_PATH = BRAND.LOGO_PATH;
 let LOGO_URI = null;
 try { LOGO_URI = "data:image/png;base64," + fs.readFileSync(LOGO_PATH).toString("base64"); } catch (e) { /* Text-Fallback */ }
 
@@ -182,7 +183,7 @@ function buildHtml(data) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Security-Audit ${esc(data.tenantName || "")} — igeeks AG</title>
+<title>Security-Audit ${esc(data.tenantName || "")}${BRAND.NAME ? " — " + esc(BRAND.NAME) : ""}</title>
 <style>
   :root { --accent: ${ACCENT}; --text: #373737; --muted: #707070; --line: #dfe4e8; --ok: #2e7d32; --warn: #b45309; --bad: #b3261e; }
   * { box-sizing: border-box; }
@@ -243,7 +244,7 @@ function buildHtml(data) {
 <div class="topbar"></div>
 <div class="page">
   <header>
-    ${LOGO_URI ? `<img src="${LOGO_URI}" alt="igeeks AG">` : `<div><strong style="color:var(--accent)">igeeks AG</strong><br><span class="hint">Microsoft-365- und Security-Consulting</span></div>`}
+    ${LOGO_URI ? `<img src="${LOGO_URI}" alt="${esc(BRAND.NAME)}">` : BRAND.NAME ? `<div><strong style="color:var(--accent)">${esc(BRAND.NAME)}</strong>${BRAND.TAGLINE ? `<br><span class="hint">${esc(BRAND.TAGLINE)}</span>` : ""}</div>` : "<div></div>"}
     <div class="meta">Vertraulich — nur für den Empfänger bestimmt.<br>Prüfdatum: ${fmtDate(data.generatedAt)}</div>
   </header>
 
@@ -269,7 +270,7 @@ function buildHtml(data) {
     const stateWord = (st) => st === "crit" ? "Kritisch" : st === "warn" ? "Hinweis" : "OK";
     const secs = Object.values(sr.sections);
     return h2("Tenant-Status im Überblick") + `
-  <p class="hint">Kennzahlen aus dem igeeks-Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, Identitäten, Geräte und Intune-Baseline auf einen Blick.</p>
+  <p class="hint">Kennzahlen aus dem Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, Identitäten, Geräte und Intune-Baseline auf einen Blick.</p>
   ${secs.map(sec => sec.ok
     ? `<details class="skipgrp"${(sec.metrics || []).some(m => m.state !== "ok") ? " open" : ""}><summary>${esc(sec.label)}${(sec.metrics || []).some(m => m.state === "crit") ? ' <span class="bad">— kritisch</span>' : (sec.metrics || []).some(m => m.state === "warn") ? ' <span class="warn">— Hinweise</span>' : ""}</summary>
       <table><thead><tr><th>Kennzahl</th><th>Wert</th><th>Bewertung</th><th>Hinweis</th></tr></thead><tbody>
@@ -315,12 +316,12 @@ function buildHtml(data) {
   ${h2("Nächste Schritte")}
   <div class="cta">
     <h3>Lassen Sie uns den Report gemeinsam anschauen</h3>
-    <p>Wir empfehlen, die Ergebnisse dieses Audits in einem gemeinsamen Termin im Detail zu besprechen: die Befunde für Ihre Umgebung einordnen, Prioritäten festlegen und daraus konkrete, aufeinander abgestimmte Massnahmen ableiten — inklusive Aufwandsschätzung und Umsetzungsplanung durch igeeks. Melden Sie sich dazu einfach bei Ihrem igeeks-Ansprechpartner — wir bereiten den Termin auf Basis dieses Reports vor.</p>
+    <p>Wir empfehlen, die Ergebnisse dieses Audits in einem gemeinsamen Termin im Detail zu besprechen: die Befunde für Ihre Umgebung einordnen, Prioritäten festlegen und daraus konkrete, aufeinander abgestimmte Massnahmen ableiten — inklusive Aufwandsschätzung und Umsetzungsplanung. Melden Sie sich dazu einfach bei Ihrem Ansprechpartner — wir bereiten den Termin auf Basis dieses Reports vor.</p>
   </div>
   <p class="mdh">Wichtig zur Einordnung der Ergebnisse</p>
   <p class="hint" style="font-size:13.5px">Dieser Report wurde automatisiert nach technisch festgelegten Prüfmechanismen erstellt. In Ihrer Umgebung können bewusst gewählte Richtlinien gelten, die von den Standard-Baselines abweichen und von der automatischen Prüfung nicht als solche erkannt werden. Der Report zeigt deshalb eine Tendenz und potenzielle Verbesserungsmassnahmen auf — ein als «Handlungsbedarf» markierter Punkt ist nicht zwingend ein tatsächliches Problem. Die verbindliche Beurteilung erfolgt in der gemeinsamen Detailbetrachtung; eingreifende Änderungen setzen wir grundsätzlich erst nach Absprache um (Pilotgruppe bzw. Report-only zuerst).</p>
 
-  <footer><span>igeeks AG · Security-Audit ${esc(data.tenantName || "")}</span><span>${fmtDate(data.generatedAt)}</span></footer>
+  <footer><span>${esc(BRAND.prefix())}Security-Audit ${esc(data.tenantName || "")}</span><span>${fmtDate(data.generatedAt)}</span></footer>
 </div>
 </body>
 </html>`;

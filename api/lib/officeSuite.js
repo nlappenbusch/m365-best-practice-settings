@@ -64,7 +64,7 @@ const FILE_FORMATS = [
   { value: "officeOpenDocumentFormat", label: "OpenDocument (.odt, .ods)" }
 ];
 
-/** Vorbelegung eines neuen Rollouts — Nils' Standard fuer igeeks-Kunden. */
+/** Vorbelegung eines neuen Rollouts — Nils' Standard fuer Kunden. */
 const DEFAULTS = {
   displayName: "Microsoft 365 Apps",
   productId: "o365ProPlusRetail",

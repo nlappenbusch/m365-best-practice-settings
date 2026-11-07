@@ -1,6 +1,6 @@
 # M365 Best Practice Settings
 
-**igeeks Security Policy Manager** – Web-basiertes Tool zur Konfiguration und Deployment von Microsoft 365 Security Best Practices.
+**M365 Security Policy Manager** – Web-basiertes Tool zur Konfiguration und Deployment von Microsoft 365 Security Best Practices.
 
 ## M365 Control Plane
 
@@ -58,7 +58,7 @@ git push
 
 → Container wird automatisch auf dem Docker-Server neu gebaut und deployed.
 
-**Live URL:** https://m365-security.igeeks.ch
+**Live URL:** https://m365.nerdag.ch
 
 ## Technologie
 
@@ -67,11 +67,7 @@ git push
 - **CI/CD:** GitHub Actions mit Self-hosted Runner
 - **Proxy:** Nginx Proxy Manager
 
-## Lizenz
-
-© 2026 igeeks AG
-
-Ein interaktives Web-Tool zur Verwaltung und Dokumentation von Microsoft 365 Security Policies nach igeeks Best Practices.
+Ein interaktives Web-Tool zur Verwaltung und Dokumentation von Microsoft 365 Security Policies nach Best Practices.
 
 ## 🎯 Features
 
@@ -169,7 +165,7 @@ Microsoft Default Quarantine Policies haben folgende Probleme:
 - ❌ Keine definierte Release-Governance
 - ❌ Intransparente User Experience
 
-**igeeks Lösung:** Zwei differenzierte Policies für unterschiedliche Risikostufen mit klaren Benutzerrechten und konsistenten Notifications.
+**Lösung:** Zwei differenzierte Policies für unterschiedliche Risikostufen mit klaren Benutzerrechten und konsistenten Notifications.
 
 ## 📊 Delta-Analyse: AppRiver → M365
 
@@ -509,7 +505,6 @@ sie der Benutzer beim ersten Login.
 ## 📖 Verwendete Standards
 
 - **Microsoft 365 Security Best Practices**
-- **igeeks Security Guidelines**
 - **RFC-konforme DMARC Enforcement**
 - **Zero Trust Security Principles**
 
@@ -522,16 +517,8 @@ Das Tool verwendet das offizielle Microsoft 365 Design System:
 - **Animations:** Smooth transitions und micro-interactions
 - **Responsive:** Mobile-first Design
 
-## 📝 Lizenz
-
-© 2026 igeeks - Internes Tool für M365 Security Policy Management
-
-## 🤝 Support
-
-Bei Fragen oder Problemen wende dich an das igeeks Security Team.
-
 ---
 
 **Version:** 1.0.0  
 **Letzte Aktualisierung:** 2026-02-12  
-**Maintainer:** igeeks Security Team
+**Maintainer:** Nils Lappenbusch

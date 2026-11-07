@@ -149,7 +149,7 @@ const GRAPH_APP_PERMS = ["DeviceManagementConfiguration.ReadWrite.All", "DeviceM
 const GRAPH_APP_PERMS_OPTIONAL = ["Policy.ReadWrite.DeviceConfiguration", "Policy.ReadWrite.Authorization", "Device.Read.All", "AuditLogsQuery.Read.All", "ServiceHealth.Read.All"];
 
 // ---------- Prüfmandat: nur lesend angebundener Tenant ----------
-// Für unabhängige Prüfungen (z. B. SGVP) darf das Werkzeug im Kundentenant
+// Für unabhängige Prüfungen (z. B. Kunden-Audits) darf das Werkzeug im Kundentenant
 // NICHTS verändern können — nicht nur "tut es nicht". Deshalb eine eigene
 // App-Registrierung ausschliesslich mit Lese-Berechtigungen und der Rolle
 // "Globaler Leser" statt Exchange-/Compliance-/Teams-Administrator. Exchange.
@@ -586,7 +586,7 @@ const state = ensureAdmin(loadState());
 const { PlatformStore } = require('./lib/platformStore');
 const TENANT_ACCESS = require('./lib/tenantAccess');
 const platform = new PlatformStore(path.join(STATE_DIR,'platform.sqlite'));
-platform.bootstrap(state.auth.username,process.env.RBAC_BOOTSTRAP_ADMIN_UPN || 'nils.lappenbusch@igeeks.ch');
+platform.bootstrap(state.auth.username,process.env.RBAC_BOOTSTRAP_ADMIN_UPN || '');
 platform.interruptLegacy();
 const app = express();
 app.use(express.json({ limit: "512kb" }));
@@ -638,21 +638,22 @@ let pwshInfo = { checked: false, ok: false, version: null };
   } catch (e) { pwshInfo = { checked: true, ok: false, version: null }; }
 })();
 
-// Tickets-Tab (SDP-Ticket-Copilot) bleibt auf einen einzelnen SSO-Nutzer
-// beschraenkt -- der lokale Admin-Login zaehlt ebenfalls, da er kein
-// personenbezogenes Konto ist, sondern das gemeinsame Live-Deploy-Login.
-const TICKETS_ALLOWED_UPN = "nils.lappenbusch@igeeks.ch";
+// Tickets-Tab (SDP-Ticket-Copilot) und Geheimnis-Bereich bleiben auf einen
+// einzelnen SSO-Nutzer beschraenkt (TOOL_OWNER_UPN) -- der lokale Admin-Login
+// zaehlt ebenfalls, da er kein personenbezogenes Konto ist, sondern das
+// gemeinsame Live-Deploy-Login. Ohne TOOL_OWNER_UPN: nur der lokale Login.
+const TOOL_OWNER_UPN = (process.env.TOOL_OWNER_UPN || "").trim().toLowerCase();
 function isTicketsAllowed(req) {
   const u = req.session && req.session.user;
   if (!u) return false;
-  if (u.startsWith("sso:")) return u.slice(4).toLowerCase() === TICKETS_ALLOWED_UPN;
+  if (u.startsWith("sso:")) return !!TOOL_OWNER_UPN && u.slice(4).toLowerCase() === TOOL_OWNER_UPN;
   return true;
 }
 
 app.get("/api/health", (req, res) => res.json({ ok: true, pwsh: pwshInfo, loggedIn: !!(req.session && req.session.user), ticketsAllowed: isTicketsAllowed(req) && platform.access(req.session?.user).admin, access: req.session?.user ? platform.access(req.session.user) : null }));
 
 // Brute-Force-Schutz fuer den lokalen Admin-Login (kein SSO/MFA-Schutz wie beim
-// iGeeks-SSO-Pfad) -- pro IP max. 5 Fehlversuche innerhalb von 15 Minuten, danach
+// SSO-Pfad) -- pro IP max. 5 Fehlversuche innerhalb von 15 Minuten, danach
 // 429 bis das Fenster abgelaufen ist. Bewusst kein neues Package (express-rate-limit)
 // fuer diesen einen Endpunkt, analog zum Rest des Projekts (minimale Abhaengigkeiten).
 const LOGIN_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000 };
@@ -697,7 +698,7 @@ app.post("/api/login", (req, res) => {
 });
 app.post("/api/logout", (req, res) => req.session.destroy(() => res.json({ ok: true })));
 
-// ---------- SSO ueber iGeeks-Tenant (vor dem Auth-Guard: Login-Flow ist public) ----------
+// ---------- SSO ueber den Betreiber-Tenant (vor dem Auth-Guard: Login-Flow ist public) ----------
 // Login-Screen muss VOR der Anmeldung wissen, ob SSO verfuegbar ist — keine Secrets in der Antwort.
 app.get("/api/sso/config", (req, res) => {
   const s = loadState();
@@ -801,11 +802,11 @@ function egressTargets() {
   const bd = BD.config();
   const rmm = NSIGHT.config();
   const rmmHost = rmm.fixed || (rmm.candidates && rmm.candidates[0]) || "dashboardeurope1.systemmonitor.eu.com";
-  const sdpBase = (process.env.SDP_BASE_URL || "https://sdp.igeeks.ch").trim().replace(/\/+$/, "");
-  // Die SDP-Datenbank liegt im internen igeeks-Netz und spricht kein HTTP —
-  // daher als TCP-Ziel. Host/Port ueberschreibbar, Zugangsdaten braucht der
-  // Erreichbarkeitstest bewusst keine.
-  const sdpDbHost = (process.env.SDP_DB_HOST || "10.0.10.105").trim();
+  const sdpBase = (process.env.SDP_BASE_URL || "").trim().replace(/\/+$/, "");
+  // Die SDP-Datenbank liegt in einem internen Netz und spricht kein HTTP —
+  // daher als TCP-Ziel. Nur wenn SDP_DB_HOST gesetzt ist; Zugangsdaten braucht
+  // der Erreichbarkeitstest bewusst keine.
+  const sdpDbHost = (process.env.SDP_DB_HOST || "").trim();
   const sdpDbPort = Number(process.env.SDP_DB_PORT || 65432);
 
   return [
@@ -833,8 +834,8 @@ function egressTargets() {
       url: `https://${bd.host}/`, optional: !bd.enabled },
     { group: "App-Deployment — Agents", name: "N-sight RMM", why: "Kunden-/Site-Liste und Agent-Build" + (rmm.enabled ? "" : " (kein RMM_API_KEY gesetzt)"),
       url: `https://${rmmHost}/`, optional: !rmm.enabled },
-    { group: "App-Deployment — Agents", name: "FortiClient-Installer", why: "vorkonfiguriertes MSI+MST je EMS-Site",
-      url: "https://forticlient.igeekscloud.ch:10443/" },
+    ...(FORTICLIENT.ALLOWED_HOST ? [{ group: "App-Deployment — Agents", name: "FortiClient-Installer", why: "vorkonfiguriertes MSI+MST je EMS-Site",
+      url: `https://${FORTICLIENT.ALLOWED_HOST}:10443/` }] : []),
 
     // --- Intune-Baselines ---
     { group: "Intune-Baselines", name: "OpenIntuneBaseline (GitHub-API)", why: "Baseline-Dateien auflisten",
@@ -843,8 +844,8 @@ function egressTargets() {
       url: "https://raw.githubusercontent.com/SkipToTheEndpoint/OpenIntuneBaseline/main/README.md" },
 
     // --- Nur fuer den Tickets-Bereich ---
-    { group: "Optional", name: "ServiceDesk Plus", why: "Ticket-Copilot" + (process.env.SDP_API_KEY ? "" : " (kein SDP_API_KEY gesetzt)"),
-      url: sdpBase + "/", optional: !process.env.SDP_API_KEY },
+    ...(sdpBase ? [{ group: "Optional", name: "ServiceDesk Plus", why: "Ticket-Copilot" + (process.env.SDP_API_KEY ? "" : " (kein SDP_API_KEY gesetzt)"),
+      url: sdpBase + "/", optional: !process.env.SDP_API_KEY }] : []),
     { group: "Optional", name: "Anthropic API", why: "KI-Vorschlag im Ticket-Copilot" + (process.env.ANTHROPIC_API_KEY ? "" : " (kein ANTHROPIC_API_KEY gesetzt)"),
       url: "https://api.anthropic.com/v1/models", optional: !process.env.ANTHROPIC_API_KEY },
 
@@ -852,10 +853,10 @@ function egressTargets() {
     // Reiner TCP-Connect: aufmachen, Erreichbarkeit feststellen, sofort wieder
     // zu. Kein Login, keine Zugangsdaten im Tool — die Frage ist ausschliesslich,
     // ob die Netzwerkstrecke vom Pod/Container dorthin offen ist.
-    { group: "Interne Dienste (TCP)", name: "ServiceDesk-Plus-Datenbank (PostgreSQL)",
+    ...(sdpDbHost ? [{ group: "Interne Dienste (TCP)", name: "ServiceDesk-Plus-Datenbank (PostgreSQL)",
       why: "Direktabfragen auf die SDP-Datenbank statt ueber die REST-API. Heute nutzt das Tool nur die API — der Test zeigt vorab, ob der Weg ueberhaupt offen ist.",
       tcp: { host: sdpDbHost, port: sdpDbPort }, optional: true,
-      optionalNote: "an dieser Strecke haengt derzeit keine Funktion — ein Fehlschlag bremst das Tool nicht" }
+      optionalNote: "an dieser Strecke haengt derzeit keine Funktion — ein Fehlschlag bremst das Tool nicht" }] : [])
   ];
 }
 
@@ -1503,7 +1504,7 @@ function logMcpAction(entry) {
 // Umgang mit Zertifikats-Privatschluesseln fuer sich stehen soll.
 // requireSecretsAccess: Der Bereich zeigt und aendert Zertifikats-Privatschluessel
 // ALLER Kundentenants sowie API-Keys. Er stand bisher jedem angemeldeten Nutzer
-// offen -- auf igeeks-prod also jedem Kollegen mit SSO-Konto. Dieselbe Schranke
+// offen -- mit SSO also jedem Kollegen mit Konto im Betreiber-Tenant. Dieselbe Schranke
 // wie beim Tickets-Bereich (isTicketsAllowed): der lokale Deploy-Login zaehlt
 // weiterhin, SSO nur fuer den freigeschalteten Nutzer.
 require("./lib/adminSecrets").mountAdminSecrets(app, {
@@ -4248,7 +4249,7 @@ app.get("/api/baseline/export.html", wrap(async (req, res) => {
   }
   const html = BASELINEDOC.renderDocument(BASELINE.get(tenantId), { tenantName });
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Content-Disposition", 'inline; filename="igeeks-baseline-' + BASELINE.meta().version + '.html"');
+  res.setHeader("Content-Disposition", 'inline; filename="baseline-' + BASELINE.meta().version + '.html"');
   res.send(html);
 }));
 
@@ -5328,7 +5329,7 @@ setInterval(maesterScheduleTick, MAESTER_SCHEDULE_TICK_MS);
 setTimeout(maesterScheduleTick, 90 * 1000);
 
 // ---------- Tenant-zu-Tenant-Geraetemigration ----------
-// Konfigurator fuer das Migrationspaket (igeeks-Fork von
+// Konfigurator fuer das Migrationspaket (angepasster Fork von
 // stevecapacity/intunemigration-v9). Deployt wird ausschliesslich im
 // QUELLTENANT -- dort sind die Geraete noch Intune-verwaltet. Der Zieltenant
 // braucht kein Deployment, nur eine App-Registrierung und ein Provisioning

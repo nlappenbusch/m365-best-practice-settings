@@ -118,12 +118,12 @@ async function collectCa(tenant, cert) {
       summary: `Im Tenant ist keine einzige CA-Policy erzwungen (${all.length} vorhanden, davon ${reportOnly.length} Report-only)${securityDefaults === false ? " und Security Defaults sind aus — kein MFA-Zwang über Entra." : "."}`,
       context: [["Security Defaults", securityDefaults === false ? "aus" : "nicht lesbar"]],
       steps: [securityDefaults === false ? "Sofort: entweder Security Defaults einschalten (ohne P1) oder die CA-Baseline scharf schalten." : "Prüfen, ob Security Defaults stattdessen aktiv sind (Entra → Eigenschaften).",
-        "igeeks-CA-Baseline im Bereich «Conditional Access»: Report-only-Ergebnisse prüfen, dann ringweise erzwingen.",
+        "CA-Baseline im Bereich «Conditional Access»: Report-only-Ergebnisse prüfen, dann ringweise erzwingen.",
         "Mindestens MFA für alle Benutzer und Block Legacy Auth erzwingen."],
       links: [{ label: "CA-Policies", url: PORTAL.caList }], tab: "ca"
     });
   }
-  // igeeks-verwaltete Baseline-Policies (BP_), die nicht erzwungen sind.
+  // Vom Tool verwaltete Baseline-Policies (BP_), die nicht erzwungen sind.
   // Ab sechs gebuendelt: ein komplett im Report-only-Modus stehender Rollout
   // (z. B. 32 Policies) soll die Arbeitsliste nicht mit Einzelbefunden fluten.
   const notEnforced = all.filter(x => x.managed && x.state !== "enabled");
@@ -144,7 +144,7 @@ async function collectCa(tenant, cert) {
     findings.push({
       key: "bp-not-enforced:" + p.id, severity: "medium",
       title: `Baseline-Policy nicht erzwungen: ${p.displayName}`,
-      summary: `Status «${p.state === "disabled" ? "Deaktiviert" : "Report-only"}». Die Policy gehört zur igeeks-Baseline, wirkt aber nicht.`,
+      summary: `Status «${p.state === "disabled" ? "Deaktiviert" : "Report-only"}». Die Policy gehört zur Baseline, wirkt aber nicht.`,
       context: [["Policy", p.displayName], ["Status", p.state]],
       steps: ["Report-only-Ergebnisse der letzten 14 Tage in den Anmeldeprotokollen prüfen (Spalte «Report-only»).",
         "Wenn keine unerwarteten Blockierungen: Policy auf «Ein» stellen — Ring für Ring.",
@@ -427,7 +427,7 @@ async function collectConsent(tenant, cert) {
       key: "workflow-off", severity: "low", title: "Admin-Consent-Workflow ist ausgeschaltet",
       summary: "Benutzer können keine Freigabe anfragen — sie bleiben ohne Rückmeldung blockiert oder weichen auf Schatten-IT aus. Anfragen landen dann auch nicht in diesem Monitoring.",
       steps: ["Entra → Unternehmensanwendungen → Einwilligung und Berechtigungen → Admin-Consent-Einstellungen: «Benutzer können Administratoreinwilligung anfordern» = Ja.",
-        "Prüfer: die igeeks-Betreuungsgruppe bzw. die Kunden-IT eintragen."],
+        "Prüfer: die Betreuungsgruppe bzw. die Kunden-IT eintragen."],
       links: [{ label: "Einwilligungseinstellungen", url: PORTAL.consentSettings }], tab: "consent"
     });
   }
@@ -899,7 +899,7 @@ function contextActions(msg, facts) {
   if (/(sharing|freigabe|anyone link|anonymous)/i.test(text) && facts.sharing && facts.sharing.capability) out.push(`Externe Freigabe im Tenant: «${facts.sharing.label}» — Auswirkung auf bestehende Links prüfen.`);
   if (/(SMTP AUTH|basic auth|Basic Authentication|legacy auth)/i.test(text) && facts.exo && facts.exo.smtpAuthDisabled !== undefined) out.push(`SMTP AUTH ist tenantweit ${facts.exo.smtpAuthDisabled ? "deaktiviert" : "AKTIV"} — ${facts.exo.smtpAuthDisabled ? "Ausnahmen je Postfach im Bereich «Mail Audit» prüfen" : "Geräte/Apps, die SMTP AUTH nutzen (Scanner, ERP), vor dem Stichtag umstellen"}.`);
   if (/(Exchange Web Services|\bEWS\b)/i.test(text)) out.push("Apps mit EWS-Zugriff identifizieren (Enterprise Apps mit «full_access_as_app» / «EWS.AccessAsUser.All») und Migration auf Graph mit dem Hersteller klären.");
-  if (/(quarantine|quarantäne|anti-?spam|anti-?phish|safe links|safe attachments)/i.test(text) && facts.threat) out.push(`Threat Policies: ${facts.threat.summary} — geänderte Standardwerte gegen die igeeks-Baseline prüfen.`);
+  if (/(quarantine|quarantäne|anti-?spam|anti-?phish|safe links|safe attachments)/i.test(text) && facts.threat) out.push(`Threat Policies: ${facts.threat.summary} — geänderte Standardwerte gegen die Baseline prüfen.`);
   if (/(mailbox|postfach|outlook)/i.test(text) && facts.exo && facts.exo.mailboxes) out.push(`Betrifft potenziell ${facts.exo.mailboxes} Postfächer (${facts.exo.shared || 0} freigegebene).`);
   if (/(license|lizenz|SKU)/i.test(text) && facts.licenses) out.push(`Lizenzbestand: ${facts.licenses.licensedUsers} lizenzierte Benutzer — betroffene SKU im Bestand prüfen.`);
   return out;
@@ -1217,7 +1217,7 @@ function evaluateExo(raw, parts) {
           findings.push({ key: "hcphish:" + p.Name, severity: "high", title: `Antispam «${p.Name}»: Hochvertrauens-Phishing wird nicht quarantäniert`,
             summary: `Aktion «${p.HighConfidencePhishAction}». Mails mit sicherem Phishing-Verdikt können im Postfach landen.`,
             steps: ["Defender → Richtlinien → Antispam → Policy öffnen → «Phishing mit hoher Zuverlässigkeit» = Nachricht unter Quarantäne stellen.",
-              "Oder die Policy in der igeeks-Baseline («Mail Security → Policies») neu ausrollen."], links: [{ label: "Antispam", url: PORTAL.outbound }], tab: "threat" });
+              "Oder die Policy in der Baseline («Mail Security → Policies») neu ausrollen."], links: [{ label: "Antispam", url: PORTAL.outbound }], tab: "threat" });
         }
         const allowedDomains = arr(p.AllowedSenderDomains);
         if (allowedDomains.length) {

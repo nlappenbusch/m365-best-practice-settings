@@ -95,12 +95,12 @@ Service-Cockpit → **⚙ Einstellungen & KI-Dienste**:
 
 ### Zwei verschiedene Fragen, sauber getrennt
 
-- **Best-Practice-Abgleich** (Erstkonfiguration): Weicht der Tenant vom igeeks-Soll ab?
+- **Best-Practice-Abgleich** (Erstkonfiguration): Weicht der Tenant vom Best-Practice-Soll ab?
   Abweichungen werden wie bisher begründet «zugelassen» und stehen so im PDF.
 - **Drift** (Managed Service): Weicht der Tenant von dem Stand ab, den wir **abgenommen
   haben**? Dafür gibt es jetzt **eingefrorene Stände** je Tenant.
 
-Ein Stand überschreibt **nie** die igeeks-Best-Practices — weder für diesen noch für
+Ein Stand überschreibt **nie** die Best-Practices — weder für diesen noch für
 andere Tenants. Das ist hart abgesichert: `lib/managedStand.js` schreibt ausschliesslich
 nach `STATE_DIR/managed/<tenant>/stand/`, jeder Schreibzugriff läuft durch eine Sperre,
 die jedes andere Ziel (insbesondere `baseline/baseline.json`) verweigert. Ein Test
@@ -311,7 +311,7 @@ eine Fehlermeldung, die nach einem Defekt des Werkzeugs aussah
 ## Version 2.57 - Ist-Zustand Microsoft 365 als Kunden-PDF, Register "Entscheide und Kommentare" (2026-09-19)
 
 **Neuer Bereich "Ist-Zustand (Doku)"** (Betrieb, Tab-Id `istzustand`) — das Kunden-
-dokument "Microsoft 365 — Konfiguration und Ist-Zustand", wie es fuer SG Value Partners
+dokument "Microsoft 365 — Konfiguration und Ist-Zustand", wie es fuer einen Kunden
 von Hand entstand, jetzt vollstaendig aus dem Werkzeug. Erhebung rein lesend als Job,
 auch im Pruefmandat (`/istzustand/run` und `/istzustand/settings` in `READONLY_ALLOW`),
 Ablage `state/assignaudit/<tenant>-ist.json`.
@@ -341,7 +341,7 @@ Ablage `state/assignaudit/<tenant>-ist.json`.
   Erstellt von, Empfaenger, Verwendung, Anlagen, "nicht Gegenstand").
 - **Anlage A** sind die Rohdaten (`/istzustand/export.json`), die SHA-256-Pruefsumme
   steht im PDF.
-- **Layout** (`lib/istPdfLayout.js`) nach der SGVP-Vorlage (ist.css): Kopfblock mit Logo,
+- **Layout** (`lib/istPdfLayout.js`) nach der Kundenvorlage (ist.css): Kopfblock mit Logo,
   nummerierte fette Ueberschriften ohne Deko-Striche, keine erzwungenen Umbrueche,
   Ueberschriften bleiben beim naechsten Inhalt, Tabellenkopf wiederholt sich, Pillen,
   Kennzahl-Kacheln, Speicherbalken, "Seite x von y". Die Konfig-Doku (pdfDesign.js)
@@ -635,7 +635,7 @@ sind gekennzeichnet.
 
 ## Version 2.52 - DB-Verbindung: TLS-Nachfassen und ehrliche Fehlermeldung (2026-09-11)
 
-Der erste Verbindungsversuch aus dem igeeks-Pod endete mit
+Der erste Verbindungsversuch aus dem Kubernetes-Pod endete mit
 
     no pg_hba.conf entry for host "10.0.162.103", user "sdpadmin",
     database "servicedesk", no encryption
@@ -903,9 +903,9 @@ Schritt bricht jetzt sofort ab, mit dem Hinweis, dass die Vorlage angepasst
 werden muss statt zu warten. Bisher liefen vier Runden samt Wartezeit, um am
 Ende dieselbe Meldung zu zeigen wie beim ersten Versuch.
 
-## Version 2.42 - igeeks-prod rollt wieder aus (2026-09-10)
+## Version 2.42 - Kubernetes-Instanz rollt wieder aus (2026-09-10)
 
-**igeeks-prod stand sieben Tage still, ohne dass es auffiel.** Auslöser war
+**Die Kubernetes-Instanz stand sieben Tage still, ohne dass es auffiel.** Auslöser war
 Commit `96df33e` vom 03.09., der die drei Platzhalter `ZOHO_CLIENT_ID`,
 `ZOHO_CLIENT_SECRET` und `ZOHO_REFRESH_TOKEN` in `secret.yaml` schrieb, ohne die
 Werte im Vault des Clusters anzulegen. Der `argocd-vault-plugin` bricht die
@@ -1068,7 +1068,7 @@ Geraderücken.
 
 **Onboarding in den eigenen Tenant.** Das Ziel-Tenant-Feld war „(optional)"; leer
 lief die Anmeldung gegen den Multi-Tenant-Endpunkt `organizations`. Wer im Browser
-noch mit dem igeeks-Konto angemeldet war, legte die App-Registrierung im eigenen
+noch mit dem eigenen Konto angemeldet war, legte die App-Registrierung im eigenen
 Tenant an. Feld ist jetzt Pflicht, der Start-Knopf bleibt ohne Eingabe gesperrt.
 
 **Was das Onboarding wirklich anlegt.** Der Hinweis nannte „App-Registrierung mit
@@ -1098,7 +1098,7 @@ gespeicherten Stand.
 Zugriffsprüfung: jeder angemeldete Nutzer konnte die Zertifikats-Privatschlüssel
 aller Kundentenants einblenden. Jetzt dieselbe Schranke wie beim Tickets-Bereich
 (serverseitig 403, Tab ausgeblendet, gemerkter Tab springt zurück). **Achtung:**
-Auf igeeks-prod (SSO) sperrt das Kollegen aus diesem Bereich aus — gewollt, aber
+Auf Instanzen mit SSO sperrt das Kollegen aus diesem Bereich aus — gewollt, aber
 es ändert deren Sicht.
 
 Technik: `frontend/src/tabs/TenantsOverview.svelte`, `MailSecurity.svelte`,
@@ -1124,7 +1124,7 @@ wie sie konfiguriert ist). Safe-Attachments-Aktion standardmässig **Block**
 Anders als die anderen Bausteine ist dieser **lizenzabhängig** (Defender for
 O365 Plan 1 — u.a. in Business Premium — oder Plan 2 — u.a. in E5) und
 deshalb per Konfigurationsschalter komplett abwählbar (Default: an, da die
-meisten igeeks-Kunden Business Premium haben). Fehlt die Lizenz trotzdem,
+meisten Kunden Business Premium haben). Fehlt die Lizenz trotzdem,
 schlägt nur dieser eine Baustein fehl, der Rest des Deploys läuft durch.
 
 Konsistent nachgezogen in beiden Nebenwegen: der eigenständige PowerShell-
@@ -1506,7 +1506,7 @@ durch.
 
 ## Version 2.27 - Admin-Benachrichtigungsadresse gehoert zum Tenant, nicht in die Vorlage (2026-09-02)
 
-**Der Fund:** Bei aktivem Tenant SGVP stand im Alert-Snippet
+**Der Fund:** Bei aktivem Kundentenant stand im Alert-Snippet
 `admin@im43.onmicrosoft.com` — die Adresse eines anderen Kunden. Ursache: die
 Admin-Adresse kam aus dem globalen Tab "⚙️ Vorlage", der fuer ALLE Tenants
 derselbe ist. Und sie steht nicht nur im Snippet, sondern geht live mit in
@@ -1539,9 +1539,9 @@ dem Ziel-Tenant" leert die Domainliste; fuer die Adresse gab es das nicht.
    Laesst sich die Domainliste nicht lesen, wird NICHT blockiert — eine Sperre,
    die auf einer misslungenen Abfrage beruht, waere schlimmer als die Luecke.
 
-Geprueft gegen die echten Faelle: IM43-Adresse bei SGVP blockiert (mit Nennung
+Geprueft gegen die echten Faelle: fremde Kundenadresse blockiert (mit Nennung
 des fremden Tenants), fremde Adresse ueber eine hinterlegte Tenant-Adresse
-blockiert, SGVP-eigene Adresse und SGVP-onmicrosoft gehen durch, unbekannte
+blockiert, tenant-eigene Adresse und onmicrosoft-Domain gehen durch, unbekannte
 Fremddomain blockiert, nicht lesbare Domainliste laesst durch.
 
 
@@ -1848,7 +1848,7 @@ welcher Konvention folgt.
 Umgestellt sind: Geraetegruppen (GroupTags), App-Zielgruppen, CA-Ring- und
 -Schutzgruppen, Break-Glass-Konten, die vier Mapping-/Skript-Module und die
 Profile der Browser-Erweiterungen. Der `BP_`-Marker der EOP-Objekte bleibt —
-er ist mit Anish noch offen.
+er ist noch offen.
 
 ### 🧩 Erzwungene Browser-Erweiterungen (Edge)
 
@@ -2920,7 +2920,6 @@ New workflows available:
 
 - Microsoft 365 Security Team for EOP documentation
 - Community feedback on best practices
-- igeeks team for real-world deployment experience
 
 ---
 

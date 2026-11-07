@@ -1,10 +1,10 @@
 "use strict";
 /**
  * Kundenfaehiger PDF-Report fuer ein Maester-Security-Audit — serverseitig mit
- * pdfkit erzeugt. Deutsch, Schweizer Schreibweise, igeeks-CI.
+ * pdfkit erzeugt. Deutsch, Schweizer Schreibweise, Dokument-CI.
  *
  * Gestaltungsregeln (Nils, 26.08.2026 — verbindlich):
- *  - igeeks-Petrol #0081ad als Akzent (von igeeks.ch verifiziert), NICHT das
+ *  - Petrol #0081ad als Akzent, NICHT das
  *    Frontend-Blau des Tools.
  *  - KEINE Seitenumbrueche zwischen Abschnitten — der Inhalt fliesst durch,
  *    umgebrochen wird nur, wenn die Seite voll ist. (Deckblatt bleibt eigen.)
@@ -19,9 +19,10 @@ const path = require("path");
 const fs = require("fs");
 const PDFDocument = require("pdfkit");
 
-const LOGO_PATH = path.join(__dirname, "..", "assets", "igeeks-logo.png");
+const BRAND = require("./brand");
+const LOGO_PATH = BRAND.LOGO_PATH;
 
-const ACCENT = "#0081ad"; // igeeks-Petrol
+const ACCENT = "#0081ad"; // Petrol
 const COL = {
   text: "#373737",
   muted: "#707070",
@@ -340,9 +341,9 @@ function buildPdf(data) {
         doc.y = 52 + 150 * (110 / 300) + 10; // Logo-Seitenverhaeltnis 300x110
       }
     } catch (e) { /* Fallback unten */ }
-    if (!logoDrawn) {
-      doc.font("Helvetica-Bold").fontSize(12).fillColor(ACCENT).text("igeeks AG", left, 60);
-      doc.font("Helvetica").fontSize(9.5).fillColor(COL.muted).text("Microsoft-365- und Security-Consulting", left);
+    if (!logoDrawn && BRAND.NAME) {
+      doc.font("Helvetica-Bold").fontSize(12).fillColor(ACCENT).text(BRAND.NAME, left, 60);
+      if (BRAND.TAGLINE) doc.font("Helvetica").fontSize(9.5).fillColor(COL.muted).text(BRAND.TAGLINE, left);
     }
 
     doc.y = 255;
@@ -434,7 +435,7 @@ function buildPdf(data) {
     const sr = data.statusReport;
     if (sr && sr.sections) {
       h1("Tenant-Status im Überblick");
-      small(`Kennzahlen aus dem igeeks-Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, ` +
+      small(`Kennzahlen aus dem Statusreport vom ${fmtDate(sr.generatedAt)} — Lizenzen, Conditional Access, ` +
         "Identitäten, Geräte und Intune-Baseline auf einen Blick.");
       const stWord = (st) => st === "crit" ? "Kritisch" : st === "warn" ? "Hinweis" : "OK";
       const stColor = (st) => st === "crit" ? COL.crit : st === "warn" ? COL.medium : COL.ok;
@@ -656,13 +657,13 @@ function buildPdf(data) {
       "Wiederholungsprüfung nach Umsetzung der Massnahmen wird empfohlen."
     );
     // ---- 6 Naechste Schritte (CTA + Einordnung) ----
-    // CTA-Box im igeeks-Look: heller Petrol-Grund, Akzentbalken links.
+    // CTA-Box: heller Petrol-Grund, Akzentbalken links.
     const ctaTitle = "Lassen Sie uns den Report gemeinsam anschauen";
     const ctaText =
       "Wir empfehlen, die Ergebnisse dieses Audits in einem gemeinsamen Termin im Detail zu besprechen: " +
       "die Befunde für Ihre Umgebung einordnen, Prioritäten festlegen und daraus konkrete, aufeinander " +
-      "abgestimmte Massnahmen ableiten — inklusive Aufwandsschätzung und Umsetzungsplanung durch igeeks. " +
-      "Melden Sie sich dazu einfach bei Ihrem igeeks-Ansprechpartner — wir bereiten den Termin auf Basis " +
+      "abgestimmte Massnahmen ableiten — inklusive Aufwandsschätzung und Umsetzungsplanung. " +
+      "Melden Sie sich dazu einfach bei Ihrem Ansprechpartner — wir bereiten den Termin auf Basis " +
       "dieses Reports vor.";
     const pad = 16;
     doc.font("Helvetica-Bold").fontSize(12);
@@ -704,7 +705,7 @@ function buildPdf(data) {
       doc.page.margins.bottom = 0;
       doc.moveTo(left, doc.page.height - 52).lineTo(left + W, doc.page.height - 52).lineWidth(0.5).strokeColor(COL.line).stroke();
       doc.font("Helvetica").fontSize(8).fillColor(COL.muted).text(
-        `igeeks AG · Security-Audit ${data.tenantName || ""} · ${fmtDate(data.generatedAt)}`,
+        `${BRAND.prefix()}Security-Audit ${data.tenantName || ""} · ${fmtDate(data.generatedAt)}`,
         left, doc.page.height - 44, { width: W - 80, align: "left", lineBreak: false }
       );
       doc.font("Helvetica").fontSize(8).fillColor(COL.muted).text(

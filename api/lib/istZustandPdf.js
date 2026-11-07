@@ -2,7 +2,7 @@
 /**
  * PDF «Microsoft 365 — Konfiguration und Ist-Zustand» aus der gespeicherten Erhebung
  * (lib/istZustand.js), dem Register «Entscheide und Kommentare» und den Kopfdaten
- * des Exports. Aufbau und Stil nach der SGVP-Vorlage (18.09.2026):
+ * des Exports. Aufbau und Stil nach der Kundenvorlage (18.09.2026):
  *
  *   1 Zweck und Grundlage · 2 Überblick · 3 Konten, Rollen, Lizenzen, Gäste ·
  *   4 Anmeldung und bedingter Zugriff · 5 Geräte und Intune · 6 E-Mail ·
@@ -18,7 +18,7 @@ const LAYOUT = require("./istPdfLayout");
 const MODEL = require("./istZustandModel");
 const { fmtDay, fmtTime } = MODEL;
 
-const IGEEKS_FOOT = "igeeks AG · Räffelstrasse 24 · 8045 Zürich · support@igeeks.ch · +41 58 058 00 00";
+const BRAND = require("./brand");
 
 // ------------------------------------------------------------------ Formate
 function bytes(b) {
@@ -104,7 +104,7 @@ async function buildPdf(data) {
     ["Mandant", { runs: [{ t: `${kunde} · ${initial ? initial.name : ds.tenant.organization} · Tenant-ID ` }, { t: ds.tenant.tenantId, f: "m" }] }],
     ["Auslesung", `${fmtDay(gen)}, ${fmtTime(gen)}–${fmtTime(fin)} Uhr. Lesend über Microsoft Graph (Anwendungsberechtigungen), Exchange Online und Security & Compliance PowerShell sowie öffentliches DNS; App-Registrierung ${app}.` +
       (ds.params && ds.params.changes ? ` Änderungen ${ds.params.changes.from === ds.params.changes.to ? "vom " + fmtDay(ds.params.changes.from) : `vom ${fmtDay(ds.params.changes.from)} bis ${fmtDay(ds.params.changes.to)}`} aus den Protokollen von Entra ID und Intune.` : "")],
-    ["Erstellt von", O.erstelltVon || "igeeks AG"],
+    ["Erstellt von", O.erstelltVon || BRAND.NAME || "—"],
     O.empfaenger ? [O.empfaengerLabel || "Empfänger", [O.empfaenger, O.empfaengerFunktion, kunde].filter(Boolean).join(", ")] : null,
     O.verwendung ? ["Verwendung", O.verwendung] : null
   ]);
@@ -517,14 +517,14 @@ async function buildPdf(data) {
   // ================================================================ 11 Freigabe
   h2(N.freigabe, "Freigabe");
   intro("freigabe");
-  const creator = String(O.erstelltVon || "igeeks AG").split(",")[0];
-  b.sign([["Erstellt, igeeks AG", creator, "", ""], [`Zur Kenntnis, ${kunde}`, [O.empfaenger, O.empfaengerFunktion].filter(Boolean).join(", "), "", ""]]);
-  b.foot(IGEEKS_FOOT);
+  const creator = String(O.erstelltVon || BRAND.NAME || "").split(",")[0];
+  b.sign([[BRAND.NAME ? `Erstellt, ${BRAND.NAME}` : "Erstellt", creator, "", ""], [`Zur Kenntnis, ${kunde}`, [O.empfaenger, O.empfaengerFunktion].filter(Boolean).join(", "), "", ""]]);
+  if (BRAND.FOOTER) b.foot(BRAND.FOOTER);
 
   // Anhang ohne erzwungenen Seitenumbruch (Vorgabe: keine Umbrüche zwischen Abschnitten).
   if (nb.k9 === "anhang") { h2("Anhang A", "Abweichungen und Hinweise"); renderHints(); }
 
-  return b.finish(`igeeks AG · Microsoft 365 Ist-Zustand ${kunde} · ${fassungTxt}`);
+  return b.finish(`${BRAND.prefix()}Microsoft 365 Ist-Zustand ${kunde} · ${fassungTxt}`);
 }
 
 // ------------------------------------------------------------------ SharePoint
